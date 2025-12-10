@@ -1,0 +1,760 @@
+/* ============================================
+   Zen Editor - Immersive Writing Experience
+   ============================================ */
+
+/* Container */
+.zen-editor-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  position: relative;
+  overflow: hidden;
+  animation: fadeIn 0.3s ease;
+}
+
+/* ============================================
+   Floating Toolbar
+   ============================================ */
+
+.zen-toolbar {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+  transform: translateX(-50%) translateY(-8px);
+  backdrop-filter: blur(10px);
+}
+
+.zen-toolbar.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.zen-toolbar-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+}
+
+.zen-toolbar-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.zen-toolbar-btn.active {
+  background: var(--color-accent);
+  color: white;
+}
+
+.zen-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--color-divider);
+  margin: 0 6px;
+}
+
+.zen-toolbar-spacer {
+  flex: 1;
+  min-width: 16px;
+}
+
+/* ============================================
+   Content Area
+   ============================================ */
+
+.zen-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: 680px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 100px 48px 160px;
+  overflow-y: auto;
+}
+
+/* ============================================
+   Title
+   ============================================ */
+
+.zen-title {
+  width: 100%;
+  min-height: 2.2em;
+  border: none;
+  background: transparent;
+  outline: none;
+  resize: none;
+  font-size: 1.625rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text);
+  margin-bottom: 24px;
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+  overflow: hidden;
+}
+
+.zen-title::placeholder {
+  color: var(--color-muted) !important;
+  opacity: 1 !important;
+}
+
+.zen-title:placeholder-shown {
+  color: var(--color-muted);
+}
+
+/* ============================================
+   Editor Content
+   ============================================ */
+
+.zen-editor-content {
+  flex: 1;
+}
+
+.zen-editor {
+  outline: none;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.zen-editor > * + * {
+  margin-top: 0.5em;
+}
+
+/* ============================================
+   Placeholder
+   ============================================ */
+
+.zen-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-muted);
+  opacity: 0.5;
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+/* ============================================
+   Typography - Headings
+   ============================================ */
+
+.zen-editor h1,
+.zen-editor h2,
+.zen-editor h3,
+.zen-editor h4 {
+  position: relative;
+}
+
+.zen-editor h1::before,
+.zen-editor h2::before,
+.zen-editor h3::before,
+.zen-editor h4::before {
+  position: absolute;
+  right: 100%;
+  top: 0;
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+/* Align label with first line of heading text */
+.zen-editor h1::before {
+  line-height: calc(1.5rem * 1.35);
+}
+
+.zen-editor h2::before {
+  line-height: calc(1.3rem * 1.4);
+}
+
+.zen-editor h3::before {
+  line-height: calc(1.15rem * 1.45);
+}
+
+.zen-editor h4::before {
+  line-height: calc(1.05rem * 1.5);
+}
+
+.zen-editor h1:hover::before,
+.zen-editor h2:hover::before,
+.zen-editor h3:hover::before,
+.zen-editor h4:hover::before {
+  opacity: 0.6;
+}
+
+.zen-editor h1::before { content: 'H1'; }
+.zen-editor h2::before { content: 'H2'; }
+.zen-editor h3::before { content: 'H3'; }
+.zen-editor h4::before { content: 'H4'; }
+
+.zen-editor h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+
+.zen-editor h1:first-child {
+  margin-top: 0;
+}
+
+.zen-editor h2 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 0.6em;
+  margin-bottom: 0.2em;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.zen-editor h2:first-child {
+  margin-top: 0;
+}
+
+.zen-editor h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.45;
+  margin-top: 0.5em;
+  margin-bottom: 0.15em;
+  color: var(--color-text);
+}
+
+.zen-editor h3:first-child {
+  margin-top: 0;
+}
+
+.zen-editor h4 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 0.4em;
+  margin-bottom: 0.1em;
+  color: var(--color-text);
+}
+
+.zen-editor h4:first-child {
+  margin-top: 0;
+}
+
+/* ============================================
+   Typography - Paragraphs
+   ============================================ */
+
+.zen-editor p {
+  margin: 0;
+}
+
+/* ============================================
+   Typography - Lists
+   ============================================ */
+
+.zen-editor ul {
+  padding-left: 1.5em;
+  margin: 0.75em 0;
+  list-style-type: disc;
+}
+
+.zen-editor ol {
+  padding-left: 1.5em;
+  margin: 0.75em 0;
+  list-style-type: decimal;
+}
+
+.zen-editor li {
+  margin: 0.375em 0;
+}
+
+.zen-editor li > p {
+  margin: 0;
+}
+
+.zen-editor li::marker {
+  color: var(--color-muted);
+}
+
+/* Task list */
+.zen-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.zen-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.zen-editor ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.zen-editor ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+.zen-editor ul[data-type="taskList"] input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================
+   Typography - Blockquote
+   ============================================ */
+
+.zen-editor blockquote {
+  border-left: 2px solid var(--color-muted);
+  padding-left: 1.25em;
+  margin: 1.5em 0;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.zen-editor blockquote p {
+  margin: 0;
+}
+
+/* ============================================
+   Typography - Code
+   ============================================ */
+
+.zen-editor code {
+  background: var(--color-surface);
+  padding: 0.2em 0.4em;
+  border-radius: var(--radius-sm);
+  font-size: 0.875em;
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+.zen-editor pre {
+  background: var(--color-surface);
+  padding: 1.25em;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 1.5em 0;
+  border: 1px solid var(--color-divider);
+}
+
+.zen-editor pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+/* ============================================
+   Typography - Tables
+   ============================================ */
+
+.zen-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.5em 0;
+  font-size: 0.9375rem;
+}
+
+.zen-editor th,
+.zen-editor td {
+  border: 1px solid var(--color-border);
+  padding: 0.625em 0.875em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.zen-editor th {
+  background: var(--color-surface);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.zen-editor td {
+  background: transparent;
+}
+
+.zen-editor tr:hover td {
+  background: var(--color-accent-soft);
+}
+
+/* Table selection */
+.zen-editor .selectedCell:after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--color-selection);
+  pointer-events: none;
+}
+
+.zen-editor th.selectedCell,
+.zen-editor td.selectedCell {
+  position: relative;
+}
+
+/* Column resize handle */
+.zen-editor .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: var(--color-accent);
+  pointer-events: none;
+}
+
+.zen-editor .tableWrapper {
+  overflow-x: auto;
+  margin: 1.5em 0;
+}
+
+/* ============================================
+   Typography - Images
+   ============================================ */
+
+.zen-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: 1em 0;
+}
+
+.zen-editor img.ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   Typography - Links
+   ============================================ */
+
+.zen-link {
+  color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.zen-link:hover {
+  border-bottom-color: var(--color-accent);
+}
+
+/* ============================================
+   Typography - Emphasis
+   ============================================ */
+
+.zen-editor strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.zen-editor em {
+  font-style: italic;
+}
+
+.zen-editor s {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* ============================================
+   Typography - Horizontal Rule
+   ============================================ */
+
+.zen-editor hr {
+  border: none;
+  height: 1px;
+  background: var(--color-divider);
+  margin: 2.5em 0;
+}
+
+/* ============================================
+   Focus Mode
+   ============================================ */
+
+.zen-editor.focus-mode > * {
+  opacity: 0.25;
+  transition: opacity var(--transition-slow);
+}
+
+.zen-editor.focus-mode > *:focus-within,
+.zen-editor.focus-mode > *:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Typewriter Mode
+   ============================================ */
+
+.zen-content.typewriter-mode {
+  padding-bottom: 50vh;
+}
+
+.zen-content.typewriter-mode .zen-editor-content {
+  min-height: 50vh;
+}
+
+/* ============================================
+   Word Count Stats
+   ============================================ */
+
+.zen-stats {
+  position: fixed;
+  bottom: 24px;
+  right: 28px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-muted);
+  opacity: 0.4;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  transition: opacity var(--transition-fast);
+}
+
+.zen-stats:hover {
+  opacity: 0.8;
+}
+
+/* ============================================
+   Empty State
+   ============================================ */
+
+.zen-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+}
+
+.zen-empty-content {
+  text-align: center;
+  animation: fadeInUp 0.4s ease;
+}
+
+.zen-empty-title {
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  margin-bottom: 8px;
+}
+
+.zen-empty-subtitle {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  opacity: 0.6;
+}
+
+/* ============================================
+   Selection
+   ============================================ */
+
+.zen-editor ::selection {
+  background: var(--color-selection);
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   Note Link (双向链接)
+   ============================================ */
+
+.note-link {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.note-link:hover {
+  background: var(--color-accent);
+  color: white;
+}
+
+/* Note Link Popup */
+.note-link-popup {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow: hidden;
+  animation: fadeInUp 0.15s ease;
+}
+
+.note-link-popup-list {
+  overflow-y: auto;
+  max-height: 280px;
+}
+
+.note-link-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.note-link-popup-item:hover,
+.note-link-popup-item.selected {
+  background: var(--color-surface);
+}
+
+.note-link-popup-item.create {
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-accent);
+}
+
+.note-link-popup-icon {
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.note-link-popup-title {
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-link-popup-item.create .note-link-popup-title {
+  color: var(--color-accent);
+}
+
+/* Popup hint */
+.note-link-popup-hint {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--color-muted);
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+/* Popup empty state */
+.note-link-popup-empty {
+  padding: 16px 12px;
+  font-size: 13px;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+/* Heading icon in popup */
+.note-link-popup-icon-heading {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+
+/* Block icon in popup */
+.note-link-popup-icon-block {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+
+/* Note link variants */
+.note-link-heading {
+  background: linear-gradient(135deg, var(--color-accent-soft), transparent);
+}
+
+.note-link-block {
+  background: linear-gradient(135deg, var(--color-surface), transparent);
+  border-left: 2px solid var(--color-accent);
+}
+
+/* ============================================
+   Scroll Highlight Animation
+   ============================================ */
+
+@keyframes scrollHighlight {
+  0% {
+    background-color: var(--color-accent-soft);
+    box-shadow: 0 0 0 4px var(--color-accent-soft);
+  }
+  50% {
+    background-color: var(--color-accent-soft);
+    box-shadow: 0 0 0 4px var(--color-accent-soft);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.scroll-highlight {
+  animation: scrollHighlight 2s ease-out;
+  border-radius: var(--radius-sm);
+}

@@ -116,17 +116,18 @@ export function createDemoNotes(): void {
   const note2Id = uuidv4()
   const note3Id = uuidv4()
 
-  // 笔记 1: 主演示笔记（包含双向链接到其他笔记）
+  // 笔记 1: 主演示笔记（包含双向链接到其他笔记，以及标题/Block链接）
   const mainContent = {
     type: 'doc',
     content: [
       {
         type: 'heading',
-        attrs: { level: 1 },
+        attrs: { level: 1, blockId: 'welcome1' },
         content: [{ type: 'text', text: '欢迎使用三千笔记' }]
       },
       {
         type: 'paragraph',
+        attrs: { blockId: 'intro01' },
         content: [
           { type: 'text', text: '这是一篇入门指南，帮助你快速了解编辑器的功能。你可以查看 ' },
           {
@@ -145,11 +146,12 @@ export function createDemoNotes(): void {
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'bilink1' },
         content: [{ type: 'text', text: '双向链接' }]
       },
       {
         type: 'paragraph',
+        attrs: { blockId: 'bilink2' },
         content: [
           { type: 'text', text: '输入 ' },
           { type: 'text', marks: [{ type: 'code' }], text: '[[' },
@@ -158,6 +160,7 @@ export function createDemoNotes(): void {
       },
       {
         type: 'bulletList',
+        attrs: { blockId: 'bilink3' },
         content: [
           { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '输入 [[ 后会弹出笔记搜索' }] }] },
           { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '用上下键选择，回车确认' }] }] },
@@ -167,11 +170,56 @@ export function createDemoNotes(): void {
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'blocklk' },
+        content: [{ type: 'text', text: 'Block 级链接（新功能）' }]
+      },
+      {
+        type: 'paragraph',
+        attrs: { blockId: 'blk001' },
+        content: [
+          { type: 'text', text: '现在支持链接到笔记中的特定标题或段落！试试点击下面的链接：' }
+        ]
+      },
+      {
+        type: 'bulletList',
+        attrs: { blockId: 'blk002' },
+        content: [
+          { type: 'listItem', content: [{ type: 'paragraph', content: [
+            { type: 'text', text: '链接到标题：' },
+            {
+              type: 'text',
+              marks: [{ type: 'noteLink', attrs: { noteId: note2Id, noteTitle: 'Markdown 语法参考', targetType: 'heading', targetValue: '代码块' } }],
+              text: 'Markdown 语法参考#代码块'
+            }
+          ] }] },
+          { type: 'listItem', content: [{ type: 'paragraph', content: [
+            { type: 'text', text: '链接到 Block：' },
+            {
+              type: 'text',
+              marks: [{ type: 'noteLink', attrs: { noteId: note3Id, noteTitle: '快捷键速查表', targetType: 'block', targetValue: 'tip001' } }],
+              text: '快捷键速查表#^tip001'
+            }
+          ] }] }
+        ]
+      },
+      {
+        type: 'paragraph',
+        attrs: { blockId: 'blksyn' },
+        content: [
+          { type: 'text', text: '语法：' },
+          { type: 'text', marks: [{ type: 'code' }], text: '[[笔记名#标题]]' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '[[笔记名#^blockId]]' }
+        ]
+      },
+      {
+        type: 'heading',
+        attrs: { level: 2, blockId: 'format1' },
         content: [{ type: 'text', text: '基础格式预览' }]
       },
       {
         type: 'paragraph',
+        attrs: { blockId: 'format2' },
         content: [
           { type: 'text', marks: [{ type: 'bold' }], text: '粗体' },
           { type: 'text', text: '、' },
@@ -184,15 +232,18 @@ export function createDemoNotes(): void {
       },
       {
         type: 'blockquote',
+        attrs: { blockId: 'quote1' },
         content: [
           { type: 'paragraph', content: [{ type: 'text', text: '引用样式：知识的积累在于持续记录。' }] }
         ]
       },
       {
         type: 'taskList',
+        attrs: { blockId: 'tasks1' },
         content: [
           { type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph', content: [{ type: 'text', text: '阅读本指南' }] }] },
           { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: '尝试双向链接 [[' }] }] },
+          { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: '尝试 Block 链接 [[笔记#标题]]' }] }] },
           { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: '创建你的第一篇笔记' }] }] }
         ]
       }
@@ -205,37 +256,45 @@ export function createDemoNotes(): void {
     content: [
       {
         type: 'heading',
-        attrs: { level: 1 },
+        attrs: { level: 1, blockId: 'mdtitle' },
         content: [{ type: 'text', text: 'Markdown 语法参考' }]
       },
       {
         type: 'paragraph',
+        attrs: { blockId: 'mdback1' },
         content: [
           { type: 'text', text: '返回 ' },
           {
             type: 'text',
             marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: '欢迎使用三千笔记' } }],
             text: '欢迎使用三千笔记'
+          },
+          { type: 'text', text: ' | 跳转到 ' },
+          {
+            type: 'text',
+            marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: '欢迎使用三千笔记', targetType: 'heading', targetValue: 'Block 级链接（新功能）' } }],
+            text: '欢迎使用三千笔记#Block 级链接'
           }
         ]
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'hdlevel' },
         content: [{ type: 'text', text: '标题层级' }]
       },
       {
         type: 'heading',
-        attrs: { level: 3 },
+        attrs: { level: 3, blockId: 'h3demo' },
         content: [{ type: 'text', text: '三级标题' }]
       },
       {
         type: 'heading',
-        attrs: { level: 4 },
+        attrs: { level: 4, blockId: 'h4demo' },
         content: [{ type: 'text', text: '四级标题' }]
       },
       {
         type: 'paragraph',
+        attrs: { blockId: 'hdtip1' },
         content: [
           { type: 'text', text: '输入 ' },
           { type: 'text', marks: [{ type: 'code' }], text: '# ' },
@@ -246,11 +305,12 @@ export function createDemoNotes(): void {
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'listdm' },
         content: [{ type: 'text', text: '列表' }]
       },
       {
         type: 'bulletList',
+        attrs: { blockId: 'uldem1' },
         content: [
           { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '无序列表项 1' }] }] },
           { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '无序列表项 2' }] }] }
@@ -258,7 +318,7 @@ export function createDemoNotes(): void {
       },
       {
         type: 'orderedList',
-        attrs: { start: 1 },
+        attrs: { start: 1, blockId: 'oldem1' },
         content: [
           { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '有序列表项 1' }] }] },
           { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '有序列表项 2' }] }] }
@@ -266,17 +326,17 @@ export function createDemoNotes(): void {
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'codblk' },
         content: [{ type: 'text', text: '代码块' }]
       },
       {
         type: 'codeBlock',
-        attrs: { language: null },
+        attrs: { language: null, blockId: 'codex1' },
         content: [{ type: 'text', text: 'function hello() {\n  console.log("Hello!");\n}' }]
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'tblsec' },
         content: [{ type: 'text', text: '表格' }]
       },
       {
@@ -329,17 +389,18 @@ export function createDemoNotes(): void {
     ]
   }
 
-  // 笔记 3: 快捷键速查表（包含回链）
+  // 笔记 3: 快捷键速查表（包含回链和被引用的 Block）
   const shortcutsContent = {
     type: 'doc',
     content: [
       {
         type: 'heading',
-        attrs: { level: 1 },
+        attrs: { level: 1, blockId: 'sctitle' },
         content: [{ type: 'text', text: '快捷键速查表' }]
       },
       {
         type: 'paragraph',
+        attrs: { blockId: 'scback1' },
         content: [
           { type: 'text', text: '返回 ' },
           {
@@ -350,12 +411,25 @@ export function createDemoNotes(): void {
         ]
       },
       {
+        type: 'blockquote',
+        attrs: { blockId: 'tip001' },
+        content: [
+          { type: 'paragraph', content: [
+            { type: 'text', marks: [{ type: 'bold' }], text: '提示：' },
+            { type: 'text', text: '这是一个被其他笔记引用的段落！你可以通过 ' },
+            { type: 'text', marks: [{ type: 'code' }], text: '[[笔记名#^tip001]]' },
+            { type: 'text', text: ' 语法来链接到这里。' }
+          ] }
+        ]
+      },
+      {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'txtfmt' },
         content: [{ type: 'text', text: '文字格式' }]
       },
       {
         type: 'table',
+        attrs: { blockId: 'fmttbl' },
         content: [
           {
             type: 'tableRow',
@@ -396,11 +470,12 @@ export function createDemoNotes(): void {
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'editop' },
         content: [{ type: 'text', text: '编辑操作' }]
       },
       {
         type: 'table',
+        attrs: { blockId: 'edttbl' },
         content: [
           {
             type: 'tableRow',
@@ -427,11 +502,12 @@ export function createDemoNotes(): void {
       },
       {
         type: 'heading',
-        attrs: { level: 2 },
+        attrs: { level: 2, blockId: 'qkinpt' },
         content: [{ type: 'text', text: '快捷输入' }]
       },
       {
         type: 'bulletList',
+        attrs: { blockId: 'qklist' },
         content: [
           { type: 'listItem', content: [{ type: 'paragraph', content: [
             { type: 'text', marks: [{ type: 'code' }], text: '[[' },

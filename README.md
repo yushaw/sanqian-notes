@@ -96,3 +96,26 @@ npm run build
   - 链接语法：`[[笔记名]]`、`[[笔记名#标题]]`、`[[笔记名#^blockId]]`
   - 点击链接跳转到目标笔记的对应位置，带高亮动画
 - 修复所有 TypeScript 类型错误 (database.ts, theme/index.tsx, i18n/context.tsx)
+
+### 2025-12-11
+- 实现全新的打字机模式 (Typewriter Mode)，完全独立的沉浸式写作体验
+  - 光标固定在屏幕垂直 70% 位置，内容滚动而非光标移动
+  - 滚动时光标实时跟随到屏幕中心对应位置
+  - 点击触发滚动动画，让点击位置来到固定位置
+  - 支持过度滚动，首行/末行也能居中
+  - 使用 requestAnimationFrame + easeOutCubic 实现流畅滚动动画
+  - 快捷键 Cmd/Ctrl+Shift+T 切换，ESC 退出
+  - 进入打字机模式自动全屏，退出时恢复原窗口状态
+  - 自动跟随系统深色/浅色主题
+  - 光标使用主题色 (蓝色)
+  - 禅意排版设计：
+    - 中英文混排字体栈 (思源黑体 / Noto Sans SC / 苹方)
+    - 等宽字体用于代码 (SF Mono / JetBrains Mono)
+    - 行高 2.0，字间距 0.02em，最大宽度 680px
+    - 温暖的背景色 (深色 #1c1c1e / 浅色 #faf9f7)
+  - 架构上完全与 Editor 隔离，独立的 Tiptap 编辑器实例
+- 修复打字机模式焦点渐变效果
+  - 问题：ProseMirror 会在渲染时重置 DOM 元素的 style 属性，导致 JS 设置的样式被覆盖
+  - 解决方案：使用 TipTap 官方 Focus 扩展 (@tiptap/extension-focus)
+  - 通过 CSS :has() 和相邻兄弟选择器实现渐变透明度效果
+  - 焦点段落完全清晰，相邻段落依次变淡 (1 → 0.7 → 0.5 → 0.35 → 0.2)

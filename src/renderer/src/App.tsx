@@ -1,9 +1,10 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { Editor } from './components/Editor'
 import { Settings } from './components/Settings'
 import { NotebookModal } from './components/NotebookModal'
+import { TypewriterMode } from './components/TypewriterMode'
 import { ThemeProvider } from './theme'
 import { I18nProvider } from './i18n'
 import type { Note, Notebook, SmartViewId } from './types/note'
@@ -20,6 +21,9 @@ function AppContent() {
   // Notebook modal state
   const [showNotebookModal, setShowNotebookModal] = useState(false)
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null>(null)
+
+  // Typewriter mode state
+  const [isTypewriterMode, setIsTypewriterMode] = useState(false)
 
   // Load data from database
   useEffect(() => {
@@ -220,6 +224,46 @@ function AppContent() {
     setShowSettings(false)
   }, [])
 
+  // 记录进入打字机模式前的全屏状态
+  const wasFullScreenBeforeTypewriter = useRef(false)
+
+  // Toggle typewriter mode (暂时禁用全屏，方便调试)
+  const handleToggleTypewriter = useCallback(async () => {
+    const newState = !isTypewriterMode
+    // 暂时禁用全屏
+    // if (newState) {
+    //   wasFullScreenBeforeTypewriter.current = await window.electron.window.isFullScreen()
+    //   if (!wasFullScreenBeforeTypewriter.current) {
+    //     await window.electron.window.setFullScreen(true)
+    //   }
+    // } else {
+    //   if (!wasFullScreenBeforeTypewriter.current) {
+    //     await window.electron.window.setFullScreen(false)
+    //   }
+    // }
+    setIsTypewriterMode(newState)
+  }, [isTypewriterMode])
+
+  const handleExitTypewriter = useCallback(async () => {
+    // 暂时禁用全屏
+    // if (!wasFullScreenBeforeTypewriter.current) {
+    //   await window.electron.window.setFullScreen(false)
+    // }
+    setIsTypewriterMode(false)
+  }, [])
+
+  // Keyboard shortcut for typewriter mode (Cmd/Ctrl + Shift + T)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 't') {
+        e.preventDefault()
+        handleToggleTypewriter()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleToggleTypewriter])
+
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center bg-app-bg">
@@ -261,6 +305,18 @@ function AppContent() {
         scrollTarget={scrollTarget}
         onScrollComplete={handleScrollComplete}
       />
+
+      {/* Typewriter Mode - 全屏覆盖层 */}
+      {isTypewriterMode && selectedNote && (
+        <TypewriterMode
+          note={selectedNote}
+          notes={notes}
+          onUpdate={handleUpdateNote}
+          onNoteClick={handleNoteClick}
+          onCreateNote={handleCreateNoteFromLink}
+          onExit={handleExitTypewriter}
+        />
+      )}
 
       {/* Settings Modal */}
       {showSettings && <Settings onClose={handleCloseSettings} />}

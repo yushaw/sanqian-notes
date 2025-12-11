@@ -252,6 +252,19 @@ app.whenReady().then(() => {
   // Platform info
   ipcMain.handle('platform:get', () => process.platform)
 
+  // Window control - fullscreen
+  ipcMain.handle('window:setFullScreen', (_, isFullScreen: boolean) => {
+    if (mainWindow) {
+      mainWindow.setFullScreen(isFullScreen)
+      return true
+    }
+    return false
+  })
+
+  ipcMain.handle('window:isFullScreen', () => {
+    return mainWindow?.isFullScreen() ?? false
+  })
+
   createWindow()
 
   app.on('activate', function () {

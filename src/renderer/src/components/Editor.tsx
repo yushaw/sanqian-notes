@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useRef } from 'react'
+import { useEffect, useCallback, useState, useRef, useImperativeHandle, forwardRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
@@ -45,16 +45,13 @@ interface EditorProps {
   onScrollComplete?: () => void
 }
 
+// 暴露给外部的 Editor 实例接口
+export interface EditorHandle {
+  getEditor: () => ReturnType<typeof useEditor> | null
+}
+
 // Zen Editor component
-function ZenEditor({
-  note,
-  notes,
-  onUpdate,
-  onNoteClick,
-  onCreateNote,
-  scrollTarget,
-  onScrollComplete,
-}: {
+interface ZenEditorProps {
   note: Note
   notes: Note[]
   onUpdate: (id: string, updates: { title?: string; content?: string }) => void
@@ -62,7 +59,17 @@ function ZenEditor({
   onCreateNote: (title: string) => Promise<Note>
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
   onScrollComplete?: () => void
-}) {
+}
+
+const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
+  note,
+  notes,
+  onUpdate,
+  onNoteClick,
+  onCreateNote,
+  scrollTarget,
+  onScrollComplete,
+}, ref) {
   const [title, setTitle] = useState(note.title)
   const [isFocusMode, setIsFocusMode] = useState(false)
   const [isTypewriterMode, setIsTypewriterMode] = useState(false)
@@ -214,6 +221,11 @@ function ZenEditor({
       }
     },
   })
+
+  // 暴露 editor 实例给外部
+  useImperativeHandle(ref, () => ({
+    getEditor: () => editor,
+  }), [editor])
 
   // 处理标题搜索
   const handleHeadingSearch = useCallback(async (
@@ -682,9 +694,12 @@ function ZenEditor({
       )}
     </div>
   )
-}
+})
 
-export function Editor({ note, notes, onUpdate, onNoteClick, onCreateNote, scrollTarget, onScrollComplete }: EditorProps) {
+export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
+  { note, notes, onUpdate, onNoteClick, onCreateNote, scrollTarget, onScrollComplete },
+  ref
+) {
   const t = useTranslations()
 
   if (!note) {
@@ -702,6 +717,7 @@ export function Editor({ note, notes, onUpdate, onNoteClick, onCreateNote, scrol
   return (
     <ZenEditor
       key={note.id}
+      ref={ref}
       note={note}
       notes={notes}
       onUpdate={onUpdate}
@@ -711,7 +727,7 @@ export function Editor({ note, notes, onUpdate, onNoteClick, onCreateNote, scrol
       onScrollComplete={onScrollComplete}
     />
   )
-}
+})
 
 function ToolbarButton({
   children,

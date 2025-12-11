@@ -1,4 +1,4 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
+export {}
 
 declare global {
   interface Window {
@@ -26,8 +26,10 @@ declare global {
         get: () => Promise<'light' | 'dark'>
         onChange?: (callback: (theme: 'light' | 'dark') => void) => void
       }
-      window?: {
+      window: {
         setTitleBarOverlay?: (options: { color: string; symbolColor: string }) => void
+        setFullScreen: (isFullScreen: boolean) => Promise<boolean>
+        isFullScreen: () => Promise<boolean>
       }
       platform: {
         get: () => Promise<string>

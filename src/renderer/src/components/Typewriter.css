@@ -1,8 +1,27 @@
+/**
+ * Typewriter Mode Styles
+ * 打字机模式样式
+ *
+ * 文件结构：
+ * 1. 全屏容器与动画
+ * 2. 内容区域与过度滚动
+ * 3. UI 组件（光标线、字数统计、退出按钮）
+ * 4. 焦点渐变效果（核心功能）
+ * 5. 编辑器排版样式
+ *
+ * 实现原理详见：docs/typewriter-mode.md
+ */
+
 /* ===================================
-   Typewriter Mode Styles
+   1. 全屏容器
    =================================== */
 
-/* 全屏容器 */
+/**
+ * 全屏容器
+ * - position: fixed 覆盖整个屏幕
+ * - z-index: 9999 确保在最上层
+ * - 使用 CSS 变量接收主题配置
+ */
 .typewriter-container {
   position: fixed;
   inset: 0;
@@ -15,14 +34,16 @@
   letter-spacing: var(--tw-letter-spacing);
   overflow: hidden;
 
-  /* 进入动画 */
+  /* 进入时的淡入动画 */
   animation: typewriter-fade-in 0.3s ease-out;
 }
 
+/* 过渡状态：禁用交互，等待动画完成 */
 .typewriter-container.transitioning {
   pointer-events: none;
 }
 
+/* 进入动画：淡入 + 轻微放大 */
 @keyframes typewriter-fade-in {
   from {
     opacity: 0;
@@ -34,7 +55,14 @@
   }
 }
 
-/* 内容区域 */
+/* ===================================
+   2. 内容区域与过度滚动
+   =================================== */
+
+/**
+ * 可滚动的内容容器
+ * - 隐藏滚动条，保持视觉简洁
+ */
 .typewriter-content {
   height: 100%;
   overflow-y: auto;
@@ -49,7 +77,13 @@
   display: none;
 }
 
-/* 内容居中限宽 */
+/**
+ * 内容居中限宽
+ *
+ * 过度滚动关键实现：
+ * - padding-top: 70vh → 让首行可以滚动到屏幕 70% 位置
+ * - padding-bottom: 30vh → 让末行可以滚动到屏幕 70% 位置
+ */
 .typewriter-inner {
   max-width: var(--tw-max-width);
   margin-left: auto;
@@ -57,13 +91,16 @@
   padding-left: var(--tw-padding-h);
   padding-right: var(--tw-padding-h);
 
-  /* 过度滚动的 padding - 让首行/末行也能滚到固定光标位置 */
-  /* --tw-cursor-offset 是百分比 (如 60%)，需要转换为 vh */
-  padding-top: calc(var(--tw-cursor-offset-vh, 60vh));
-  padding-bottom: calc(100vh - var(--tw-cursor-offset-vh, 60vh));
+  /* 过度滚动：让首行/末行也能滚到固定光标位置 */
+  padding-top: calc(var(--tw-cursor-offset-vh, 70vh));
+  padding-bottom: calc(100vh - var(--tw-cursor-offset-vh, 70vh));
 }
 
-/* 光标位置指示线 */
+/* ===================================
+   3. UI 组件
+   =================================== */
+
+/** 光标位置指示线（可选功能） */
 .typewriter-cursor-line {
   position: fixed;
   top: var(--tw-cursor-offset);
@@ -75,7 +112,7 @@
   z-index: 1;
 }
 
-/* 字数统计 */
+/** 字数统计 - 底部居中，默认淡显 */
 .typewriter-stats {
   position: fixed;
   bottom: 1.5rem;
@@ -92,7 +129,7 @@
   opacity: 0.8;
 }
 
-/* 退出按钮 */
+/** 退出按钮 - 右上角，hover 时显示 */
 .typewriter-exit {
   position: fixed;
   top: 1.5rem;
@@ -122,13 +159,27 @@
 }
 
 /* ===================================
-   焦点效果
+   4. 焦点渐变效果（核心功能）
    =================================== */
 
-/*
- * 焦点效果通过 TipTap Focus 扩展实现
- * .has-focus 类会被添加到当前焦点所在的块级元素
- * 使用 CSS 兄弟选择器实现渐变效果
+/**
+ * 焦点渐变效果实现
+ *
+ * 原理：
+ * 1. TipTap Focus 扩展会给当前焦点所在的块添加 .has-focus 类
+ * 2. 使用 CSS :has() 选择器选中焦点前面的兄弟元素
+ * 3. 使用 CSS + 选择器选中焦点后面的兄弟元素
+ * 4. 层层递进设置不同的透明度
+ *
+ * 透明度渐变：
+ * - 焦点元素: 1.0 (完全清晰)
+ * - 相邻 ±1: 0.7
+ * - 相邻 ±2: 0.5
+ * - 相邻 ±3: 0.35
+ * - 其他:    0.2 (最暗)
+ *
+ * 注意：不能直接操作 DOM style，ProseMirror 会重置
+ * 详见：docs/tiptap-api.md
  */
 
 /* 基础过渡效果 */
@@ -136,7 +187,7 @@
   transition: opacity 0.15s ease-out;
 }
 
-/* 所有元素默认最暗 */
+/* 默认所有元素最暗 */
 .typewriter-editor-content .ProseMirror > * {
   opacity: 0.2;
 }
@@ -146,41 +197,43 @@
   opacity: 1;
 }
 
-/* 焦点元素的前一个兄弟（使用 :has 选择器） */
+/* ===== 相邻 ±1 个元素 ===== */
+
+/* 前一个兄弟：使用 :has(+ .has-focus) */
 .typewriter-editor-content .ProseMirror > *:has(+ .has-focus) {
   opacity: 0.7;
 }
 
-/* 焦点元素的后一个兄弟 */
+/* 后一个兄弟：使用 .has-focus + * */
 .typewriter-editor-content .ProseMirror > .has-focus + * {
   opacity: 0.7;
 }
 
-/* 焦点元素的前两个兄弟 */
+/* ===== 相邻 ±2 个元素 ===== */
+
 .typewriter-editor-content .ProseMirror > *:has(+ * + .has-focus) {
   opacity: 0.5;
 }
 
-/* 焦点元素的后两个兄弟 */
 .typewriter-editor-content .ProseMirror > .has-focus + * + * {
   opacity: 0.5;
 }
 
-/* 焦点元素的前三个兄弟 */
+/* ===== 相邻 ±3 个元素 ===== */
+
 .typewriter-editor-content .ProseMirror > *:has(+ * + * + .has-focus) {
   opacity: 0.35;
 }
 
-/* 焦点元素的后三个兄弟 */
 .typewriter-editor-content .ProseMirror > .has-focus + * + * + * {
   opacity: 0.35;
 }
 
 /* ===================================
-   标题和编辑器样式
+   5. 编辑器排版样式
    =================================== */
 
-/* 标题 */
+/** 标题输入框 - 自动调整高度 */
 .typewriter-title {
   width: 100%;
   font-family: var(--tw-font-family);
@@ -200,14 +253,16 @@
   color: var(--tw-dimmed-text);
 }
 
-/* ===================================
-   编辑器内容区 - 禅意排版
-   =================================== */
-
+/** 编辑器内容区 */
 .typewriter-editor-content {
   min-height: 50vh;
 }
 
+/**
+ * ProseMirror 编辑器 - 禅意排版
+ * - 优化文字渲染（抗锯齿、连字）
+ * - 中文标点优化
+ */
 .typewriter-editor-content .ProseMirror {
   outline: none;
   font-family: var(--tw-font-family);

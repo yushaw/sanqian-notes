@@ -126,18 +126,25 @@ export function TypewriterMode({
   onCreateNote: _onCreateNote,
   onExit,
 }: TypewriterModeProps) {
-  const contentRef = useRef<HTMLDivElement>(null)
+  // ==================== Refs ====================
+  const contentRef = useRef<HTMLDivElement>(null)      // 滚动容器
+  const titleRef = useRef<HTMLTextAreaElement>(null)   // 标题输入框
+
+  // 防止循环触发的标志位
+  // 问题：光标变化 → 触发滚动 → 滚动触发光标变化 → 死循环
+  // 解决：用标志位区分"程序触发"和"用户触发"
+  const isProgrammaticScroll = useRef(false)      // 程序触发的滚动
+  const isProgrammaticSelection = useRef(false)   // 程序触发的选区变化
+  const lastCursorX = useRef<number | null>(null) // 上次光标的 X 坐标（滚动时保持水平位置）
+
+  // ==================== State ====================
   const [title, setTitle] = useState(note.title)
   const [wordCount, setWordCount] = useState(0)
-  const [isTransitioning, setIsTransitioning] = useState(true)
-  const titleRef = useRef<HTMLTextAreaElement>(null)
+  const [isTransitioning, setIsTransitioning] = useState(true)  // 进入动画状态
+
+  // ==================== Hooks ====================
   const t = useTranslations()
   const { resolvedColorMode } = useTheme()
-
-  // 防止循环触发的标志
-  const isProgrammaticScroll = useRef(false)
-  const isProgrammaticSelection = useRef(false)
-  const lastCursorX = useRef<number | null>(null)
 
   // 根据系统主题自动选择打字机主题
   const resolvedTheme: TypewriterTheme = themes[resolvedColorMode] || themes.dark
@@ -232,13 +239,17 @@ export function TypewriterMode({
     },
   })
 
-  // 动画帧 ID，用于取消正在进行的动画
+  // ==================== 滚动动画 ====================
+  // 使用 requestAnimationFrame 实现 60fps 流畅滚动动画
   const animationFrameId = useRef<number | null>(null)
   const scrollAnimationStart = useRef<number | null>(null)
   const scrollAnimationFrom = useRef<number>(0)
   const scrollAnimationTo = useRef<number>(0)
 
-  // 使用 requestAnimationFrame 实现更流畅的滚动动画
+  /**
+   * 滚动动画帧回调
+   * 使用 easeOutCubic 缓动函数实现自然的减速效果
+   */
   const animateScroll = useCallback((timestamp: number) => {
     if (!contentRef.current) return
 
@@ -271,7 +282,13 @@ export function TypewriterMode({
     }
   }, [])
 
-  // 滚动到指定位置使光标居中
+  /**
+   * 滚动内容使光标回到固定位置（屏幕 70%）
+   *
+   * 调用时机：
+   * - 光标位置变化时（打字、方向键、点击）
+   * - 进入打字机模式时
+   */
   const scrollToCursor = useCallback(() => {
     if (!editor || !contentRef.current) return
 
@@ -304,11 +321,17 @@ export function TypewriterMode({
     }
   }, [editor, resolvedTheme.cursorOffset, animateScroll])
 
-  // 防抖的滚动触发器
+  // ==================== 事件监听 ====================
+
   const scrollDebounceTimer = useRef<NodeJS.Timeout | null>(null)
 
-  // 监听光标变化 → 滚动内容使光标回到固定位置
-  // 焦点效果由 TipTap Focus 扩展 + CSS 自动处理
+  /**
+   * 监听光标变化 → 滚动内容使光标回到固定位置
+   *
+   * 注意：焦点渐变效果由 TipTap Focus 扩展 + CSS 自动处理
+   * Focus 扩展会给当前焦点块添加 .has-focus 类
+   * CSS 使用兄弟选择器实现渐变透明度
+   */
   useEffect(() => {
     if (!editor) return
 
@@ -334,7 +357,12 @@ export function TypewriterMode({
     }
   }, [editor, scrollToCursor])
 
-  // 监听滚动 → 移动光标到屏幕中心对应位置
+  /**
+   * 监听滚动 → 移动光标到屏幕中心对应位置
+   *
+   * 当用户手动滚动时，光标会跟随到屏幕固定位置对应的文档位置
+   * 保持上次光标的 X 坐标，避免水平跳动
+   */
   useEffect(() => {
     if (!editor || !contentRef.current) return
 
@@ -379,7 +407,12 @@ export function TypewriterMode({
     }
   }, [editor, resolvedTheme.cursorOffset])
 
-  // 监听点击事件，触发滚动动画
+  /**
+   * 监听点击事件，触发滚动动画
+   *
+   * 点击不直接定位光标，而是触发平滑滚动动画
+   * 让点击位置来到屏幕固定位置
+   */
   useEffect(() => {
     if (!contentRef.current) return
 
@@ -394,7 +427,12 @@ export function TypewriterMode({
     }
   }, [scrollToCursor])
 
-  // 进入时自动 focus 并滚动
+  /**
+   * 进入打字机模式时的初始化
+   * - 播放进入动画
+   * - 自动聚焦到编辑器末尾
+   * - 滚动到光标位置
+   */
   useEffect(() => {
     if (!editor) return
 
@@ -411,7 +449,7 @@ export function TypewriterMode({
     return () => clearTimeout(timer)
   }, [editor, scrollToCursor])
 
-  // ESC 键退出
+  /** ESC 键退出打字机模式 */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -422,7 +460,9 @@ export function TypewriterMode({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onExit])
 
-  // 标题变化
+  // ==================== 标题处理 ====================
+
+  /** 标题内容变化 */
   const handleTitleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newTitle = e.target.value
@@ -432,7 +472,7 @@ export function TypewriterMode({
     [note.id, onUpdate]
   )
 
-  // 标题按 Enter 跳到编辑器
+  /** 标题按 Enter 跳到编辑器正文 */
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -443,7 +483,7 @@ export function TypewriterMode({
     [editor]
   )
 
-  // 自动调整标题高度
+  /** 自动调整标题输入框高度 */
   useEffect(() => {
     if (titleRef.current) {
       titleRef.current.style.height = 'auto'
@@ -451,7 +491,12 @@ export function TypewriterMode({
     }
   }, [title])
 
-  // CSS 变量
+  // ==================== 渲染 ====================
+
+  /**
+   * CSS 变量 - 主题配置通过 CSS 变量传递给样式
+   * 这样可以在 CSS 中使用 var(--tw-xxx) 引用主题值
+   */
   const cssVariables = {
     '--tw-bg': resolvedTheme.backgroundColor,
     '--tw-text': resolvedTheme.textColor,

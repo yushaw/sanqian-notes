@@ -2,10 +2,15 @@
  * TypewriterMode - 打字机模式组件
  *
  * 沉浸式写作体验，核心特性：
- * 1. 光标固定在屏幕 70% 位置，内容滚动而非光标移动
- * 2. 焦点渐变效果：当前段落清晰，相邻段落依次变淡
+ * 1. 光标固定在屏幕 65% 位置，内容滚动而非光标移动
+ * 2. 焦点渐变效果：当前段落清晰，相邻段落依次变淡（20 层 CSS 选择器 + 动态透明度）
  * 3. 独立的 TipTap 编辑器实例，与主编辑器完全隔离
- * 4. 支持深色/浅色主题自动切换
+ * 4. 支持多种 Mood 主题（墨韵、纸韵、月光）
+ * 5. 打字机音效和环境音
+ *
+ * 焦点渐变实现：
+ * - CSS: 20 层 :has() + 兄弟选择器，根据距离 .has-focus 的 block 数设置透明度
+ * - JS: 根据可视区域 block 数量动态计算透明度曲线，设置 CSS 变量
  *
  * 实现原理详见：docs/typewriter-mode.md
  */
@@ -28,9 +33,18 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import type { Note } from '../types/note'
 import { useTranslations } from '../i18n'
 import { useTheme } from '../theme'
-import { ACCENT_COLOR } from '../theme/config'
 import { BlockId } from './extensions/BlockId'
 import { NoteLink } from './extensions/NoteLink'
+import { TypewriterToolbar, MOOD_THEMES, type MoodTheme } from './TypewriterToolbar'
+import {
+  playTypewriterClick,
+  playTypewriterReturn,
+  playAmbientSound,
+  stopAmbientSound,
+  cleanupAudio,
+  preloadAudio,
+  type AmbientSoundType,
+} from './TypewriterAudio'
 import './Typewriter.css'
 
 // 打字机模式主题配置
@@ -54,60 +68,79 @@ export interface TypewriterTheme {
   showWordCount: boolean
 }
 
-// 中英文混排的字体栈
-// 优先使用 Source Han Sans/Serif (思源黑体/宋体), Noto Sans/Serif CJK
-// 英文使用 iA Writer 风格的等宽字体
-const FONT_SANS = "'Source Han Sans SC', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif"
-const FONT_SERIF = "'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', 'SimSun', Georgia, serif"
-const FONT_MONO = "'SF Mono', 'JetBrains Mono', 'Fira Code', 'Source Code Pro', Menlo, monospace"
+// 禅意字体栈 - 兼容 macOS 和 Windows
+//
+// 中文楷体优先级：
+// 1. LXGW WenKai - 开源文艺楷体（需安装）
+// 2. 系统楷体 - macOS: Kaiti SC, STKaiti / Windows: KaiTi, FangSong
+// 3. 系统宋体 - macOS: Songti SC / Windows: SimSun
+// 4. 跨平台衬线 - Georgia, serif
+//
+const FONT_WENKAI = [
+  "'LXGW WenKai'",
+  "'LXGW WenKai Screen'",
+  // macOS 楷体
+  "'Kaiti SC'",
+  "'STKaiti'",
+  // Windows 楷体
+  "'KaiTi'",
+  "'FangSong'",
+  // 跨平台宋体（需安装）
+  "'Source Han Serif SC'",
+  "'Noto Serif SC'",
+  // macOS 宋体
+  "'Songti SC'",
+  // Windows 宋体
+  "'SimSun'",
+  // 通用回退
+  "Georgia",
+  "serif"
+].join(', ')
 
-// 预设主题 - 深色和浅色（禅意风格）
-const themes: Record<string, TypewriterTheme> = {
-  dark: {
-    // 深色：温暖的墨色背景，减少蓝光
-    backgroundColor: '#1c1c1e',
-    textColor: '#c7c7cc',
-    focusTextColor: '#f5f5f7',
-    dimmedTextColor: '#636366',
-    accentColor: ACCENT_COLOR,
-    // 正文使用无衬线，更现代的阅读体验
-    fontFamily: FONT_SANS,
-    fontSize: '18px',
-    lineHeight: 2,           // 更宽松的行高，禅意感
-    letterSpacing: '0.02em', // 略微增加字间距
-    maxWidth: '680px',       // 适中的行宽，每行约 35-40 中文字符
-    cursorOffset: 0.7,       // 光标位置在页面 70%
-    paddingHorizontal: '3rem',
-    focusMode: 'paragraph',
-    dimOpacity: 0.35,
-    showCursorLine: false,
-    cursorLineColor: 'rgba(255, 255, 255, 0.06)',
-    showWordCount: true,
-  },
-  light: {
-    // 浅色：温暖的米白色背景，减少刺眼感
-    backgroundColor: '#faf9f7',
-    textColor: '#3c3c43',
-    focusTextColor: '#1c1c1e',
-    dimmedTextColor: '#aeaeb2',
-    accentColor: ACCENT_COLOR,
-    fontFamily: FONT_SANS,
-    fontSize: '18px',
-    lineHeight: 2,
-    letterSpacing: '0.02em',
-    maxWidth: '680px',
-    cursorOffset: 0.7,       // 光标位置在页面 70%
-    paddingHorizontal: '3rem',
-    focusMode: 'paragraph',
-    dimOpacity: 0.45,
-    showCursorLine: false,
-    cursorLineColor: 'rgba(0, 0, 0, 0.04)',
-    showWordCount: true,
-  },
-}
+const FONT_SERIF = [
+  "'Source Han Serif SC'",
+  "'Noto Serif SC'",
+  // macOS
+  "'Songti SC'",
+  // Windows
+  "'SimSun'",
+  "'NSimSun'",
+  "Georgia",
+  "serif"
+].join(', ')
+
+const FONT_MONO = [
+  "'SF Mono'",           // macOS
+  "'Cascadia Code'",     // Windows 11
+  "'Consolas'",          // Windows
+  "'JetBrains Mono'",    // 跨平台（需安装）
+  "'Fira Code'",         // 跨平台（需安装）
+  "Menlo",               // macOS
+  "monospace"
+].join(', ')
+
+/**
+ * 禅意配色参考 - 灵感来自水墨、宣纸、茶色
+ * 实际主题配置已移至 TypewriterToolbar.tsx 中的 MOOD_THEMES
+ *
+ * 深色 - 墨韵:
+ *   ink: '#1a1a1a'           浓墨背景
+ *   textDark: '#e6e1db'      温暖的白（主文字）
+ *   textDarkFocus: '#f5f2ed' 焦点文字
+ *   textDarkDim: '#6b6560'   暗淡文字
+ *
+ * 浅色 - 纸韵:
+ *   paper: '#f8f6f2'         宣纸背景
+ *   textLight: '#2c2825'     温暖的黑（主文字）
+ *   textLightFocus: '#1a1715' 焦点文字
+ *   textLightDim: '#a09890'  暗淡文字
+ *
+ * 点缀色:
+ *   vermilion: '#c45c3e'     朱砂红（与 logo 呼应）
+ */
 
 // 导出字体常量供其他地方使用
-export { FONT_SANS, FONT_SERIF, FONT_MONO }
+export { FONT_WENKAI, FONT_SERIF, FONT_MONO }
 
 interface TypewriterModeProps {
   note: Note
@@ -142,12 +175,42 @@ export function TypewriterMode({
   const [wordCount, setWordCount] = useState(0)
   const [isTransitioning, setIsTransitioning] = useState(true)  // 进入动画状态
 
+  // Mood 主题状态（默认根据系统主题选择）
+  const { resolvedColorMode } = useTheme()
+  const defaultMood = resolvedColorMode === 'light' ? 'paper' : 'ink'
+  const [currentMood, setCurrentMood] = useState(defaultMood)
+
+  // 音效状态
+  const [typewriterSoundEnabled, setTypewriterSoundEnabled] = useState(false)
+  const [ambientSound, setAmbientSound] = useState('none')
+
+  // 全屏状态
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
   // ==================== Hooks ====================
   const t = useTranslations()
-  const { resolvedColorMode } = useTheme()
 
-  // 根据系统主题自动选择打字机主题
-  const resolvedTheme: TypewriterTheme = themes[resolvedColorMode] || themes.dark
+  // 根据 Mood 主题生成完整的主题配置
+  const currentMoodTheme = MOOD_THEMES.find(m => m.id === currentMood) || MOOD_THEMES[0]
+  const resolvedTheme: TypewriterTheme = {
+    backgroundColor: currentMoodTheme.backgroundColor,
+    textColor: currentMoodTheme.textColor,
+    focusTextColor: currentMoodTheme.focusTextColor,
+    dimmedTextColor: currentMoodTheme.dimmedTextColor,
+    accentColor: currentMoodTheme.accentColor,
+    fontFamily: FONT_WENKAI,
+    fontSize: '19px',
+    lineHeight: 2.2,
+    letterSpacing: '0.05em',
+    maxWidth: '640px',
+    cursorOffset: 0.65,
+    paddingHorizontal: '4rem',
+    focusMode: 'paragraph',
+    dimOpacity: 0.35,
+    showCursorLine: false,
+    cursorLineColor: 'rgba(0, 0, 0, 0.02)',
+    showWordCount: true,
+  }
 
   // 解析初始内容
   const getInitialContent = () => {
@@ -283,7 +346,7 @@ export function TypewriterMode({
   }, [])
 
   /**
-   * 滚动内容使光标回到固定位置（屏幕 70%）
+   * 滚动内容使光标回到固定位置（屏幕 65%）
    *
    * 调用时机：
    * - 光标位置变化时（打字、方向键、点击）
@@ -326,11 +389,50 @@ export function TypewriterMode({
   const scrollDebounceTimer = useRef<NodeJS.Timeout | null>(null)
 
   /**
+   * 根据可视区域动态计算透明度 CSS 变量
+   * CSS 选择器固定 20 层，透明度值动态计算
+   */
+  const updateOpacityVariables = useCallback(() => {
+    if (!contentRef.current) return
+
+    const container = contentRef.current
+    const proseMirror = container.querySelector('.ProseMirror')
+    if (!proseMirror) return
+
+    const blocks = Array.from(proseMirror.children) as HTMLElement[]
+    if (blocks.length === 0) return
+
+    // 估算可视区域能显示多少 block
+    const viewportHeight = window.innerHeight
+    let totalHeight = 0
+    let sampleCount = 0
+    for (let i = 0; i < Math.min(blocks.length, 10); i++) {
+      const rect = blocks[i].getBoundingClientRect()
+      if (rect.height > 0) {
+        totalHeight += rect.height
+        sampleCount++
+      }
+    }
+    const avgBlockHeight = sampleCount > 0 ? totalHeight / sampleCount : 60
+    const visibleBlockCount = Math.max(6, Math.floor(viewportHeight / avgBlockHeight))
+    const halfVisible = visibleBlockCount / 2
+
+    // 动态计算每层透明度
+    const minOpacity = 0.03
+    const containerEl = contentRef.current.closest('.typewriter-container') as HTMLElement
+    if (!containerEl) return
+
+    for (let dist = 1; dist <= 20; dist++) {
+      // 平缓曲线：在 halfVisible 处到达最低透明度
+      const ratio = Math.min(dist / halfVisible, 1)
+      const opacity = 1 - (1 - minOpacity) * Math.pow(ratio, 1.5)
+      containerEl.style.setProperty(`--tw-opacity-${dist}`, opacity.toFixed(2))
+    }
+    containerEl.style.setProperty('--tw-opacity-far', minOpacity.toFixed(2))
+  }, [])
+
+  /**
    * 监听光标变化 → 滚动内容使光标回到固定位置
-   *
-   * 注意：焦点渐变效果由 TipTap Focus 扩展 + CSS 自动处理
-   * Focus 扩展会给当前焦点块添加 .has-focus 类
-   * CSS 使用兄弟选择器实现渐变透明度
    */
   useEffect(() => {
     if (!editor) return
@@ -441,13 +543,30 @@ export function TypewriterMode({
       setIsTransitioning(false)
       // focus 编辑器
       editor.commands.focus('end')
-      // 滚动到光标位置
+      // 滚动到光标位置并初始化透明度变量
       setTimeout(() => {
         scrollToCursor()
+        updateOpacityVariables()
       }, 50)
     }, 100)
     return () => clearTimeout(timer)
-  }, [editor, scrollToCursor])
+  }, [editor, scrollToCursor, updateOpacityVariables])
+
+  /** 窗口大小变化时重新计算（带防抖） */
+  useEffect(() => {
+    let resizeTimer: NodeJS.Timeout | null = null
+    const handleResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => {
+        updateOpacityVariables()
+      }, 150)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      if (resizeTimer) clearTimeout(resizeTimer)
+    }
+  }, [updateOpacityVariables])
 
   /** ESC 键退出打字机模式 */
   useEffect(() => {
@@ -482,6 +601,85 @@ export function TypewriterMode({
     },
     [editor]
   )
+
+  // ==================== 工具栏处理 ====================
+
+  /** 切换 Mood 主题 */
+  const handleMoodChange = useCallback((mood: MoodTheme) => {
+    setCurrentMood(mood.id)
+  }, [])
+
+  /** 切换全屏 */
+  const handleToggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen()
+        setIsFullscreen(true)
+      } else {
+        await document.exitFullscreen()
+        setIsFullscreen(false)
+      }
+    } catch (err) {
+      console.error('Fullscreen error:', err)
+    }
+  }, [])
+
+  /** 监听全屏状态变化 */
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
+  /** 切换打字机音效 */
+  const handleToggleTypewriterSound = useCallback(() => {
+    setTypewriterSoundEnabled(prev => !prev)
+  }, [])
+
+  /** 切换背景音乐 */
+  const handleAmbientSoundChange = useCallback((soundId: string) => {
+    setAmbientSound(soundId)
+    // 立即播放/停止背景音乐
+    if (soundId === 'none') {
+      stopAmbientSound()
+    } else {
+      playAmbientSound(soundId as AmbientSoundType, 0.3)
+    }
+  }, [])
+
+  /**
+   * 监听按键 → 播放打字机音效
+   */
+  useEffect(() => {
+    if (!editor || !typewriterSoundEnabled) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 忽略修饰键和功能键
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key.length > 1 && e.key !== 'Enter' && e.key !== 'Backspace') return
+
+      if (e.key === 'Enter') {
+        playTypewriterReturn()
+      } else {
+        playTypewriterClick()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [editor, typewriterSoundEnabled])
+
+  /**
+   * 预加载打字音效 & 清理音频资源
+   */
+  useEffect(() => {
+    preloadAudio()
+    return () => {
+      cleanupAudio()
+    }
+  }, [])
 
   /** 自动调整标题输入框高度 */
   useEffect(() => {
@@ -547,24 +745,19 @@ export function TypewriterMode({
         </div>
       </div>
 
-      {/* 字数统计 */}
-      {resolvedTheme.showWordCount && (
-        <div className="typewriter-stats">{wordCount} words</div>
-      )}
-
-      {/* 退出按钮 */}
-      <button className="typewriter-exit" onClick={onExit} title="Exit (ESC)">
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M18 6L6 18M6 6l12 12" />
-        </svg>
-      </button>
+      {/* 底部工具栏 */}
+      <TypewriterToolbar
+        wordCount={wordCount}
+        currentMood={currentMood}
+        onMoodChange={handleMoodChange}
+        onToggleFullscreen={handleToggleFullscreen}
+        onExit={onExit}
+        isFullscreen={isFullscreen}
+        typewriterSoundEnabled={typewriterSoundEnabled}
+        onToggleTypewriterSound={handleToggleTypewriterSound}
+        ambientSound={ambientSound}
+        onAmbientSoundChange={handleAmbientSoundChange}
+      />
     </div>
   )
 }

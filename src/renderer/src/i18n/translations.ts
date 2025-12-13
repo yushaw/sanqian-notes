@@ -72,6 +72,30 @@ export interface Translations {
     today: string
     yesterday: string
   }
+  typewriter: {
+    sound: string
+    music: string
+    theme: string
+    fullscreen: string
+    window: string
+    exit: string
+    wordCount: string
+    soundOn: string
+    soundOff: string
+    // Mood themes
+    moodInk: string
+    moodPaper: string
+    moodBamboo: string
+    moodSakura: string
+    moodOcean: string
+    // Ambient sounds
+    ambientNone: string
+    ambientRain: string
+    ambientCafe: string
+    ambientWaves: string
+    ambientFire: string
+    ambientForest: string
+  }
 }
 
 const zh: Translations = {
@@ -144,6 +168,28 @@ const zh: Translations = {
   date: {
     today: '今天',
     yesterday: '昨天'
+  },
+  typewriter: {
+    sound: '音效',
+    music: '音乐',
+    theme: '主题',
+    fullscreen: '全屏',
+    window: '窗口',
+    exit: '退出',
+    wordCount: '字',
+    soundOn: '关闭按键音效',
+    soundOff: '开启按键音效',
+    moodInk: '墨夜',
+    moodPaper: '宣纸',
+    moodBamboo: '竹林',
+    moodSakura: '樱花',
+    moodOcean: '深海',
+    ambientNone: '静音',
+    ambientRain: '雨声',
+    ambientCafe: '咖啡厅',
+    ambientWaves: '海浪',
+    ambientFire: '壁炉',
+    ambientForest: '森林'
   }
 }
 
@@ -217,6 +263,28 @@ const en: Translations = {
   date: {
     today: 'Today',
     yesterday: 'Yesterday'
+  },
+  typewriter: {
+    sound: 'Sound',
+    music: 'Music',
+    theme: 'Theme',
+    fullscreen: 'Fullscreen',
+    window: 'Window',
+    exit: 'Exit',
+    wordCount: 'words',
+    soundOn: 'Disable key sounds',
+    soundOff: 'Enable key sounds',
+    moodInk: 'Ink Night',
+    moodPaper: 'Paper',
+    moodBamboo: 'Bamboo',
+    moodSakura: 'Sakura',
+    moodOcean: 'Ocean',
+    ambientNone: 'Silent',
+    ambientRain: 'Rain',
+    ambientCafe: 'Café',
+    ambientWaves: 'Waves',
+    ambientFire: 'Fireplace',
+    ambientForest: 'Forest'
   }
 }
 

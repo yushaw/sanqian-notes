@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { Editor } from './components/Editor'
@@ -224,31 +224,12 @@ function AppContent() {
     setShowSettings(false)
   }, [])
 
-  // 记录进入打字机模式前的全屏状态
-  const wasFullScreenBeforeTypewriter = useRef(false)
+  // Toggle typewriter mode
+  const handleToggleTypewriter = useCallback(() => {
+    setIsTypewriterMode(prev => !prev)
+  }, [])
 
-  // Toggle typewriter mode (暂时禁用全屏，方便调试)
-  const handleToggleTypewriter = useCallback(async () => {
-    const newState = !isTypewriterMode
-    // 暂时禁用全屏
-    // if (newState) {
-    //   wasFullScreenBeforeTypewriter.current = await window.electron.window.isFullScreen()
-    //   if (!wasFullScreenBeforeTypewriter.current) {
-    //     await window.electron.window.setFullScreen(true)
-    //   }
-    // } else {
-    //   if (!wasFullScreenBeforeTypewriter.current) {
-    //     await window.electron.window.setFullScreen(false)
-    //   }
-    // }
-    setIsTypewriterMode(newState)
-  }, [isTypewriterMode])
-
-  const handleExitTypewriter = useCallback(async () => {
-    // 暂时禁用全屏
-    // if (!wasFullScreenBeforeTypewriter.current) {
-    //   await window.electron.window.setFullScreen(false)
-    // }
+  const handleExitTypewriter = useCallback(() => {
     setIsTypewriterMode(false)
   }, [])
 

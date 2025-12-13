@@ -1,13 +1,11 @@
 /**
- * Typewriter Mode Styles
- * 打字机模式样式
+ * Typewriter Mode Styles - 心流禅意风格
  *
- * 文件结构：
- * 1. 全屏容器与动画
- * 2. 内容区域与过度滚动
- * 3. UI 组件（光标线、字数统计、退出按钮）
- * 4. 焦点渐变效果（核心功能）
- * 5. 编辑器排版样式
+ * 设计理念：
+ * - 水墨意境：深色如夜间书房，浅色如日间案头
+ * - 呼吸留白：宽松的行距和边距，让文字有呼吸空间
+ * - 专注渐隐：焦点文字清晰，周围逐渐淡出
+ * - 极简克制：隐藏一切不必要的 UI 元素
  *
  * 实现原理详见：docs/typewriter-mode.md
  */
@@ -16,12 +14,6 @@
    1. 全屏容器
    =================================== */
 
-/**
- * 全屏容器
- * - position: fixed 覆盖整个屏幕
- * - z-index: 9999 确保在最上层
- * - 使用 CSS 变量接收主题配置
- */
 .typewriter-container {
   position: fixed;
   inset: 0;
@@ -34,24 +26,22 @@
   letter-spacing: var(--tw-letter-spacing);
   overflow: hidden;
 
-  /* 进入时的淡入动画 */
-  animation: typewriter-fade-in 0.3s ease-out;
+  /* 进入时的淡入动画 - 更缓慢，更禅意 */
+  animation: typewriter-fade-in 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 过渡状态：禁用交互，等待动画完成 */
+/* 过渡状态 */
 .typewriter-container.transitioning {
   pointer-events: none;
 }
 
-/* 进入动画：淡入 + 轻微放大 */
+/* 进入动画：缓慢淡入 */
 @keyframes typewriter-fade-in {
   from {
     opacity: 0;
-    transform: scale(0.98);
   }
   to {
     opacity: 1;
-    transform: scale(1);
   }
 }
 
@@ -59,10 +49,6 @@
    2. 内容区域与过度滚动
    =================================== */
 
-/**
- * 可滚动的内容容器
- * - 隐藏滚动条，保持视觉简洁
- */
 .typewriter-content {
   height: 100%;
   overflow-y: auto;
@@ -77,13 +63,6 @@
   display: none;
 }
 
-/**
- * 内容居中限宽
- *
- * 过度滚动关键实现：
- * - padding-top: 70vh → 让首行可以滚动到屏幕 70% 位置
- * - padding-bottom: 30vh → 让末行可以滚动到屏幕 70% 位置
- */
 .typewriter-inner {
   max-width: var(--tw-max-width);
   margin-left: auto;
@@ -92,15 +71,15 @@
   padding-right: var(--tw-padding-h);
 
   /* 过度滚动：让首行/末行也能滚到固定光标位置 */
-  padding-top: calc(var(--tw-cursor-offset-vh, 70vh));
-  padding-bottom: calc(100vh - var(--tw-cursor-offset-vh, 70vh));
+  padding-top: calc(var(--tw-cursor-offset-vh, 45vh));
+  padding-bottom: calc(100vh - var(--tw-cursor-offset-vh, 45vh));
 }
 
 /* ===================================
    3. UI 组件
    =================================== */
 
-/** 光标位置指示线（可选功能） */
+/** 光标位置指示线（默认隐藏） */
 .typewriter-cursor-line {
   position: fixed;
   top: var(--tw-cursor-offset);
@@ -112,145 +91,129 @@
   z-index: 1;
 }
 
-/** 字数统计 - 底部居中，默认淡显 */
-.typewriter-stats {
-  position: fixed;
-  bottom: 1.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 12px;
-  color: var(--tw-dimmed-text);
-  opacity: 0.6;
-  pointer-events: none;
-  transition: opacity 0.2s;
-}
-
-.typewriter-container:hover .typewriter-stats {
-  opacity: 0.8;
-}
-
-/** 退出按钮 - 右上角，hover 时显示 */
-.typewriter-exit {
-  position: fixed;
-  top: 1.5rem;
-  right: 1.5rem;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: var(--tw-dimmed-text);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s, background-color 0.2s, color 0.2s;
-}
-
-.typewriter-container:hover .typewriter-exit {
-  opacity: 0.6;
-}
-
-.typewriter-exit:hover {
-  opacity: 1 !important;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: var(--tw-text);
-}
+/* 旧的字数统计和退出按钮已移至底部工具栏 */
 
 /* ===================================
    4. 焦点渐变效果（核心功能）
    =================================== */
 
 /**
- * 焦点渐变效果实现
+ * 焦点渐变 - 20 层 CSS 选择器 + 动态透明度
  *
- * 原理：
- * 1. TipTap Focus 扩展会给当前焦点所在的块添加 .has-focus 类
- * 2. 使用 CSS :has() 选择器选中焦点前面的兄弟元素
- * 3. 使用 CSS + 选择器选中焦点后面的兄弟元素
- * 4. 层层递进设置不同的透明度
+ * 实现原理：
+ * - CSS: 使用 :has() 选择器（向前）和 + 选择器（向后）匹配距离焦点 ±1~20 的 block
+ * - JS: 根据可视区域 block 数量动态计算透明度曲线，设置 --tw-opacity-N 变量
+ * - 效果: 焦点 block 完全清晰，向两侧平滑渐变到几乎不可见
  *
- * 透明度渐变：
- * - 焦点元素: 1.0 (完全清晰)
- * - 相邻 ±1: 0.7
- * - 相邻 ±2: 0.5
- * - 相邻 ±3: 0.35
- * - 其他:    0.2 (最暗)
- *
- * 注意：不能直接操作 DOM style，ProseMirror 会重置
- * 详见：docs/tiptap-api.md
+ * 透明度计算公式: opacity = 1 - (1 - minOpacity) * (dist / halfVisible)^1.5
+ * - minOpacity: 0.03（最远处几乎不可见）
+ * - halfVisible: 可视区域 block 数 / 2
  */
 
-/* 基础过渡效果 */
-.typewriter-editor-content .ProseMirror > * {
-  transition: opacity 0.15s ease-out;
+/* 内容容器需要相对定位 */
+.typewriter-content {
+  position: relative;
 }
 
 /* 默认所有元素最暗 */
 .typewriter-editor-content .ProseMirror > * {
-  opacity: 0.2;
+  opacity: var(--tw-opacity-far, 0.03);
+  transition: opacity 0.2s ease;
 }
 
-/* 焦点元素完全可见 */
-.typewriter-editor-content .ProseMirror > .has-focus {
-  opacity: 1;
-}
+/* 焦点元素 */
+.typewriter-editor-content .ProseMirror > .has-focus { opacity: 1; }
 
-/* ===== 相邻 ±1 个元素 ===== */
+/* ±1 */
+.typewriter-editor-content .ProseMirror > *:has(+ .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * { opacity: var(--tw-opacity-1); }
+/* ±2 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * { opacity: var(--tw-opacity-2); }
+/* ±3 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * { opacity: var(--tw-opacity-3); }
+/* ±4 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * { opacity: var(--tw-opacity-4); }
+/* ±5 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * { opacity: var(--tw-opacity-5); }
+/* ±6 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * { opacity: var(--tw-opacity-6); }
+/* ±7 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * { opacity: var(--tw-opacity-7); }
+/* ±8 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-8); }
+/* ±9 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-9); }
+/* ±10 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-10); }
+/* ±11 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-11); }
+/* ±12 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-12); }
+/* ±13 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-13); }
+/* ±14 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-14); }
+/* ±15 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-15); }
+/* ±16 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-16); }
+/* ±17 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-17); }
+/* ±18 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-18); }
+/* ±19 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-19); }
+/* ±20 */
+.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
+.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-20); }
 
-/* 前一个兄弟：使用 :has(+ .has-focus) */
-.typewriter-editor-content .ProseMirror > *:has(+ .has-focus) {
-  opacity: 0.7;
-}
-
-/* 后一个兄弟：使用 .has-focus + * */
-.typewriter-editor-content .ProseMirror > .has-focus + * {
-  opacity: 0.7;
-}
-
-/* ===== 相邻 ±2 个元素 ===== */
-
-.typewriter-editor-content .ProseMirror > *:has(+ * + .has-focus) {
-  opacity: 0.5;
-}
-
-.typewriter-editor-content .ProseMirror > .has-focus + * + * {
-  opacity: 0.5;
-}
-
-/* ===== 相邻 ±3 个元素 ===== */
-
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + .has-focus) {
-  opacity: 0.35;
-}
-
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * {
-  opacity: 0.35;
+/* 失焦时全部显示 */
+.typewriter-container:not(:focus-within) .typewriter-editor-content .ProseMirror > * {
+  opacity: 1 !important;
 }
 
 /* ===================================
    5. 编辑器排版样式
    =================================== */
 
-/** 标题输入框 - 自动调整高度 */
+/** 标题输入框 */
 .typewriter-title {
   width: 100%;
   font-family: var(--tw-font-family);
-  font-size: calc(var(--tw-font-size) * 1.8);
-  font-weight: 600;
+  font-size: calc(var(--tw-font-size) * 1.6);
+  font-weight: 400;
   color: var(--tw-focus-text);
   background: transparent;
   border: none;
   outline: none;
   resize: none;
-  margin-bottom: 2rem;
+  margin-bottom: 3rem;
   padding: 0;
-  line-height: 1.3;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
 }
 
 .typewriter-title::placeholder {
   color: var(--tw-dimmed-text);
+  opacity: 0.6;
 }
 
 /** 编辑器内容区 */
@@ -260,8 +223,6 @@
 
 /**
  * ProseMirror 编辑器 - 禅意排版
- * - 优化文字渲染（抗锯齿、连字）
- * - 中文标点优化
  */
 .typewriter-editor-content .ProseMirror {
   outline: none;
@@ -283,76 +244,79 @@
   overflow-wrap: break-word;
 }
 
-/* 标题样式 - 更轻的字重，禅意感 */
+/* 标题样式 - 轻盈的字重 */
 .typewriter-editor-content .ProseMirror h1,
 .typewriter-editor-content .ProseMirror h2,
 .typewriter-editor-content .ProseMirror h3,
 .typewriter-editor-content .ProseMirror h4 {
   color: var(--tw-focus-text);
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  font-weight: 400;
+  letter-spacing: 0.06em;
 }
 
 .typewriter-editor-content .ProseMirror h1 {
-  font-size: 1.6em;
-  margin-top: 2.5em;
-  margin-bottom: 1em;
-  font-weight: 400;
+  font-size: 1.5em;
+  margin-top: 1.5em;
+  margin-bottom: 0.8em;
 }
 
 .typewriter-editor-content .ProseMirror h2 {
-  font-size: 1.35em;
-  margin-top: 2em;
-  margin-bottom: 0.8em;
+  font-size: 1.3em;
+  margin-top: 1.3em;
+  margin-bottom: 0.6em;
 }
 
 .typewriter-editor-content .ProseMirror h3 {
   font-size: 1.15em;
-  margin-top: 1.8em;
-  margin-bottom: 0.6em;
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
 }
 
 .typewriter-editor-content .ProseMirror h4 {
   font-size: 1em;
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
 }
 
-/* 段落 - 更大的段间距 */
+/* 第一个元素不需要上边距 */
+.typewriter-editor-content .ProseMirror > *:first-child {
+  margin-top: 0;
+}
+
+/* 段落 */
 .typewriter-editor-content .ProseMirror p {
-  margin-bottom: 1.5em;
+  margin-bottom: 1em;
 }
 
-/* 引用块 - 简洁的左边框 */
+/* 引用块 - 极简的左边框 */
 .typewriter-editor-content .ProseMirror blockquote {
   border-left: 2px solid var(--tw-accent);
-  padding-left: 1.5em;
+  padding-left: 1.8em;
   margin-left: 0;
   margin-right: 0;
   color: var(--tw-dimmed-text);
   font-style: normal;
-  opacity: 0.9;
 }
 
-/* 代码 - 使用等宽字体 */
+/* 代码 - 等宽字体 */
 .typewriter-editor-content .ProseMirror code {
   font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, monospace;
-  background: color-mix(in srgb, var(--tw-text) 8%, transparent);
-  padding: 0.2em 0.5em;
-  border-radius: 4px;
-  font-size: 0.875em;
+  background: color-mix(in srgb, var(--tw-text) 6%, transparent);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
   font-weight: 400;
 }
 
 /* 代码块 */
 .typewriter-editor-content .ProseMirror pre {
   font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, monospace;
-  background: color-mix(in srgb, var(--tw-text) 6%, transparent);
-  padding: 1.25em 1.5em;
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--tw-text) 4%, transparent);
+  padding: 1.5em 1.8em;
+  border-radius: 6px;
   overflow-x: auto;
-  font-size: 0.875em;
-  line-height: 1.6;
+  font-size: 0.85em;
+  line-height: 1.7;
 }
 
 .typewriter-editor-content .ProseMirror pre code {
@@ -362,13 +326,13 @@
   font-size: inherit;
 }
 
-/* 链接 - 使用主题色 */
+/* 链接 - 使用朱砂色 */
 .typewriter-editor-content .ProseMirror a,
 .typewriter-editor-content .ProseMirror .note-link {
   color: var(--tw-accent);
   text-decoration: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--tw-accent) 40%, transparent);
-  transition: border-color 0.15s ease;
+  border-bottom: 1px solid color-mix(in srgb, var(--tw-accent) 30%, transparent);
+  transition: border-color 0.2s ease;
 }
 
 .typewriter-editor-content .ProseMirror a:hover,
@@ -380,24 +344,45 @@
 .typewriter-editor-content .ProseMirror ul,
 .typewriter-editor-content .ProseMirror ol {
   padding-left: 1.5em;
-  margin-bottom: 1.5em;
+  margin-bottom: 1em;
 }
 
 .typewriter-editor-content .ProseMirror li {
-  margin-bottom: 0.5em;
+  margin-bottom: 0.3em;
 }
 
 .typewriter-editor-content .ProseMirror li::marker {
   color: var(--tw-dimmed-text);
 }
 
-/* 分割线 */
+/* 任务列表 */
+.typewriter-editor-content .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.typewriter-editor-content .ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+.typewriter-editor-content .ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 0.1em;
+}
+
+.typewriter-editor-content .ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+/* 分割线 - 极细 */
 .typewriter-editor-content .ProseMirror hr {
   border: none;
   height: 1px;
   background: var(--tw-dimmed-text);
-  opacity: 0.3;
-  margin: 2.5em 0;
+  opacity: 0.2;
+  margin: 1.5em 0;
 }
 
 /* 加粗和斜体 */
@@ -410,29 +395,183 @@
   font-style: italic;
 }
 
-/* 光标样式 - 使用主题色 */
+/* 光标样式 - 使用朱砂色 */
 .typewriter-editor-content .ProseMirror {
   caret-color: var(--tw-accent);
 }
 
-/* 标题光标也使用主题色 */
 .typewriter-title {
   caret-color: var(--tw-accent);
 }
 
-/* 选中文本 - 使用主题色的透明版本 */
+/* 选中文本 */
 .typewriter-editor-content .ProseMirror ::selection {
-  background: color-mix(in srgb, var(--tw-accent) 25%, transparent);
+  background: color-mix(in srgb, var(--tw-accent) 20%, transparent);
 }
 
 .typewriter-title::selection {
-  background: color-mix(in srgb, var(--tw-accent) 25%, transparent);
+  background: color-mix(in srgb, var(--tw-accent) 20%, transparent);
 }
 
 /* placeholder */
 .typewriter-editor-content .ProseMirror.is-editor-empty::before {
   content: attr(data-placeholder);
   color: var(--tw-dimmed-text);
+  opacity: 0.5;
   position: absolute;
   pointer-events: none;
+}
+
+/* ===================================
+   6. 禅意装饰元素
+   =================================== */
+
+/* 微妙的纸张纹理（可选） */
+.typewriter-container::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* ===================================
+   7. 底部工具栏 - 极简禅意风格
+   =================================== */
+
+.typewriter-toolbar {
+  position: fixed;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+/* 鼠标接近底部时显示 */
+.typewriter-container:hover .typewriter-toolbar,
+.typewriter-toolbar:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.typewriter-toolbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.typewriter-toolbar-left,
+.typewriter-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.typewriter-toolbar-center {
+  padding: 0 1rem;
+}
+
+/* 工具栏按钮 - 只显示图标 */
+.typewriter-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--tw-dimmed-text);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.typewriter-toolbar-btn:hover {
+  color: var(--tw-text);
+}
+
+.typewriter-toolbar-btn.active {
+  color: var(--tw-accent);
+}
+
+.toolbar-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* 隐藏文字标签 */
+.toolbar-label {
+  display: none;
+}
+
+/* 字数统计 */
+.typewriter-wordcount {
+  font-size: 12px;
+  color: var(--tw-dimmed-text);
+  opacity: 0.6;
+}
+
+/* 下拉面板容器 */
+.typewriter-toolbar-dropdown {
+  position: relative;
+}
+
+/* 弹出面板 - 简化 */
+.typewriter-panel {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--tw-bg);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+  border-radius: 8px;
+  padding: 0.3rem;
+  min-width: 100px;
+}
+
+.typewriter-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--tw-dimmed-text);
+  cursor: pointer;
+  transition: color 0.15s ease;
+  text-align: left;
+  font-size: 13px;
+}
+
+.typewriter-panel-item:hover {
+  color: var(--tw-text);
+}
+
+.typewriter-panel-item.active {
+  color: var(--tw-accent);
+}
+
+.panel-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+}
+
+.panel-label {
+  flex: 1;
+}
+
+.panel-color-preview {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  opacity: 0.7;
 }

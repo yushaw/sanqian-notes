@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react'
-import { basePalettes, ACCENT_COLOR, STORAGE_KEY } from './config'
+import { basePalettes, themes, DEFAULT_THEME, STORAGE_KEY, THEME_COLOR_STORAGE_KEY, type ThemeKey } from './config'
 import { mixHexColors } from '../utils/color'
 
 export type ColorModeSetting = 'light' | 'dark' | 'system'
@@ -7,6 +7,8 @@ type ResolvedColorMode = 'light' | 'dark'
 export type FontSize = 'small' | 'normal' | 'large' | 'extra-large'
 
 interface ThemeContextType {
+  themeColor: ThemeKey
+  setThemeColor: (color: ThemeKey) => void
   colorMode: ColorModeSetting
   setColorMode: (mode: ColorModeSetting) => void
   resolvedColorMode: ResolvedColorMode
@@ -15,6 +17,16 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
+
+function getInitialThemeColor(): ThemeKey {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem(THEME_COLOR_STORAGE_KEY)
+    if (saved && saved in themes) {
+      return saved as ThemeKey
+    }
+  }
+  return DEFAULT_THEME
+}
 
 function getInitialColorMode(): ColorModeSetting {
   if (typeof window !== 'undefined') {
@@ -37,6 +49,7 @@ function getInitialFontSize(): FontSize {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [themeColor, setThemeColorState] = useState<ThemeKey>(getInitialThemeColor)
   const [colorMode, setColorModeState] = useState<ColorModeSetting>(getInitialColorMode)
   const [fontSize, setFontSizeState] = useState<FontSize>(getInitialFontSize)
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => {
@@ -53,6 +66,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
     return colorMode
   }, [colorMode, systemPrefersDark])
+
+  const setThemeColor = (color: ThemeKey) => {
+    setThemeColorState(color)
+    localStorage.setItem(THEME_COLOR_STORAGE_KEY, color)
+  }
 
   const setColorMode = (mode: ColorModeSetting) => {
     setColorModeState(mode)
@@ -74,7 +92,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Apply theme colors to CSS variables
   useEffect(() => {
-    const accent = ACCENT_COLOR
+    const activeTheme = themes[themeColor] ?? themes[DEFAULT_THEME]
+    const accent = activeTheme.accent
     const palette = basePalettes[resolvedColorMode]
 
     // Mix accent into bg/card/surface for subtle tinting
@@ -122,7 +141,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       color: bgTint,
       symbolColor: palette.text
     })
-  }, [resolvedColorMode])
+  }, [resolvedColorMode, themeColor])
 
   // Listen for system theme changes from electron
   useEffect(() => {
@@ -150,6 +169,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider value={{
+      themeColor,
+      setThemeColor,
       colorMode,
       setColorMode,
       resolvedColorMode,
@@ -168,3 +189,5 @@ export function useTheme() {
   }
   return context
 }
+
+export { themes, type ThemeKey }

@@ -15,16 +15,41 @@ export interface Translations {
     addNotebook: string
     collapse: string
     expand: string
+    trash: string
+  }
+  trash: {
+    title: string
+    empty: string
+    emptyTrash: string
+    emptyConfirmTitle: string
+    emptyConfirmMessage: string
+    restore: string
+    permanentDelete: string
+    deleteConfirmTitle: string
+    deleteConfirmMessage: string
+    daysRemaining: string
   }
   noteList: {
     empty: string
     newNote: string
     untitled: string
     noContent: string
+    search: string
+    searchPlaceholder: string
+    noResults: string
+    pin: string
+    unpin: string
+    favorite: string
+    unfavorite: string
+    delete: string
+    noteCount: string
+    notesCount: string
   }
   editor: {
     selectNote: string
     createNew: string
+    or: string
+    createNewNote: string
     titlePlaceholder: string
     contentPlaceholder: string
   }
@@ -48,6 +73,8 @@ export interface Translations {
     appearance: string
     language: string
     languageDesc: string
+    themeColor: string
+    themeColorDesc: string
     theme: string
     themeDesc: string
     fontSize: string
@@ -60,6 +87,13 @@ export interface Translations {
     fontSizeLarge: string
     fontSizeExtraLarge: string
   }
+  notebook: {
+    selectIcon: string
+    name: string
+    namePlaceholder: string
+    deleteConfirmTitle: string
+    deleteConfirmMessage: string
+  }
   actions: {
     add: string
     cancel: string
@@ -71,6 +105,8 @@ export interface Translations {
   date: {
     today: string
     yesterday: string
+    dayBeforeYesterday: string
+    daysAgo: string
   }
   typewriter: {
     sound: string
@@ -98,6 +134,19 @@ export interface Translations {
     ambientFire: string
     ambientForest: string
   }
+  common: {
+    loading: string
+  }
+  noteLink: {
+    create: string
+    noResults: string
+    searchHeadingHint: string
+    searchBlockHint: string
+  }
+  emoji: {
+    loading: string
+    noResults: string
+  }
 }
 
 const zh: Translations = {
@@ -113,17 +162,42 @@ const zh: Translations = {
     notebooks: '笔记本',
     addNotebook: '新建笔记本',
     collapse: '收起侧栏',
-    expand: '展开侧栏'
+    expand: '展开侧栏',
+    trash: '回收站'
+  },
+  trash: {
+    title: '回收站',
+    empty: '回收站是空的',
+    emptyTrash: '清空回收站',
+    emptyConfirmTitle: '清空回收站',
+    emptyConfirmMessage: '确定要清空回收站吗？所有笔记将被永久删除，此操作无法撤销。',
+    restore: '恢复',
+    permanentDelete: '永久删除',
+    deleteConfirmTitle: '永久删除',
+    deleteConfirmMessage: '确定要永久删除「{name}」吗？此操作无法撤销。',
+    daysRemaining: '{n} 天后自动删除'
   },
   noteList: {
     empty: '暂无笔记',
     newNote: '新建笔记',
     untitled: '无标题',
-    noContent: '暂无内容'
+    noContent: '暂无内容',
+    search: '搜索',
+    searchPlaceholder: '搜索笔记...',
+    noResults: '无搜索结果',
+    pin: '置顶',
+    unpin: '取消置顶',
+    favorite: '收藏',
+    unfavorite: '取消收藏',
+    delete: '删除',
+    noteCount: '{n} 篇笔记',
+    notesCount: '{n} 篇笔记'
   },
   editor: {
     selectNote: '选择一篇笔记开始编辑',
     createNew: '或创建新笔记',
+    or: '或',
+    createNewNote: '创建新笔记',
     titlePlaceholder: '无标题',
     contentPlaceholder: '开始输入...'
   },
@@ -147,8 +221,10 @@ const zh: Translations = {
     appearance: '外观',
     language: '语言',
     languageDesc: '选择界面显示语言',
-    theme: '主题',
-    themeDesc: '选择界面主题模式',
+    themeColor: '主题色',
+    themeColorDesc: '选择界面主题颜色',
+    theme: '外观模式',
+    themeDesc: '选择浅色或深色模式',
     fontSize: '字号',
     fontSizeDesc: '调整界面字体大小',
     light: '浅色',
@@ -158,6 +234,13 @@ const zh: Translations = {
     fontSizeNormal: '标准',
     fontSizeLarge: '大',
     fontSizeExtraLarge: '特大'
+  },
+  notebook: {
+    selectIcon: '图标',
+    name: '名称',
+    namePlaceholder: '笔记本名称',
+    deleteConfirmTitle: '删除笔记本',
+    deleteConfirmMessage: '确定要删除「{name}」吗？该笔记本下的所有笔记都会被删除，此操作无法撤销。'
   },
   actions: {
     add: '添加',
@@ -169,7 +252,9 @@ const zh: Translations = {
   },
   date: {
     today: '今天',
-    yesterday: '昨天'
+    yesterday: '昨天',
+    dayBeforeYesterday: '前天',
+    daysAgo: '{n}天前'
   },
   typewriter: {
     sound: '音效',
@@ -194,6 +279,19 @@ const zh: Translations = {
     ambientWaves: '海浪',
     ambientFire: '壁炉',
     ambientForest: '森林'
+  },
+  common: {
+    loading: '加载中...'
+  },
+  noteLink: {
+    create: '创建「{name}」',
+    noResults: '没有找到匹配项',
+    searchHeadingHint: '在「{name}」中搜索标题',
+    searchBlockHint: '在「{name}」中搜索段落'
+  },
+  emoji: {
+    loading: '加载中...',
+    noResults: '没有找到表情'
   }
 }
 
@@ -210,17 +308,42 @@ const en: Translations = {
     notebooks: 'Notebooks',
     addNotebook: 'New Notebook',
     collapse: 'Collapse Sidebar',
-    expand: 'Expand Sidebar'
+    expand: 'Expand Sidebar',
+    trash: 'Trash'
+  },
+  trash: {
+    title: 'Trash',
+    empty: 'Trash is empty',
+    emptyTrash: 'Empty Trash',
+    emptyConfirmTitle: 'Empty Trash',
+    emptyConfirmMessage: 'Are you sure you want to empty the trash? All notes will be permanently deleted. This action cannot be undone.',
+    restore: 'Restore',
+    permanentDelete: 'Delete Permanently',
+    deleteConfirmTitle: 'Delete Permanently',
+    deleteConfirmMessage: 'Are you sure you want to permanently delete "{name}"? This action cannot be undone.',
+    daysRemaining: 'Auto-delete in {n} days'
   },
   noteList: {
     empty: 'No notes yet',
     newNote: 'New Note',
     untitled: 'Untitled',
-    noContent: 'No content'
+    noContent: 'No content',
+    search: 'Search',
+    searchPlaceholder: 'Search notes...',
+    noResults: 'No results found',
+    pin: 'Pin to Top',
+    unpin: 'Unpin',
+    favorite: 'Favorite',
+    unfavorite: 'Unfavorite',
+    delete: 'Delete',
+    noteCount: '{n} note',
+    notesCount: '{n} notes'
   },
   editor: {
     selectNote: 'Select a note to start editing',
     createNew: 'or create a new one',
+    or: 'or',
+    createNewNote: 'Create a New Note',
     titlePlaceholder: 'Untitled',
     contentPlaceholder: 'Start typing...'
   },
@@ -244,8 +367,10 @@ const en: Translations = {
     appearance: 'Appearance',
     language: 'Language',
     languageDesc: 'Choose display language',
-    theme: 'Theme',
-    themeDesc: 'Choose theme mode',
+    themeColor: 'Theme Color',
+    themeColorDesc: 'Choose accent color',
+    theme: 'Appearance',
+    themeDesc: 'Choose light or dark mode',
     fontSize: 'Font Size',
     fontSizeDesc: 'Adjust interface font size',
     light: 'Light',
@@ -255,6 +380,13 @@ const en: Translations = {
     fontSizeNormal: 'Normal',
     fontSizeLarge: 'Large',
     fontSizeExtraLarge: 'Extra Large'
+  },
+  notebook: {
+    selectIcon: 'Icon',
+    name: 'Name',
+    namePlaceholder: 'Notebook name',
+    deleteConfirmTitle: 'Delete Notebook',
+    deleteConfirmMessage: 'Are you sure you want to delete "{name}"? All notes in this notebook will be deleted. This action cannot be undone.'
   },
   actions: {
     add: 'Add',
@@ -266,7 +398,9 @@ const en: Translations = {
   },
   date: {
     today: 'Today',
-    yesterday: 'Yesterday'
+    yesterday: 'Yesterday',
+    dayBeforeYesterday: '2 days ago',
+    daysAgo: '{n} days ago'
   },
   typewriter: {
     sound: 'Sound',
@@ -291,6 +425,19 @@ const en: Translations = {
     ambientWaves: 'Waves',
     ambientFire: 'Fireplace',
     ambientForest: 'Forest'
+  },
+  common: {
+    loading: 'Loading...'
+  },
+  noteLink: {
+    create: 'Create "{name}"',
+    noResults: 'No matches found',
+    searchHeadingHint: 'Search headings in "{name}"',
+    searchBlockHint: 'Search blocks in "{name}"'
+  },
+  emoji: {
+    loading: 'Loading...',
+    noResults: 'No emoji found'
   }
 }
 

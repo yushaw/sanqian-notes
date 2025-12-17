@@ -1,5 +1,17 @@
 // Theme color configuration
 
+export const themes = {
+  coral: { accent: '#FB7185' },
+  blush: { accent: '#F472B6' },
+  sunset: { accent: '#FB923C' },
+  amber: { accent: '#FBBF24' },
+  emerald: { accent: '#34D399' },
+  cyan: { accent: '#22D3EE' },
+  cobalt: { accent: '#2563EB' },
+  indigo: { accent: '#8B5CF6' },
+  magenta: { accent: '#C084FC' },
+} as const
+
 export const basePalettes = {
   light: {
     bg: '#F5F5F7',
@@ -13,7 +25,7 @@ export const basePalettes = {
   },
   dark: {
     bg: '#1a1a1a',
-    card: '#242424',
+    card: '#1F1F1F',
     surface: '#2d2d2d',
     border: '#333333',
     divider: '#333333',
@@ -23,7 +35,8 @@ export const basePalettes = {
   },
 } as const
 
-// Accent color - using a calm blue
-export const ACCENT_COLOR = '#3B82F6'
+export type ThemeKey = keyof typeof themes
+export const DEFAULT_THEME: ThemeKey = 'cobalt'
 
 export const STORAGE_KEY = 'sanqian-notes-color-mode'
+export const THEME_COLOR_STORAGE_KEY = 'sanqian-notes-theme-color'

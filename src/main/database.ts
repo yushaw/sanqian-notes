@@ -3,9 +3,11 @@ import { app } from 'electron'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
+// Constants
+export const TRASH_RETENTION_DAYS = 30
+
 let db: Database.Database
 
-const DEFAULT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899']
 
 export function initDatabase(): void {
   const dbPath = join(app.getPath('userData'), 'notes.db')
@@ -25,7 +27,7 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS notebooks (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      color TEXT NOT NULL,
+      icon TEXT DEFAULT 'logo:notes',
       order_index INTEGER NOT NULL,
       created_at TEXT NOT NULL
     );
@@ -78,33 +80,67 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_note_tags_tag_id ON note_tags(tag_id);
     CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(source_note_id);
     CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
-
-    -- Full-text search for notes
-    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-      title,
-      content,
-      content='notes',
-      content_rowid='rowid'
-    );
-
-    -- Triggers to keep FTS in sync
-    CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
-      INSERT INTO notes_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
-      INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
-      INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
-      INSERT INTO notes_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
-    END;
   `)
 
   // Create demo note for new databases
   if (isNewDb) {
     createDemoNote()
+  }
+
+  // Clean up FTS tables if they exist (no longer used, LIKE search is better for CJK)
+  cleanupFtsTables()
+
+  // Run migrations
+  runMigrations()
+}
+
+function cleanupFtsTables(): void {
+  // Remove FTS tables and triggers if they exist
+  const ftsExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='notes_fts'"
+  ).get()
+
+  if (ftsExists) {
+    console.log('Removing unused FTS tables...')
+    db.exec(`
+      DROP TRIGGER IF EXISTS notes_ai;
+      DROP TRIGGER IF EXISTS notes_ad;
+      DROP TRIGGER IF EXISTS notes_au;
+      DROP TABLE IF EXISTS notes_fts;
+    `)
+    console.log('FTS cleanup completed.')
+  }
+}
+
+function runMigrations(): void {
+  // Migration: Add is_pinned column to notes table
+  const noteColumns = db.prepare("PRAGMA table_info(notes)").all() as { name: string }[]
+  const hasIsPinned = noteColumns.some(col => col.name === 'is_pinned')
+
+  if (!hasIsPinned) {
+    console.log('Adding is_pinned column to notes table...')
+    db.exec('ALTER TABLE notes ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0')
+    console.log('Migration completed: is_pinned column added.')
+  }
+
+  // Migration: Remove color column and add icon column to notebooks table
+  const notebookColumns = db.prepare("PRAGMA table_info(notebooks)").all() as { name: string }[]
+  const hasIcon = notebookColumns.some(col => col.name === 'icon')
+
+  if (!hasIcon) {
+    console.log('Adding icon column to notebooks table...')
+    db.exec("ALTER TABLE notebooks ADD COLUMN icon TEXT DEFAULT 'logo:notes'")
+    console.log('Migration completed: icon column added.')
+  }
+
+  // Migration: Add deleted_at column to notes table (soft delete / trash)
+  const hasDeletedAt = noteColumns.some(col => col.name === 'deleted_at')
+
+  if (!hasDeletedAt) {
+    console.log('Adding deleted_at column to notes table...')
+    db.exec('ALTER TABLE notes ADD COLUMN deleted_at TEXT DEFAULT NULL')
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notes_deleted_at ON notes(deleted_at)')
+    console.log('Migration completed: deleted_at column added.')
   }
 }
 
@@ -550,13 +586,13 @@ export function createDemoNotes(): void {
 
   // 插入三个笔记
   const insertStmt = db.prepare(`
-    INSERT INTO notes (id, title, content, notebook_id, is_daily, daily_date, is_favorite, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notes (id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
-  insertStmt.run(note1Id, '欢迎使用三千笔记', JSON.stringify(mainContent), null, 0, null, 0, now, now)
-  insertStmt.run(note2Id, 'Markdown 语法参考', JSON.stringify(markdownContent), null, 0, null, 0, now, now)
-  insertStmt.run(note3Id, '快捷键速查表', JSON.stringify(shortcutsContent), null, 0, null, 0, now, now)
+  insertStmt.run(note1Id, '欢迎使用三千笔记', JSON.stringify(mainContent), null, 0, null, 0, 0, now, now)
+  insertStmt.run(note2Id, 'Markdown 语法参考', JSON.stringify(markdownContent), null, 0, null, 0, 0, now, now)
+  insertStmt.run(note3Id, '快捷键速查表', JSON.stringify(shortcutsContent), null, 0, null, 0, 0, now, now)
 }
 
 // 保留旧函数名作为别名，保持兼容
@@ -573,6 +609,7 @@ export interface NoteInput {
   is_daily?: boolean
   daily_date?: string | null
   is_favorite?: boolean
+  is_pinned?: boolean
 }
 
 export interface Note {
@@ -583,15 +620,18 @@ export interface Note {
   is_daily: boolean
   daily_date: string | null
   is_favorite: boolean
+  is_pinned: boolean
   created_at: string
   updated_at: string
+  deleted_at: string | null
 }
 
 export function getNotes(): Note[] {
   const stmt = db.prepare(`
-    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, created_at, updated_at
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
     FROM notes
-    ORDER BY updated_at DESC
+    WHERE deleted_at IS NULL
+    ORDER BY is_pinned DESC, updated_at DESC
   `)
   return stmt.all().map(row => {
     const r = row as Record<string, unknown>
@@ -599,13 +639,14 @@ export function getNotes(): Note[] {
       ...r,
       is_daily: Boolean(r.is_daily),
       is_favorite: Boolean(r.is_favorite),
+      is_pinned: Boolean(r.is_pinned),
     } as Note
   })
 }
 
 export function getNoteById(id: string): Note | null {
   const stmt = db.prepare(`
-    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, created_at, updated_at
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
     FROM notes
     WHERE id = ?
   `)
@@ -615,6 +656,7 @@ export function getNoteById(id: string): Note | null {
     ...row,
     is_daily: Boolean(row.is_daily),
     is_favorite: Boolean(row.is_favorite),
+    is_pinned: Boolean(row.is_pinned),
   }
 }
 
@@ -623,8 +665,8 @@ export function addNote(input: NoteInput): Note {
   const now = new Date().toISOString()
 
   const stmt = db.prepare(`
-    INSERT INTO notes (id, title, content, notebook_id, is_daily, daily_date, is_favorite, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notes (id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   stmt.run(
@@ -635,6 +677,7 @@ export function addNote(input: NoteInput): Note {
     input.is_daily ? 1 : 0,
     input.daily_date ?? null,
     input.is_favorite ? 1 : 0,
+    input.is_pinned ? 1 : 0,
     now,
     now
   )
@@ -649,7 +692,7 @@ export function updateNote(id: string, updates: Partial<NoteInput>): Note | null
   const now = new Date().toISOString()
   const stmt = db.prepare(`
     UPDATE notes
-    SET title = ?, content = ?, notebook_id = ?, is_daily = ?, daily_date = ?, is_favorite = ?, updated_at = ?
+    SET title = ?, content = ?, notebook_id = ?, is_daily = ?, daily_date = ?, is_favorite = ?, is_pinned = ?, updated_at = ?
     WHERE id = ?
   `)
 
@@ -660,6 +703,7 @@ export function updateNote(id: string, updates: Partial<NoteInput>): Note | null
     updates.is_daily !== undefined ? (updates.is_daily ? 1 : 0) : (existing.is_daily ? 1 : 0),
     updates.daily_date !== undefined ? updates.daily_date : existing.daily_date,
     updates.is_favorite !== undefined ? (updates.is_favorite ? 1 : 0) : (existing.is_favorite ? 1 : 0),
+    updates.is_pinned !== undefined ? (updates.is_pinned ? 1 : 0) : (existing.is_pinned ? 1 : 0),
     now,
     id
   )
@@ -667,26 +711,88 @@ export function updateNote(id: string, updates: Partial<NoteInput>): Note | null
   return getNoteById(id)
 }
 
+// Soft delete - move to trash
 export function deleteNote(id: string): boolean {
-  const stmt = db.prepare('DELETE FROM notes WHERE id = ?')
-  const result = stmt.run(id)
+  const now = new Date().toISOString()
+  const stmt = db.prepare('UPDATE notes SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
+  const result = stmt.run(now, id)
   return result.changes > 0
 }
 
-export function searchNotes(query: string): Note[] {
+// ============ Trash (回收站) ============
+
+// Get all notes in trash
+export function getTrashNotes(): Note[] {
   const stmt = db.prepare(`
-    SELECT n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date, n.is_favorite, n.created_at, n.updated_at
-    FROM notes n
-    JOIN notes_fts ON notes_fts.rowid = n.rowid
-    WHERE notes_fts MATCH ?
-    ORDER BY rank
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    FROM notes
+    WHERE deleted_at IS NOT NULL
+    ORDER BY deleted_at DESC
   `)
-  return stmt.all(query).map(row => {
+  return stmt.all().map(row => {
     const r = row as Record<string, unknown>
     return {
       ...r,
       is_daily: Boolean(r.is_daily),
       is_favorite: Boolean(r.is_favorite),
+      is_pinned: Boolean(r.is_pinned),
+    } as Note
+  })
+}
+
+// Restore note from trash
+export function restoreNote(id: string): boolean {
+  const stmt = db.prepare('UPDATE notes SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL')
+  const result = stmt.run(id)
+  return result.changes > 0
+}
+
+// Permanently delete note
+export function permanentlyDeleteNote(id: string): boolean {
+  const stmt = db.prepare('DELETE FROM notes WHERE id = ?')
+  const result = stmt.run(id)
+  return result.changes > 0
+}
+
+// Empty trash (delete all notes in trash)
+export function emptyTrash(): number {
+  const stmt = db.prepare('DELETE FROM notes WHERE deleted_at IS NOT NULL')
+  const result = stmt.run()
+  return result.changes
+}
+
+// Auto cleanup: delete notes that have been in trash for more than TRASH_RETENTION_DAYS
+export function cleanupOldTrash(): number {
+  const cutoffDate = new Date()
+  cutoffDate.setDate(cutoffDate.getDate() - TRASH_RETENTION_DAYS)
+
+  const stmt = db.prepare('DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < ?')
+  const result = stmt.run(cutoffDate.toISOString())
+  return result.changes
+}
+
+export function searchNotes(query: string): Note[] {
+  if (!query.trim()) return []
+
+  // Use LIKE search for better CJK support
+  // FTS5's built-in tokenizers don't handle Chinese well
+  const escaped = query.trim().replace(/%/g, '\\%').replace(/_/g, '\\_')
+  const likeQuery = `%${escaped}%`
+
+  const stmt = db.prepare(`
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    FROM notes
+    WHERE deleted_at IS NULL AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
+    ORDER BY is_pinned DESC, updated_at DESC
+  `)
+
+  return stmt.all(likeQuery, likeQuery).map(row => {
+    const r = row as Record<string, unknown>
+    return {
+      ...r,
+      is_daily: Boolean(r.is_daily),
+      is_favorite: Boolean(r.is_favorite),
+      is_pinned: Boolean(r.is_pinned),
     } as Note
   })
 }
@@ -695,13 +801,13 @@ export function searchNotes(query: string): Note[] {
 
 export interface NotebookInput {
   name: string
-  color?: string
+  icon?: string
 }
 
 export interface Notebook {
   id: string
   name: string
-  color: string
+  icon?: string
   order_index: number
   created_at: string
 }
@@ -720,20 +826,19 @@ export function addNotebook(input: NotebookInput): Notebook {
   const maxResult = maxStmt.get() as { max: number | null }
   const orderIndex = (maxResult.max ?? -1) + 1
 
-  // Pick color from defaults
-  const color = input.color ?? DEFAULT_COLORS[orderIndex % DEFAULT_COLORS.length]
+  const icon = input.icon ?? 'logo:notes'
 
   const stmt = db.prepare(`
-    INSERT INTO notebooks (id, name, color, order_index, created_at)
+    INSERT INTO notebooks (id, name, icon, order_index, created_at)
     VALUES (?, ?, ?, ?, ?)
   `)
 
-  stmt.run(id, input.name, color, orderIndex, now)
+  stmt.run(id, input.name, icon, orderIndex, now)
 
   return {
     id,
     name: input.name,
-    color,
+    icon,
     order_index: orderIndex,
     created_at: now,
   }
@@ -745,12 +850,12 @@ export function updateNotebook(id: string, updates: Partial<NotebookInput>): Not
   if (!existing) return null
 
   const updateStmt = db.prepare(`
-    UPDATE notebooks SET name = ?, color = ? WHERE id = ?
+    UPDATE notebooks SET name = ?, icon = ? WHERE id = ?
   `)
 
   updateStmt.run(
     updates.name ?? existing.name,
-    updates.color ?? existing.color,
+    updates.icon ?? existing.icon,
     id
   )
 
@@ -822,7 +927,7 @@ export function getBacklinks(noteId: string): Note[] {
   const stmt = db.prepare(`
     SELECT n.* FROM notes n
     JOIN note_links nl ON nl.source_note_id = n.id
-    WHERE nl.target_note_id = ?
+    WHERE nl.target_note_id = ? AND n.deleted_at IS NULL
     ORDER BY n.updated_at DESC
   `)
   return stmt.all(noteId).map(row => {
@@ -831,6 +936,7 @@ export function getBacklinks(noteId: string): Note[] {
       ...r,
       is_daily: Boolean(r.is_daily),
       is_favorite: Boolean(r.is_favorite),
+      is_pinned: Boolean(r.is_pinned),
     } as Note
   })
 }
@@ -839,7 +945,7 @@ export function getOutgoingLinks(noteId: string): Note[] {
   const stmt = db.prepare(`
     SELECT n.* FROM notes n
     JOIN note_links nl ON nl.target_note_id = n.id
-    WHERE nl.source_note_id = ?
+    WHERE nl.source_note_id = ? AND n.deleted_at IS NULL
     ORDER BY n.updated_at DESC
   `)
   return stmt.all(noteId).map(row => {
@@ -848,6 +954,7 @@ export function getOutgoingLinks(noteId: string): Note[] {
       ...r,
       is_daily: Boolean(r.is_daily),
       is_favorite: Boolean(r.is_favorite),
+      is_pinned: Boolean(r.is_pinned),
     } as Note
   })
 }

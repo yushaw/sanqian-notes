@@ -1,5 +1,18 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useI18n } from '../i18n'
-import { useTheme } from '../theme'
+import type { Language } from '../i18n'
+import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting } from '../theme'
+
+const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emerald', 'cyan', 'cobalt', 'indigo', 'magenta']
+
+type SettingsTab = 'general' | 'appearance'
+
+// Resizable modal constants
+const STORAGE_KEY = 'sanqian-notes-settings-size'
+const MIN_WIDTH = 420
+const MIN_HEIGHT = 320
+const DEFAULT_RATIO = 0.7
 
 interface SettingsProps {
   onClose: () => void
@@ -7,147 +20,335 @@ interface SettingsProps {
 
 export function Settings({ onClose }: SettingsProps) {
   const { language, setLanguage, t } = useI18n()
-  const { colorMode, setColorMode, fontSize, setFontSize } = useTheme()
+  const { themeColor, setThemeColor, colorMode, setColorMode, fontSize, setFontSize } = useTheme()
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in">
+  // Resizable modal state
+  const getSavedRatio = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const { widthRatio, heightRatio } = JSON.parse(saved)
+        if (typeof widthRatio === 'number' && typeof heightRatio === 'number') {
+          return {
+            widthRatio: Math.min(0.95, Math.max(0.3, widthRatio)),
+            heightRatio: Math.min(0.95, Math.max(0.3, heightRatio))
+          }
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+    return { widthRatio: DEFAULT_RATIO, heightRatio: DEFAULT_RATIO }
+  }, [])
+
+  const ratioToSize = useCallback((ratio: { widthRatio: number; heightRatio: number }) => {
+    return {
+      width: Math.max(MIN_WIDTH, window.innerWidth * ratio.widthRatio),
+      height: Math.max(MIN_HEIGHT, window.innerHeight * ratio.heightRatio)
+    }
+  }, [])
+
+  const [modalSize, setModalSize] = useState(() => ratioToSize(getSavedRatio()))
+  const [isResizing, setIsResizing] = useState<string | null>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+  const resizeSizeRef = useRef(modalSize)
+
+  // Update modal size when opening or window resizes
+  useEffect(() => {
+    const updateSize = () => {
+      setModalSize(ratioToSize(getSavedRatio()))
+    }
+
+    updateSize()
+    window.addEventListener('resize', updateSize)
+    return () => window.removeEventListener('resize', updateSize)
+  }, [getSavedRatio, ratioToSize])
+
+  // ESC key to close
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  // Handle resize
+  const handleMouseDown = useCallback((direction: string) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsResizing(direction)
+  }, [])
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!modalRef.current) return
+
+      const rect = modalRef.current.getBoundingClientRect()
+      const centerX = rect.left + rect.width / 2
+      const centerY = rect.top + rect.height / 2
+
+      const maxWidth = window.innerWidth * 0.95
+      const maxHeight = window.innerHeight * 0.95
+
+      let newWidth = modalSize.width
+      let newHeight = modalSize.height
+
+      if (isResizing.includes('e')) {
+        newWidth = Math.min(maxWidth, Math.max(MIN_WIDTH, (e.clientX - centerX) * 2))
+      }
+      if (isResizing.includes('w')) {
+        newWidth = Math.min(maxWidth, Math.max(MIN_WIDTH, (centerX - e.clientX) * 2))
+      }
+      if (isResizing.includes('s')) {
+        newHeight = Math.min(maxHeight, Math.max(MIN_HEIGHT, (e.clientY - centerY) * 2))
+      }
+      if (isResizing.includes('n')) {
+        newHeight = Math.min(maxHeight, Math.max(MIN_HEIGHT, (centerY - e.clientY) * 2))
+      }
+
+      const newSize = { width: newWidth, height: newHeight }
+      resizeSizeRef.current = newSize
+      setModalSize(newSize)
+    }
+
+    const handleMouseUp = () => {
+      const size = resizeSizeRef.current
+      const ratio = {
+        widthRatio: size.width / window.innerWidth,
+        heightRatio: size.height / window.innerHeight
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(ratio))
+      setIsResizing(null)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing, modalSize])
+
+  const tabs: Array<{ key: SettingsTab; label: string }> = [
+    { key: 'general', label: t.settings.general },
+    { key: 'appearance', label: t.settings.appearance },
+  ]
+
+  return createPortal(
+    <>
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[1000]"
         onClick={onClose}
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-md bg-[var(--color-card)] rounded-xl shadow-[var(--shadow-elevated)] overflow-hidden animate-fade-in-up">
+      <div
+        ref={modalRef}
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--color-card)] border border-black/5 dark:border-white/10 rounded-2xl shadow-[var(--shadow-elevated)] z-[1001] overflow-hidden flex flex-col no-drag"
+        style={{
+          width: modalSize.width,
+          height: modalSize.height,
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
-          <h2 className="text-[15px] font-semibold text-[var(--color-text)]">{t.settings.title}</h2>
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 flex-shrink-0">
+          <h2 className="text-lg font-semibold text-[var(--color-text)]">{t.settings.title}</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-all duration-150"
+            className="p-1.5 rounded-lg text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
             </svg>
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-5 space-y-5">
-          {/* Language */}
-          <div>
-            <label className="block text-[13px] font-medium text-[var(--color-text)] mb-1">
-              {t.settings.language}
-            </label>
-            <p className="text-[12px] text-[var(--color-muted)] mb-2">{t.settings.languageDesc}</p>
-            <div className="flex gap-2">
-              <SettingButton
-                active={language === 'system'}
-                onClick={() => setLanguage('system')}
+        <div className="flex flex-1 min-h-0 relative z-30">
+          {/* Left Tabs */}
+          <div className="w-28 flex-shrink-0 border-r border-black/5 dark:border-white/10 px-2 pb-5">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`
+                  w-full px-3 py-2 rounded-lg text-sm text-left transition-all mb-1
+                  ${activeTab === tab.key
+                    ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)] font-medium'
+                    : 'text-[var(--color-text)]/70 hover:bg-black/5 dark:hover:bg-white/5'
+                  }
+                `}
               >
-                {t.settings.system}
-              </SettingButton>
-              <SettingButton
-                active={language === 'zh'}
-                onClick={() => setLanguage('zh')}
-              >
-                中文
-              </SettingButton>
-              <SettingButton
-                active={language === 'en'}
-                onClick={() => setLanguage('en')}
-              >
-                English
-              </SettingButton>
-            </div>
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Theme */}
-          <div>
-            <label className="block text-[13px] font-medium text-[var(--color-text)] mb-1">
-              {t.settings.theme}
-            </label>
-            <p className="text-[12px] text-[var(--color-muted)] mb-2">{t.settings.themeDesc}</p>
-            <div className="flex gap-2">
-              <SettingButton
-                active={colorMode === 'system'}
-                onClick={() => setColorMode('system')}
-              >
-                {t.settings.system}
-              </SettingButton>
-              <SettingButton
-                active={colorMode === 'light'}
-                onClick={() => setColorMode('light')}
-              >
-                {t.settings.light}
-              </SettingButton>
-              <SettingButton
-                active={colorMode === 'dark'}
-                onClick={() => setColorMode('dark')}
-              >
-                {t.settings.dark}
-              </SettingButton>
-            </div>
-          </div>
+          {/* Right Content */}
+          <div className="flex-1 px-5 py-2 overflow-y-auto">
+            {/* General Tab */}
+            {activeTab === 'general' && (
+              <div className="space-y-5">
+                {/* Language */}
+                <div>
+                  <h4 className="text-sm font-medium text-[var(--color-text)] mb-1">
+                    {t.settings.language}
+                  </h4>
+                  <p className="text-xs text-[var(--color-muted)] mb-3">{t.settings.languageDesc}</p>
+                  <div className="flex gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl">
+                    {(['zh', 'en', 'system'] as Language[]).map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => setLanguage(lang)}
+                        className={`
+                          flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all
+                          ${language === lang
+                            ? 'bg-white dark:bg-white/15 text-[var(--color-text)] shadow-sm'
+                            : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                          }
+                        `}
+                      >
+                        {lang === 'zh' ? '中文' : lang === 'en' ? 'English' : t.settings.system}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
-          {/* Font Size */}
-          <div>
-            <label className="block text-[13px] font-medium text-[var(--color-text)] mb-1">
-              {t.settings.fontSize}
-            </label>
-            <p className="text-[12px] text-[var(--color-muted)] mb-2">{t.settings.fontSizeDesc}</p>
-            <div className="flex gap-2">
-              <SettingButton
-                active={fontSize === 'small'}
-                onClick={() => setFontSize('small')}
-              >
-                {t.settings.fontSizeSmall}
-              </SettingButton>
-              <SettingButton
-                active={fontSize === 'normal'}
-                onClick={() => setFontSize('normal')}
-              >
-                {t.settings.fontSizeNormal}
-              </SettingButton>
-              <SettingButton
-                active={fontSize === 'large'}
-                onClick={() => setFontSize('large')}
-              >
-                {t.settings.fontSizeLarge}
-              </SettingButton>
-              <SettingButton
-                active={fontSize === 'extra-large'}
-                onClick={() => setFontSize('extra-large')}
-              >
-                {t.settings.fontSizeExtraLarge}
-              </SettingButton>
-            </div>
+            {/* Appearance Tab */}
+            {activeTab === 'appearance' && (
+              <div className="space-y-5">
+                {/* Theme Color */}
+                <div>
+                  <h4 className="text-sm font-medium text-[var(--color-text)] mb-1">
+                    {t.settings.themeColor}
+                  </h4>
+                  <p className="text-xs text-[var(--color-muted)] mb-3">{t.settings.themeColorDesc}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {themeColorOrder.map((key) => (
+                      <button
+                        key={key}
+                        onClick={() => setThemeColor(key)}
+                        className={`
+                          w-5 h-5 rounded-full transition-all
+                          ${themeColor === key
+                            ? 'ring-2 ring-offset-1 ring-offset-[var(--color-card)] ring-[var(--color-text)]/30 scale-110'
+                            : 'hover:scale-105'
+                          }
+                        `}
+                        style={{ backgroundColor: themes[key].accent }}
+                        title={key}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Theme Mode */}
+                <div>
+                  <h4 className="text-sm font-medium text-[var(--color-text)] mb-1">
+                    {t.settings.theme}
+                  </h4>
+                  <p className="text-xs text-[var(--color-muted)] mb-3">{t.settings.themeDesc}</p>
+                  <div className="flex gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl">
+                    {([
+                      {
+                        key: 'light', label: t.settings.light, icon: (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="5" />
+                            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                          </svg>
+                        )
+                      },
+                      {
+                        key: 'dark', label: t.settings.dark, icon: (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                          </svg>
+                        )
+                      },
+                      {
+                        key: 'system', label: t.settings.system, icon: (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                            <line x1="8" y1="21" x2="16" y2="21" />
+                            <line x1="12" y1="17" x2="12" y2="21" />
+                          </svg>
+                        )
+                      },
+                    ] as Array<{ key: ColorModeSetting; label: string; icon: React.ReactNode }>).map((option) => (
+                      <button
+                        key={option.key}
+                        onClick={() => setColorMode(option.key)}
+                        className={`
+                          flex-1 py-2 px-2 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-1.5
+                          ${colorMode === option.key
+                            ? 'bg-white dark:bg-white/15 text-[var(--color-text)] shadow-sm'
+                            : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                          }
+                        `}
+                      >
+                        {option.icon}
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Font Size */}
+                <div>
+                  <h4 className="text-sm font-medium text-[var(--color-text)] mb-1">
+                    {t.settings.fontSize}
+                  </h4>
+                  <p className="text-xs text-[var(--color-muted)] mb-3">{t.settings.fontSizeDesc}</p>
+                  <div className="flex gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl">
+                    {([
+                      { key: 'small', label: t.settings.fontSizeSmall },
+                      { key: 'normal', label: t.settings.fontSizeNormal },
+                      { key: 'large', label: t.settings.fontSizeLarge },
+                      { key: 'extra-large', label: t.settings.fontSizeExtraLarge },
+                    ] as Array<{ key: FontSize; label: string }>).map((option) => (
+                      <button
+                        key={option.key}
+                        onClick={() => setFontSize(option.key)}
+                        className={`
+                          flex-1 py-2 px-2 text-sm font-medium rounded-lg transition-all
+                          ${fontSize === option.key
+                            ? 'bg-white dark:bg-white/15 text-[var(--color-text)] shadow-sm'
+                            : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                          }
+                        `}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
-    </div>
-  )
-}
 
-function SettingButton({
-  children,
-  active,
-  onClick
-}: {
-  children: React.ReactNode
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-md text-[13px] transition-all duration-150 ${
-        active
-          ? 'bg-[var(--color-accent)] text-white'
-          : 'bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
-      }`}
-    >
-      {children}
-    </button>
+        {/* Resize handles */}
+        {/* Edges */}
+        <div className="absolute top-0 left-2 right-2 h-1 cursor-n-resize z-10" onMouseDown={handleMouseDown('n')} />
+        <div className="absolute bottom-0 left-2 right-2 h-1 cursor-s-resize z-10" onMouseDown={handleMouseDown('s')} />
+        <div className="absolute left-0 top-2 bottom-2 w-1 cursor-w-resize z-10" onMouseDown={handleMouseDown('w')} />
+        <div className="absolute right-0 top-2 bottom-2 w-1 cursor-e-resize z-10" onMouseDown={handleMouseDown('e')} />
+        {/* Corners */}
+        <div className="absolute top-0 left-0 w-3 h-3 cursor-nw-resize z-20" onMouseDown={handleMouseDown('nw')} />
+        <div className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize z-20" onMouseDown={handleMouseDown('ne')} />
+        <div className="absolute bottom-0 left-0 w-3 h-3 cursor-sw-resize z-20" onMouseDown={handleMouseDown('sw')} />
+        <div className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize z-20" onMouseDown={handleMouseDown('se')} />
+      </div>
+    </>,
+    document.body
   )
 }

@@ -11,6 +11,13 @@ contextBridge.exposeInMainWorld('electron', {
     search: (query: string) => ipcRenderer.invoke('note:search', query),
     createDemo: () => ipcRenderer.invoke('note:createDemo'),
   },
+  trash: {
+    getAll: () => ipcRenderer.invoke('trash:getAll'),
+    restore: (id: string) => ipcRenderer.invoke('trash:restore', id),
+    permanentDelete: (id: string) => ipcRenderer.invoke('trash:permanentDelete', id),
+    empty: () => ipcRenderer.invoke('trash:empty'),
+    cleanup: () => ipcRenderer.invoke('trash:cleanup'),
+  },
   notebook: {
     getAll: () => ipcRenderer.invoke('notebook:getAll'),
     add: (notebook: unknown) => ipcRenderer.invoke('notebook:add', notebook),
@@ -33,5 +40,7 @@ contextBridge.exposeInMainWorld('electron', {
   window: {
     setFullScreen: (isFullScreen: boolean) => ipcRenderer.invoke('window:setFullScreen', isFullScreen),
     isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
+    setTitleBarOverlay: (options: { color: string; symbolColor: string }) =>
+      ipcRenderer.invoke('window:setTitleBarOverlay', options),
   },
 })

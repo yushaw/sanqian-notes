@@ -433,7 +433,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // Auto-resize title textarea
   useEffect(() => {
     if (titleRef.current) {
-      titleRef.current.style.height = 'auto'
+      titleRef.current.style.height = '0'
       titleRef.current.style.height = titleRef.current.scrollHeight + 'px'
     }
   }, [title])
@@ -461,7 +461,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     if (!editor || linkStartPos === null) return
 
     const { from } = editor.state.selection
-    const displayText = target?.displayText || selectedNote.title || '无标题'
+    const displayText = target?.displayText || selectedNote.title || t.noteList.untitled
 
     // 如果是 block 链接，需要确保目标 block 有 ID
     let targetValue = target?.value
@@ -478,7 +478,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       .deleteRange({ from: linkStartPos, to: from })
       .setNoteLink({
         noteId: selectedNote.id,
-        noteTitle: selectedNote.title || '无标题',
+        noteTitle: selectedNote.title || t.noteList.untitled,
         targetType: target?.type || 'note',
         targetValue: targetValue,
       })
@@ -704,6 +704,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       ref={editorContainerRef}
       className={`zen-editor-container ${resolvedColorMode}`}
     >
+      {/* Thin drag region at top */}
+      <div className="h-3 flex-shrink-0 drag-region" />
+
       {/* Floating toolbar - appears on hover at bottom */}
       <EditorToolbar
         editor={editor}
@@ -715,8 +718,17 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         showToolbar={showToolbar}
       />
 
-      {/* Scroll wrapper - keeps scrollbar at right edge */}
-      <div ref={contentRef} className="zen-scroll-wrapper">
+      {/* Scroll wrapper - keeps scrollbar at right edge, click to focus editor */}
+      <div
+        ref={contentRef}
+        className="zen-scroll-wrapper"
+        onClick={(e) => {
+          // Click on empty area focuses editor at end
+          if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('zen-content')) {
+            editor?.commands.focus('end')
+          }
+        }}
+      >
         {/* Editor content area */}
         <div className={`zen-content ${isTypewriterMode ? 'typewriter-mode' : ''}`}>
           {/* Title */}
@@ -736,8 +748,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           {/* Word count - subtle */}
           <div className="zen-stats">
             {selectedWordCount !== null
-              ? `${selectedWordCount} / ${countWordsFromEditor(editor)} 字`
-              : `${countWordsFromEditor(editor)} 字`
+              ? `${selectedWordCount} / ${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
+              : `${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
             }
           </div>
         </div>
@@ -769,31 +781,39 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 ) {
   const t = useTranslations()
 
-  if (!note) {
-    return (
-      <div className="zen-empty">
-        <div className="zen-empty-content">
-          <p className="zen-empty-title">{t.editor.selectNote}</p>
-          <p className="zen-empty-subtitle">{t.editor.createNew}</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Use key to force re-mount when note changes
   return (
-    <ZenEditor
-      key={note.id}
-      ref={ref}
-      note={note}
-      notes={notes}
-      onUpdate={onUpdate}
-      onNoteClick={onNoteClick}
-      onCreateNote={onCreateNote}
-      scrollTarget={scrollTarget}
-      onScrollComplete={onScrollComplete}
-      onTypewriterModeToggle={onTypewriterModeToggle}
-    />
+    <div className="flex-1 flex flex-col bg-[var(--color-card-solid)]">
+      {!note ? (
+        <div className="zen-empty">
+          <div className="zen-empty-content">
+            <p className="zen-empty-title">{t.editor.selectNote}</p>
+            <p className="zen-empty-or">{t.editor.or}</p>
+            <button
+              onClick={async () => {
+                const newNote = await onCreateNote('')
+                onNoteClick(newNote.id)
+              }}
+              className="zen-empty-button"
+            >
+              {t.editor.createNewNote}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <ZenEditor
+          key={note.id}
+          ref={ref}
+          note={note}
+          notes={notes}
+          onUpdate={onUpdate}
+          onNoteClick={onNoteClick}
+          onCreateNote={onCreateNote}
+          scrollTarget={scrollTarget}
+          onScrollComplete={onScrollComplete}
+          onTypewriterModeToggle={onTypewriterModeToggle}
+        />
+      )}
+    </div>
   )
 })
 

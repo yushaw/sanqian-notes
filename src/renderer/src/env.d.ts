@@ -10,6 +10,13 @@ interface Window {
       delete: (id: string) => Promise<boolean>
       search: (query: string) => Promise<Note[]>
     }
+    trash: {
+      getAll: () => Promise<Note[]>
+      restore: (id: string) => Promise<boolean>
+      permanentDelete: (id: string) => Promise<boolean>
+      empty: () => Promise<number>
+      cleanup: () => Promise<number>
+    }
     notebook: {
       getAll: () => Promise<Notebook[]>
       add: (notebook: NotebookInput) => Promise<Notebook>
@@ -43,8 +50,10 @@ interface Note {
   is_daily: boolean
   daily_date: string | null
   is_favorite: boolean
+  is_pinned: boolean
   created_at: string
   updated_at: string
+  deleted_at: string | null
 }
 
 interface NoteInput {
@@ -54,19 +63,20 @@ interface NoteInput {
   is_daily?: boolean
   daily_date?: string | null
   is_favorite?: boolean
+  is_pinned?: boolean
 }
 
 interface Notebook {
   id: string
   name: string
-  color: string
+  icon?: string
   order_index: number
   created_at: string
 }
 
 interface NotebookInput {
   name: string
-  color?: string
+  icon?: string
 }
 
 interface Tag {

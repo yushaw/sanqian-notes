@@ -141,3 +141,44 @@ npm run build
   - 中文按字符计数，英文按单词计数，数字按连续数字计数
   - 支持选中文本字数显示（格式：选中/总字数 字）
   - 编辑器和打字机模式统一支持
+
+### 2025-12-18
+- 窗口拖动区域优化
+  - Sidebar 使用 `pt-[50px]` 为 macOS 红绿灯留出空间
+  - NoteList、TrashList 的列表区域添加 `no-drag` 支持正常滚动
+  - Editor 保持原有的 100px 顶部 padding
+  - 优化 Windows 环境下的 titleBarOverlay 样式
+    - 添加 IPC handler 支持动态更新 titleBarOverlay 颜色
+    - ThemeProvider 主题切换时自动同步 titleBarOverlay 背景色和文字色
+- 双向链接样式重设计（禅风格）
+  - 普通笔记链接：细实线下划线，40% 透明度主题色
+  - 标题链接：虚线下划线 (dashed)，暗示锚点定位
+  - Block 链接：点状下划线 (dotted)，暗示段落引用
+  - hover 时统一变为主题色，保持阅读流畅性
+- 中栏笔记列表分隔线优化
+  - 分隔线与内容区域平齐（不再延伸到边缘）
+  - 选中笔记时隐藏上下分隔线
+- 实现回收站功能（软删除）
+  - 数据库添加 `deleted_at` 字段，支持软删除
+  - 删除笔记移入回收站，30 天后自动清理
+  - 侧边栏底部添加回收站入口（设置按钮上方）
+  - 回收站列表支持右键菜单：恢复、永久删除
+  - 清空回收站功能（二次确认）
+  - 多语言支持：中文/英文
+- 中栏顶部显示当前 tab 名称
+  - NoteList 组件添加 `title` prop
+  - 根据当前选中的 Smart View 或笔记本显示对应名称
+  - 过长名称自动截断，hover 显示完整名称
+- UI 字号统一改为 rem 单位，支持字号设置响应
+- 隐藏 Recent 和 Daily Notes 智能视图（暂不使用）
+- 空白笔记自动清理
+  - 切换笔记/视图/笔记本时，自动删除无标题无内容的笔记
+- 代码质量优化
+  - 为异步操作添加 try-catch 错误处理
+  - 修复 handleRestoreNote 闭包陈旧问题
+  - 删除笔记本时同步更新回收站状态
+  - 修复 createDemoNotes() 缺少 is_pinned 字段
+  - 提取重复代码到共享 utils
+    - `utils/dateFormat.ts`: formatRelativeDate 统一日期格式化
+    - `utils/notePreview.ts`: getPreview 统一内容预览提取
+  - 修复 NotebookModal ESC 键与 emoji picker 冲突（先关闭 picker 再关闭 modal）

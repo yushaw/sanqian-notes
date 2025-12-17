@@ -7,17 +7,29 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg);
+  background: var(--color-card-solid);
   position: relative;
   overflow: hidden;
   animation: fadeIn 0.3s ease;
 }
 
-/* Scroll wrapper - scrollbar at right edge */
+/* Scroll wrapper - scrollbar at right edge, show on hover */
 .zen-scroll-wrapper {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.zen-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.zen-scroll-wrapper:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+.zen-scroll-wrapper:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
 }
 
 /* ============================================
@@ -190,7 +202,7 @@
   max-width: 680px;
   width: 100%;
   margin: 0 auto;
-  padding: 100px 48px 160px;
+  padding: 24px 48px 160px;
 }
 
 /* ============================================
@@ -199,19 +211,21 @@
 
 .zen-title {
   width: 100%;
-  min-height: 2.2em;
   border: none;
   background: transparent;
   outline: none;
   resize: none;
+  padding: 0;
   font-size: 1.625rem;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.2;
   color: var(--color-text);
-  margin-bottom: 24px;
+  margin-bottom: 8px;
   font-family: var(--font-sans);
   letter-spacing: -0.02em;
-  overflow: hidden;
+  overflow-y: hidden;
+  overflow-x: hidden;
+  caret-color: var(--color-accent);
 }
 
 .zen-title::placeholder {
@@ -237,6 +251,7 @@
   line-height: 1.6;
   color: var(--color-text);
   font-family: var(--font-sans);
+  caret-color: var(--color-accent);
 }
 
 .zen-editor > * + * {
@@ -279,7 +294,7 @@
   font-size: 11px;
   font-weight: 500;
   color: var(--color-muted);
-  opacity: 0;
+  opacity: 0.3;
   transition: opacity var(--transition-fast);
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
@@ -306,7 +321,7 @@
 .zen-editor h2:hover::before,
 .zen-editor h3:hover::before,
 .zen-editor h4:hover::before {
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .zen-editor h1::before { content: 'H1'; }
@@ -508,7 +523,7 @@
 }
 
 .zen-editor tr:hover td {
-  background: var(--color-accent-soft);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 
 /* Table selection */
@@ -659,12 +674,23 @@
 .zen-empty {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg);
+  flex-direction: column;
+  background: var(--color-card-solid);
+}
+
+.zen-empty::before {
+  content: '';
+  height: 12px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
 }
 
 .zen-empty-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   animation: fadeInUp 0.4s ease;
 }
@@ -676,10 +702,29 @@
   margin-bottom: 8px;
 }
 
-.zen-empty-subtitle {
+.zen-empty-or {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  opacity: 0.5;
+  margin-bottom: 8px;
+}
+
+.zen-empty-button {
   font-size: 0.875rem;
   color: var(--color-muted);
   opacity: 0.6;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 6px;
+  transition: all var(--transition-fast);
+}
+
+.zen-empty-button:hover {
+  opacity: 1;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 /* ============================================
@@ -711,22 +756,38 @@
 }
 
 /* ============================================
-   Note Link (双向链接)
+   Note Link (双向链接) - Zen Style
    ============================================ */
 
+/*
+ * Note Link Styles - Zen Design
+ * 简洁、轻量的双向链接样式
+ * - 普通链接：细下划线
+ * - 标题链接：虚线下划线 (表示锚点)
+ * - Block 链接：点状下划线 (表示段落引用)
+ */
 .note-link {
-  color: var(--color-accent);
-  background: var(--color-accent-soft);
-  padding: 0.1em 0.3em;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  color: var(--color-text);
   text-decoration: none;
+  cursor: pointer;
   transition: all var(--transition-fast);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+  padding-bottom: 1px;
 }
 
 .note-link:hover {
-  background: var(--color-accent);
-  color: white;
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* 标题链接 - 虚线表示锚点定位 */
+.note-link-heading {
+  border-bottom-style: dashed;
+}
+
+/* Block 链接 - 点状表示段落引用 */
+.note-link-block {
+  border-bottom-style: dotted;
 }
 
 /* Note Link Popup */
@@ -820,15 +881,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* Note link variants */
-.note-link-heading {
-  background: linear-gradient(135deg, var(--color-accent-soft), transparent);
-}
-
-.note-link-block {
-  background: linear-gradient(135deg, var(--color-surface), transparent);
-  border-left: 2px solid var(--color-accent);
-}
 
 /* ============================================
    Scroll Highlight Animation

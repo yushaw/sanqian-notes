@@ -12,6 +12,13 @@ declare global {
         search: (query: string) => Promise<unknown[]>
         createDemo: () => Promise<void>
       }
+      trash: {
+        getAll: () => Promise<unknown[]>
+        restore: (id: string) => Promise<boolean>
+        permanentDelete: (id: string) => Promise<boolean>
+        empty: () => Promise<number>
+        cleanup: () => Promise<number>
+      }
       notebook: {
         getAll: () => Promise<unknown[]>
         add: (notebook: unknown) => Promise<unknown>
@@ -27,7 +34,7 @@ declare global {
         onChange?: (callback: (theme: 'light' | 'dark') => void) => void
       }
       window: {
-        setTitleBarOverlay?: (options: { color: string; symbolColor: string }) => void
+        setTitleBarOverlay: (options: { color: string; symbolColor: string }) => Promise<void>
         setFullScreen: (isFullScreen: boolean) => Promise<boolean>
         isFullScreen: () => Promise<boolean>
       }

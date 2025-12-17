@@ -6,8 +6,10 @@ export interface Note {
   is_daily: boolean
   daily_date: string | null // YYYY-MM-DD format
   is_favorite: boolean
+  is_pinned: boolean
   created_at: string
   updated_at: string
+  deleted_at: string | null // Soft delete timestamp (trash)
 }
 
 export interface NoteInput {
@@ -17,19 +19,20 @@ export interface NoteInput {
   is_daily?: boolean
   daily_date?: string | null
   is_favorite?: boolean
+  is_pinned?: boolean
 }
 
 export interface Notebook {
   id: string
   name: string
-  color: string
+  icon?: string  // logo:notes, logo:todolist, logo:sanqian, logo:yinian, or emoji
   order_index: number
   created_at: string
 }
 
 export interface NotebookInput {
   name: string
-  color?: string
+  icon?: string
 }
 
 export interface Tag {
@@ -42,7 +45,7 @@ export interface NoteTag {
   tag_id: string
 }
 
-export type SmartViewId = 'all' | 'daily' | 'recent' | 'favorites'
+export type SmartViewId = 'all' | 'daily' | 'recent' | 'favorites' | 'trash'
 
 export interface NoteLink {
   source_note_id: string

@@ -17,6 +17,12 @@ import {
   getTags,
   getTagsByNote,
   createDemoNote,
+  // Trash operations
+  getTrashNotes,
+  restoreNote,
+  permanentlyDeleteNote,
+  emptyTrash,
+  cleanupOldTrash,
 } from './database'
 
 let mainWindow: BrowserWindow | null = null
@@ -149,11 +155,9 @@ function createWindow(): void {
   if (process.platform === 'darwin') {
     Object.assign(windowOptions, {
       frame: false,
-      transparent: true,
-      vibrancy: 'under-window',
-      visualEffectState: 'active',
       titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 16, y: 16 }
+      trafficLightPosition: { x: 16, y: 16 },
+      backgroundColor: initialBgColor
     })
   } else if (process.platform === 'win32') {
     Object.assign(windowOptions, {
@@ -233,6 +237,13 @@ app.whenReady().then(() => {
   ipcMain.handle('note:search', (_, query) => searchNotes(query))
   ipcMain.handle('note:createDemo', () => createDemoNote())
 
+  // IPC handlers for trash operations
+  ipcMain.handle('trash:getAll', () => getTrashNotes())
+  ipcMain.handle('trash:restore', (_, id) => restoreNote(id))
+  ipcMain.handle('trash:permanentDelete', (_, id) => permanentlyDeleteNote(id))
+  ipcMain.handle('trash:empty', () => emptyTrash())
+  ipcMain.handle('trash:cleanup', () => cleanupOldTrash())
+
   // IPC handlers for notebook operations
   ipcMain.handle('notebook:getAll', () => getNotebooks())
   ipcMain.handle('notebook:add', (_, notebook) => addNotebook(notebook))
@@ -263,6 +274,21 @@ app.whenReady().then(() => {
 
   ipcMain.handle('window:isFullScreen', () => {
     return mainWindow?.isFullScreen() ?? false
+  })
+
+  // Windows titlebar overlay - dynamic color update
+  ipcMain.handle('window:setTitleBarOverlay', (_, options: { color: string; symbolColor: string }) => {
+    if (process.platform === 'win32' && mainWindow) {
+      try {
+        mainWindow.setTitleBarOverlay({
+          color: options.color,
+          symbolColor: options.symbolColor,
+          height: 40
+        })
+      } catch (err) {
+        console.error('Failed to set title bar overlay:', err)
+      }
+    }
   })
 
   createWindow()

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { Note } from '../types/note'
+import { useTranslations } from '../i18n'
 
 // 搜索模式
 export type SearchMode = 'note' | 'heading' | 'block'
@@ -48,6 +49,7 @@ export function NoteLinkPopup({
   blocks = [],
   onSelectNote,
 }: NoteLinkPopupProps) {
+  const t = useTranslations()
   const [selectedIndex, setSelectedIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -166,9 +168,9 @@ export function NoteLinkPopup({
   // 获取模式提示文本
   const getModeHint = () => {
     if (searchMode === 'heading') {
-      return `在 "${selectedNote?.title}" 中搜索标题`
+      return (t.noteLink?.searchHeadingHint || 'Search headings in "{name}"').replace('{name}', selectedNote?.title || '')
     } else if (searchMode === 'block') {
-      return `在 "${selectedNote?.title}" 中搜索段落`
+      return (t.noteLink?.searchBlockHint || 'Search blocks in "{name}"').replace('{name}', selectedNote?.title || '')
     }
     return null
   }
@@ -193,7 +195,7 @@ export function NoteLinkPopup({
           onMouseEnter={() => setSelectedIndex(index)}
         >
           <span className="note-link-popup-icon">📄</span>
-          <span className="note-link-popup-title">{note.title || '无标题'}</span>
+          <span className="note-link-popup-title">{note.title || t.noteList.untitled}</span>
         </div>
       )
     } else if (searchMode === 'heading') {
@@ -271,12 +273,12 @@ export function NoteLinkPopup({
             onMouseEnter={() => setSelectedIndex(filteredItems.length)}
           >
             <span className="note-link-popup-icon">+</span>
-            <span className="note-link-popup-title">创建 "{query}"</span>
+            <span className="note-link-popup-title">{(t.noteLink?.create || 'Create "{name}"').replace('{name}', query)}</span>
           </div>
         )}
         {totalItems === 0 && modeHint && (
           <div className="note-link-popup-empty">
-            没有找到匹配项
+            {t.noteLink?.noResults || 'No matches found'}
           </div>
         )}
       </div>

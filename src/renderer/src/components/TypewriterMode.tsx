@@ -37,6 +37,7 @@ import { BlockId } from './extensions/BlockId'
 import { NoteLink } from './extensions/NoteLink'
 import { TypewriterToolbar, MOOD_THEMES, type MoodTheme } from './TypewriterToolbar'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
+import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
 import {
   playTypewriterClick,
   playTypewriterReturn,
@@ -177,6 +178,7 @@ export function TypewriterMode({
   // ==================== State ====================
   const [title, setTitle] = useState(note.title)
   const [wordCount, setWordCount] = useState(0)
+  const [selectedWordCount, setSelectedWordCount] = useState<number | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(true)  // 进入动画状态
 
   // Mood 主题状态（默认根据系统主题选择）
@@ -302,7 +304,7 @@ export function TypewriterMode({
     onUpdate: ({ editor }) => {
       const json = editor.getJSON()
       onUpdate(note.id, { content: JSON.stringify(json) })
-      setWordCount(editor.storage.characterCount?.words() || 0)
+      setWordCount(countWordsFromEditor(editor))
     },
   })
 
@@ -436,12 +438,15 @@ export function TypewriterMode({
   }, [])
 
   /**
-   * 监听光标变化 → 滚动内容使光标回到固定位置
+   * 监听光标变化 → 滚动内容使光标回到固定位置 + 更新选中字数
    */
   useEffect(() => {
     if (!editor) return
 
     const handleSelectionUpdate = () => {
+      // 更新选中字数
+      setSelectedWordCount(countSelectedWords(editor))
+
       if (isProgrammaticSelection.current) return
 
       // 防抖处理滚动，避免快速输入时频繁滚动
@@ -539,9 +544,13 @@ export function TypewriterMode({
    * - 播放进入动画
    * - 如果有初始光标位置，使用它；否则聚焦到编辑器末尾
    * - 滚动到光标位置
+   * - 初始化字数统计
    */
   useEffect(() => {
     if (!editor) return
+
+    // 初始化字数统计
+    setWordCount(countWordsFromEditor(editor))
 
     const hasInitialCursor = initialCursorInfo && initialCursorInfo.blockId && initialCursorInfo.blockId !== ''
 
@@ -784,6 +793,7 @@ export function TypewriterMode({
       {/* 底部工具栏 */}
       <TypewriterToolbar
         wordCount={wordCount}
+        selectedWordCount={selectedWordCount}
         currentMood={currentMood}
         onMoodChange={handleMoodChange}
         onToggleFullscreen={handleToggleFullscreen}

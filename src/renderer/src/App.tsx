@@ -290,7 +290,7 @@ function AppContent() {
 
   // 从 editor 获取当前光标信息
   const getCursorInfoFromEditor = useCallback((): CursorInfo => {
-    const editor = editorRef.current?.getEditor()
+    const editor = editorRef.current?.getEditor() ?? null
     return getCursorInfo(editor) || { blockId: '', offsetInBlock: 0 }
   }, [])
 

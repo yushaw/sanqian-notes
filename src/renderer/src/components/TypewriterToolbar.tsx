@@ -265,6 +265,7 @@ export const AMBIENT_SOUNDS: AmbientSound[] = [
 
 interface TypewriterToolbarProps {
   wordCount: number
+  selectedWordCount: number | null
   currentMood: string
   onMoodChange: (mood: MoodTheme) => void
   onToggleFullscreen: () => void
@@ -279,6 +280,7 @@ interface TypewriterToolbarProps {
 
 export function TypewriterToolbar({
   wordCount,
+  selectedWordCount,
   currentMood,
   onMoodChange,
   onToggleFullscreen,
@@ -434,7 +436,12 @@ export function TypewriterToolbar({
 
         {/* 中间：字数统计 */}
         <div className="typewriter-toolbar-center">
-          <span className="typewriter-wordcount">{wordCount} {t.typewriter.wordCount}</span>
+          <span className="typewriter-wordcount">
+            {selectedWordCount !== null
+              ? `${selectedWordCount} / ${wordCount} ${t.typewriter.wordCount}`
+              : `${wordCount} ${t.typewriter.wordCount}`
+            }
+          </span>
         </div>
 
         {/* 右侧：全屏和退出 */}

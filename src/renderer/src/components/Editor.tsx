@@ -21,6 +21,7 @@ import { NoteLink } from './extensions/NoteLink'
 import { BlockId, generateBlockId } from './extensions/BlockId'
 import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
 import { getCursorInfo, type CursorInfo } from '../utils/cursor'
+import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
 import './Editor.css'
 
 // SVG Icons for toolbar
@@ -190,6 +191,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [isFocusMode, setIsFocusMode] = useState(false)
   const [isTypewriterMode, setIsTypewriterMode] = useState(false)
   const [showToolbar, setShowToolbar] = useState(false)
+  const [selectedWordCount, setSelectedWordCount] = useState<number | null>(null)
 
   // Note link popup state
   const [showLinkPopup, setShowLinkPopup] = useState(false)
@@ -556,24 +558,27 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // 持续追踪最后的光标位置（即使焦点离开编辑器也能记住）
   const lastCursorInfo = useRef<CursorInfo | null>(null)
 
-  // 监听编辑器选区变化，持续更新 lastCursorInfo
+  // 监听编辑器选区变化，持续更新 lastCursorInfo 和选中字数
   useEffect(() => {
     if (!editor) return
 
-    const updateCursorInfo = () => {
+    const updateSelection = () => {
+      // 更新光标位置
       const info = getCursorInfo(editor)
       if (info) {
         lastCursorInfo.current = info
       }
+      // 更新选中字数
+      setSelectedWordCount(countSelectedWords(editor))
     }
 
     // 初始化
-    updateCursorInfo()
+    updateSelection()
 
     // 监听选区变化
-    editor.on('selectionUpdate', updateCursorInfo)
+    editor.on('selectionUpdate', updateSelection)
     return () => {
-      editor.off('selectionUpdate', updateCursorInfo)
+      editor.off('selectionUpdate', updateSelection)
     }
   }, [editor])
 
@@ -730,7 +735,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
           {/* Word count - subtle */}
           <div className="zen-stats">
-            {editor.storage.characterCount?.words() ?? 0} words
+            {selectedWordCount !== null
+              ? `${selectedWordCount} / ${countWordsFromEditor(editor)} 字`
+              : `${countWordsFromEditor(editor)} 字`
+            }
           </div>
         </div>
       </div>
@@ -793,9 +801,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 function EditorToolbar({
   editor,
   t,
-  isFocusMode,
+  isFocusMode: _isFocusMode,
   isTypewriterMode,
-  toggleFocusMode,
+  toggleFocusMode: _toggleFocusMode,
   toggleTypewriterMode,
   showToolbar
 }: {

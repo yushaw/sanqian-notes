@@ -36,6 +36,7 @@ import { useTheme } from '../theme'
 import { BlockId } from './extensions/BlockId'
 import { NoteLink } from './extensions/NoteLink'
 import { TypewriterToolbar, MOOD_THEMES, type MoodTheme } from './TypewriterToolbar'
+import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
 import {
   playTypewriterClick,
   playTypewriterReturn,
@@ -148,7 +149,8 @@ interface TypewriterModeProps {
   onUpdate: (id: string, updates: { title?: string; content?: string }) => void
   onNoteClick: (noteId: string, target?: { type: 'heading' | 'block'; value: string }) => void
   onCreateNote: (title: string) => Promise<Note>
-  onExit: () => void
+  onExit: (cursorInfo?: CursorInfo) => void
+  initialCursorInfo?: CursorInfo
 }
 
 export function TypewriterMode({
@@ -158,6 +160,7 @@ export function TypewriterMode({
   onNoteClick,
   onCreateNote: _onCreateNote,
   onExit,
+  initialCursorInfo,
 }: TypewriterModeProps) {
   // ==================== Refs ====================
   const contentRef = useRef<HTMLDivElement>(null)      // 滚动容器
@@ -169,6 +172,7 @@ export function TypewriterMode({
   const isProgrammaticScroll = useRef(false)      // 程序触发的滚动
   const isProgrammaticSelection = useRef(false)   // 程序触发的选区变化
   const lastCursorX = useRef<number | null>(null) // 上次光标的 X 坐标（滚动时保持水平位置）
+  const isInitializing = useRef(true)             // 初始化阶段标记，阻止滚动监听器修改光标
 
   // ==================== State ====================
   const [title, setTitle] = useState(note.title)
@@ -472,7 +476,8 @@ export function TypewriterMode({
     const container = contentRef.current
 
     const handleScroll = () => {
-      if (isProgrammaticScroll.current) return
+      // 初始化阶段或程序触发的滚动，不修改光标
+      if (isInitializing.current || isProgrammaticScroll.current) return
 
       if (scrollTimeout) return
       scrollTimeout = setTimeout(() => {
@@ -532,25 +537,50 @@ export function TypewriterMode({
   /**
    * 进入打字机模式时的初始化
    * - 播放进入动画
-   * - 自动聚焦到编辑器末尾
+   * - 如果有初始光标位置，使用它；否则聚焦到编辑器末尾
    * - 滚动到光标位置
    */
   useEffect(() => {
     if (!editor) return
 
+    const hasInitialCursor = initialCursorInfo && initialCursorInfo.blockId && initialCursorInfo.blockId !== ''
+
     setIsTransitioning(true)
     const timer = setTimeout(() => {
       setIsTransitioning(false)
-      // focus 编辑器
-      editor.commands.focus('end')
-      // 滚动到光标位置并初始化透明度变量
-      setTimeout(() => {
-        scrollToCursor()
-        updateOpacityVariables()
-      }, 50)
-    }, 100)
+
+      if (!hasInitialCursor) {
+        // 没有初始光标，focus 到末尾
+        editor.commands.focus('end')
+        setTimeout(() => {
+          scrollToCursor()
+          updateOpacityVariables()
+          // 初始化完成
+          setTimeout(() => {
+            isInitializing.current = false
+          }, 300)
+        }, 50)
+      } else {
+        // 有初始光标，设置光标位置
+        const success = setCursorByBlockId(editor, initialCursorInfo)
+
+        // 等待 ProseMirror 完成 DOM 更新
+        setTimeout(() => {
+          updateOpacityVariables()
+          // 滚动到光标位置
+          if (success) {
+            scrollToCursor()
+          }
+          // 初始化完成，允许滚动监听器修改光标
+          setTimeout(() => {
+            isInitializing.current = false
+          }, 300)
+        }, 150)
+      }
+    }, 150)
+
     return () => clearTimeout(timer)
-  }, [editor, scrollToCursor, updateOpacityVariables])
+  }, [editor, scrollToCursor, updateOpacityVariables, initialCursorInfo])
 
   /** 窗口大小变化时重新计算（带防抖） */
   useEffect(() => {
@@ -568,16 +598,22 @@ export function TypewriterMode({
     }
   }, [updateOpacityVariables])
 
+  /** 退出并传递光标位置 */
+  const handleExit = useCallback(() => {
+    const cursorInfo = getCursorInfo(editor)
+    onExit(cursorInfo || undefined)
+  }, [editor, onExit])
+
   /** ESC 键退出打字机模式 */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onExit()
+        handleExit()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onExit])
+  }, [handleExit])
 
   // ==================== 标题处理 ====================
 
@@ -751,7 +787,7 @@ export function TypewriterMode({
         currentMood={currentMood}
         onMoodChange={handleMoodChange}
         onToggleFullscreen={handleToggleFullscreen}
-        onExit={onExit}
+        onExit={handleExit}
         isFullscreen={isFullscreen}
         typewriterSoundEnabled={typewriterSoundEnabled}
         onToggleTypewriterSound={handleToggleTypewriterSound}

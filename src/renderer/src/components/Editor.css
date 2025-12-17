@@ -13,29 +13,37 @@
   animation: fadeIn 0.3s ease;
 }
 
+/* Scroll wrapper - scrollbar at right edge */
+.zen-scroll-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* ============================================
-   Floating Toolbar
+   Floating Toolbar - Bottom Bar
    ============================================ */
 
 .zen-toolbar {
   position: absolute;
-  top: 20px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   padding: 6px 10px;
-  background: var(--color-card);
+  background: color-mix(in srgb, var(--color-card) 85%, transparent);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: 10px;
   box-shadow: var(--shadow-elevated);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition-normal), transform var(--transition-normal);
-  transform: translateX(-50%) translateY(-8px);
-  backdrop-filter: blur(10px);
+  transform: translateX(-50%) translateY(8px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .zen-toolbar.visible {
@@ -45,20 +53,17 @@
 }
 
 .zen-toolbar-btn {
-  width: 30px;
-  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 30px;
+  height: 30px;
   border: none;
   background: transparent;
   color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   cursor: pointer;
   transition: all var(--transition-fast);
-  font-family: var(--font-sans);
 }
 
 .zen-toolbar-btn:hover {
@@ -67,20 +72,111 @@
 }
 
 .zen-toolbar-btn.active {
-  background: var(--color-accent);
-  color: white;
+  color: var(--color-accent);
+}
+
+.zen-toolbar-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.zen-toolbar-text {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-sans);
 }
 
 .zen-toolbar-divider {
   width: 1px;
-  height: 18px;
+  height: 16px;
   background: var(--color-divider);
-  margin: 0 6px;
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 
-.zen-toolbar-spacer {
-  flex: 1;
-  min-width: 16px;
+/* Dropdown */
+.zen-toolbar-dropdown {
+  position: relative;
+}
+
+.zen-toolbar-dropdown-trigger {
+  gap: 2px;
+}
+
+.zen-toolbar-dropdown-trigger svg:last-child {
+  width: 10px;
+  height: 10px;
+  opacity: 0.5;
+  transition: transform var(--transition-fast);
+}
+
+.zen-toolbar-dropdown-trigger.open svg:last-child {
+  transform: rotate(180deg);
+}
+
+.zen-toolbar-dropdown-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 100px;
+  box-shadow: var(--shadow-elevated);
+  animation: dropdownFadeIn 0.15s ease;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.zen-toolbar-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.zen-toolbar-dropdown-item:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.zen-toolbar-dropdown-item.active {
+  color: var(--color-accent);
+}
+
+.zen-toolbar-dropdown-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zen-toolbar-dropdown-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.zen-toolbar-dropdown-label {
+  font-weight: 500;
 }
 
 /* ============================================
@@ -95,7 +191,6 @@
   width: 100%;
   margin: 0 auto;
   padding: 100px 48px 160px;
-  overflow-y: auto;
 }
 
 /* ============================================
@@ -541,7 +636,7 @@
    ============================================ */
 
 .zen-stats {
-  position: fixed;
+  position: absolute;
   bottom: 24px;
   right: 28px;
   font-size: 11px;

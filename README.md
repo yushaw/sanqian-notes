@@ -119,3 +119,20 @@ npm run build
   - 解决方案：使用 TipTap 官方 Focus 扩展 (@tiptap/extension-focus)
   - 通过 CSS :has() 和相邻兄弟选择器实现渐变透明度效果
   - 焦点段落完全清晰，相邻段落依次变淡 (1 → 0.7 → 0.5 → 0.35 → 0.2)
+
+### 2025-12-17
+- 统一打字机模式和普通模式的底栏样式
+  - 打字机模式底栏：将 emoji 图标改为 SVG 线性图标 + 文字标签
+  - 普通模式编辑器工具栏：从顶部移到底部，改为 SVG 线性图标 + 文字标签
+  - 统一样式规范：32px 高度按钮、12px 文字、半透明背景 + 模糊效果
+  - 添加 i18n 翻译支持（打字机模式、专注模式）
+- 实现打字机模式光标位置同步
+  - 进入打字机模式时保持原光标位置并滚动到视口中央
+  - 退出打字机模式时恢复光标位置
+  - 使用 block ID + 偏移量定位，支持绝对位置备用方案
+  - 添加 `isInitializing` 标记防止初始化阶段滚动监听器干扰光标
+- 重构：提取共享的光标工具函数到 `utils/cursor.ts`
+  - `CursorInfo` 接口统一定义
+  - `getCursorInfo(editor)` 获取光标信息
+  - `setCursorByBlockId(editor, cursorInfo)` 设置光标位置
+  - 消除 Editor.tsx、TypewriterMode.tsx、App.tsx 中的重复代码

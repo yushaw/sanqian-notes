@@ -82,6 +82,8 @@ export interface Translations {
     wordCount: string
     soundOn: string
     soundOff: string
+    typewriterMode: string
+    focusMode: string
     // Mood themes
     moodInk: string
     moodPaper: string
@@ -179,6 +181,8 @@ const zh: Translations = {
     wordCount: '字',
     soundOn: '关闭按键音效',
     soundOff: '开启按键音效',
+    typewriterMode: '打字机',
+    focusMode: '专注',
     moodInk: '墨夜',
     moodPaper: '宣纸',
     moodBamboo: '竹林',
@@ -274,6 +278,8 @@ const en: Translations = {
     wordCount: 'words',
     soundOn: 'Disable key sounds',
     soundOff: 'Enable key sounds',
+    typewriterMode: 'Typewriter',
+    focusMode: 'Focus',
     moodInk: 'Ink Night',
     moodPaper: 'Paper',
     moodBamboo: 'Bamboo',

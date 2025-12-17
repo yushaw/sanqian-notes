@@ -136,3 +136,8 @@ npm run build
   - `getCursorInfo(editor)` 获取光标信息
   - `setCursorByBlockId(editor, cursorInfo)` 设置光标位置
   - 消除 Editor.tsx、TypewriterMode.tsx、App.tsx 中的重复代码
+- 实现中英文混合字数统计
+  - 新增 `utils/wordCount.ts` 工具函数
+  - 中文按字符计数，英文按单词计数，数字按连续数字计数
+  - 支持选中文本字数显示（格式：选中/总字数 字）
+  - 编辑器和打字机模式统一支持

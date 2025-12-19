@@ -16,6 +16,7 @@ export interface Translations {
     collapse: string
     expand: string
     trash: string
+    settings: string
   }
   trash: {
     title: string
@@ -112,30 +113,12 @@ export interface Translations {
     daysAgo: string
   }
   typewriter: {
-    sound: string
-    music: string
-    theme: string
     fullscreen: string
     window: string
     exit: string
     wordCount: string
-    soundOn: string
-    soundOff: string
     typewriterMode: string
     focusMode: string
-    // Mood themes
-    moodInk: string
-    moodPaper: string
-    moodBamboo: string
-    moodSakura: string
-    moodOcean: string
-    // Ambient sounds
-    ambientNone: string
-    ambientRain: string
-    ambientCafe: string
-    ambientWaves: string
-    ambientFire: string
-    ambientForest: string
   }
   common: {
     loading: string
@@ -271,9 +254,10 @@ const zh: Translations = {
     favorites: '收藏',
     notebooks: '笔记本',
     addNotebook: '新建笔记本',
-    collapse: '收起侧栏',
-    expand: '展开侧栏',
-    trash: '回收站'
+    collapse: '收起',
+    expand: '展开',
+    trash: '回收站',
+    settings: '设置'
   },
   trash: {
     title: '回收站',
@@ -370,28 +354,12 @@ const zh: Translations = {
     daysAgo: '{n}天前'
   },
   typewriter: {
-    sound: '音效',
-    music: '音乐',
-    theme: '主题',
     fullscreen: '全屏',
     window: '窗口',
     exit: '退出',
     wordCount: '字',
-    soundOn: '关闭按键音效',
-    soundOff: '开启按键音效',
     typewriterMode: '打字机',
     focusMode: '专注',
-    moodInk: '墨夜',
-    moodPaper: '宣纸',
-    moodBamboo: '竹林',
-    moodSakura: '樱花',
-    moodOcean: '深海',
-    ambientNone: '静音',
-    ambientRain: '雨声',
-    ambientCafe: '咖啡厅',
-    ambientWaves: '海浪',
-    ambientFire: '壁炉',
-    ambientForest: '森林'
   },
   common: {
     loading: '加载中...'
@@ -527,9 +495,10 @@ const en: Translations = {
     favorites: 'Favorites',
     notebooks: 'Notebooks',
     addNotebook: 'New Notebook',
-    collapse: 'Collapse Sidebar',
-    expand: 'Expand Sidebar',
-    trash: 'Trash'
+    collapse: 'Collapse',
+    expand: 'Expand',
+    trash: 'Trash',
+    settings: 'Settings'
   },
   trash: {
     title: 'Trash',
@@ -626,28 +595,12 @@ const en: Translations = {
     daysAgo: '{n} days ago'
   },
   typewriter: {
-    sound: 'Sound',
-    music: 'Music',
-    theme: 'Theme',
     fullscreen: 'Fullscreen',
     window: 'Window',
     exit: 'Exit',
     wordCount: 'words',
-    soundOn: 'Disable key sounds',
-    soundOff: 'Enable key sounds',
     typewriterMode: 'Typewriter',
     focusMode: 'Focus',
-    moodInk: 'Ink Night',
-    moodPaper: 'Paper',
-    moodBamboo: 'Bamboo',
-    moodSakura: 'Sakura',
-    moodOcean: 'Ocean',
-    ambientNone: 'Silent',
-    ambientRain: 'Rain',
-    ambientCafe: 'Café',
-    ambientWaves: 'Waves',
-    ambientFire: 'Fireplace',
-    ambientForest: 'Forest'
   },
   common: {
     loading: 'Loading...'

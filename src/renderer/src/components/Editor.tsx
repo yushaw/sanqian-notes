@@ -231,6 +231,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [isTypewriterMode, setIsTypewriterMode] = useState(false)
   const [showToolbar, setShowToolbar] = useState(false)
   const [selectedWordCount, setSelectedWordCount] = useState<number | null>(null)
+  const [isTitleHidden, setIsTitleHidden] = useState(false)
+  const [isEditingHeaderTitle, setIsEditingHeaderTitle] = useState(false)
 
   // Note link popup state
   const [showLinkPopup, setShowLinkPopup] = useState(false)
@@ -249,6 +251,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const editorContainerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLTextAreaElement>(null)
+  const headerTitleRef = useRef<HTMLInputElement>(null)
+  const headerMouseDown = useRef<{ x: number; y: number; time: number } | null>(null)
+  const headerClickX = useRef<number>(0)
 
   // Parse initial content
   const getInitialContent = () => {
@@ -711,6 +716,27 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     }
   }, [])
 
+  // 检测标题是否滚出可视区域
+  useEffect(() => {
+    if (!titleRef.current || !contentRef.current) return
+
+    const container = contentRef.current
+    const titleEl = titleRef.current
+
+    const checkTitleVisibility = () => {
+      const titleRect = titleEl.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      // 标题底部低于容器顶部 + 顶栏高度（50px）时认为标题隐藏
+      const isHidden = titleRect.bottom < containerRect.top + 50
+      setIsTitleHidden(isHidden)
+    }
+
+    container.addEventListener('scroll', checkTitleVisibility, { passive: true })
+    checkTitleVisibility() // 初始检测
+
+    return () => container.removeEventListener('scroll', checkTitleVisibility)
+  }, [])
+
   // 滚动到目标标题或 block
   useEffect(() => {
     if (!scrollTarget || !editor || !contentRef.current) return
@@ -766,8 +792,65 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       ref={editorContainerRef}
       className={`zen-editor-container ${resolvedColorMode}`}
     >
-      {/* Thin drag region at top */}
-      <div className="h-3 flex-shrink-0 drag-region" />
+      {/* Top header bar - shows title when scrolled */}
+      <div className={`zen-header-bar ${isTitleHidden ? 'with-title' : ''}`}>
+        {isTitleHidden && (
+          isEditingHeaderTitle ? (
+            <input
+              ref={headerTitleRef}
+              type="text"
+              className="zen-header-title"
+              value={title}
+              onChange={handleTitleChange}
+              placeholder={t.editor.titlePlaceholder}
+              style={{ width: `${(title || t.editor.titlePlaceholder).length + 1}em` }}
+              autoFocus
+              onFocus={() => {
+                // 根据点击位置设置光标
+                requestAnimationFrame(() => {
+                  const input = headerTitleRef.current
+                  if (!input) return
+                  const rect = input.getBoundingClientRect()
+                  const relativeX = headerClickX.current - rect.left
+                  // 估算字符位置（每个字符约 1em）
+                  const fontSize = parseFloat(getComputedStyle(input).fontSize)
+                  const charIndex = Math.round(relativeX / fontSize)
+                  const pos = Math.max(0, Math.min(charIndex, title.length))
+                  input.setSelectionRange(pos, pos)
+                })
+              }}
+              onBlur={() => setIsEditingHeaderTitle(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === 'Escape') {
+                  setIsEditingHeaderTitle(false)
+                }
+              }}
+            />
+          ) : (
+            <span
+              className="zen-header-title"
+              onMouseDown={(e) => {
+                headerMouseDown.current = { x: e.clientX, y: e.clientY, time: Date.now() }
+              }}
+              onMouseUp={(e) => {
+                if (headerMouseDown.current) {
+                  const dx = Math.abs(e.clientX - headerMouseDown.current.x)
+                  const dy = Math.abs(e.clientY - headerMouseDown.current.y)
+                  const dt = Date.now() - headerMouseDown.current.time
+                  // 移动 < 5px 且时间 < 200ms 认为是点击
+                  if (dx < 5 && dy < 5 && dt < 200) {
+                    headerClickX.current = e.clientX
+                    setIsEditingHeaderTitle(true)
+                  }
+                  headerMouseDown.current = null
+                }
+              }}
+            >
+              {title || t.editor.titlePlaceholder}
+            </span>
+          )
+        )}
+      </div>
 
       {/* Floating toolbar - appears on hover at bottom */}
       <EditorToolbar
@@ -844,9 +927,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const t = useTranslations()
 
   return (
-    <div className="flex-1 flex flex-col bg-[var(--color-card-solid)]">
+    <div className="flex-1 min-w-0 overflow-hidden flex flex-col bg-[var(--color-card-solid)]">
       {!note ? (
         <div className="zen-empty">
+          <div className="zen-empty-header" />
           <div className="zen-empty-content">
             <p className="zen-empty-title">{t.editor.selectNote}</p>
             <p className="zen-empty-or">{t.editor.or}</p>

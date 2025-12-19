@@ -10,9 +10,22 @@ export const CustomCodeBlock = CodeBlockLowlight.extend({
   addNodeView() {
     return ReactNodeViewRenderer(CodeBlockView)
   },
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      spellcheck: {
+        default: 'false',
+        parseHTML: () => 'false',
+        renderHTML: () => ({ spellcheck: 'false' }),
+      },
+    }
+  },
 }).configure({
   lowlight,
   defaultLanguage: 'plaintext',
+  HTMLAttributes: {
+    spellcheck: 'false',
+  },
 })
 
 // Export lowlight for use in the view component

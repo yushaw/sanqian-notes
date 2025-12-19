@@ -8,11 +8,15 @@ import { getPreview } from '../utils/notePreview'
 const TRASH_RETENTION_DAYS = 30
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
+// 检测是否为 macOS
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+
 interface TrashListProps {
   notes: Note[]
   onRestore: (id: string) => void
   onPermanentDelete: (id: string) => void
   onEmptyTrash: () => void
+  isSidebarCollapsed?: boolean
 }
 
 interface ContextMenuState {
@@ -36,7 +40,10 @@ export function TrashList({
   onRestore,
   onPermanentDelete,
   onEmptyTrash,
+  isSidebarCollapsed = false,
 }: TrashListProps) {
+  // macOS 且侧栏收起时隐藏标题（为红绿灯按钮留空间）
+  const shouldHideTitle = isMac && isSidebarCollapsed
   const t = useTranslations()
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
@@ -107,12 +114,15 @@ export function TrashList({
   }
 
   return (
-    <div className="w-64 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col drag-region">
+    <div className="w-64 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col drag-region">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
-        <h2 className="text-[1rem] font-semibold text-[var(--color-text)] select-none">
-          {t.trash.title}
-        </h2>
+        {!shouldHideTitle && (
+          <h2 className="text-[1rem] font-semibold text-[var(--color-text)] select-none">
+            {t.trash.title}
+          </h2>
+        )}
+        {shouldHideTitle && <div className="flex-1" />}
         {notes.length > 0 && (
           <button
             onClick={handleEmptyTrash}

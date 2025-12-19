@@ -4,6 +4,9 @@ import { useTranslations } from '../i18n'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { getPreview } from '../utils/notePreview'
 
+// 检测是否为 macOS
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+
 interface NoteListProps {
   notes: Note[]
   selectedNoteId: string | null
@@ -14,6 +17,7 @@ interface NoteListProps {
   onTogglePinned: (id: string) => void
   onToggleFavorite: (id: string) => void
   onDeleteNote: (id: string) => void
+  isSidebarCollapsed?: boolean
 }
 
 interface ContextMenuState {
@@ -35,7 +39,10 @@ export function NoteList({
   onTogglePinned,
   onToggleFavorite,
   onDeleteNote,
+  isSidebarCollapsed = false,
 }: NoteListProps) {
+  // macOS 且侧栏收起时隐藏标题（为红绿灯按钮留空间）
+  const shouldHideTitle = isMac && isSidebarCollapsed
   const t = useTranslations()
   const [isSearching, setIsSearching] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -154,22 +161,28 @@ export function NoteList({
   const displayNotes = searchResults !== null ? searchResults : notes
 
   return (
-    <div className="w-64 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col drag-region">
+    <div className="w-64 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col drag-region">
       {/* Header */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
         {isSearching ? (
-          <div className="flex-1 flex items-center gap-2 no-drag">
+          <div className="flex-1 flex items-center gap-2 no-drag min-w-0">
+            {shouldHideTitle && <div className="w-[28px] flex-shrink-0" />}
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onBlur={() => {
+                if (!searchQuery.trim()) {
+                  handleCloseSearch()
+                }
+              }}
               placeholder={t.noteList.searchPlaceholder}
-              className="flex-1 bg-transparent text-[1rem] text-[var(--color-text)] placeholder-[var(--color-muted)] outline-none"
+              className="flex-1 min-w-0 bg-transparent text-[1rem] text-[var(--color-text)] placeholder-[var(--color-muted)] outline-none"
             />
             <button
               onClick={handleCloseSearch}
-              className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+              className="p-1.5 flex-shrink-0 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
@@ -178,9 +191,12 @@ export function NoteList({
           </div>
         ) : (
           <>
-            <h2 className="text-[1rem] font-semibold text-[var(--color-text)] select-none truncate min-w-0 flex-1" title={title}>
-              {title}
-            </h2>
+            {!shouldHideTitle && (
+              <h2 className="text-[1rem] font-semibold text-[var(--color-text)] select-none truncate min-w-0 flex-1" title={title}>
+                {title}
+              </h2>
+            )}
+            {shouldHideTitle && <div className="flex-1" />}
             <div className="flex items-center gap-1 no-drag flex-shrink-0">
               <button
                 onClick={() => setIsSearching(true)}
@@ -242,7 +258,7 @@ export function NoteList({
                   key={note.id}
                   onClick={() => onSelectNote(note.id)}
                   onContextMenu={(e) => handleContextMenu(e, note)}
-                  className={`w-full text-left px-4 py-2.5 transition-all duration-150 hover:bg-[var(--color-surface)] select-none`}
+                  className={`w-full text-left px-4 py-2.5 transition-all duration-50 hover:bg-[var(--color-surface)] select-none`}
                   style={isSelected ? { backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
                 >
                   <div className="flex items-center justify-between gap-2">

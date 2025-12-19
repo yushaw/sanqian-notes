@@ -116,7 +116,7 @@ export function CodeBlockView({ node, updateAttributes, extension }: NodeViewPro
   return (
     <NodeViewWrapper className="code-block-wrapper">
       <div className="code-block-header">
-        {/* Language Selector */}
+        {/* Language Selector - 放在 Copy 按钮左边 */}
         <div className="code-block-language" ref={dropdownRef}>
           <button
             className="code-block-language-btn"

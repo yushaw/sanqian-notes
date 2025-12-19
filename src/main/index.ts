@@ -155,6 +155,7 @@ function createWindow(): void {
   if (process.platform === 'darwin') {
     Object.assign(windowOptions, {
       frame: false,
+      transparent: true, // 修复深色模式下顶部白线问题
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 16, y: 16 },
       backgroundColor: initialBgColor

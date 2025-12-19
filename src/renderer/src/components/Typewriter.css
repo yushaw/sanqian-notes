@@ -46,6 +46,22 @@
 }
 
 /* ===================================
+   1.5 顶部拖拽区域
+   =================================== */
+
+.typewriter-drag-region {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  -webkit-app-region: drag;
+  z-index: 10;
+  /* 允许点击穿透到内容区域 */
+  pointer-events: none;
+}
+
+/* ===================================
    2. 内容区域与过度滚动
    =================================== */
 
@@ -117,7 +133,7 @@
 
 /* 默认所有元素最暗 */
 .typewriter-editor-content .ProseMirror > * {
-  opacity: var(--tw-opacity-far, 0.03);
+  opacity: var(--tw-opacity-far, 0.08);
   transition: opacity 0.2s ease;
 }
 
@@ -148,42 +164,6 @@
 /* ±8 */
 .typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + .has-focus),
 .typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-8); }
-/* ±9 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-9); }
-/* ±10 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-10); }
-/* ±11 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-11); }
-/* ±12 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-12); }
-/* ±13 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-13); }
-/* ±14 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-14); }
-/* ±15 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-15); }
-/* ±16 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-16); }
-/* ±17 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-17); }
-/* ±18 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-18); }
-/* ±19 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-19); }
-/* ±20 */
-.typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + .has-focus),
-.typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-20); }
 
 /* 失焦时全部显示 */
 .typewriter-container:not(:focus-within) .typewriter-editor-content .ProseMirror > * {
@@ -347,8 +327,18 @@
   margin-bottom: 1em;
 }
 
+.typewriter-editor-content .ProseMirror ul {
+  list-style-type: disc;
+}
+
+.typewriter-editor-content .ProseMirror ol {
+  list-style-type: decimal;
+}
+
 .typewriter-editor-content .ProseMirror li {
-  margin-bottom: 0.3em;
+  margin-bottom: 0.2em;
+  display: list-item;
+  line-height: var(--tw-line-height);
 }
 
 .typewriter-editor-content .ProseMirror li::marker {
@@ -365,6 +355,8 @@
   display: flex;
   align-items: flex-start;
   gap: 0.5em;
+  line-height: var(--tw-line-height);
+  margin-bottom: 0.2em;
 }
 
 .typewriter-editor-content .ProseMirror ul[data-type="taskList"] li > label {
@@ -437,6 +429,114 @@
 }
 
 /* ===================================
+   6.5 右侧大纲 - 宽屏时显示
+   =================================== */
+
+/* 右侧 hover 触发区域 - 内容区右侧的空白区域 */
+.typewriter-toc {
+  position: fixed;
+  top: 48px;  /* 避开顶部拖拽区域 */
+  bottom: 80px;  /* 避开底部工具栏 */
+  /* 从屏幕中心 + 内容区一半宽度 + 间距(32px) 开始 */
+  left: calc(50% + var(--tw-max-width, 720px) / 2 + 32px);
+  right: 16px;
+  z-index: 50;
+  display: none;
+}
+
+/* 宽屏时启用 */
+@media (min-width: 1000px) {
+  .typewriter-toc {
+    display: block;
+  }
+}
+
+/* 大纲容器 - 用于渐变遮罩 */
+.typewriter-toc-list {
+  position: absolute;
+  top: 50%;
+  right: 24px;
+  transform: translateY(-50%);
+  max-width: 180px;
+  max-height: 60vh;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+/* 大纲内容 - 可滚动 */
+.typewriter-toc-items {
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+
+  /* 隐藏滚动条 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  /* 顶部/底部渐变遮罩 */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 12px,
+    black calc(100% - 12px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 12px,
+    black calc(100% - 12px),
+    transparent 100%
+  );
+}
+
+.typewriter-toc-items::-webkit-scrollbar {
+  display: none;
+}
+
+/* JS 控制显示 */
+.typewriter-toc.visible .typewriter-toc-list {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.typewriter-toc-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  text-align: left;
+  font-size: 12px;
+  color: var(--tw-dimmed-text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.typewriter-toc-item:hover {
+  color: var(--tw-text);
+  border-left-color: color-mix(in srgb, var(--tw-text) 30%, transparent);
+}
+
+.typewriter-toc-item.active {
+  color: var(--tw-accent);
+  border-left-color: var(--tw-accent);
+}
+
+/* 层级缩进 */
+.typewriter-toc-level-1 { padding-left: 12px; font-weight: 500; }
+.typewriter-toc-level-2 { padding-left: 24px; }
+.typewriter-toc-level-3 { padding-left: 36px; }
+
+/* ===================================
    7. 底部工具栏 - 极简禅意风格
    =================================== */
 
@@ -453,9 +553,8 @@
   pointer-events: none;
 }
 
-/* 鼠标接近底部时显示 */
-.typewriter-container:hover .typewriter-toolbar,
-.typewriter-toolbar:hover {
+/* JS 控制显示 */
+.typewriter-toolbar.visible {
   opacity: 1;
   pointer-events: auto;
 }
@@ -465,11 +564,11 @@
   align-items: center;
   gap: 0.5rem;
   padding: 6px 12px;
-  background: color-mix(in srgb, var(--tw-bg) 85%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tw-text) 8%, transparent);
+  background: color-mix(in srgb, var(--tw-bg) 95%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
   border-radius: 10px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .typewriter-toolbar-left,
@@ -477,12 +576,6 @@
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.typewriter-toolbar-center {
-  padding: 0 0.75rem;
-  border-left: 1px solid color-mix(in srgb, var(--tw-text) 8%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--tw-text) 8%, transparent);
 }
 
 /* 工具栏按钮 - icon + 文字 */
@@ -496,15 +589,16 @@
   background: transparent;
   border: none;
   border-radius: 6px;
-  color: var(--tw-dimmed-text);
+  color: var(--tw-text);
+  opacity: 0.7;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
 }
 
 .typewriter-toolbar-btn:hover {
-  color: var(--tw-text);
-  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  opacity: 1;
+  background: color-mix(in srgb, var(--tw-text) 8%, transparent);
 }
 
 .typewriter-toolbar-btn.active {
@@ -533,8 +627,8 @@
 /* 字数统计 */
 .typewriter-wordcount {
   font-size: 12px;
-  color: var(--tw-dimmed-text);
-  opacity: 0.7;
+  color: var(--tw-text);
+  opacity: 0.8;
   font-weight: 500;
 }
 
@@ -980,13 +1074,6 @@
   background: var(--color-code-bg);
 }
 
-.typewriter-editor-content .ProseMirror .code-block-header {
-  background: linear-gradient(to bottom,
-    color-mix(in srgb, var(--tw-bg) 90%, transparent),
-    transparent
-  );
-}
-
 .typewriter-editor-content .ProseMirror .code-block-language-btn,
 .typewriter-editor-content .ProseMirror .code-block-copy-btn {
   color: var(--tw-dimmed-text);
@@ -994,7 +1081,6 @@
 
 .typewriter-editor-content .ProseMirror .code-block-language-btn:hover,
 .typewriter-editor-content .ProseMirror .code-block-copy-btn:hover {
-  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
   color: var(--tw-text);
 }
 

@@ -34,6 +34,9 @@ function AppContent() {
   const [isTypewriterMode, setIsTypewriterMode] = useState(false)
   const [typewriterCursorInfo, setTypewriterCursorInfo] = useState<CursorInfo | undefined>(undefined)
 
+  // Sidebar collapsed state
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+
   // Editor ref for cursor position sync
   const editorRef = useRef<EditorHandle>(null)
 
@@ -561,6 +564,7 @@ function AppContent() {
         onDeleteNotebook={handleShowDeleteConfirm}
         onOpenSettings={handleOpenSettings}
         noteCounts={noteCounts}
+        onCollapsedChange={setIsSidebarCollapsed}
       />
 
       {/* Note List or Trash List */}
@@ -570,6 +574,7 @@ function AppContent() {
           onRestore={handleRestoreNote}
           onPermanentDelete={handlePermanentDelete}
           onEmptyTrash={handleEmptyTrash}
+          isSidebarCollapsed={isSidebarCollapsed}
         />
       ) : (
         <NoteList
@@ -582,6 +587,7 @@ function AppContent() {
           onTogglePinned={handleTogglePinned}
           onToggleFavorite={handleToggleFavorite}
           onDeleteNote={handleDeleteNote}
+          isSidebarCollapsed={isSidebarCollapsed}
         />
       )}
 

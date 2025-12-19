@@ -131,17 +131,14 @@ function AppContent() {
     return !hasTitle && !hasContent
   }, [])
 
-  // Delete empty note if switching away from it
+  // Delete empty note if switching away from it (permanently, not to trash)
   const deleteEmptyNoteIfNeeded = useCallback(async (noteId: string | null) => {
     if (!noteId) return
     const note = notes.find(n => n.id === noteId)
     if (note && isNoteEmpty(note)) {
-      await window.electron.note.delete(noteId)
+      // Empty notes are permanently deleted, not moved to trash
+      await window.electron.trash.permanentDelete(noteId)
       setNotes(prev => prev.filter(n => n.id !== noteId))
-      setTrashNotes(prev => [{
-        ...note,
-        deleted_at: new Date().toISOString()
-      }, ...prev])
     }
   }, [notes, isNoteEmpty])
 
@@ -498,6 +495,13 @@ function AppContent() {
           setTimeout(scrollEditorToCursor, 50)
         } else if (retries < 10) {
           setTimeout(() => trySetCursor(retries + 1), 50)
+        } else {
+          // 重试失败后，尝试聚焦编辑器开头作为备选
+          console.warn('Failed to restore cursor position after exiting typewriter mode')
+          const fallbackEditor = editorRef.current?.getEditor()
+          if (fallbackEditor) {
+            fallbackEditor.commands.focus('start')
+          }
         }
       }
       setTimeout(() => trySetCursor(), 150)
@@ -511,22 +515,29 @@ function AppContent() {
   }, [])
 
   // Keyboard shortcut for typewriter mode (Cmd/Ctrl + Shift + T)
+  // 使用 ref 保存最新的回调和状态，避免频繁注册/卸载事件监听器
+  const isTypewriterModeRef = useRef(isTypewriterMode)
+  const handleToggleTypewriterRef = useRef(handleToggleTypewriter)
+  const getCursorInfoFromEditorRef = useRef(getCursorInfoFromEditor)
+  isTypewriterModeRef.current = isTypewriterMode
+  handleToggleTypewriterRef.current = handleToggleTypewriter
+  getCursorInfoFromEditorRef.current = getCursorInfoFromEditor
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 't') {
         e.preventDefault()
-        if (!isTypewriterMode) {
-          const cursorInfo = getCursorInfoFromEditor()
-          handleToggleTypewriter(cursorInfo)
+        if (!isTypewriterModeRef.current) {
+          const cursorInfo = getCursorInfoFromEditorRef.current()
+          handleToggleTypewriterRef.current(cursorInfo)
         } else {
-          // 如果已经在打字机模式，则退出
           setIsTypewriterMode(false)
         }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleToggleTypewriter, getCursorInfoFromEditor, isTypewriterMode])
+  }, [])
 
   if (isLoading) {
     return (

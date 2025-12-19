@@ -66,6 +66,9 @@ export interface Translations {
     link: string
     code: string
     quote: string
+    underline: string
+    highlight: string
+    color: string
   }
   settings: {
     title: string
@@ -147,6 +150,113 @@ export interface Translations {
     loading: string
     noResults: string
   }
+  slashCommand: {
+    paragraph: string
+    paragraphDesc: string
+    heading1: string
+    heading1Desc: string
+    heading2: string
+    heading2Desc: string
+    heading3: string
+    heading3Desc: string
+    bulletList: string
+    bulletListDesc: string
+    numberedList: string
+    numberedListDesc: string
+    taskList: string
+    taskListDesc: string
+    quote: string
+    quoteDesc: string
+    codeBlock: string
+    codeBlockDesc: string
+    divider: string
+    dividerDesc: string
+    table: string
+    tableDesc: string
+    toggle: string
+    toggleDesc: string
+    calloutNote: string
+    calloutNoteDesc: string
+    calloutTip: string
+    calloutTipDesc: string
+    calloutWarning: string
+    calloutWarningDesc: string
+    calloutDanger: string
+    calloutDangerDesc: string
+    math: string
+    mathDesc: string
+    mermaid: string
+    mermaidDesc: string
+    footnote: string
+    footnoteDesc: string
+    noMatches: string
+  }
+  codeBlock: {
+    searchPlaceholder: string
+    noMatch: string
+    copy: string
+    copied: string
+    copyCode: string
+  }
+  callout: {
+    note: string
+    tip: string
+    warning: string
+    danger: string
+    info: string
+    quote: string
+  }
+  colors: {
+    default: string
+    gray: string
+    red: string
+    orange: string
+    yellow: string
+    green: string
+    blue: string
+    purple: string
+    pink: string
+    textColor: string
+    backgroundColor: string
+  }
+  media: {
+    audio: string
+    attachment: string
+    toggleExpand: string
+    emptyHeading: string
+    footnoteHint: string
+    footnotePlaceholder: string
+    mermaidPlaceholder: string
+    mermaidError: string
+    doubleClickEdit: string
+    imageLoadFailed: string
+    alignLeft: string
+    alignCenter: string
+    alignRight: string
+    editFormula: string
+  }
+  toc: {
+    title: string
+  }
+  shortcuts: {
+    title: string
+    textFormat: string
+    blocks: string
+    editing: string
+    bold: string
+    italic: string
+    underline: string
+    strikethrough: string
+    highlight: string
+    inlineCode: string
+    slashCommand: string
+    codeBlock: string
+    mathFormula: string
+    noteLink: string
+    undo: string
+    redo: string
+    save: string
+  }
 }
 
 const zh: Translations = {
@@ -213,7 +323,10 @@ const zh: Translations = {
     checklist: '任务列表',
     link: '链接',
     code: '代码',
-    quote: '引用'
+    quote: '引用',
+    underline: '下划线',
+    highlight: '高亮',
+    color: '颜色'
   },
   settings: {
     title: '设置',
@@ -292,6 +405,113 @@ const zh: Translations = {
   emoji: {
     loading: '加载中...',
     noResults: '没有找到表情'
+  },
+  slashCommand: {
+    paragraph: '正文',
+    paragraphDesc: '普通段落文本',
+    heading1: '标题 1',
+    heading1Desc: '大标题',
+    heading2: '标题 2',
+    heading2Desc: '中标题',
+    heading3: '标题 3',
+    heading3Desc: '小标题',
+    bulletList: '无序列表',
+    bulletListDesc: '项目符号列表',
+    numberedList: '有序列表',
+    numberedListDesc: '编号列表',
+    taskList: '待办事项',
+    taskListDesc: '可勾选的任务列表',
+    quote: '引用',
+    quoteDesc: '引用块',
+    codeBlock: '代码块',
+    codeBlockDesc: '代码片段',
+    divider: '分割线',
+    dividerDesc: '水平分割线',
+    table: '表格',
+    tableDesc: '插入表格',
+    toggle: '折叠块',
+    toggleDesc: '可展开/收起的内容块',
+    calloutNote: '提示 (Note)',
+    calloutNoteDesc: '蓝色信息提示框',
+    calloutTip: '提示 (Tip)',
+    calloutTipDesc: '绿色技巧提示框',
+    calloutWarning: '警告 (Warning)',
+    calloutWarningDesc: '黄色警告提示框',
+    calloutDanger: '危险 (Danger)',
+    calloutDangerDesc: '红色危险提示框',
+    math: '数学公式',
+    mathDesc: '插入 LaTeX 数学公式 (使用 $...$)',
+    mermaid: 'Mermaid 图表',
+    mermaidDesc: '插入流程图、时序图等',
+    footnote: '脚注',
+    footnoteDesc: '插入脚注引用',
+    noMatches: '没有匹配的命令'
+  },
+  codeBlock: {
+    searchPlaceholder: '搜索语言...',
+    noMatch: '没有找到匹配的语言',
+    copy: '复制',
+    copied: '已复制',
+    copyCode: '复制代码'
+  },
+  callout: {
+    note: '笔记',
+    tip: '提示',
+    warning: '警告',
+    danger: '危险',
+    info: '信息',
+    quote: '引用'
+  },
+  colors: {
+    default: '默认',
+    gray: '灰色',
+    red: '红色',
+    orange: '橙色',
+    yellow: '黄色',
+    green: '绿色',
+    blue: '蓝色',
+    purple: '紫色',
+    pink: '粉色',
+    textColor: '文字颜色',
+    backgroundColor: '背景颜色'
+  },
+  media: {
+    audio: '音频',
+    attachment: '附件',
+    toggleExpand: '点击展开',
+    emptyHeading: '(空标题)',
+    footnoteHint: 'ESC 或点击外部关闭',
+    footnotePlaceholder: '输入脚注内容...',
+    mermaidPlaceholder: '输入 Mermaid 代码...',
+    mermaidError: '渲染失败',
+    doubleClickEdit: '双击编辑',
+    imageLoadFailed: '图片加载失败',
+    alignLeft: '左对齐',
+    alignCenter: '居中',
+    alignRight: '右对齐',
+    editFormula: '点击编辑公式'
+  },
+  toc: {
+    title: '目录'
+  },
+  shortcuts: {
+    title: '快捷键',
+    textFormat: '文本格式',
+    blocks: '块元素',
+    editing: '编辑操作',
+    bold: '粗体',
+    italic: '斜体',
+    underline: '下划线',
+    strikethrough: '删除线',
+    highlight: '高亮',
+    inlineCode: '行内代码',
+    slashCommand: '插入命令',
+    codeBlock: '代码块',
+    mathFormula: '数学公式',
+    noteLink: '双向链接',
+    undo: '撤销',
+    redo: '重做',
+    save: '保存'
   }
 }
 
@@ -359,7 +579,10 @@ const en: Translations = {
     checklist: 'Checklist',
     link: 'Link',
     code: 'Code',
-    quote: 'Quote'
+    quote: 'Quote',
+    underline: 'Underline',
+    highlight: 'Highlight',
+    color: 'Color'
   },
   settings: {
     title: 'Settings',
@@ -438,6 +661,113 @@ const en: Translations = {
   emoji: {
     loading: 'Loading...',
     noResults: 'No emoji found'
+  },
+  slashCommand: {
+    paragraph: 'Paragraph',
+    paragraphDesc: 'Plain text paragraph',
+    heading1: 'Heading 1',
+    heading1Desc: 'Large heading',
+    heading2: 'Heading 2',
+    heading2Desc: 'Medium heading',
+    heading3: 'Heading 3',
+    heading3Desc: 'Small heading',
+    bulletList: 'Bullet List',
+    bulletListDesc: 'Unordered list',
+    numberedList: 'Numbered List',
+    numberedListDesc: 'Ordered list',
+    taskList: 'Task List',
+    taskListDesc: 'Checkable todo list',
+    quote: 'Quote',
+    quoteDesc: 'Block quote',
+    codeBlock: 'Code Block',
+    codeBlockDesc: 'Code snippet',
+    divider: 'Divider',
+    dividerDesc: 'Horizontal line',
+    table: 'Table',
+    tableDesc: 'Insert table',
+    toggle: 'Toggle',
+    toggleDesc: 'Collapsible content block',
+    calloutNote: 'Note',
+    calloutNoteDesc: 'Blue info callout',
+    calloutTip: 'Tip',
+    calloutTipDesc: 'Green tip callout',
+    calloutWarning: 'Warning',
+    calloutWarningDesc: 'Yellow warning callout',
+    calloutDanger: 'Danger',
+    calloutDangerDesc: 'Red danger callout',
+    math: 'Math',
+    mathDesc: 'Insert LaTeX formula (use $...$)',
+    mermaid: 'Mermaid',
+    mermaidDesc: 'Insert flowchart, sequence diagram, etc.',
+    footnote: 'Footnote',
+    footnoteDesc: 'Insert footnote reference',
+    noMatches: 'No matching commands'
+  },
+  codeBlock: {
+    searchPlaceholder: 'Search language...',
+    noMatch: 'No matching language found',
+    copy: 'Copy',
+    copied: 'Copied',
+    copyCode: 'Copy code'
+  },
+  callout: {
+    note: 'Note',
+    tip: 'Tip',
+    warning: 'Warning',
+    danger: 'Danger',
+    info: 'Info',
+    quote: 'Quote'
+  },
+  colors: {
+    default: 'Default',
+    gray: 'Gray',
+    red: 'Red',
+    orange: 'Orange',
+    yellow: 'Yellow',
+    green: 'Green',
+    blue: 'Blue',
+    purple: 'Purple',
+    pink: 'Pink',
+    textColor: 'Text Color',
+    backgroundColor: 'Background Color'
+  },
+  media: {
+    audio: 'Audio',
+    attachment: 'Attachment',
+    toggleExpand: 'Click to expand',
+    emptyHeading: '(Empty heading)',
+    footnoteHint: 'ESC or click outside to close',
+    footnotePlaceholder: 'Enter footnote content...',
+    mermaidPlaceholder: 'Enter Mermaid code...',
+    mermaidError: 'Render failed',
+    doubleClickEdit: 'Double-click to edit',
+    imageLoadFailed: 'Image load failed',
+    alignLeft: 'Align left',
+    alignCenter: 'Center',
+    alignRight: 'Align right',
+    editFormula: 'Click to edit formula'
+  },
+  toc: {
+    title: 'Contents'
+  },
+  shortcuts: {
+    title: 'Shortcuts',
+    textFormat: 'Text Format',
+    blocks: 'Blocks',
+    editing: 'Editing',
+    bold: 'Bold',
+    italic: 'Italic',
+    underline: 'Underline',
+    strikethrough: 'Strikethrough',
+    highlight: 'Highlight',
+    inlineCode: 'Inline Code',
+    slashCommand: 'Slash Command',
+    codeBlock: 'Code Block',
+    mathFormula: 'Math Formula',
+    noteLink: 'Note Link',
+    undo: 'Undo',
+    redo: 'Redo',
+    save: 'Save'
   }
 }
 

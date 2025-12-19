@@ -609,3 +609,435 @@
   opacity: 0.8;
   flex-shrink: 0;
 }
+
+/* ===================================
+   8. 特殊组件样式适配
+   =================================== */
+
+/**
+ * Callout 高亮块 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror .callout {
+  margin: 1.2em 0;
+  padding: 0;
+  border-radius: 6px;
+  border-left: 3px solid var(--callout-color, var(--tw-accent));
+  background: color-mix(in srgb, var(--callout-color, var(--tw-accent)) 8%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .callout-header {
+  padding: 0.8em 1em;
+  background: transparent;
+}
+
+.typewriter-editor-content .ProseMirror .callout-header:hover {
+  background: color-mix(in srgb, var(--callout-color, var(--tw-accent)) 5%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .callout-title {
+  color: var(--tw-text);
+  font-weight: 500;
+}
+
+.typewriter-editor-content .ProseMirror .callout-collapse-icon {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .callout-content {
+  padding: 0 1em 0.8em 1em;
+  border-top: 1px solid color-mix(in srgb, var(--callout-color, var(--tw-accent)) 15%, transparent);
+  color: var(--tw-text);
+}
+
+/* Callout 类型颜色 - 更柔和 */
+.typewriter-editor-content .ProseMirror .callout-note { --callout-color: #5b8dd6; }
+.typewriter-editor-content .ProseMirror .callout-tip { --callout-color: #4eba91; }
+.typewriter-editor-content .ProseMirror .callout-warning { --callout-color: #d4a44a; }
+.typewriter-editor-content .ProseMirror .callout-danger { --callout-color: #d65f5f; }
+.typewriter-editor-content .ProseMirror .callout-info { --callout-color: #7b7ed6; }
+.typewriter-editor-content .ProseMirror .callout-quote { --callout-color: #9b7ed6; }
+
+/**
+ * Toggle 折叠块 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror .toggle-block {
+  margin: 1em 0;
+  border: 1px solid color-mix(in srgb, var(--tw-text) 12%, transparent);
+  border-radius: 6px;
+  background: transparent;
+}
+
+.typewriter-editor-content .ProseMirror .toggle-header {
+  padding: 0.7em 1em;
+  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .toggle-header:hover {
+  background: color-mix(in srgb, var(--tw-text) 6%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .toggle-icon {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .toggle-summary {
+  color: var(--tw-text);
+  font-weight: 500;
+}
+
+.typewriter-editor-content .ProseMirror .toggle-summary-input {
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .toggle-summary-input:focus {
+  border-color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .toggle-content {
+  padding: 0.8em 1em;
+  border-top: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+  color: var(--tw-text);
+}
+
+/**
+ * Image 图片 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror .image-wrapper {
+  margin: 1.5em 0;
+}
+
+.typewriter-editor-content .ProseMirror .image-container img {
+  border-radius: 4px;
+}
+
+.typewriter-editor-content .ProseMirror .image-container.selected img {
+  box-shadow: 0 0 0 2px var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .resize-handle::after {
+  background: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .image-error {
+  color: var(--tw-dimmed-text);
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+}
+
+/* 图片对齐工具栏 - 禅意适配 */
+.typewriter-editor-content .ProseMirror .image-align-toolbar {
+  background: var(--tw-bg);
+  border-color: color-mix(in srgb, var(--tw-text) 15%, transparent);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+.typewriter-editor-content .ProseMirror .image-align-btn {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .image-align-btn:hover {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .image-align-btn.active {
+  background: var(--tw-accent);
+  color: white;
+}
+
+/**
+ * Video/Audio/File 媒体元素 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror .video-wrapper,
+.typewriter-editor-content .ProseMirror .audio-wrapper,
+.typewriter-editor-content .ProseMirror .file-attachment-wrapper {
+  margin: 1.2em 0;
+}
+
+.typewriter-editor-content .ProseMirror .video-wrapper.selected,
+.typewriter-editor-content .ProseMirror .audio-wrapper.selected .audio-container,
+.typewriter-editor-content .ProseMirror .file-attachment-wrapper.selected .file-attachment {
+  outline: 2px solid var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .audio-container {
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+  border-radius: 8px;
+}
+
+.typewriter-editor-content .ProseMirror .audio-filename {
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .file-attachment {
+  background: color-mix(in srgb, var(--tw-text) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+  border-radius: 8px;
+}
+
+.typewriter-editor-content .ProseMirror .file-attachment:hover {
+  background: color-mix(in srgb, var(--tw-text) 7%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .file-icon {
+  color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .file-name {
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .file-meta {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .file-download {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .file-download:hover {
+  color: var(--tw-accent);
+}
+
+/**
+ * Mermaid 图表 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror .mermaid-wrapper {
+  margin: 1.5em 0;
+  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 8%, transparent);
+  border-radius: 8px;
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-wrapper.selected {
+  border-color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-hint {
+  color: var(--tw-dimmed-text);
+  background: color-mix(in srgb, var(--tw-bg) 80%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-error {
+  color: #d65f5f;
+  background: color-mix(in srgb, #d65f5f 10%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-editor {
+  background: color-mix(in srgb, var(--tw-bg) 95%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-textarea {
+  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-textarea:focus {
+  border-color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-btn {
+  border-radius: 4px;
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-btn-cancel {
+  background: color-mix(in srgb, var(--tw-text) 8%, transparent);
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-btn-cancel:hover {
+  background: color-mix(in srgb, var(--tw-text) 12%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-btn-save {
+  background: var(--tw-accent);
+  color: white;
+}
+
+.typewriter-editor-content .ProseMirror .mermaid-btn-save:hover {
+  opacity: 0.9;
+}
+
+/**
+ * Footnote 脚注 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror .footnote-ref {
+  color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-ref:hover {
+  background: color-mix(in srgb, var(--tw-accent) 15%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-wrapper.selected .footnote-ref {
+  background: var(--tw-accent);
+  color: var(--tw-bg);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-tooltip {
+  background: var(--tw-bg);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+  color: var(--tw-text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-tooltip::after {
+  border-top-color: color-mix(in srgb, var(--tw-text) 15%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-editor {
+  background: var(--tw-bg);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-editor-header {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-editor textarea {
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 12%, transparent);
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-editor textarea:focus {
+  border-color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .footnote-editor-hint {
+  color: var(--tw-dimmed-text);
+}
+
+/**
+ * 高亮/下划线等行内样式 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror mark {
+  background: color-mix(in srgb, var(--tw-accent) 25%, transparent);
+  color: inherit;
+  padding: 0.1em 0.2em;
+  border-radius: 2px;
+}
+
+.typewriter-editor-content .ProseMirror u {
+  text-decoration-color: var(--tw-accent);
+}
+
+/**
+ * 表格样式 - 禅意适配
+ */
+.typewriter-editor-content .ProseMirror table {
+  border-collapse: collapse;
+  margin: 1.5em 0;
+  width: 100%;
+}
+
+.typewriter-editor-content .ProseMirror th,
+.typewriter-editor-content .ProseMirror td {
+  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+  padding: 0.6em 0.8em;
+  text-align: left;
+}
+
+.typewriter-editor-content .ProseMirror th {
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  font-weight: 500;
+  color: var(--tw-focus-text);
+}
+
+.typewriter-editor-content .ProseMirror td {
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror tr:hover td {
+  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
+}
+
+/* Math */
+.typewriter-editor-content .ProseMirror .math-node-wrapper.selected .math-render {
+  background: color-mix(in srgb, var(--tw-accent) 20%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .math-render:hover {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .math-input {
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  border-color: var(--tw-accent);
+  color: var(--tw-focus-text);
+}
+
+/* Code Block */
+.typewriter-editor-content .ProseMirror .code-block-wrapper {
+  --color-code-bg: color-mix(in srgb, var(--tw-text) 5%, transparent);
+  --color-code-text: var(--tw-text);
+  background: var(--color-code-bg);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-header {
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--tw-bg) 90%, transparent),
+    transparent
+  );
+}
+
+.typewriter-editor-content .ProseMirror .code-block-language-btn,
+.typewriter-editor-content .ProseMirror .code-block-copy-btn {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-language-btn:hover,
+.typewriter-editor-content .ProseMirror .code-block-copy-btn:hover {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-dropdown {
+  background: var(--tw-bg);
+  border-color: color-mix(in srgb, var(--tw-text) 15%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-search {
+  color: var(--tw-text);
+  border-bottom-color: color-mix(in srgb, var(--tw-text) 10%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-language-option {
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-language-option:hover {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-language-option.active {
+  background: color-mix(in srgb, var(--tw-accent) 20%, transparent);
+  color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-wrapper pre code {
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-wrapper .hljs-comment {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ProseMirror .code-block-wrapper .hljs-keyword {
+  color: color-mix(in srgb, var(--tw-accent) 100%, var(--tw-text));
+}
+
+.typewriter-editor-content .ProseMirror .code-block-wrapper .hljs-string {
+  color: color-mix(in srgb, #7eb88c 80%, var(--tw-text));
+}
+
+.typewriter-editor-content .ProseMirror .code-block-wrapper .hljs-function,
+.typewriter-editor-content .ProseMirror .code-block-wrapper .hljs-title {
+  color: color-mix(in srgb, #6ba3c7 80%, var(--tw-text));
+}

@@ -35,6 +35,16 @@ import { useTranslations } from '../i18n'
 import { useTheme } from '../theme'
 import { BlockId } from './extensions/BlockId'
 import { NoteLink } from './extensions/NoteLink'
+import { CustomHighlight } from './extensions/Highlight'
+import { CustomUnderline } from './extensions/Underline'
+import { TextStyle, Color } from './extensions/TextColor'
+import { Callout } from './extensions/Callout'
+import { Toggle } from './extensions/Toggle'
+import { Mathematics } from './extensions/Mathematics'
+import { Mermaid } from './extensions/Mermaid'
+import { CustomCodeBlock } from './extensions/CodeBlock'
+import { Footnote } from './extensions/Footnote'
+import 'katex/dist/katex.min.css'
 import { TypewriterToolbar, MOOD_THEMES, type MoodTheme } from './TypewriterToolbar'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
@@ -243,6 +253,8 @@ export function TypewriterMode({
         heading: {
           levels: [1, 2, 3, 4],
         },
+        // 禁用默认的 codeBlock，使用 CustomCodeBlock
+        codeBlock: false,
       }),
       Placeholder.configure({
         placeholder: t.editor.contentPlaceholder || 'Start writing...',
@@ -281,6 +293,17 @@ export function TypewriterMode({
           onNoteClick(noteId, target)
         },
       }),
+      // 与主编辑器保持一致的扩展
+      CustomHighlight,
+      CustomUnderline,
+      TextStyle,
+      Color,
+      Callout,
+      Toggle,
+      Mathematics,
+      Mermaid,
+      CustomCodeBlock,
+      Footnote,
     ],
     content: getInitialContent(),
     editorProps: {

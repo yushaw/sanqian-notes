@@ -93,11 +93,15 @@ export function NoteLinkPopup({
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault()
-          setSelectedIndex(prev => (prev + 1) % Math.max(totalItems, 1))
+          if (totalItems > 0) {
+            setSelectedIndex(prev => (prev + 1) % totalItems)
+          }
           break
         case 'ArrowUp':
           e.preventDefault()
-          setSelectedIndex(prev => (prev - 1 + Math.max(totalItems, 1)) % Math.max(totalItems, 1))
+          if (totalItems > 0) {
+            setSelectedIndex(prev => (prev - 1 + totalItems) % totalItems)
+          }
           break
         case 'Enter':
           e.preventDefault()

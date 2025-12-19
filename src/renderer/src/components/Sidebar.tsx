@@ -1,10 +1,64 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import type { Notebook, SmartViewId } from '../types/note'
 import { useTranslations } from '../i18n'
 import notesLogo from '../assets/notes-logo.png'
 import todolistLogo from '../assets/todolist-logo.png'
 import sanqianLogo from '../assets/sanqian-logo.svg'
 import yinianLogo from '../assets/yinian-logo.svg'
+
+// 检测是否为 macOS
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+
+// 修饰键符号
+const MOD = isMac ? '⌘' : 'Ctrl'
+const SHIFT = isMac ? '⇧' : 'Shift'
+
+// 快捷键帮助弹窗组件
+function ShortcutsPopover({ isOpen, t }: { isOpen: boolean; t: ReturnType<typeof useTranslations> }) {
+  const shortcuts = useMemo(() => [
+    { category: t.shortcuts.textFormat, items: [
+      { label: t.shortcuts.bold, key: `${MOD} B` },
+      { label: t.shortcuts.italic, key: `${MOD} I` },
+      { label: t.shortcuts.underline, key: `${MOD} U` },
+      { label: t.shortcuts.strikethrough, key: `${MOD} ${SHIFT} S` },
+      { label: t.shortcuts.highlight, key: `${MOD} ${SHIFT} H` },
+      { label: t.shortcuts.inlineCode, key: `${MOD} E` },
+    ]},
+    { category: t.shortcuts.blocks, items: [
+      { label: t.shortcuts.slashCommand, key: '/ 、' },
+      { label: t.shortcuts.codeBlock, key: '```' },
+      { label: t.shortcuts.mathFormula, key: '$...$' },
+      { label: t.shortcuts.noteLink, key: '[[' },
+    ]},
+    { category: t.shortcuts.editing, items: [
+      { label: t.shortcuts.undo, key: `${MOD} Z` },
+      { label: t.shortcuts.redo, key: `${MOD} ${SHIFT} Z` },
+      { label: t.shortcuts.save, key: `${MOD} S` },
+    ]},
+  ], [t])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="absolute top-0 left-full ml-2 w-52 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-2 z-50">
+      <div className="px-3 pb-1.5 text-[0.733rem] font-medium text-[var(--color-muted)] uppercase tracking-wider">
+        {t.shortcuts.title}
+      </div>
+      {shortcuts.map((section, idx) => (
+        <div key={section.category}>
+          {idx > 0 && <div className="my-1.5 border-t border-[var(--color-border)]" />}
+          <div className="px-3 py-1 text-[0.7rem] text-[var(--color-muted)]">{section.category}</div>
+          {section.items.map((item) => (
+            <div key={item.label} className="px-3 py-1 flex items-center justify-between text-[0.8rem]">
+              <span className="text-[var(--color-text-secondary)]">{item.label}</span>
+              <span className="text-[var(--color-muted)] font-mono text-[0.7rem]">{item.key}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 // Logo icons mapping
 const LOGO_MAP: Record<string, string> = {
@@ -74,6 +128,7 @@ export function Sidebar({
   noteCounts,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -141,7 +196,24 @@ export function Sidebar({
   }
 
   return (
-    <div className="w-52 h-full bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col">
+    <div className="w-52 h-full bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col relative">
+      {/* Shortcuts help button - absolute top right in title bar area */}
+      <div
+        className="absolute top-[13px] right-2 z-10"
+        onMouseEnter={() => setShowShortcuts(true)}
+        onMouseLeave={() => setShowShortcuts(false)}
+      >
+        <button
+          className="p-1 rounded text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-card)] transition-all duration-150"
+          title="快捷键"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+          </svg>
+        </button>
+        <ShortcutsPopover isOpen={showShortcuts} t={t} />
+      </div>
+
       {/* Sidebar content - pt-[50px] to align with NoteList header */}
       <div className="flex-1 overflow-y-auto px-2 pt-[50px] pb-3 no-drag">
         {/* Smart Views */}

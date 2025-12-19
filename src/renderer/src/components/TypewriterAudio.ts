@@ -38,17 +38,27 @@ export function preloadAudio(): void {
 }
 
 /**
+ * 清理克隆的音频元素
+ */
+function cleanupClonedAudio(audio: HTMLAudioElement, timeoutId?: ReturnType<typeof setTimeout>): void {
+  if (timeoutId) clearTimeout(timeoutId)
+  audio.pause()
+  audio.src = ''
+  audio.remove()
+}
+
+/**
  * 播放打字机按键音效
  */
 export function playTypewriterClick(): void {
   initTypewriterSounds()
   if (keyClickAudio) {
     const audio = keyClickAudio.cloneNode() as HTMLAudioElement
-    audio.addEventListener('ended', () => {
-      audio.src = ''
-      audio.remove()
-    }, { once: true })
-    audio.play().catch(() => {})
+    // 超时保护：2秒后强制清理（防止 ended 事件未触发）
+    const timeoutId = setTimeout(() => cleanupClonedAudio(audio), 2000)
+    audio.addEventListener('ended', () => cleanupClonedAudio(audio, timeoutId), { once: true })
+    audio.addEventListener('error', () => cleanupClonedAudio(audio, timeoutId), { once: true })
+    audio.play().catch(() => cleanupClonedAudio(audio, timeoutId))
   }
 }
 
@@ -59,11 +69,11 @@ export function playTypewriterReturn(): void {
   initTypewriterSounds()
   if (returnAudio) {
     const audio = returnAudio.cloneNode() as HTMLAudioElement
-    audio.addEventListener('ended', () => {
-      audio.src = ''
-      audio.remove()
-    }, { once: true })
-    audio.play().catch(() => {})
+    // 超时保护：2秒后强制清理（防止 ended 事件未触发）
+    const timeoutId = setTimeout(() => cleanupClonedAudio(audio), 2000)
+    audio.addEventListener('ended', () => cleanupClonedAudio(audio, timeoutId), { once: true })
+    audio.addEventListener('error', () => cleanupClonedAudio(audio, timeoutId), { once: true })
+    audio.play().catch(() => cleanupClonedAudio(audio, timeoutId))
   }
 }
 

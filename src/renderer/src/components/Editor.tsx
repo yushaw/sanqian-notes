@@ -12,7 +12,7 @@ import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableHeader } from '@tiptap/extension-table-header'
 import { TableCell } from '@tiptap/extension-table-cell'
-import Image from '@tiptap/extension-image'
+// 移除默认 Image，使用 ResizableImage
 import { textblockTypeInputRule } from '@tiptap/core'
 import type { Note } from '../types/note'
 import { useTranslations } from '../i18n'
@@ -22,6 +22,25 @@ import { BlockId, generateBlockId } from './extensions/BlockId'
 import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
 import { getCursorInfo, type CursorInfo } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
+// 新增扩展
+import { CustomHighlight } from './extensions/Highlight'
+import { CustomUnderline } from './extensions/Underline'
+import { TextStyle, Color } from './extensions/TextColor'
+import { SlashCommand } from './extensions/SlashCommand'
+import { slashCommandSuggestion } from './extensions/slashCommandSuggestion'
+import { ColorPicker } from './ColorPicker'
+// 新增 v0.3 扩展
+import { Callout } from './extensions/Callout'
+import { Toggle } from './extensions/Toggle'
+import { ResizableImage } from './extensions/ResizableImage'
+import { Mathematics } from './extensions/Mathematics'
+import { Mermaid } from './extensions/Mermaid'
+import { Video } from './extensions/Video'
+import { Audio } from './extensions/Audio'
+import { FileAttachment } from './extensions/FileAttachment'
+import { Footnote } from './extensions/Footnote'
+import { CustomCodeBlock } from './extensions/CodeBlock'
+import 'katex/dist/katex.min.css'
 import './Editor.css'
 
 // SVG Icons for toolbar
@@ -131,6 +150,25 @@ const ToolbarIcons = {
       <polyline points="18 15 12 9 6 15" />
     </svg>
   ),
+  highlight: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m9 11-6 6v3h9l3-3" />
+      <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+    </svg>
+  ),
+  underline: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 4v6a6 6 0 0 0 12 0V4" />
+      <line x1="4" y1="20" x2="20" y2="20" />
+    </svg>
+  ),
+  textColor: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20h16" />
+      <path d="m6 16 6-12 6 12" />
+      <path d="M8 12h8" />
+    </svg>
+  ),
 }
 
 // Custom heading extension - input rules without auto-newline
@@ -234,7 +272,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     extensions: [
       StarterKit.configure({
         heading: false, // Disable default heading, use custom
+        codeBlock: false, // Disable default codeBlock, use custom
       }),
+      CustomCodeBlock,
       CustomHeading.configure({
         levels: [1, 2, 3, 4],
       }),
@@ -260,11 +300,25 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       TableRow,
       TableHeader,
       TableCell,
-      Image.configure({
-        inline: false,
-        allowBase64: true,
-      }),
+      ResizableImage,
       BlockId,
+      // v0.3 扩展
+      Callout,
+      Toggle,
+      Mathematics,
+      Mermaid,
+      Video,
+      Audio,
+      FileAttachment,
+      Footnote,
+      // 新增扩展
+      CustomHighlight,
+      CustomUnderline,
+      TextStyle,
+      Color,
+      SlashCommand.configure({
+        suggestion: slashCommandSuggestion,
+      }),
       NoteLink.configure({
         onNoteClick: (noteId: string, _noteTitle: string, target?: { type: 'heading' | 'block'; value: string }) => {
           onNoteClick(noteId, target)
@@ -521,24 +575,30 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const handleCreateNoteLink = useCallback(async (title: string) => {
     if (!editor || linkStartPos === null) return
 
-    const newNote = await onCreateNote(title)
-    const { from } = editor.state.selection
+    try {
+      const newNote = await onCreateNote(title)
+      const { from } = editor.state.selection
 
-    // Delete the [[ and query text
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from: linkStartPos, to: from })
-      .setNoteLink({ noteId: newNote.id, noteTitle: title })
-      .insertContent(title)
-      .unsetNoteLink()
-      .run()
-
-    setShowLinkPopup(false)
-    setLinkQuery('')
-    setLinkStartPos(null)
-    setSearchMode('note')
-    setSelectedLinkNote(null)
+      // Delete the [[ and query text
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: linkStartPos, to: from })
+        .setNoteLink({ noteId: newNote.id, noteTitle: title })
+        .insertContent(title)
+        .unsetNoteLink()
+        .run()
+    } catch (error) {
+      console.error('Failed to create note from link:', error)
+      // 创建失败时恢复焦点
+      editor.commands.focus()
+    } finally {
+      setShowLinkPopup(false)
+      setLinkQuery('')
+      setLinkStartPos(null)
+      setSearchMode('note')
+      setSelectedLinkNote(null)
+    }
   }, [editor, linkStartPos, onCreateNote])
 
   // Close popup on escape
@@ -837,6 +897,8 @@ function EditorToolbar({
 }) {
   const toolbarRef = useRef<HTMLDivElement>(null)
   const [isCompact, setIsCompact] = useState(false)
+  const [showColorPicker, setShowColorPicker] = useState(false)
+  const colorPickerRef = useRef<HTMLDivElement>(null)
 
   // 监听容器宽度变化
   useEffect(() => {
@@ -855,6 +917,17 @@ function EditorToolbar({
     return () => window.removeEventListener('resize', checkWidth)
   }, [])
 
+  // 点击外部关闭颜色选择器
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setShowColorPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   if (!editor) return null
 
   // 判断是否是正文（非标题的段落）
@@ -867,11 +940,13 @@ function EditorToolbar({
         {/* 文本格式下拉 */}
         <ToolbarDropdown
           icon={ToolbarIcons.bold}
-          active={editor.isActive('bold') || editor.isActive('italic') || editor.isActive('strike')}
+          active={editor.isActive('bold') || editor.isActive('italic') || editor.isActive('strike') || editor.isActive('highlight') || editor.isActive('underline')}
           items={[
             { label: t.toolbar.bold, icon: ToolbarIcons.bold, active: editor.isActive('bold'), onClick: () => editor.chain().focus().toggleBold().run() },
             { label: t.toolbar.italic, icon: ToolbarIcons.italic, active: editor.isActive('italic'), onClick: () => editor.chain().focus().toggleItalic().run() },
             { label: t.toolbar.strikethrough, icon: ToolbarIcons.strikethrough, active: editor.isActive('strike'), onClick: () => editor.chain().focus().toggleStrike().run() },
+            { label: t.toolbar.underline, icon: ToolbarIcons.underline, active: editor.isActive('underline'), onClick: () => editor.chain().focus().toggleUnderline().run() },
+            { label: t.toolbar.highlight, icon: ToolbarIcons.highlight, active: editor.isActive('highlight'), onClick: () => editor.chain().focus().toggleHighlight().run() },
           ]}
         />
         {/* 段落类型下拉 */}
@@ -906,6 +981,21 @@ function EditorToolbar({
           ]}
         />
         <div className="zen-toolbar-divider" />
+        {/* 颜色选择器 */}
+        <div className="zen-toolbar-color-wrapper" ref={colorPickerRef}>
+          <ToolbarButton
+            active={showColorPicker}
+            onClick={() => setShowColorPicker(!showColorPicker)}
+            title={t.toolbar.color}
+            icon={ToolbarIcons.textColor}
+          />
+          {showColorPicker && (
+            <div className="zen-toolbar-color-popup">
+              <ColorPicker editor={editor} onClose={() => setShowColorPicker(false)} />
+            </div>
+          )}
+        </div>
+        <div className="zen-toolbar-divider" />
         <ToolbarButton active={isTypewriterMode} onClick={toggleTypewriterMode} title={t.typewriter.typewriterMode} icon={ToolbarIcons.typewriter} />
       </div>
     )
@@ -917,7 +1007,23 @@ function EditorToolbar({
       {/* 文本格式 */}
       <ToolbarButton active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title={t.toolbar.bold} icon={ToolbarIcons.bold} />
       <ToolbarButton active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title={t.toolbar.italic} icon={ToolbarIcons.italic} />
+      <ToolbarButton active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title={`${t.toolbar.underline} (⌘U)`} icon={ToolbarIcons.underline} />
       <ToolbarButton active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title={t.toolbar.strikethrough} icon={ToolbarIcons.strikethrough} />
+      <ToolbarButton active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title={`${t.toolbar.highlight} (⌘⇧H)`} icon={ToolbarIcons.highlight} />
+      {/* 颜色选择器 */}
+      <div className="zen-toolbar-color-wrapper" ref={colorPickerRef}>
+        <ToolbarButton
+          active={showColorPicker}
+          onClick={() => setShowColorPicker(!showColorPicker)}
+          title={t.toolbar.color}
+          icon={ToolbarIcons.textColor}
+        />
+        {showColorPicker && (
+          <div className="zen-toolbar-color-popup">
+            <ColorPicker editor={editor} onClose={() => setShowColorPicker(false)} />
+          </div>
+        )}
+      </div>
       <div className="zen-toolbar-divider" />
       {/* 段落类型 */}
       <ToolbarButton active={isBody} onClick={() => editor.chain().focus().setParagraph().run()} title="Body" icon={<span className="zen-toolbar-text">Body</span>} />

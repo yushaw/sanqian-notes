@@ -40,6 +40,7 @@ import { Audio } from './extensions/Audio'
 import { FileAttachment } from './extensions/FileAttachment'
 import { Footnote } from './extensions/Footnote'
 import { CustomCodeBlock } from './extensions/CodeBlock'
+import { MarkdownPaste } from './extensions/MarkdownPaste'
 import 'katex/dist/katex.min.css'
 import './Editor.css'
 
@@ -319,6 +320,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       SlashCommand.configure({
         suggestion: slashCommandSuggestion,
       }),
+      MarkdownPaste,
       NoteLink.configure({
         onNoteClick: (noteId: string, _noteTitle: string, target?: { type: 'heading' | 'block'; value: string }) => {
           onNoteClick(noteId, target)

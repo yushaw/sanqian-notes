@@ -307,7 +307,7 @@
 .zen-editor {
   outline: none;
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.4;
   color: var(--color-text);
   font-family: var(--font-sans);
   caret-color: var(--color-accent);
@@ -516,7 +516,7 @@
 .zen-editor blockquote {
   border-left: 2px solid var(--color-muted);
   padding-left: 1.25em;
-  margin: 1.5em 0;
+  margin: 1em 0;
   color: var(--color-text-secondary);
   font-style: italic;
 }
@@ -543,7 +543,7 @@
   padding: 1.25em;
   border-radius: var(--radius-md);
   overflow-x: auto;
-  margin: 1.5em 0;
+  margin: 1em 0;
   border: 1px solid var(--color-divider);
 }
 
@@ -561,7 +561,7 @@
 .zen-editor table {
   border-collapse: collapse;
   width: 100%;
-  margin: 1.5em 0;
+  margin: 0;
   font-size: 0.9375rem;
 }
 
@@ -618,7 +618,7 @@
 
 .zen-editor .tableWrapper {
   overflow-x: auto;
-  margin: 1.5em 0;
+  margin: 1em 0;
 }
 
 /* ============================================
@@ -674,11 +674,37 @@
    Typography - Horizontal Rule
    ============================================ */
 
-.zen-editor hr {
+/* HR 包装器 - 增大可点击区域 */
+.zen-editor .hr-wrapper {
+  position: relative;
+  padding: 0.75em 0;
+  margin: 0.75em 0;
+  cursor: pointer;
+}
+
+.zen-editor .hr-wrapper hr {
   border: none;
   height: 1px;
   background: var(--color-divider);
-  margin: 2.5em 0;
+  margin: 0;
+  pointer-events: none;
+  transition: background var(--transition-fast);
+}
+
+/* HR hover 状态 */
+.zen-editor .hr-wrapper:hover hr {
+  background: var(--color-muted);
+}
+
+/* HR 选中状态 - wrapper 有选中样式时 */
+.zen-editor .hr-wrapper.ProseMirror-selectednode hr {
+  background: var(--color-accent);
+}
+
+/* 选中状态的视觉反馈 - 添加背景 */
+.zen-editor .hr-wrapper.ProseMirror-selectednode {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  border-radius: var(--radius-sm);
 }
 
 /* ============================================

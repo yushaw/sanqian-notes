@@ -117,6 +117,9 @@ interface ContextMenuState {
   notebook: Notebook | null
 }
 
+// localStorage key for sidebar collapsed state
+const SIDEBAR_COLLAPSED_KEY = 'sanqian-notes-sidebar-collapsed'
+
 export function Sidebar({
   notebooks,
   selectedNotebookId,
@@ -130,13 +133,30 @@ export function Sidebar({
   noteCounts,
   onCollapsedChange,
 }: SidebarProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+      return saved === 'true'
+    } catch {
+      return false
+    }
+  })
 
-  // 通知父组件折叠状态变化
+  // 通知父组件折叠状态变化，并持久化到 localStorage
   const handleCollapsedChange = (collapsed: boolean) => {
     setIsCollapsed(collapsed)
     onCollapsedChange?.(collapsed)
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed))
+    } catch {
+      // ignore storage errors
+    }
   }
+
+  // 初始化时通知父组件当前的折叠状态
+  useEffect(() => {
+    onCollapsedChange?.(isCollapsed)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,

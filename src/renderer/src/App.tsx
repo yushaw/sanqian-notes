@@ -12,14 +12,41 @@ import { I18nProvider, useTranslations } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from './utils/cursor'
 import type { Note, Notebook, SmartViewId } from './types/note'
 
+// localStorage keys for navigation state persistence
+const STORAGE_KEY_VIEW = 'sanqian-notes-last-view'
+const STORAGE_KEY_NOTEBOOK = 'sanqian-notes-last-notebook'
+const STORAGE_KEY_NOTE = 'sanqian-notes-last-note'
+
 function AppContent() {
   const t = useTranslations()
   const [notebooks, setNotebooks] = useState<Notebook[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [trashNotes, setTrashNotes] = useState<Note[]>([])
-  const [selectedSmartView, setSelectedSmartView] = useState<SmartViewId | null>('all')
-  const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null)
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
+
+  // Initialize navigation state from localStorage
+  const [selectedSmartView, setSelectedSmartView] = useState<SmartViewId | null>(() => {
+    try {
+      const savedNotebook = localStorage.getItem(STORAGE_KEY_NOTEBOOK)
+      if (savedNotebook) return null // If notebook is saved, don't set smart view initially
+      const saved = localStorage.getItem(STORAGE_KEY_VIEW)
+      if (saved === 'all' || saved === 'daily' || saved === 'recent' || saved === 'favorites' || saved === 'trash') {
+        return saved
+      }
+    } catch { /* ignore */ }
+    return 'all'
+  })
+  const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY_NOTEBOOK)
+    } catch { /* ignore */ }
+    return null
+  })
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY_NOTE)
+    } catch { /* ignore */ }
+    return null
+  })
   const [showSettings, setShowSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -40,7 +67,7 @@ function AppContent() {
   // Editor ref for cursor position sync
   const editorRef = useRef<EditorHandle>(null)
 
-  // Load data from database
+  // Load data from database and validate restored navigation state
   useEffect(() => {
     async function loadData() {
       try {
@@ -49,9 +76,36 @@ function AppContent() {
           window.electron.notebook.getAll(),
           window.electron.trash.getAll()
         ])
-        setNotes(notesData as Note[])
-        setNotebooks(notebooksData as Notebook[])
+        const loadedNotes = notesData as Note[]
+        const loadedNotebooks = notebooksData as Notebook[]
+        setNotes(loadedNotes)
+        setNotebooks(loadedNotebooks)
         setTrashNotes(trashData as Note[])
+
+        // Validate restored navigation state
+        // Check if saved notebook still exists
+        const savedNotebookId = localStorage.getItem(STORAGE_KEY_NOTEBOOK)
+        if (savedNotebookId) {
+          const notebookExists = loadedNotebooks.some(nb => nb.id === savedNotebookId)
+          if (!notebookExists) {
+            // Notebook was deleted, reset to 'all' view
+            setSelectedNotebookId(null)
+            setSelectedSmartView('all')
+            localStorage.removeItem(STORAGE_KEY_NOTEBOOK)
+            localStorage.setItem(STORAGE_KEY_VIEW, 'all')
+          }
+        }
+
+        // Check if saved note still exists
+        const savedNoteId = localStorage.getItem(STORAGE_KEY_NOTE)
+        if (savedNoteId) {
+          const noteExists = loadedNotes.some(n => n.id === savedNoteId)
+          if (!noteExists) {
+            // Note was deleted, clear selection
+            setSelectedNoteId(null)
+            localStorage.removeItem(STORAGE_KEY_NOTE)
+          }
+        }
       } catch (error) {
         console.error('Failed to load data:', error)
       } finally {
@@ -63,6 +117,31 @@ function AppContent() {
     // Cleanup old trash (notes older than 30 days)
     window.electron.trash.cleanup().catch(console.error)
   }, [])
+
+  // Persist navigation state changes to localStorage
+  useEffect(() => {
+    try {
+      if (selectedNotebookId) {
+        localStorage.setItem(STORAGE_KEY_NOTEBOOK, selectedNotebookId)
+        localStorage.removeItem(STORAGE_KEY_VIEW)
+      } else {
+        localStorage.removeItem(STORAGE_KEY_NOTEBOOK)
+        if (selectedSmartView) {
+          localStorage.setItem(STORAGE_KEY_VIEW, selectedSmartView)
+        }
+      }
+    } catch { /* ignore storage errors */ }
+  }, [selectedSmartView, selectedNotebookId])
+
+  useEffect(() => {
+    try {
+      if (selectedNoteId) {
+        localStorage.setItem(STORAGE_KEY_NOTE, selectedNoteId)
+      } else {
+        localStorage.removeItem(STORAGE_KEY_NOTE)
+      }
+    } catch { /* ignore storage errors */ }
+  }, [selectedNoteId])
 
   // Filter notes based on current view
   const filteredNotes = useMemo(() => {

@@ -44,6 +44,7 @@ import { Mermaid } from './extensions/Mermaid'
 import { CustomCodeBlock } from './extensions/CodeBlock'
 import { Footnote } from './extensions/Footnote'
 import { MarkdownPaste } from './extensions/MarkdownPaste'
+import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
 import { TypewriterToolbar } from './TypewriterToolbar'
@@ -284,7 +285,9 @@ export function TypewriterMode({
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
         codeBlock: false,
+        horizontalRule: false,
       }),
+      CustomHorizontalRule,
       Placeholder.configure({
         placeholder: t.editor.contentPlaceholder || 'Start writing...',
         emptyEditorClass: 'is-editor-empty',

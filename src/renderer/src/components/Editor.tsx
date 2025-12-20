@@ -42,6 +42,7 @@ import { Footnote } from './extensions/Footnote'
 import { CustomCodeBlock } from './extensions/CodeBlock'
 import { MarkdownPaste } from './extensions/MarkdownPaste'
 import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
+import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
@@ -406,7 +407,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         codeBlock: false, // Disable default codeBlock, use custom
         link: false, // Disable default link, use custom Link below
         underline: false, // Disable default underline, use CustomUnderline
+        horizontalRule: false, // Disable default, use CustomHorizontalRule
       }),
+      CustomHorizontalRule,
       CustomCodeBlock,
       CustomHeading.configure({
         levels: [1, 2, 3, 4],
@@ -547,6 +550,61 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   useImperativeHandle(ref, () => ({
     getEditor: () => editor,
   }), [editor])
+
+  // 跟踪编辑器自身的内容版本，用于区分外部更新和内部更新
+  const editorContentRef = useRef<string | null>(null)
+
+  // 同步外部内容变化到编辑器（长期主义方案：避免重建编辑器）
+  // 场景：从打字机模式退出后，note.content 已更新，需要同步到编辑器
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+
+    // 获取当前编辑器内容的 JSON 字符串
+    const currentContent = JSON.stringify(editor.getJSON())
+
+    // 如果这是编辑器自己刚刚产生的更新，跳过同步
+    if (editorContentRef.current === note.content) {
+      return
+    }
+
+    // 解析外部传入的内容
+    const parseContent = () => {
+      if (!note.content || note.content === '[]' || note.content === '') {
+        return { type: 'doc', content: [] }
+      }
+      try {
+        const parsed = JSON.parse(note.content)
+        if (parsed.type === 'doc') return parsed
+        return { type: 'doc', content: [] }
+      } catch {
+        return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: note.content }] }] }
+      }
+    }
+
+    const externalContent = parseContent()
+    const externalContentStr = JSON.stringify(externalContent)
+
+    // 只有当外部内容真正不同时才同步
+    if (currentContent !== externalContentStr) {
+      // 使用 setContent 同步，emitUpdate: false 避免触发 onUpdate 回调造成循环
+      editor.commands.setContent(externalContent, false)
+      editorContentRef.current = note.content
+    }
+  }, [editor, note.content])
+
+  // 在 onUpdate 中记录编辑器产生的内容
+  useEffect(() => {
+    if (!editor) return
+
+    const updateHandler = () => {
+      editorContentRef.current = JSON.stringify(editor.getJSON())
+    }
+
+    editor.on('update', updateHandler)
+    return () => {
+      editor.off('update', updateHandler)
+    }
+  }, [editor])
 
   // 处理标题搜索
   const handleHeadingSearch = useCallback(async (
@@ -1046,7 +1104,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         className="zen-scroll-wrapper"
         onClick={(e) => {
           // Click on empty area focuses editor at end
+          // But don't interfere with text selection - if user has selected text, don't focus
           if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('zen-content')) {
+            // Check if there's an active text selection (from drag-select)
+            const selection = window.getSelection()
+            if (selection && selection.toString().length > 0) {
+              // User has selected text, don't change focus
+              return
+            }
             editor?.commands.focus('end')
           }
         }}

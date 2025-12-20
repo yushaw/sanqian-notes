@@ -152,7 +152,7 @@ export function TrashList({
                 <div
                   key={note.id}
                   onContextMenu={(e) => handleContextMenu(e, note)}
-                  className="w-full text-left px-4 py-2.5 transition-all duration-150 hover:bg-[var(--color-surface)] select-none cursor-default"
+                  className="group w-full text-left px-4 py-2.5 transition-all duration-150 hover:bg-[var(--color-surface)] select-none cursor-default relative"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-[0.933rem] font-medium truncate leading-tight text-[var(--color-text)]">
@@ -165,9 +165,38 @@ export function TrashList({
                   <p className="text-[0.8rem] text-[var(--color-muted)] mt-1 line-clamp-2 leading-[1.4]" style={{ minHeight: '2.8em' }}>
                     {getPreview(note.content) || t.noteList.noContent}
                   </p>
-                  <p className="text-[0.733rem] text-[var(--color-muted)] opacity-50 mt-1">
-                    {t.trash.daysRemaining.replace('{n}', String(daysRemaining))}
-                  </p>
+                  <div className="flex items-center justify-between mt-1">
+                    <p className="text-[0.733rem] text-[var(--color-muted)] opacity-50">
+                      {t.trash.daysRemaining.replace('{n}', String(daysRemaining))}
+                    </p>
+                    {/* Hover action buttons */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRestore(note.id)
+                        }}
+                        className="p-1 rounded text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-card)] transition-all duration-150"
+                        title={t.trash.restore}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setConfirmDelete({ id: note.id, title: note.title || t.noteList.untitled })
+                        }}
+                        className="p-1 rounded text-[var(--color-muted)] hover:text-red-500 hover:bg-[var(--color-card)] transition-all duration-150"
+                        title={t.trash.permanentDelete}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                   {/* Divider */}
                   {nextNote && (
                     <div className="h-px bg-[var(--color-divider)] mt-2.5 -mb-2.5" />

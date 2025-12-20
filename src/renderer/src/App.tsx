@@ -320,7 +320,17 @@ function AppContent() {
         setTrashNotes(prev => {
           const restoredNote = prev.find(n => n.id === id)
           if (restoredNote) {
-            setNotes(notesPrev => [{ ...restoredNote, deleted_at: null }, ...notesPrev])
+            // Update updated_at to now so it appears at top of non-pinned notes
+            const now = new Date().toISOString()
+            const noteToRestore = { ...restoredNote, deleted_at: null, updated_at: now }
+            setNotes(notesPrev => {
+              const newNotes = [noteToRestore, ...notesPrev]
+              // Re-sort: pinned first, then by updated_at
+              return newNotes.sort((a, b) => {
+                if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+                return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+              })
+            })
           }
           return prev.filter(n => n.id !== id)
         })
@@ -517,17 +527,22 @@ function AppContent() {
     return getCursorInfo(editor) || { blockId: '', offsetInBlock: 0 }
   }, [])
 
-  // Keyboard shortcut for typewriter mode (Cmd/Ctrl + Shift + T)
+  // Keyboard shortcuts
   // 使用 ref 保存最新的回调和状态，避免频繁注册/卸载事件监听器
   const isTypewriterModeRef = useRef(isTypewriterMode)
   const handleToggleTypewriterRef = useRef(handleToggleTypewriter)
   const getCursorInfoFromEditorRef = useRef(getCursorInfoFromEditor)
+  const handleCreateNoteRef = useRef(handleCreateNote)
+  const selectedSmartViewRef = useRef(selectedSmartView)
   isTypewriterModeRef.current = isTypewriterMode
   handleToggleTypewriterRef.current = handleToggleTypewriter
   getCursorInfoFromEditorRef.current = getCursorInfoFromEditor
+  handleCreateNoteRef.current = handleCreateNote
+  selectedSmartViewRef.current = selectedSmartView
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + Shift + T: Toggle typewriter mode
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 't') {
         e.preventDefault()
         if (!isTypewriterModeRef.current) {
@@ -535,6 +550,14 @@ function AppContent() {
           handleToggleTypewriterRef.current(cursorInfo)
         } else {
           setIsTypewriterMode(false)
+        }
+      }
+      // Cmd/Ctrl + N: Create new note (not in trash view)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') {
+        e.preventDefault()
+        // Don't create note if in trash view
+        if (selectedSmartViewRef.current !== 'trash') {
+          handleCreateNoteRef.current()
         }
       }
     }

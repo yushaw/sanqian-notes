@@ -43,4 +43,19 @@ contextBridge.exposeInMainWorld('electron', {
     setTitleBarOverlay: (options: { color: string; symbolColor: string }) =>
       ipcRenderer.invoke('window:setTitleBarOverlay', options),
   },
+  attachment: {
+    save: (filePath: string) => ipcRenderer.invoke('attachment:save', filePath),
+    saveBuffer: (buffer: Uint8Array, ext: string, name?: string) =>
+      ipcRenderer.invoke('attachment:saveBuffer', Buffer.from(buffer), ext, name),
+    delete: (relativePath: string) => ipcRenderer.invoke('attachment:delete', relativePath),
+    open: (relativePath: string) => ipcRenderer.invoke('attachment:open', relativePath),
+    showInFolder: (relativePath: string) => ipcRenderer.invoke('attachment:showInFolder', relativePath),
+    selectFiles: (options?: { filters?: { name: string; extensions: string[] }[]; multiple?: boolean }) =>
+      ipcRenderer.invoke('attachment:selectFiles', options),
+    selectImages: () => ipcRenderer.invoke('attachment:selectImages'),
+    getFullPath: (relativePath: string) => ipcRenderer.invoke('attachment:getFullPath', relativePath),
+    exists: (relativePath: string) => ipcRenderer.invoke('attachment:exists', relativePath),
+    getAll: () => ipcRenderer.invoke('attachment:getAll'),
+    cleanup: () => ipcRenderer.invoke('attachment:cleanup'),
+  },
 })

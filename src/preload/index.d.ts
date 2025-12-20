@@ -1,4 +1,6 @@
-export {}
+import type { AttachmentResult, AttachmentSelectOptions, AttachmentAPI } from '../shared/types'
+
+export { AttachmentResult, AttachmentSelectOptions, AttachmentAPI }
 
 declare global {
   interface Window {
@@ -41,6 +43,7 @@ declare global {
       platform: {
         get: () => Promise<string>
       }
+      attachment: AttachmentAPI
     }
     api: unknown
   }

@@ -2,11 +2,12 @@ import { Extension } from '@tiptap/core'
 import Suggestion, { SuggestionOptions } from '@tiptap/suggestion'
 import type { Editor } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
+import { getFileCategory } from '../../utils/fileCategory'
 
 export interface SlashCommandItem {
   id: string  // 用于查找翻译的 key
   icon: string
-  command: (editor: Editor) => void
+  command: (editor: Editor) => void | boolean | Promise<void | boolean>
   keywords?: string[]
 }
 
@@ -125,10 +126,79 @@ export const slashCommands: SlashCommandItem[] = [
     keywords: ['footnote', 'note', 'reference', 'jiaozhu'],
     command: (editor) => editor.chain().focus().setFootnote().run(),
   },
+  {
+    id: 'image',
+    icon: '🖼️',
+    keywords: ['image', 'picture', 'photo', 'tupian', 'img'],
+    command: async (editor) => {
+      try {
+        const files = await window.electron.attachment.selectImages()
+        if (!files?.length) return
+
+        for (const filePath of files) {
+          const result = await window.electron.attachment.save(filePath)
+          const attachmentUrl = `attachment://${result.relativePath}`
+          editor.chain().focus().setImage({
+            src: attachmentUrl,
+            alt: result.name,
+          }).run()
+        }
+      } catch (error) {
+        console.error('Failed to insert image:', error)
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        alert(`插入图片失败：${message}`)
+      }
+    },
+  },
+  {
+    id: 'file',
+    icon: '📎',
+    keywords: ['file', 'attachment', 'fujian', 'wenjian', 'upload'],
+    command: async (editor) => {
+      try {
+        const files = await window.electron.attachment.selectFiles({ multiple: true })
+        if (!files?.length) return
+
+        for (const filePath of files) {
+          const result = await window.electron.attachment.save(filePath)
+          const category = getFileCategory(result.name)
+          const attachmentUrl = `attachment://${result.relativePath}`
+
+          switch (category) {
+            case 'image':
+              editor.chain().focus().setImage({
+                src: attachmentUrl,
+                alt: result.name,
+              }).run()
+              break
+            case 'video':
+              editor.commands.setVideo({ src: attachmentUrl })
+              break
+            case 'audio':
+              editor.commands.setAudio({ src: attachmentUrl, title: result.name })
+              break
+            default:
+              editor.commands.setFileAttachment({
+                src: result.relativePath,
+                name: result.name,
+                size: result.size,
+                type: result.type,
+              })
+          }
+        }
+      } catch (error) {
+        console.error('Failed to insert file:', error)
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        alert(`插入文件失败：${message}`)
+      }
+    },
+  },
 ]
 
 export interface SlashCommandOptions {
-  suggestion: Partial<SuggestionOptions>
+  suggestion: Partial<Omit<SuggestionOptions<SlashCommandItem>, 'allowedPrefixes'>> & {
+    allowedPrefixes?: (string | null)[]
+  }
 }
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
@@ -139,7 +209,7 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
       suggestion: {
         // 只在行首或空格后触发 slash 命令
         // null = 行首, ' ' = 空格后
-        allowedPrefixes: [' ', null],
+        allowedPrefixes: [' ', null] as (string | null)[],
         // 自定义触发条件：光标后面如果有非空格内容则不触发
         allow: ({ state, range }: { state: any; range: { from: number; to: number } }) => {
           const $from = state.doc.resolve(range.from)
@@ -165,7 +235,8 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
   },
 
   addProseMirrorPlugins() {
-    const suggestionConfig = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const suggestionConfig: any = {
       ...this.options.suggestion,
       items: ({ query }: { query: string }) => {
         const search = query.toLowerCase()

@@ -66,8 +66,41 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
   const handleImageLoad = () => {
     if (imageRef.current) {
       const { naturalWidth, naturalHeight } = imageRef.current
-      setAspectRatio(naturalWidth / naturalHeight)
+      const ratio = naturalWidth / naturalHeight
+      setAspectRatio(ratio)
       setImageError(false)
+
+      // 如果没有设置尺寸，且图片超出默认限制，自动设置限制后的尺寸
+      if (!attrs.width && !attrs.height) {
+        // 动态计算最大尺寸：宽度为容器的一半，高度为视口的 1/3
+        const containerWidth = containerRef.current?.parentElement?.offsetWidth || 800
+        const viewportHeight = window.innerHeight
+        const maxDefaultWidth = Math.round(containerWidth / 2)
+        const maxDefaultHeight = Math.round(viewportHeight / 3)
+
+        let newWidth = naturalWidth
+        let newHeight = naturalHeight
+
+        // 先按宽度限制
+        if (newWidth > maxDefaultWidth) {
+          newWidth = maxDefaultWidth
+          newHeight = Math.round(newWidth / ratio)
+        }
+
+        // 再按高度限制
+        if (newHeight > maxDefaultHeight) {
+          newHeight = maxDefaultHeight
+          newWidth = Math.round(newHeight * ratio)
+        }
+
+        // 如果需要调整尺寸，更新属性
+        if (newWidth !== naturalWidth || newHeight !== naturalHeight) {
+          updateAttributes({
+            width: newWidth,
+            height: newHeight,
+          })
+        }
+      }
     }
   }
 

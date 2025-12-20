@@ -172,6 +172,10 @@ export interface Translations {
     mermaidDesc: string
     footnote: string
     footnoteDesc: string
+    image: string
+    imageDesc: string
+    file: string
+    fileDesc: string
     noMatches: string
   }
   codeBlock: {
@@ -217,6 +221,8 @@ export interface Translations {
     alignCenter: string
     alignRight: string
     editFormula: string
+    openFile: string
+    showInFolder: string
   }
   toc: {
     title: string
@@ -239,6 +245,27 @@ export interface Translations {
     undo: string
     redo: string
     save: string
+    newNote: string
+  }
+  contextMenu: {
+    cut: string
+    copy: string
+    paste: string
+    paragraph: string
+    insert: string
+    bulletList: string
+    numberedList: string
+    taskList: string
+    quote: string
+    codeBlock: string
+    divider: string
+    table: string
+    callout: string
+  }
+  fileError: {
+    tooLarge: string
+    tooLargeDetail: string
+    insertFailed: string
   }
 }
 
@@ -306,7 +333,7 @@ const zh: Translations = {
     numberedList: '有序列表',
     checklist: '任务列表',
     link: '链接',
-    code: '代码',
+    code: '行内代码',
     quote: '引用',
     underline: '下划线',
     highlight: '高亮',
@@ -413,6 +440,10 @@ const zh: Translations = {
     mermaidDesc: '插入流程图、时序图等',
     footnote: '脚注',
     footnoteDesc: '插入脚注引用',
+    image: '图片',
+    imageDesc: '从本地选择图片插入',
+    file: '文件',
+    fileDesc: '插入本地文件附件',
     noMatches: '没有匹配的命令'
   },
   codeBlock: {
@@ -457,7 +488,9 @@ const zh: Translations = {
     alignLeft: '左对齐',
     alignCenter: '居中',
     alignRight: '右对齐',
-    editFormula: '点击编辑公式'
+    editFormula: '点击编辑公式',
+    openFile: '打开文件',
+    showInFolder: '在文件夹中显示'
   },
   toc: {
     title: '目录'
@@ -479,7 +512,28 @@ const zh: Translations = {
     noteLink: '双向链接',
     undo: '撤销',
     redo: '重做',
-    save: '保存'
+    save: '保存',
+    newNote: '新建笔记'
+  },
+  contextMenu: {
+    cut: '剪切',
+    copy: '复制',
+    paste: '粘贴',
+    paragraph: '正文',
+    insert: '插入',
+    bulletList: '无序列表',
+    numberedList: '有序列表',
+    taskList: '待办事项',
+    quote: '引用',
+    codeBlock: '代码块',
+    divider: '分割线',
+    table: '表格',
+    callout: '提示块'
+  },
+  fileError: {
+    tooLarge: '文件过大',
+    tooLargeDetail: '文件大小 {size}MB 超过 100MB 限制',
+    insertFailed: '插入文件失败'
   }
 }
 
@@ -547,7 +601,7 @@ const en: Translations = {
     numberedList: 'Numbered List',
     checklist: 'Checklist',
     link: 'Link',
-    code: 'Code',
+    code: 'Inline Code',
     quote: 'Quote',
     underline: 'Underline',
     highlight: 'Highlight',
@@ -654,6 +708,10 @@ const en: Translations = {
     mermaidDesc: 'Insert flowchart, sequence diagram, etc.',
     footnote: 'Footnote',
     footnoteDesc: 'Insert footnote reference',
+    image: 'Image',
+    imageDesc: 'Select and insert local image',
+    file: 'File',
+    fileDesc: 'Insert local file attachment',
     noMatches: 'No matching commands'
   },
   codeBlock: {
@@ -698,7 +756,9 @@ const en: Translations = {
     alignLeft: 'Align left',
     alignCenter: 'Center',
     alignRight: 'Align right',
-    editFormula: 'Click to edit formula'
+    editFormula: 'Click to edit formula',
+    openFile: 'Open file',
+    showInFolder: 'Show in folder'
   },
   toc: {
     title: 'Contents'
@@ -720,7 +780,28 @@ const en: Translations = {
     noteLink: 'Note Link',
     undo: 'Undo',
     redo: 'Redo',
-    save: 'Save'
+    save: 'Save',
+    newNote: 'New Note'
+  },
+  contextMenu: {
+    cut: 'Cut',
+    copy: 'Copy',
+    paste: 'Paste',
+    paragraph: 'Paragraph',
+    insert: 'Insert',
+    bulletList: 'Bullet List',
+    numberedList: 'Numbered List',
+    taskList: 'Task List',
+    quote: 'Quote',
+    codeBlock: 'Code Block',
+    divider: 'Divider',
+    table: 'Table',
+    callout: 'Callout'
+  },
+  fileError: {
+    tooLarge: 'File too large',
+    tooLargeDetail: 'File size {size}MB exceeds 100MB limit',
+    insertFailed: 'Failed to insert file'
   }
 }
 

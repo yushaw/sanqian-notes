@@ -17,8 +17,14 @@ import Link from '@tiptap/extension-link'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import CharacterCount from '@tiptap/extension-character-count'
-import Image from '@tiptap/extension-image'
+// 使用自定义的 ResizableImage 而非默认 Image
+import { ResizableImage } from './extensions/ResizableImage'
+import { Video } from './extensions/Video'
+import { Audio } from './extensions/Audio'
+import { FileAttachment } from './extensions/FileAttachment'
+import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import Focus from '@tiptap/extension-focus'
+import { FileHandler } from '@tiptap/extension-file-handler'
 import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableHeader } from '@tiptap/extension-table-header'
@@ -37,6 +43,8 @@ import { Mathematics } from './extensions/Mathematics'
 import { Mermaid } from './extensions/Mermaid'
 import { CustomCodeBlock } from './extensions/CodeBlock'
 import { Footnote } from './extensions/Footnote'
+import { MarkdownPaste } from './extensions/MarkdownPaste'
+import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
 import { TypewriterToolbar } from './TypewriterToolbar'
 import { TypewriterToc } from './TypewriterToc'
@@ -155,6 +163,106 @@ export function TypewriterMode({
     showWordCount: true,
   }
 
+  // ==================== 文件处理 ====================
+
+  // 处理文件插入（粘贴或拖拽）
+  const handleFileInsert = async (
+    editorInstance: TiptapEditor,
+    file: File,
+    pos?: number
+  ) => {
+    if (!editorInstance) return
+
+    const docSize = editorInstance.state.doc.content.size
+    let insertPos: number | undefined = pos
+    if (pos !== undefined && (pos < 0 || pos > docSize)) {
+      insertPos = docSize
+    }
+
+    // 前端文件大小检查（100MB）
+    const MAX_FILE_SIZE = 100 * 1024 * 1024
+    if (file.size > MAX_FILE_SIZE) {
+      alert(`文件过大：${file.name}\n文件大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 100MB 限制`)
+      return
+    }
+
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const buffer = new Uint8Array(arrayBuffer)
+
+      const ext = file.name.includes('.')
+        ? file.name.split('.').pop()!.toLowerCase()
+        : getExtensionFromMime(file.type)
+
+      const result = await window.electron.attachment.saveBuffer(buffer, ext, file.name)
+      const category = getFileCategory(file.name) || getFileCategory(`.${ext}`)
+
+      const attachmentUrl = `attachment://${result.relativePath}`
+
+      switch (category) {
+        case 'image':
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'resizableImage',
+              attrs: { src: attachmentUrl, alt: result.name },
+            }).run()
+          } else {
+            editorInstance.chain().focus().setImage({
+              src: attachmentUrl,
+              alt: result.name,
+            }).run()
+          }
+          break
+
+        case 'video':
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'video',
+              attrs: { src: attachmentUrl },
+            }).run()
+          } else {
+            editorInstance.commands.setVideo({ src: attachmentUrl })
+          }
+          break
+
+        case 'audio':
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'audio',
+              attrs: { src: attachmentUrl, title: result.name },
+            }).run()
+          } else {
+            editorInstance.commands.setAudio({ src: attachmentUrl, title: result.name })
+          }
+          break
+
+        default:
+          // 其他文件类型作为附件
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'fileAttachment',
+              attrs: {
+                src: attachmentUrl,
+                name: result.name,
+                size: result.size,
+                type: result.type,
+              },
+            }).run()
+          } else {
+            editorInstance.commands.setFileAttachment({
+              src: attachmentUrl,
+              name: result.name,
+              size: result.size,
+              type: result.type,
+            })
+          }
+      }
+    } catch (error) {
+      console.error('Failed to insert file:', error)
+      alert(`文件插入失败：${file.name}`)
+    }
+  }
+
   // ==================== 编辑器初始化 ====================
 
   const getInitialContent = () => {
@@ -189,7 +297,10 @@ export function TypewriterMode({
       TaskList,
       TaskItem.configure({ nested: true }),
       CharacterCount,
-      Image.configure({ inline: false, allowBase64: true }),
+      ResizableImage,
+      Video,
+      Audio,
+      FileAttachment,
       Focus.configure({ className: 'has-focus', mode: 'shallowest' }),
       Table.configure({ resizable: true }),
       TableRow,
@@ -211,6 +322,19 @@ export function TypewriterMode({
       Mermaid,
       CustomCodeBlock,
       Footnote,
+      MarkdownPaste,
+      FileHandler.configure({
+        onPaste: async (currentEditor, files) => {
+          for (const file of files) {
+            await handleFileInsert(currentEditor, file)
+          }
+        },
+        onDrop: async (currentEditor, files, pos) => {
+          for (const file of files) {
+            await handleFileInsert(currentEditor, file, pos)
+          }
+        },
+      }),
     ],
     content: getInitialContent(),
     editorProps: {
@@ -458,6 +582,13 @@ export function TypewriterMode({
     }
   }, [updateBlockOpacity])
 
+  // ==================== 事件处理 ====================
+
+  const handleExit = useCallback(() => {
+    const cursorInfo = getCursorInfo(editor)
+    onExit(cursorInfo || undefined)
+  }, [editor, onExit])
+
   /** ESC 键退出 */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -481,13 +612,6 @@ export function TypewriterMode({
       titleRef.current.style.height = titleRef.current.scrollHeight + 'px'
     }
   }, [title])
-
-  // ==================== 事件处理 ====================
-
-  const handleExit = useCallback(() => {
-    const cursorInfo = getCursorInfo(editor)
-    onExit(cursorInfo || undefined)
-  }, [editor, onExit])
 
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newTitle = e.target.value

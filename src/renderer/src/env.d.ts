@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+// 从 shared/types 导入类型
+type AttachmentResult = import('../../shared/types').AttachmentResult
+type AttachmentSelectOptions = import('../../shared/types').AttachmentSelectOptions
+type AttachmentAPI = import('../../shared/types').AttachmentAPI
+
 interface Window {
   electron: {
     note: {
@@ -39,6 +44,7 @@ interface Window {
     platform: {
       get: () => Promise<string>
     }
+    attachment: AttachmentAPI
   }
 }
 

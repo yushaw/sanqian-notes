@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme, screen, protocol, net } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initDatabase,
@@ -23,7 +24,38 @@ import {
   permanentlyDeleteNote,
   emptyTrash,
   cleanupOldTrash,
+  // Attachment references
+  getUsedAttachmentPaths,
 } from './database'
+import {
+  saveAttachment,
+  saveAttachmentBuffer,
+  deleteAttachment,
+  openAttachment,
+  showInFolder,
+  selectFiles,
+  selectImages,
+  getFullPath,
+  getUserDataPath,
+  attachmentExists,
+  getAllAttachments,
+  cleanupOrphanAttachments,
+} from './attachment'
+
+// ============ Custom Protocol ============
+
+// 注册 attachment:// 协议（必须在 app.whenReady 之前）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'attachment',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true, // 支持视频/音频流式播放
+    },
+  },
+])
 
 let mainWindow: BrowserWindow | null = null
 
@@ -226,6 +258,26 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // 注册 attachment:// 协议处理器
+  protocol.handle('attachment', (request) => {
+    try {
+      const relativePath = decodeURIComponent(request.url.replace('attachment://', ''))
+
+      // 安全检查：防止目录遍历攻击（getFullPath 会抛出异常）
+      const fullPath = getFullPath(relativePath)
+      const userData = getUserDataPath()
+      if (!fullPath.startsWith(userData)) {
+        return new Response('Forbidden', { status: 403 })
+      }
+
+      // 返回文件
+      return net.fetch(pathToFileURL(fullPath).toString())
+    } catch (error) {
+      console.error('Attachment protocol error:', error)
+      return new Response('Bad Request', { status: 400 })
+    }
+  })
+
   // Initialize database
   initDatabase()
 
@@ -254,6 +306,26 @@ app.whenReady().then(() => {
   // IPC handlers for tag operations
   ipcMain.handle('tag:getAll', () => getTags())
   ipcMain.handle('tag:getByNote', (_, noteId) => getTagsByNote(noteId))
+
+  // IPC handlers for attachment operations
+  ipcMain.handle('attachment:save', (_, filePath: string) => saveAttachment(filePath))
+  ipcMain.handle('attachment:saveBuffer', (_, buffer: Buffer, ext: string, name?: string) =>
+    saveAttachmentBuffer(buffer, ext, name)
+  )
+  ipcMain.handle('attachment:delete', (_, relativePath: string) => deleteAttachment(relativePath))
+  ipcMain.handle('attachment:open', (_, relativePath: string) => openAttachment(relativePath))
+  ipcMain.handle('attachment:showInFolder', (_, relativePath: string) => showInFolder(relativePath))
+  ipcMain.handle('attachment:selectFiles', (_, options?: { filters?: { name: string; extensions: string[] }[]; multiple?: boolean }) =>
+    selectFiles(options)
+  )
+  ipcMain.handle('attachment:selectImages', () => selectImages())
+  ipcMain.handle('attachment:getFullPath', (_, relativePath: string) => getFullPath(relativePath))
+  ipcMain.handle('attachment:exists', (_, relativePath: string) => attachmentExists(relativePath))
+  ipcMain.handle('attachment:getAll', () => getAllAttachments())
+  ipcMain.handle('attachment:cleanup', async () => {
+    const usedPaths = getUsedAttachmentPaths()
+    return cleanupOrphanAttachments(usedPaths)
+  })
 
   // Theme
   ipcMain.handle('theme:get', () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
@@ -293,6 +365,19 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // 启动 5 分钟后自动清理孤儿附件（不阻塞启动）
+  setTimeout(async () => {
+    try {
+      const usedPaths = getUsedAttachmentPaths()
+      const deleted = await cleanupOrphanAttachments(usedPaths)
+      if (deleted > 0) {
+        console.log(`[Attachment Cleanup] Deleted ${deleted} orphan attachment(s)`)
+      }
+    } catch (error) {
+      console.error('[Attachment Cleanup] Failed:', error)
+    }
+  }, 5 * 60 * 1000) // 5 minutes
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

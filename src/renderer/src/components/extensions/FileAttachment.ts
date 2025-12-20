@@ -12,7 +12,8 @@ declare module '@tiptap/core' {
 
 export const FileAttachment = Node.create({
   name: 'fileAttachment',
-  group: 'block',
+  group: 'inline',
+  inline: true,
   atom: true,
   draggable: true,
 
@@ -36,14 +37,14 @@ export const FileAttachment = Node.create({
   parseHTML() {
     return [
       {
-        tag: 'div[data-file-attachment]',
+        tag: 'span[data-file-attachment]',
       },
     ]
   },
 
   renderHTML({ HTMLAttributes }) {
     return [
-      'div',
+      'span',
       mergeAttributes(HTMLAttributes, { 'data-file-attachment': '' }),
     ]
   },

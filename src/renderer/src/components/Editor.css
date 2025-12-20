@@ -240,6 +240,14 @@
 
 .zen-toolbar-dropdown-label {
   font-weight: 500;
+  flex: 1;
+}
+
+.zen-toolbar-dropdown-shortcut {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: system-ui, -apple-system, sans-serif;
+  margin-left: auto;
 }
 
 /* ============================================
@@ -621,7 +629,7 @@
   max-width: 100%;
   height: auto;
   border-radius: var(--radius-md);
-  margin: 1em 0;
+  margin: 0;
 }
 
 .zen-editor img.ProseMirror-selectednode {
@@ -1325,7 +1333,7 @@
 
 .image-wrapper {
   display: flex;
-  margin: 16px 0;
+  margin: 4px 0;
 }
 
 .image-wrapper.align-left {
@@ -1707,46 +1715,63 @@
 }
 
 /* ============================================
-   FileAttachment 文件附件样式
+   FileAttachment 文件附件样式 (Inline Chip)
    ============================================ */
 
-.file-attachment-wrapper {
-  margin: 12px 0;
+.file-attachment-inline {
+  display: inline;
 }
 
-.file-attachment-wrapper.selected .file-attachment {
-  border-color: var(--color-accent);
+.file-attachment-inline.selected .file-attachment-chip {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
-.file-attachment {
-  display: flex;
+.file-attachment-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 4px;
+  padding: 2px 4px;
+  margin: 0 2px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.file-attachment:hover {
-  background: var(--color-surface-hover);
-  border-color: var(--color-border-hover);
-}
-
-.file-icon {
-  font-size: 24px;
-  flex-shrink: 0;
-}
-
-.file-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.file-name {
+  transition: all 0.15s ease;
   font-size: 13px;
+  line-height: 1.4;
+  vertical-align: baseline;
+  transform: translateY(2px);
+  max-width: 150px;
+}
+
+.file-attachment-chip:hover {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: white;
+}
+
+.file-attachment-chip:hover .file-chip-icon {
+  color: white;
+}
+
+.file-attachment-chip:hover .file-chip-name {
+  color: white;
+}
+
+.file-chip-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-muted);
+}
+
+.file-chip-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-chip-name {
   font-weight: 500;
   color: var(--color-text);
   white-space: nowrap;
@@ -1754,21 +1779,245 @@
   text-overflow: ellipsis;
 }
 
-.file-size {
+/* 文件右键菜单 */
+.file-context-menu {
+  background: var(--color-card-solid);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  min-width: 140px;
+}
+
+.file-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.file-context-menu button:hover {
+  background: var(--color-surface);
+}
+
+/* ============================================
+   Editor Context Menu 编辑器右键菜单
+   ============================================ */
+
+.editor-context-menu {
+  background: var(--color-card-solid);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: 4px;
+  min-width: 180px;
+  animation: contextMenuFadeIn 0.1s ease;
+}
+
+.editor-context-submenu {
+  min-width: 140px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 菜单分组 */
+.context-menu-group {
+  padding: 2px 0;
+}
+
+.context-menu-group + .context-menu-group {
+  border-top: 1px solid var(--color-border);
+}
+
+/* 横向排列组 */
+.context-menu-edit-row,
+.context-menu-format-row,
+.context-menu-heading-row {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+}
+
+.context-menu-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.context-menu-icon-btn:hover {
+  background: var(--color-accent);
+  color: white;
+}
+
+.context-menu-icon-btn.active {
+  color: var(--color-accent);
+}
+
+.context-menu-icon-btn.active:hover {
+  color: white;
+}
+
+.context-menu-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 标题按钮 */
+.context-menu-heading-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.context-menu-heading-btn:hover {
+  background: var(--color-accent);
+  color: white;
+}
+
+.context-menu-heading-btn.active {
+  color: var(--color-accent);
+}
+
+.context-menu-heading-btn.active:hover {
+  color: white;
+}
+
+/* 文本图标（用于插入菜单） */
+.context-menu-icon-text {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.context-menu-item:hover {
+  background: var(--color-accent);
+  color: white;
+}
+
+.context-menu-item:hover .context-menu-icon {
+  color: white;
+}
+
+.context-menu-item:hover .context-menu-shortcut {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.context-menu-item:hover .context-menu-arrow {
+  color: white;
+}
+
+.context-menu-item.active {
+  color: var(--color-accent);
+}
+
+.context-menu-item.active .context-menu-icon {
+  color: var(--color-accent);
+}
+
+.context-menu-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: var(--color-muted);
+  transition: color 0.1s ease;
+}
+
+.context-menu-icon.heading-level {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.context-menu-item:hover .context-menu-icon.heading-level {
+  color: white;
+}
+
+.context-menu-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.context-menu-shortcut {
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--color-muted);
-  margin-top: 2px;
+  font-family: inherit;
+  transition: color 0.1s ease;
 }
 
-.file-download {
+.context-menu-arrow {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
   color: var(--color-muted);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
+  margin-left: auto;
+  transition: color 0.1s ease;
 }
 
-.file-attachment:hover .file-download {
-  opacity: 1;
+.context-menu-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 8px;
+}
+
+/* 子菜单触发器 */
+.context-menu-submenu-trigger {
+  position: relative;
 }
 
 /* ============================================
@@ -1946,9 +2195,10 @@
   box-shadow: var(--shadow-elevated);
   font-size: 13px;
   color: var(--color-text);
-  white-space: pre-wrap;
+  white-space: normal;
+  width: max-content;
   max-width: 300px;
-  z-index: 100;
+  z-index: 9999;
 }
 
 .footnote-tooltip::after {
@@ -1972,7 +2222,7 @@
   border: 1px solid var(--color-border);
   border-radius: 8px;
   box-shadow: var(--shadow-elevated);
-  z-index: 100;
+  z-index: 9999;
   min-width: 280px;
 }
 

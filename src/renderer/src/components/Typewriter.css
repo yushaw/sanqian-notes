@@ -236,26 +236,26 @@
 
 .typewriter-editor-content .ProseMirror h1 {
   font-size: 1.5em;
-  margin-top: 1.5em;
-  margin-bottom: 0.8em;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
 }
 
 .typewriter-editor-content .ProseMirror h2 {
   font-size: 1.3em;
-  margin-top: 1.3em;
-  margin-bottom: 0.6em;
+  margin-top: 0.8em;
+  margin-bottom: 0.4em;
 }
 
 .typewriter-editor-content .ProseMirror h3 {
   font-size: 1.15em;
-  margin-top: 1.2em;
-  margin-bottom: 0.5em;
+  margin-top: 0.6em;
+  margin-bottom: 0.3em;
 }
 
 .typewriter-editor-content .ProseMirror h4 {
   font-size: 1em;
-  margin-top: 1em;
-  margin-bottom: 0.4em;
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
 }
 
 /* 第一个元素不需要上边距 */

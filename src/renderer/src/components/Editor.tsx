@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, useRef, useImperativeHandle, forwardRef } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, Editor as TiptapEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -41,6 +41,11 @@ import { FileAttachment } from './extensions/FileAttachment'
 import { Footnote } from './extensions/Footnote'
 import { CustomCodeBlock } from './extensions/CodeBlock'
 import { MarkdownPaste } from './extensions/MarkdownPaste'
+import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
+import { FileHandler } from '@tiptap/extension-file-handler'
+import { EditorContextMenu } from './EditorContextMenu'
+import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
+import { shortcuts } from '../utils/shortcuts'
 import 'katex/dist/katex.min.css'
 import './Editor.css'
 
@@ -117,7 +122,8 @@ const ToolbarIcons = {
   ),
   block: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z" />
+      <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3z" />
     </svg>
   ),
   quote: (
@@ -246,6 +252,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [targetHeadings, setTargetHeadings] = useState<HeadingInfo[]>([])
   const [targetBlocks, setTargetBlocks] = useState<BlockInfo[]>([])
 
+  // 右键菜单状态
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
+  const [contextMenuHasSelection, setContextMenuHasSelection] = useState(false)
+
   const t = useTranslations()
   const { resolvedColorMode } = useTheme()
   const editorContainerRef = useRef<HTMLDivElement>(null)
@@ -254,6 +264,121 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const headerTitleRef = useRef<HTMLInputElement>(null)
   const headerMouseDown = useRef<{ x: number; y: number; time: number } | null>(null)
   const headerClickX = useRef<number>(0)
+
+  // 处理文件插入（粘贴或拖拽）
+  const handleFileInsert = async (
+    editorInstance: TiptapEditor,
+    file: File,
+    pos?: number
+  ) => {
+    if (!editorInstance) return
+
+    // 确定插入位置
+    // - 如果 pos 有效且在文档范围内，使用 pos（拖拽到具体位置）
+    // - 如果 pos 无效或超出范围，插入到文档末尾（拖拽到空白区域）
+    // - 如果 pos 是 undefined，在当前光标位置插入（粘贴）
+    const docSize = editorInstance.state.doc.content.size
+    let insertPos: number | undefined = pos
+    if (pos !== undefined && (pos < 0 || pos > docSize)) {
+      // 拖拽位置无效，插入到文档末尾
+      insertPos = docSize
+    }
+
+    // 前端文件大小检查（100MB），避免读取超大文件到内存
+    const MAX_FILE_SIZE = 100 * 1024 * 1024
+    if (file.size > MAX_FILE_SIZE) {
+      const sizeInMB = (file.size / 1024 / 1024).toFixed(1)
+      alert(`${t.fileError.tooLarge}: ${file.name}\n${t.fileError.tooLargeDetail.replace('{size}', sizeInMB)}`)
+      return
+    }
+
+    try {
+      // 读取文件为 ArrayBuffer
+      const arrayBuffer = await file.arrayBuffer()
+      const buffer = new Uint8Array(arrayBuffer)
+
+      // 获取扩展名
+      const ext = file.name.includes('.')
+        ? file.name.split('.').pop()!.toLowerCase()
+        : getExtensionFromMime(file.type)
+
+      // 保存到附件目录
+      const result = await window.electron.attachment.saveBuffer(buffer, ext, file.name)
+      const category = getFileCategory(file.name) || getFileCategory(`.${ext}`)
+
+      // 构建 attachment:// URL
+      const attachmentUrl = `attachment://${result.relativePath}`
+
+      // 根据类型插入不同节点
+      switch (category) {
+        case 'image':
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'resizableImage',
+              attrs: { src: attachmentUrl, alt: result.name },
+            }).run()
+          } else {
+            editorInstance.chain().focus().setImage({
+              src: attachmentUrl,
+              alt: result.name,
+            }).run()
+          }
+          break
+
+        case 'video':
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'video',
+              attrs: { src: attachmentUrl },
+            }).run()
+          } else {
+            editorInstance.commands.setVideo({ src: attachmentUrl })
+          }
+          break
+
+        case 'audio':
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'audio',
+              attrs: { src: attachmentUrl, title: result.name },
+            }).run()
+          } else {
+            editorInstance.commands.setAudio({ src: attachmentUrl, title: result.name })
+          }
+          break
+
+        default:
+          // 其他文件类型使用 FileAttachment
+          if (insertPos !== undefined) {
+            editorInstance.chain().focus().insertContentAt(insertPos, {
+              type: 'fileAttachment',
+              attrs: {
+                src: result.relativePath,
+                name: result.name,
+                size: result.size,
+                type: result.type,
+              },
+            }).run()
+          } else {
+            editorInstance.commands.setFileAttachment({
+              src: result.relativePath,
+              name: result.name,
+              size: result.size,
+              type: result.type,
+            })
+          }
+      }
+    } catch (error) {
+      console.error('Failed to insert file:', error)
+      // 显示用户友好的错误提示
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (message.includes('too large')) {
+        alert(`${t.fileError.tooLarge}: ${file.name}\n${message}`)
+      } else {
+        alert(`${t.fileError.insertFailed}: ${file.name}\n${message}`)
+      }
+    }
+  }
 
   // Parse initial content
   const getInitialContent = () => {
@@ -279,6 +404,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       StarterKit.configure({
         heading: false, // Disable default heading, use custom
         codeBlock: false, // Disable default codeBlock, use custom
+        link: false, // Disable default link, use custom Link below
+        underline: false, // Disable default underline, use CustomUnderline
       }),
       CustomCodeBlock,
       CustomHeading.configure({
@@ -326,9 +453,24 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         suggestion: slashCommandSuggestion,
       }),
       MarkdownPaste,
+      CustomKeyboardShortcuts,
       NoteLink.configure({
         onNoteClick: (noteId: string, _noteTitle: string, target?: { type: 'heading' | 'block'; value: string }) => {
           onNoteClick(noteId, target)
+        },
+      }),
+      FileHandler.configure({
+        // 不限制 MIME 类型，允许所有文件类型
+        // 类型检查在 handleFileInsert 中通过 getFileCategory 处理
+        onPaste: async (currentEditor, files) => {
+          for (const file of files) {
+            await handleFileInsert(currentEditor, file)
+          }
+        },
+        onDrop: async (currentEditor, files, pos) => {
+          for (const file of files) {
+            await handleFileInsert(currentEditor, file, pos)
+          }
         },
       }),
     ],
@@ -491,6 +633,24 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setTitle(note.title)
   }, [note.id, note.title])
 
+  // Auto-focus title for new (empty) notes
+  const prevNoteIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    // Only trigger when note.id changes (not on initial mount with same note)
+    if (prevNoteIdRef.current !== note.id) {
+      prevNoteIdRef.current = note.id
+      // Check if this is a new empty note
+      const isEmptyTitle = !note.title || note.title.trim() === ''
+      const isEmptyContent = !note.content || note.content === '[]' || note.content === ''
+      if (isEmptyTitle && isEmptyContent && titleRef.current) {
+        // Small delay to ensure DOM is ready
+        setTimeout(() => {
+          titleRef.current?.focus()
+        }, 50)
+      }
+    }
+  }, [note.id, note.title, note.content])
+
   // Auto-resize title textarea
   useEffect(() => {
     if (titleRef.current) {
@@ -500,7 +660,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   }, [title])
 
   // Handle title change
-  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     const newTitle = e.target.value
     setTitle(newTitle)
     onUpdate(note.id, { title: newTitle })
@@ -620,6 +780,23 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // Toggle focus mode
   const toggleFocusMode = useCallback(() => {
     setIsFocusMode(prev => !prev)
+  }, [])
+
+  // 右键菜单处理
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!editor) return
+
+    // 检查是否有选中文本
+    const { from, to } = editor.state.selection
+    const hasSelection = from !== to
+
+    setContextMenuPosition({ x: e.clientX, y: e.clientY })
+    setContextMenuHasSelection(hasSelection)
+  }, [editor])
+
+  const handleCloseContextMenu = useCallback(() => {
+    setContextMenuPosition(null)
   }, [])
 
   // 持续追踪最后的光标位置（即使焦点离开编辑器也能记住）
@@ -888,7 +1065,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           />
 
           {/* Editor */}
-          <EditorContent editor={editor} className="zen-editor-content" />
+          <div onContextMenu={handleContextMenu}>
+            <EditorContent editor={editor} className="zen-editor-content" />
+          </div>
 
           {/* Word count - subtle */}
           <div className="zen-stats">
@@ -916,6 +1095,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           onSelectNote={handleSelectNoteForSubSearch}
         />
       )}
+
+      {/* 右键菜单 */}
+      <EditorContextMenu
+        editor={editor}
+        position={contextMenuPosition}
+        onClose={handleCloseContextMenu}
+        hasSelection={contextMenuHasSelection}
+      />
     </div>
   )
 })
@@ -1028,11 +1215,11 @@ function EditorToolbar({
           icon={ToolbarIcons.bold}
           active={editor.isActive('bold') || editor.isActive('italic') || editor.isActive('strike') || editor.isActive('highlight') || editor.isActive('underline')}
           items={[
-            { label: t.toolbar.bold, icon: ToolbarIcons.bold, active: editor.isActive('bold'), onClick: () => editor.chain().focus().toggleBold().run() },
-            { label: t.toolbar.italic, icon: ToolbarIcons.italic, active: editor.isActive('italic'), onClick: () => editor.chain().focus().toggleItalic().run() },
-            { label: t.toolbar.strikethrough, icon: ToolbarIcons.strikethrough, active: editor.isActive('strike'), onClick: () => editor.chain().focus().toggleStrike().run() },
-            { label: t.toolbar.underline, icon: ToolbarIcons.underline, active: editor.isActive('underline'), onClick: () => editor.chain().focus().toggleUnderline().run() },
-            { label: t.toolbar.highlight, icon: ToolbarIcons.highlight, active: editor.isActive('highlight'), onClick: () => editor.chain().focus().toggleHighlight().run() },
+            { label: t.toolbar.bold, icon: ToolbarIcons.bold, active: editor.isActive('bold'), onClick: () => editor.chain().focus().toggleBold().run(), shortcut: shortcuts.bold },
+            { label: t.toolbar.italic, icon: ToolbarIcons.italic, active: editor.isActive('italic'), onClick: () => editor.chain().focus().toggleItalic().run(), shortcut: shortcuts.italic },
+            { label: t.toolbar.strikethrough, icon: ToolbarIcons.strikethrough, active: editor.isActive('strike'), onClick: () => editor.chain().focus().toggleStrike().run(), shortcut: shortcuts.strike },
+            { label: t.toolbar.underline, icon: ToolbarIcons.underline, active: editor.isActive('underline'), onClick: () => editor.chain().focus().toggleUnderline().run(), shortcut: shortcuts.underline },
+            { label: t.toolbar.highlight, icon: ToolbarIcons.highlight, active: editor.isActive('highlight'), onClick: () => editor.chain().focus().toggleHighlight().run(), shortcut: shortcuts.highlight },
           ]}
         />
         {/* 段落类型下拉 */}
@@ -1040,11 +1227,11 @@ function EditorToolbar({
           icon={ToolbarIcons.heading}
           active={editor.isActive('heading') || isBody}
           items={[
-            { label: 'Body', active: isBody, onClick: () => editor.chain().focus().setParagraph().run() },
-            { label: 'H1', active: editor.isActive('heading', { level: 1 }), onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run() },
-            { label: 'H2', active: editor.isActive('heading', { level: 2 }), onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
-            { label: 'H3', active: editor.isActive('heading', { level: 3 }), onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() },
-            { label: 'H4', active: editor.isActive('heading', { level: 4 }), onClick: () => editor.chain().focus().toggleHeading({ level: 4 }).run() },
+            { label: 'Body', active: isBody, onClick: () => editor.chain().focus().setParagraph().run(), shortcut: shortcuts.body },
+            { label: 'H1', active: editor.isActive('heading', { level: 1 }), onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), shortcut: shortcuts.h1 },
+            { label: 'H2', active: editor.isActive('heading', { level: 2 }), onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), shortcut: shortcuts.h2 },
+            { label: 'H3', active: editor.isActive('heading', { level: 3 }), onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), shortcut: shortcuts.h3 },
+            { label: 'H4', active: editor.isActive('heading', { level: 4 }), onClick: () => editor.chain().focus().toggleHeading({ level: 4 }).run(), shortcut: shortcuts.h4 },
           ]}
         />
         {/* 列表下拉 */}
@@ -1052,9 +1239,9 @@ function EditorToolbar({
           icon={ToolbarIcons.list}
           active={editor.isActive('bulletList') || editor.isActive('orderedList') || editor.isActive('taskList')}
           items={[
-            { label: t.toolbar.bulletList, icon: ToolbarIcons.bulletList, active: editor.isActive('bulletList'), onClick: () => editor.chain().focus().toggleBulletList().run() },
-            { label: t.toolbar.numberedList, icon: ToolbarIcons.orderedList, active: editor.isActive('orderedList'), onClick: () => editor.chain().focus().toggleOrderedList().run() },
-            { label: t.toolbar.checklist, icon: ToolbarIcons.taskList, active: editor.isActive('taskList'), onClick: () => editor.chain().focus().toggleTaskList().run() },
+            { label: t.toolbar.bulletList, icon: ToolbarIcons.bulletList, active: editor.isActive('bulletList'), onClick: () => editor.chain().focus().toggleBulletList().run(), shortcut: shortcuts.bulletList },
+            { label: t.toolbar.numberedList, icon: ToolbarIcons.orderedList, active: editor.isActive('orderedList'), onClick: () => editor.chain().focus().toggleOrderedList().run(), shortcut: shortcuts.orderedList },
+            { label: t.toolbar.checklist, icon: ToolbarIcons.taskList, active: editor.isActive('taskList'), onClick: () => editor.chain().focus().toggleTaskList().run(), shortcut: shortcuts.taskList },
           ]}
         />
         {/* 块元素下拉 */}
@@ -1062,8 +1249,8 @@ function EditorToolbar({
           icon={ToolbarIcons.block}
           active={editor.isActive('blockquote') || editor.isActive('code')}
           items={[
-            { label: t.toolbar.quote, icon: ToolbarIcons.quote, active: editor.isActive('blockquote'), onClick: () => editor.chain().focus().toggleBlockquote().run() },
-            { label: t.toolbar.code, icon: ToolbarIcons.code, active: editor.isActive('code'), onClick: () => editor.chain().focus().toggleCode().run() },
+            { label: t.toolbar.quote, icon: ToolbarIcons.quote, active: editor.isActive('blockquote'), onClick: () => editor.chain().focus().toggleBlockquote().run(), shortcut: shortcuts.quote },
+            { label: t.toolbar.code, icon: ToolbarIcons.code, active: editor.isActive('code'), onClick: () => editor.chain().focus().toggleCode().run(), shortcut: shortcuts.code },
           ]}
         />
         <div className="zen-toolbar-divider" />
@@ -1091,11 +1278,11 @@ function EditorToolbar({
   return (
     <div ref={toolbarRef} className={`zen-toolbar ${showToolbar ? 'visible' : ''}`}>
       {/* 文本格式 */}
-      <ToolbarButton active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title={t.toolbar.bold} icon={ToolbarIcons.bold} />
-      <ToolbarButton active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title={t.toolbar.italic} icon={ToolbarIcons.italic} />
-      <ToolbarButton active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title={`${t.toolbar.underline} (⌘U)`} icon={ToolbarIcons.underline} />
-      <ToolbarButton active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title={t.toolbar.strikethrough} icon={ToolbarIcons.strikethrough} />
-      <ToolbarButton active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title={`${t.toolbar.highlight} (⌘⇧H)`} icon={ToolbarIcons.highlight} />
+      <ToolbarButton active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title={`${t.toolbar.bold} (${shortcuts.bold})`} icon={ToolbarIcons.bold} />
+      <ToolbarButton active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title={`${t.toolbar.italic} (${shortcuts.italic})`} icon={ToolbarIcons.italic} />
+      <ToolbarButton active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title={`${t.toolbar.underline} (${shortcuts.underline})`} icon={ToolbarIcons.underline} />
+      <ToolbarButton active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title={`${t.toolbar.strikethrough} (${shortcuts.strike})`} icon={ToolbarIcons.strikethrough} />
+      <ToolbarButton active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title={`${t.toolbar.highlight} (${shortcuts.highlight})`} icon={ToolbarIcons.highlight} />
       {/* 颜色选择器 */}
       <div className="zen-toolbar-color-wrapper" ref={colorPickerRef}>
         <ToolbarButton
@@ -1112,20 +1299,20 @@ function EditorToolbar({
       </div>
       <div className="zen-toolbar-divider" />
       {/* 段落类型 */}
-      <ToolbarButton active={isBody} onClick={() => editor.chain().focus().setParagraph().run()} title="Body" icon={<span className="zen-toolbar-text">Body</span>} />
-      <ToolbarButton active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} title={t.toolbar.heading1} icon={<span className="zen-toolbar-text">H1</span>} />
-      <ToolbarButton active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} title={t.toolbar.heading2} icon={<span className="zen-toolbar-text">H2</span>} />
-      <ToolbarButton active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} title={t.toolbar.heading3} icon={<span className="zen-toolbar-text">H3</span>} />
-      <ToolbarButton active={editor.isActive('heading', { level: 4 })} onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()} title="H4" icon={<span className="zen-toolbar-text">H4</span>} />
+      <ToolbarButton active={isBody} onClick={() => editor.chain().focus().setParagraph().run()} title={`Body (${shortcuts.body})`} icon={<span className="zen-toolbar-text">Body</span>} />
+      <ToolbarButton active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} title={`${t.toolbar.heading1} (${shortcuts.h1})`} icon={<span className="zen-toolbar-text">H1</span>} />
+      <ToolbarButton active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} title={`${t.toolbar.heading2} (${shortcuts.h2})`} icon={<span className="zen-toolbar-text">H2</span>} />
+      <ToolbarButton active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} title={`${t.toolbar.heading3} (${shortcuts.h3})`} icon={<span className="zen-toolbar-text">H3</span>} />
+      <ToolbarButton active={editor.isActive('heading', { level: 4 })} onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()} title={`H4 (${shortcuts.h4})`} icon={<span className="zen-toolbar-text">H4</span>} />
       <div className="zen-toolbar-divider" />
       {/* 列表 */}
-      <ToolbarButton active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} title={t.toolbar.bulletList} icon={ToolbarIcons.bulletList} />
-      <ToolbarButton active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} title={t.toolbar.numberedList} icon={ToolbarIcons.orderedList} />
-      <ToolbarButton active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()} title={t.toolbar.checklist} icon={ToolbarIcons.taskList} />
+      <ToolbarButton active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} title={`${t.toolbar.bulletList} (${shortcuts.bulletList})`} icon={ToolbarIcons.bulletList} />
+      <ToolbarButton active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} title={`${t.toolbar.numberedList} (${shortcuts.orderedList})`} icon={ToolbarIcons.orderedList} />
+      <ToolbarButton active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()} title={`${t.toolbar.checklist} (${shortcuts.taskList})`} icon={ToolbarIcons.taskList} />
       <div className="zen-toolbar-divider" />
       {/* 块元素 */}
-      <ToolbarButton active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} title={t.toolbar.quote} icon={ToolbarIcons.quote} />
-      <ToolbarButton active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} title={t.toolbar.code} icon={ToolbarIcons.code} />
+      <ToolbarButton active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} title={`${t.toolbar.quote} (${shortcuts.quote})`} icon={ToolbarIcons.quote} />
+      <ToolbarButton active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} title={`${t.toolbar.code} (${shortcuts.code})`} icon={ToolbarIcons.code} />
       <div className="zen-toolbar-divider" />
       {/* 打字机模式 */}
       <ToolbarButton active={isTypewriterMode} onClick={toggleTypewriterMode} title={t.typewriter.typewriterMode} icon={ToolbarIcons.typewriter} />
@@ -1160,6 +1347,7 @@ interface DropdownItem {
   icon?: React.ReactNode
   active?: boolean
   onClick: () => void
+  shortcut?: string
 }
 
 function ToolbarDropdown({
@@ -1206,6 +1394,7 @@ function ToolbarDropdown({
             >
               {item.icon && <span className="zen-toolbar-dropdown-icon">{item.icon}</span>}
               <span className="zen-toolbar-dropdown-label">{item.label}</span>
+              {item.shortcut && <span className="zen-toolbar-dropdown-shortcut">{item.shortcut}</span>}
             </button>
           ))}
         </div>

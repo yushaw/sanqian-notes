@@ -1605,3 +1605,65 @@ A: 根据您的笔记，项目X的主要进展是...
   - 智能检测：至少匹配 2 个 Markdown 模式才转换，避免误判普通文本
   - 安全措施：使用 DOMPurify 清理 HTML 防止 XSS 攻击
   - 剪贴板处理：如有 HTML 内容则走默认处理，只对纯文本 Markdown 进行转换
+
+### 2025-12-20
+- **本地文件附件系统 v1.0**
+  - 实现完整的本地文件附件管理系统，支持插入图片、视频、音频、文档等多种文件类型
+  - **技术架构**：
+    - 使用 Electron `protocol.handle()` 注册自定义 `attachment://` 协议
+    - 文件存储在 `userData/attachments/` 目录，数据库只存储相对路径
+    - 支持流式传输 (stream: true)，大文件视频/音频播放更流畅
+    - 安全路径校验，防止目录遍历攻击
+  - **功能特性**：
+    - 粘贴/拖拽文件自动保存并插入编辑器
+    - 斜杠命令 `/image` 和 `/file` 选择本地文件
+    - 智能文件类型识别：图片 → 内嵌预览，视频 → 播放器，音频 → 音频播放器，其他 → 附件卡片
+    - 附件卡片显示文件图标、名称、大小，点击用系统默认程序打开
+  - **新增/修改文件**：
+    - `src/main/attachment.ts` - 附件管理模块
+    - `src/main/index.ts` - 协议注册和 IPC 处理
+    - `src/preload/index.ts` - 暴露附件 API
+    - `src/renderer/src/utils/fileCategory.ts` - 文件类型分类
+    - `src/renderer/src/components/Editor.tsx` - FileHandler 扩展
+    - `src/renderer/src/components/extensions/SlashCommand.ts` - 新增命令
+    - `src/renderer/src/components/FileAttachmentView.tsx` - 使用 Electron API 打开文件
+  - **跨平台兼容**：Windows/macOS/Linux 都使用 `app.getPath('userData')` 确保路径一致
+  - **安全与健壮性改进**：
+    - 路径穿越攻击防护：检测 `..`、绝对路径、Windows 盘符等危险模式
+    - 文件大小限制：前端 + 后端双重检查，100MB 上限
+    - 错误提示：用户友好的错误消息弹窗
+    - 异步错误处理：SlashCommand 和 FileHandler 添加 try-catch
+    - protocol.handle 异常捕获：防止协议处理崩溃
+    - 路径分隔符统一：存储时统一使用正斜杠 `/`
+    - MIME 类型映射完善：支持图片/视频/音频/文档等常见类型
+  - **长期主义优化**：
+    - 类型共享：创建 `src/shared/types.ts`，统一 `AttachmentResult` 等类型定义
+    - 孤儿文件清理：`attachment:cleanup` API 扫描笔记引用，删除未被使用的附件
+    - `getUsedAttachmentPaths()` 从所有笔记内容中提取附件引用
+    - `cleanupOrphanAttachments()` 对比文件系统和引用列表，清理孤儿文件
+    - 启动 5 分钟后自动执行清理，不阻塞启动流程
+
+- **快捷键系统重构**
+  - 调研业界笔记工具（Notion、Obsidian、Typora、Bear、Craft）快捷键设计
+  - 采用 Typora/Bear 风格的简洁快捷键，减少按键组合复杂度
+  - **新快捷键设计**：
+    | 功能 | Mac | Windows |
+    |------|-----|---------|
+    | 标题 H1-H4 | ⌘1-4 | Ctrl+1-4 |
+    | 正文 | ⌘0 | Ctrl+0 |
+    | 无序列表 | ⌘⇧U | Ctrl+Shift+U |
+    | 有序列表 | ⌘⇧O | Ctrl+Shift+O |
+    | 任务列表 | ⌘⇧X | Ctrl+Shift+X |
+    | 引用块 | ⌘⇧. | Ctrl+Shift+. |
+    | 代码块 | ⌘⌥C | Ctrl+Alt+C |
+    | 删除线 | ⌘⇧S | Ctrl+Shift+S |
+    | 高亮 | ⌘⇧H | Ctrl+Shift+H |
+    | 行内代码 | ⌘⇧E | Ctrl+Shift+E |
+  - **技术实现**：
+    - 创建 `CustomKeyboardShortcuts` Tiptap 扩展统一管理快捷键
+    - 创建 `src/renderer/src/utils/shortcuts.ts` 统一快捷键配置
+    - 自动检测平台（Mac/Windows），显示对应的快捷键符号
+    - 更新工具栏下拉菜单、右键菜单、按钮 tooltip 的快捷键显示
+  - **UI 优化**：
+    - 工具栏下拉图标从对话气泡改为引号图标，更符合"引用/代码"语义
+    - 下拉菜单项右侧显示快捷键提示

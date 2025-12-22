@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { Note } from '../types/note'
 import { useTranslations } from '../i18n'
+import { isMacOS } from '../utils/platform'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { getPreview } from '../utils/notePreview'
 
 // 检测是否为 macOS
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+const isMac = isMacOS()
 
 interface NoteListProps {
   notes: Note[]

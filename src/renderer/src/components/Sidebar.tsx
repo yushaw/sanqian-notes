@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import type { Notebook, SmartViewId } from '../types/note'
 import { useTranslations } from '../i18n'
+import { isMacOS } from '../utils/platform'
 import notesLogo from '../assets/notes-logo.png'
 import todolistLogo from '../assets/todolist-logo.png'
 import sanqianLogo from '../assets/sanqian-logo.svg'
 import yinianLogo from '../assets/yinian-logo.svg'
 
 // 检测是否为 macOS
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+const isMac = isMacOS()
 
 // 修饰键符号
 const MOD = isMac ? '⌘' : 'Ctrl'
@@ -158,6 +159,7 @@ export function Sidebar({
     onCollapsedChange?.(isCollapsed)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const shortcutsTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -195,6 +197,15 @@ export function Sidebar({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [contextMenu.visible])
 
+  // Cleanup shortcuts timer on unmount
+  useEffect(() => {
+    return () => {
+      if (shortcutsTimerRef.current) {
+        clearTimeout(shortcutsTimerRef.current)
+      }
+    }
+  }, [])
+
   const smartViews: { id: SmartViewId; label: string; icon: React.ReactNode }[] = [
     { id: 'all', label: t.sidebar.all, icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -210,7 +221,10 @@ export function Sidebar({
 
   if (isCollapsed) {
     return (
-      <div className="w-12 flex-shrink-0 h-full bg-[var(--color-card-solid)] flex flex-col pt-[50px]">
+      <div className="w-12 flex-shrink-0 h-full bg-[var(--color-card-solid)] flex flex-col">
+        {/* Drag region - top 50px area for window dragging */}
+        <div className="h-[50px] flex-shrink-0 drag-region" />
+
         {/* Smart Views 图标 */}
         <div className="flex flex-col items-center gap-1 px-2 py-2 no-drag">
           {smartViews.map((view) => (
@@ -293,11 +307,30 @@ export function Sidebar({
 
   return (
     <div className="w-52 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col relative">
+      {/* Drag region - top 50px area for window dragging */}
+      <div className="h-[50px] flex-shrink-0 drag-region" />
+
       {/* Shortcuts help button - absolute top right in title bar area */}
       <div
-        className="absolute top-[13px] right-2 z-10"
-        onMouseEnter={() => setShowShortcuts(true)}
-        onMouseLeave={() => setShowShortcuts(false)}
+        className="absolute top-[13px] right-2 z-10 no-drag"
+        onMouseEnter={() => {
+          // Clear any existing timer
+          if (shortcutsTimerRef.current) {
+            clearTimeout(shortcutsTimerRef.current)
+          }
+          // Show shortcuts after 300ms delay
+          shortcutsTimerRef.current = setTimeout(() => {
+            setShowShortcuts(true)
+          }, 300)
+        }}
+        onMouseLeave={() => {
+          // Clear timer and hide immediately
+          if (shortcutsTimerRef.current) {
+            clearTimeout(shortcutsTimerRef.current)
+            shortcutsTimerRef.current = null
+          }
+          setShowShortcuts(false)
+        }}
       >
         <button
           className="p-1 rounded text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-card)] transition-all duration-150"
@@ -310,8 +343,8 @@ export function Sidebar({
         <ShortcutsPopover isOpen={showShortcuts} t={t} />
       </div>
 
-      {/* Sidebar content - pt-[50px] to align with NoteList header */}
-      <div className="flex-1 overflow-y-auto px-2 pt-[50px] pb-3 no-drag">
+      {/* Sidebar content */}
+      <div className="flex-1 overflow-y-auto px-2 pb-3 no-drag">
         {/* Smart Views */}
         <div className="mb-4">
           {smartViews.map((view) => (
@@ -380,7 +413,7 @@ export function Sidebar({
       </div>
 
       {/* Bottom buttons - 回收站、收起、设置 */}
-      <div className="px-2 py-2 flex flex-col gap-0.5">
+      <div className="px-2 py-2 flex flex-col gap-0.5 no-drag">
         {/* Trash button */}
         <button
           onClick={() => onSelectSmartView('trash')}
@@ -394,11 +427,6 @@ export function Sidebar({
             <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
           </svg>
           <span className="text-[0.867rem]">{t.sidebar.trash}</span>
-          {noteCounts.trash > 0 && (
-            <span className="ml-auto text-[0.733rem] text-[var(--color-muted)] tabular-nums">
-              {noteCounts.trash}
-            </span>
-          )}
         </button>
 
         {/* Collapse button */}

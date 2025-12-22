@@ -40,7 +40,7 @@ import { Audio } from './extensions/Audio'
 import { FileAttachment } from './extensions/FileAttachment'
 import { Footnote } from './extensions/Footnote'
 import { CustomCodeBlock } from './extensions/CodeBlock'
-import { MarkdownPaste } from './extensions/MarkdownPaste'
+import { MarkdownPaste, looksLikeMarkdown, markdownToHtml } from './extensions/MarkdownPaste'
 import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { FileHandler } from '@tiptap/extension-file-handler'
@@ -577,11 +577,33 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         if (parsed.type === 'doc') return parsed
         return { type: 'doc', content: [] }
       } catch {
+        // JSON 解析失败，可能是纯文本或 Markdown
+        // 检测是否是 Markdown，如果是则转换
+        if (looksLikeMarkdown(note.content)) {
+          // 使用 insertContent 而不是 setContent，触发 Markdown 转换
+          // 需要返回 null 作为标记
+          return null
+        }
+        // 纯文本，包装成 paragraph
         return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: note.content }] }] }
       }
     }
 
     const externalContent = parseContent()
+
+    // 如果是 Markdown，使用 insertContent 转换
+    if (externalContent === null) {
+      const html = markdownToHtml(note.content)
+      editor.commands.setContent('', false) // 先清空
+      editor.commands.insertContent(html, {
+        parseOptions: {
+          preserveWhitespace: false,
+        },
+      })
+      editorContentRef.current = JSON.stringify(editor.getJSON())
+      return
+    }
+
     const externalContentStr = JSON.stringify(externalContent)
 
     // 只有当外部内容真正不同时才同步

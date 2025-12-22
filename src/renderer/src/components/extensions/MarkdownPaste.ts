@@ -139,7 +139,7 @@ function preprocessMarkdown(text: string): string {
  * 检测文本是否像 Markdown
  * 需要至少匹配 2 个模式才认为是 Markdown（或者有明确的单一特征）
  */
-function looksLikeMarkdown(text: string): boolean {
+export function looksLikeMarkdown(text: string): boolean {
   if (!text || text.length < 2) return false
 
   const patterns = [
@@ -186,7 +186,7 @@ function looksLikeMarkdown(text: string): boolean {
 /**
  * 将 Markdown 转换为 HTML
  */
-function markdownToHtml(markdown: string): string {
+export function markdownToHtml(markdown: string): string {
   // 预处理自定义语法
   const preprocessed = preprocessMarkdown(markdown)
 

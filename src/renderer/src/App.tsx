@@ -7,6 +7,7 @@ import { Editor, type EditorHandle } from './components/Editor'
 import { Settings } from './components/Settings'
 import { NotebookModal } from './components/NotebookModal'
 import { TypewriterMode } from './components/TypewriterMode'
+import { AIChatDialog } from './components/AIChatDialog'
 import { ThemeProvider } from './theme'
 import { I18nProvider, useTranslations } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from './utils/cursor'
@@ -64,8 +65,23 @@ function AppContent() {
   // Sidebar collapsed state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
+  // AI chat dialog state
+  const [isAIChatOpen, setIsAIChatOpen] = useState(false)
+
   // Editor ref for cursor position sync
   const editorRef = useRef<EditorHandle>(null)
+
+  // Global keyboard shortcut for AI chat (Cmd/Ctrl + K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setIsAIChatOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   // Load data from database and validate restored navigation state
   useEffect(() => {
@@ -142,6 +158,25 @@ function AppContent() {
       }
     } catch { /* ignore storage errors */ }
   }, [selectedNoteId])
+
+  // Listen for data changes from SDK tool calls
+  useEffect(() => {
+    const cleanup = window.electron.note.onDataChanged(async () => {
+      console.log('[App] Data changed, reloading data...')
+      try {
+        // Reload both notes and notebooks (similar to TodoList pattern)
+        const [notesData, notebooksData] = await Promise.all([
+          window.electron.note.getAll(),
+          window.electron.notebook.getAll()
+        ])
+        setNotes(notesData as Note[])
+        setNotebooks(notebooksData as Notebook[])
+      } catch (error) {
+        console.error('[App] Failed to reload data:', error)
+      }
+    })
+    return cleanup
+  }, [])
 
   // Filter notes based on current view
   const filteredNotes = useMemo(() => {
@@ -774,6 +809,13 @@ function AppContent() {
         </>,
         document.body
       )}
+
+      {/* AI Chat Dialog */}
+      <AIChatDialog
+        isOpen={isAIChatOpen}
+        onClose={() => setIsAIChatOpen(false)}
+        onOpen={() => setIsAIChatOpen(true)}
+      />
     </div>
   )
 }

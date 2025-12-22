@@ -8,10 +8,10 @@
  * - 块元素：⌘⇧.（引用）、⌘⌥C（代码块）
  */
 
+import { isMacOS } from './platform'
+
 // 平台检测
-export const isMac = typeof navigator !== 'undefined'
-  ? navigator.platform.toUpperCase().indexOf('MAC') >= 0
-  : process.platform === 'darwin'
+export const isMac = isMacOS()
 
 // 修饰键符号
 const mod = isMac ? '⌘' : 'Ctrl+'

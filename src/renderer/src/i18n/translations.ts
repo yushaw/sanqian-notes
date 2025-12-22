@@ -119,6 +119,30 @@ export interface Translations {
     wordCount: string
     typewriterMode: string
     focusMode: string
+    sound: string
+    soundOn: string
+    soundOff: string
+  }
+  ai: {
+    title: string
+    placeholder: string
+    greeting: string
+    greetingDesc: string
+    suggestion1: string
+    suggestion2: string
+    suggestion3: string
+    newChat: string
+    recentChats: string
+    noHistory: string
+    loadMore: string
+    delete: string
+    close: string
+    session: string
+    thinking: string
+  }
+  tray: {
+    show: string
+    quit: string
   }
   common: {
     loading: string
@@ -387,6 +411,30 @@ const zh: Translations = {
     wordCount: '字',
     typewriterMode: '打字机',
     focusMode: '专注',
+    sound: '音效',
+    soundOn: '开启打字音效',
+    soundOff: '关闭打字音效',
+  },
+  ai: {
+    title: 'AI 助手',
+    placeholder: '输入消息，按 Enter 发送...',
+    greeting: '你好！我是 AI 助手',
+    greetingDesc: '我可以帮你搜索、创建和管理笔记',
+    suggestion1: '搜索笔记...',
+    suggestion2: '创建一个新笔记',
+    suggestion3: '帮我改进这段文字',
+    newChat: '新对话',
+    recentChats: '最近的对话',
+    noHistory: '暂无历史对话',
+    loadMore: '加载更多',
+    delete: '删除',
+    close: '关闭',
+    session: 'AI 会话',
+    thinking: '思考中',
+  },
+  tray: {
+    show: '显示窗口',
+    quit: '退出'
   },
   common: {
     loading: '加载中...'
@@ -655,6 +703,30 @@ const en: Translations = {
     wordCount: 'words',
     typewriterMode: 'Typewriter',
     focusMode: 'Focus',
+    sound: 'Sound',
+    soundOn: 'Enable typing sound',
+    soundOff: 'Disable typing sound',
+  },
+  ai: {
+    title: 'AI Assistant',
+    placeholder: 'Type a message, press Enter to send...',
+    greeting: 'Hello! I am your AI Assistant',
+    greetingDesc: 'I can help you search, create, and manage notes',
+    suggestion1: 'Search notes...',
+    suggestion2: 'Create a new note',
+    suggestion3: 'Help me improve this text',
+    newChat: 'New Chat',
+    recentChats: 'Recent Chats',
+    noHistory: 'No chat history',
+    loadMore: 'Load More',
+    delete: 'Delete',
+    close: 'Close',
+    session: 'AI Session',
+    thinking: 'Thinking',
+  },
+  tray: {
+    show: 'Show Window',
+    quit: 'Quit'
   },
   common: {
     loading: 'Loading...'

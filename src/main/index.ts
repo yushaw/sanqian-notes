@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme, screen, protocol, net } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme, screen, protocol, net, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
@@ -41,6 +41,23 @@ import {
   getAllAttachments,
   cleanupOrphanAttachments,
 } from './attachment'
+import {
+  initializeSanqianSDK,
+  ensureAgentReady,
+  acquireReconnect,
+  releaseReconnect,
+  setOnSdkDataChange,
+} from './sanqian-sdk'
+import {
+  getSanqianApiUrl,
+  startPortWatcher,
+  stopPortWatcher,
+} from './sanqian'
+import {
+  type Language,
+  type ResolvedLanguage,
+  translations
+} from '../renderer/src/i18n/translations'
 
 // ============ Custom Protocol ============
 
@@ -58,6 +75,35 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
+
+// ============ Language Settings ============
+let currentLanguage: Language = 'system'
+let resolvedLanguage: ResolvedLanguage = 'en'
+
+function getSystemLanguage(): ResolvedLanguage {
+  const locale = app.getLocale().toLowerCase()
+  if (locale.startsWith('zh')) return 'zh'
+  return 'en'
+}
+
+function resolveLanguage(lang: Language): ResolvedLanguage {
+  if (lang === 'system') {
+    return getSystemLanguage()
+  }
+  return lang
+}
+
+function initializeLanguage(): void {
+  // For now, use system language. Could load from settings file later
+  currentLanguage = 'system'
+  resolvedLanguage = resolveLanguage(currentLanguage)
+}
+
+function getTranslations() {
+  return translations[resolvedLanguage]
+}
 
 // ============ Window State Persistence ============
 
@@ -145,9 +191,169 @@ function getCenteredBoundsOnMouseDisplay(state: WindowState): { x: number; y: nu
   }
 }
 
+// ============ Window Management ============
+
+function showMainWindow(): void {
+  if (!mainWindow) {
+    // Create window if it doesn't exist
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+    }
+    return
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+  mainWindow.show()
+  mainWindow.focus()
+
+  // Show dock icon on macOS
+  if (process.platform === 'darwin') {
+    app.dock?.show()
+  }
+}
+
+function hideMainWindow(): void {
+  if (!mainWindow) {
+    return
+  }
+
+  mainWindow.hide()
+
+  // Hide dock icon on macOS
+  if (process.platform === 'darwin') {
+    app.dock?.hide()
+  }
+}
+
+// ============ System Tray ============
+
+function getTrayIconPath(): string {
+  // Platform-specific tray icons with dev/prod path handling
+  if (process.platform === 'darwin') {
+    // macOS: Template icons (system handles dark/light mode)
+    if (is.dev) {
+      return join(__dirname, '../../resources/icons/tray/trayTemplate.png')
+    }
+    // Production: files are copied to resources root
+    return join(process.resourcesPath, 'trayTemplate.png')
+  } else if (process.platform === 'win32') {
+    // Windows: .ico file
+    if (is.dev) {
+      return join(__dirname, '../../resources/icons/tray/tray.ico')
+    }
+    // Production: files are copied to resources root
+    return join(process.resourcesPath, 'tray-icon.ico')
+  } else {
+    // Linux: use 32x32 png
+    if (is.dev) {
+      return join(__dirname, '../../resources/icons/tray/tray_32x32.png')
+    }
+    return join(process.resourcesPath, 'tray-icon.png')
+  }
+}
+
+function setupTray(): void {
+  if (tray) {
+    return
+  }
+
+  const iconPath = getTrayIconPath()
+
+  // Check if icon exists
+  if (!existsSync(iconPath)) {
+    console.warn(`[Tray] Icon not found: ${iconPath}`)
+    // Try fallback paths
+    const fallbackPaths = process.platform === 'win32'
+      ? [
+          join(process.resourcesPath, 'tray-icon.ico'),
+          join(__dirname, '../../resources/icons/tray/tray.ico'),
+        ]
+      : process.platform === 'darwin'
+      ? [
+          join(process.resourcesPath, 'trayTemplate.png'),
+          join(__dirname, '../../resources/icons/tray/trayTemplate.png'),
+        ]
+      : [
+          join(process.resourcesPath, 'tray-icon.png'),
+          join(__dirname, '../../resources/icons/tray/tray_32x32.png'),
+        ]
+
+    for (const fallback of fallbackPaths) {
+      if (existsSync(fallback)) {
+        console.log(`[Tray] Found fallback: ${fallback}`)
+        createTrayWithPath(fallback)
+        return
+      }
+    }
+    console.error('[Tray] No fallback paths found')
+    return
+  }
+
+  createTrayWithPath(iconPath)
+}
+
+function createTrayWithPath(iconPath: string): void {
+  try {
+    // Use nativeImage for better cross-platform support
+    const icon = nativeImage.createFromPath(iconPath)
+    if (icon.isEmpty()) {
+      console.error(`[Tray] nativeImage is empty for path: ${iconPath}`)
+      return
+    }
+
+    // For Windows, resize to 16x16 for system tray
+    const trayIcon = process.platform === 'win32' ? icon.resize({ width: 16, height: 16 }) : icon
+
+    tray = new Tray(trayIcon)
+    console.log('[Tray] Tray created successfully')
+  } catch (error) {
+    console.error(`[Tray] Failed to create tray: ${error}`)
+    return
+  }
+
+  const t = getTranslations()
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: t.tray.show,
+      click: () => showMainWindow()
+    },
+    { type: 'separator' },
+    {
+      label: t.tray.quit,
+      click: () => {
+        isQuitting = true
+        app.quit()
+      }
+    }
+  ])
+  tray.setToolTip('Sanqian Notes')
+
+  // Left-click: show/activate window (both platforms)
+  tray.on('click', () => showMainWindow())
+
+  // Right-click: show context menu
+  // On macOS, we handle right-click manually via 'right-click' event
+  // On Windows, set context menu directly (right-click shows menu automatically)
+  if (process.platform === 'darwin') {
+    tray.on('right-click', () => {
+      tray?.popUpContextMenu(contextMenu)
+    })
+  } else {
+    tray.setContextMenu(contextMenu)
+  }
+}
+
 // ============ Main Window ============
 
 function createWindow(): void {
+  // Check if launched in silent mode by Sanqian
+  const isSilent = process.argv.includes('--silent') || process.env.SANQIAN_NO_RECONNECT === '1'
+  if (isSilent) {
+    console.log('[Main] Launched in silent mode (from Sanqian)')
+  }
+
   const savedState = loadWindowState()
 
   let windowBounds: { x?: number; y?: number; width: number; height: number }
@@ -172,7 +378,7 @@ function createWindow(): void {
     ...windowBounds,
     minWidth: 800,
     minHeight: 600,
-    show: false,
+    show: !isSilent, // Don't show window immediately if launched silently
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -211,17 +417,26 @@ function createWindow(): void {
 
   mainWindow = new BrowserWindow(windowOptions)
 
-  if (savedState.isMaximized) {
+  if (savedState.isMaximized && !isSilent) {
     mainWindow.maximize()
   }
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
+    // Only show window automatically if not in silent mode
+    if (!isSilent) {
+      mainWindow?.show()
+    }
   })
 
-  mainWindow.on('close', () => {
+  // Save window state on close and hide to tray instead of quitting
+  mainWindow.on('close', (event) => {
     if (mainWindow) {
       saveWindowState(mainWindow)
+      // If not actually quitting, hide to tray instead
+      if (!isQuitting) {
+        event.preventDefault()
+        hideMainWindow()
+      }
     }
   })
 
@@ -247,12 +462,21 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // Set up data change notification callback for SDK
+  const notifyRenderer = () => {
+    mainWindow?.webContents.send('data:changed')
+  }
+  setOnSdkDataChange(notifyRenderer)
 }
 
 // ============ App Lifecycle ============
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.sanqian.notes')
+
+  // Initialize language
+  initializeLanguage()
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -280,6 +504,16 @@ app.whenReady().then(() => {
 
   // Initialize database
   initDatabase()
+
+  // Initialize Sanqian SDK
+  initializeSanqianSDK().catch((err) => {
+    console.error('[Main] Failed to initialize Sanqian SDK:', err)
+  })
+
+  // Start port watcher
+  startPortWatcher((port) => {
+    console.log('[Main] Sanqian port changed:', port)
+  })
 
   // IPC handlers for note operations
   ipcMain.handle('note:getAll', () => getNotes())
@@ -327,6 +561,202 @@ app.whenReady().then(() => {
     return cleanupOrphanAttachments(usedPaths)
   })
 
+  // ============ Chat IPC Handlers ============
+  //
+  // Connection management follows TodoList's pattern:
+  // - connect/disconnect: control actual SDK connection
+  // - acquireReconnect/releaseReconnect: control auto-reconnect behavior (reference counted)
+  //
+  // Usage pattern:
+  // 1. When chat dialog opens: acquireReconnect() → connect()
+  // 2. When chat dialog closes: releaseReconnect() (connection stays alive)
+  // 3. Multiple components can acquire reconnect, SDK only disables auto-reconnect when all release
+
+  // Connect to Sanqian SDK and ensure agent is ready
+  ipcMain.handle('chat:connect', async () => {
+    try {
+      await ensureAgentReady('assistant')
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to connect'
+      }
+    }
+  })
+
+  // Disconnect from Sanqian SDK (no-op by design)
+  // Connection management is handled via acquireReconnect/releaseReconnect reference counting
+  // This handler exists for API completeness and future extensibility
+  ipcMain.handle('chat:disconnect', async () => {
+    try {
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to disconnect'
+      }
+    }
+  })
+
+  // Enable auto-reconnect (increments reference count)
+  ipcMain.handle('chat:acquireReconnect', () => {
+    try {
+      acquireReconnect()
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to acquire reconnect'
+      }
+    }
+  })
+
+  // Disable auto-reconnect (decrements reference count)
+  ipcMain.handle('chat:releaseReconnect', () => {
+    try {
+      releaseReconnect()
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to release reconnect'
+      }
+    }
+  })
+
+  // Chat: Stream
+  ipcMain.handle('chat:stream', async (event, params: {
+    streamId: string
+    messages: Array<{ role: string; content: string }>
+    conversationId?: string
+    agentId?: string
+  }) => {
+    const webContents = event.sender
+    const { streamId, messages, conversationId } = params
+
+    try {
+      // Determine which agent to use (default to assistant)
+      const agentType = params.agentId?.includes('writing') ? 'writing' : 'assistant'
+      const { sdk, agentId } = await ensureAgentReady(agentType)
+
+      // Start streaming
+      const stream = sdk.chatStream(
+        agentId,
+        messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        conversationId ? { conversationId } : undefined
+      )
+
+      // Forward events to renderer
+      for await (const streamEvent of stream) {
+        // Check if webContents is still valid before sending
+        if (!webContents.isDestroyed()) {
+          webContents.send('chat:streamEvent', streamId, streamEvent)
+        } else {
+          console.log('[Chat] WebContents destroyed, stopping stream')
+          break
+        }
+      }
+
+      return { success: true }
+    } catch (error) {
+      // Send error event to renderer (check if webContents is still valid)
+      if (!webContents.isDestroyed()) {
+        webContents.send('chat:streamEvent', streamId, {
+          type: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to start stream'
+      }
+    }
+  })
+
+  // Chat: Cancel Stream
+  ipcMain.handle('chat:cancelStream', async (_, params: { streamId: string }) => {
+    // TODO: Implement proper stream cancellation
+    // Stream cancellation is handled by the SDK when the async iterator is aborted
+    // Currently this is a no-op - the stream will continue until completion
+    console.warn(`[Chat] cancelStream called for ${params.streamId}, but cancellation is not implemented yet`)
+    return {
+      success: true,
+      warning: 'Stream cancellation is not fully implemented - stream will complete naturally'
+    }
+  })
+
+  // Chat: List Conversations
+  ipcMain.handle('chat:listConversations', async (_, params: {
+    limit?: number
+    offset?: number
+    agentId?: string
+  }) => {
+    try {
+      const agentType = params.agentId?.includes('writing') ? 'writing' : 'assistant'
+      const { sdk, agentId } = await ensureAgentReady(agentType)
+
+      const result = await sdk.listConversations({
+        agent_id: agentId,
+        limit: params.limit,
+        offset: params.offset
+      })
+
+      return { success: true, data: result }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list conversations'
+      }
+    }
+  })
+
+  // Chat: Get Conversation
+  ipcMain.handle('chat:getConversation', async (_, params: {
+    conversationId: string
+    messageLimit?: number
+  }) => {
+    try {
+      // Always use assistant agent for conversation history
+      const { sdk, agentId } = await ensureAgentReady('assistant')
+
+      const result = await sdk.getConversation(params.conversationId, {
+        agent_id: agentId,
+        messageLimit: params.messageLimit
+      })
+
+      return { success: true, data: result }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get conversation'
+      }
+    }
+  })
+
+  // Chat: Delete Conversation
+  ipcMain.handle('chat:deleteConversation', async (_, params: { conversationId: string }) => {
+    try {
+      // Always use assistant agent for conversation deletion
+      const { sdk } = await ensureAgentReady('assistant')
+
+      await sdk.deleteConversation(params.conversationId)
+
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to delete conversation'
+      }
+    }
+  })
+
+  // Chat: Send HITL Response
+  ipcMain.on('chat:hitlResponse', (_) => {
+    // HITL response is handled by SDK automatically via the stream
+    // This handler exists for future extensibility
+  })
+
   // Theme
   ipcMain.handle('theme:get', () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
   nativeTheme.on('updated', () => {
@@ -335,6 +765,9 @@ app.whenReady().then(() => {
 
   // Platform info
   ipcMain.handle('platform:get', () => process.platform)
+
+  // Sanqian API URL
+  ipcMain.handle('sanqian:getApiUrl', () => getSanqianApiUrl())
 
   // Window control - fullscreen
   ipcMain.handle('window:setFullScreen', (_, isFullScreen: boolean) => {
@@ -365,6 +798,7 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  setupTray()
 
   // 启动 5 分钟后自动清理孤儿附件（不阻塞启动）
   setTimeout(async () => {
@@ -380,12 +814,20 @@ app.whenReady().then(() => {
   }, 5 * 60 * 1000) // 5 minutes
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // Show existing window or create a new one (macOS behavior)
+    showMainWindow()
   })
 })
 
+app.on('before-quit', () => {
+  isQuitting = true
+})
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // Don't quit when all windows are closed - we stay in tray
+  // Cleanup only happens when actually quitting via tray menu or Cmd+Q
+})
+
+app.on('will-quit', () => {
+  stopPortWatcher()
 })

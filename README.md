@@ -1697,3 +1697,291 @@ A: 根据您的笔记，项目X的主要进展是...
     - 使用 `editorContentRef` 跟踪编辑器自身产生的内容
     - 通过对比区分"外部更新"和"内部更新"，避免循环触发
     - `setContent(content, false)` 的第二个参数避免触发 onUpdate 回调
+
+## AI 功能实现记录
+
+### 2025-12-22 - AI 助手完整功能实现
+
+#### 功能概述
+实现了完整的 AI 助手功能，包括浮动按钮、对话界面和笔记管理能力。
+
+#### 技术架构
+1. **后端集成**
+   - 使用 `@yushaw/sanqian-sdk` 连接 Sanqian 中央服务
+   - 实现了 6 个 Tools：`search_notes`, `get_note`, `create_note`, `update_note`, `delete_note`, `get_tags`
+   - 创建了 2 个 Agents：
+     - `notes:assistant` - 带 Tools 的笔记助手
+     - `notes:writing` - 纯文本处理的写作助手
+
+2. **前端实现**
+   - 复用 sanqian-browser 的 CompactChat UI（4900+ 行生产级代码）
+   - 实现了 Electron Chat Adapter，通过 IPC 与主进程通信
+   - 创建了 AIFloatingButton 组件（右下角浮动按钮，Notion 风格）
+   - 创建了 AIChatDialog 组件（可拖拽、可调整大小的对话框）
+
+3. **核心文件**
+   - `src/main/sanqian-sdk.ts` - SDK 集成和 Tools 实现
+   - `src/main/index.ts` - IPC handlers 实现
+   - `src/renderer/src/lib/chat-ui/` - ChatUI 组件库
+   - `src/renderer/src/components/AIFloatingButton.tsx` - 浮动按钮
+   - `src/renderer/src/components/AIChatDialog.tsx` - 对话框
+   - `src/preload/index.ts` - IPC API 定义
+
+#### 特性
+- ✅ 流式对话（实时响应）
+- ✅ 工具调用可视化（Tool Call Timeline）
+- ✅ 思考过程展示（Thinking Block）
+- ✅ HITL 支持（危险操作需用户确认）
+- ✅ 对话历史管理
+- ✅ 可拖拽、可调整大小的对话框
+- ✅ 美观的 framer-motion 动画
+- ✅ 持久化对话框位置和大小
+
+#### 代码复用率
+- ChatUI 核心代码：94% 复用自 sanqian-browser
+- IPC Handlers：参考 sanqian-todolist 架构
+- 新增代码量：~800 行（主要是 Electron Adapter 和 UI 组件）
+
+
+## AI 助手使用指南
+
+### 功能特性
+
+#### 1. 智能笔记管理
+- 🔍 **搜索笔记** - AI 可以帮你快速找到相关笔记
+- 📝 **创建笔记** - 自然语言描述，AI 帮你创建
+- ✏️ **更新笔记** - 让 AI 帮你修改笔记内容
+- 🗑️ **删除笔记** - 移动到回收站（需要确认）
+- 🏷️ **查看标签** - 获取所有标签列表
+
+#### 2. 写作助手
+- ✨ **改进文本** - 提升表达清晰度和流畅度
+- 🌐 **翻译** - 中英文互译
+- 📊 **总结** - 提取关键要点
+- 📝 **扩展** - 添加更多细节
+- 💡 **解释** - 用简单语言说明复杂概念
+
+### 使用方式
+
+#### 打开 AI 助手
+- **方式 1**：点击右下角的紫色浮动按钮
+- **方式 2**：使用快捷键 `⌘K` (Mac) 或 `Ctrl+K` (Windows/Linux)
+
+#### 对话示例
+
+**搜索笔记：**
+```
+用户：搜索关于 React Hooks 的笔记
+AI：[使用 search_notes 工具搜索]
+```
+
+**创建笔记：**
+```
+用户：创建一个新笔记，标题是"今日学习计划"
+AI：[使用 create_note 工具创建]
+```
+
+**改进文字：**
+```
+用户：帮我改进这段文字：今天天气很好
+AI：今天的天气格外宜人，阳光明媚，微风和煦。
+```
+
+### 快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `⌘K` / `Ctrl+K` | 打开/关闭 AI 助手 |
+| `ESC` | 关闭 AI 对话框 |
+| `Enter` | 发送消息 |
+
+### UI 特性
+
+- 🎯 **可拖拽** - 对话框可以自由拖动
+- 📐 **可调整大小** - 8 个方向调整窗口大小
+- 💾 **状态持久化** - 记住对话框的位置和大小
+- 🎨 **精美动画** - 使用 framer-motion 提供流畅动画
+- 🌓 **深色模式** - 自动适配系统主题
+
+### 技术架构
+
+```
+前端 (Renderer)
+  ├── AIFloatingButton - 浮动按钮
+  ├── AIChatDialog - 对话框容器
+  └── CompactChat - 聊天 UI (复用自 sanqian-browser)
+         ├── MessageList - 消息列表
+         ├── IntermediateSteps - 工具调用时间线
+         ├── HitlCard - 人机协作确认卡片
+         └── MarkdownRenderer - Markdown 渲染
+
+IPC 通信层 (Preload)
+  └── chat API - 8 个 IPC 方法
+
+主进程 (Main)
+  ├── sanqian-sdk.ts - SDK 集成
+  │   ├── 6 个 Tools 定义和实现
+  │   └── 2 个 Agents 配置
+  └── IPC Handlers - 处理前端请求
+```
+
+### 故障排查
+
+#### 1. AI 助手无法打开
+- 检查 Sanqian 是否运行：`ps aux | grep -i sanqian`
+- 查看控制台日志是否有连接错误
+
+#### 2. Tools 无法使用
+- 确认 Sanqian 版本 >= 0.1.0
+- 检查日志：`[SDK] Registered as 'sanqian-notes'`
+
+#### 3. 对话无响应
+- 检查网络连接
+- 查看 Sanqian 是否正常运行
+- 重启应用重新连接
+
+### 依赖项
+
+- `@yushaw/sanqian-sdk@^0.2.13` - Sanqian SDK
+- `framer-motion@^12.0.0` - 动画库
+- `zustand@^5.0.2` - 状态管理
+- `streamdown@^1.6.9` - Markdown 流式渲染
+- `remark-gfm@^4.0.1` - GitHub Flavored Markdown
+- `rehype-harden@^1.1.6` - Markdown 安全处理
+
+---
+
+## 更新日志
+
+### 2025-12-22
+
+#### 系统托盘与窗口管理
+- ✅ 实现系统托盘功能（完全对齐 TodoList 实现）
+  - 支持 macOS、Windows、Linux 三平台
+  - macOS: Template 图标自动适配深浅色模式
+  - Windows: .ico 文件，16x16 调整
+  - Linux: 32x32 PNG
+  - 左键点击显示/激活窗口
+  - 右键显示上下文菜单
+  - 托盘菜单多语言支持（中文/英文）
+- ✅ 窗口管理优化
+  - 关闭窗口时隐藏到托盘而不退出
+  - macOS Dock 图标自动隐藏/显示
+  - 支持 `app.on('activate')` macOS 行为
+  - `before-quit` 和 `window-all-closed` 正确处理
+
+#### Sanqian 集成
+- ✅ Silent 模式启动（支持 Sanqian 后台唤起）
+  - 检测 `--silent` 标志
+  - 检测 `SANQIAN_NO_RECONNECT=1` 环境变量
+  - Silent 模式下窗口不自动显示
+- ✅ 端口监控和互相唤起
+  - 监控 `~/.sanqian/runtime/api.port`
+  - 端口变化自动处理
+  - Launch command 配置
+
+#### 构建与部署
+- ✅ 创建 electron-builder.yml 配置文件
+  - extraResources 托盘图标配置
+  - macOS、Windows、Linux 构建配置
+  - 镜像源加速
+
+#### AI 功能优化
+- ✅ 会话管理（Session Pill 显示活跃会话）
+- ✅ AI 建议按钮改为填充输入框
+- ✅ 添加快捷键 hover 延迟（300ms）
+- ✅ Markdown 列表样式修复
+- ✅ Thinking/Intermediate 内容 trim 处理
+
+#### 多语言系统
+- ✅ 主进程多语言支持
+  - 系统语言检测
+  - 托盘菜单多语言
+  - 与 Renderer 共享翻译
+
+#### 连接管理架构重构
+- ✅ 完全对齐 TodoList 的连接管理模式
+  - 分离 `acquireReconnect/releaseReconnect` 和 `connect/disconnect`
+  - 引用计数机制控制自动重连行为
+  - 对话框关闭时保持连接活跃，仅释放自动重连
+  - 支持多组件并发管理连接状态
+- ✅ 新增 IPC handlers
+  - `chat:acquireReconnect` - 启用自动重连（引用计数+1）
+  - `chat:releaseReconnect` - 禁用自动重连（引用计数-1）
+- ✅ 优化资源使用
+  - 不活跃时不自动重连，节省资源
+  - 保持连接温热，下次激活即时响应
+  - 灵活的生命周期管理
+
+#### 代码质量提升
+- ✅ 类型安全改进
+  - 移除 `sanqian-sdk.ts` 中的 `as any` 类型断言
+  - 直接使用 SDK 0.2.13 的类型定义
+  - IPC handler 返回值格式统一（`{ success, error? }`）
+- ✅ 废弃 API 替换
+  - 替换所有 `navigator.platform` 为统一的平台检测工具
+  - 创建 `utils/platform.ts` 提供同步和异步平台检测
+  - 使用 `window.electron.platform.get()` 作为可靠来源
+- ✅ 依赖清理
+  - 移除未使用的 `zustand` 依赖
+  - 删除临时脚本文件 `download-typewriter-sounds.sh`
+  - 保留 `clsx` 和 `tailwind-merge`（`streamdown` 的依赖）
+
+#### 性能与健壮性优化
+- ✅ 数据库查询优化
+  - `searchNotes()` 添加 LIMIT 100 上限，防止大数据集性能问题
+  - `getNotes()` 添加 LIMIT 1000 默认限制
+- ✅ 错误处理完善
+  - **所有 6 个 Tools handler 统一添加 try-catch 错误处理**
+    - `search_notes`, `get_note`, `create_note`, `update_note`, `delete_note`, `get_tags`
+    - 确保所有 handler 的错误处理一致性
+  - 错误信息统一格式化，便于调试
+- ✅ 字符处理改进
+  - 创建 `truncateText()` 安全截断函数
+  - 正确处理 emoji 和 CJK 字符的 surrogate pairs
+  - 避免在多字节字符中间截断导致乱码
+- ✅ 功能标注
+  - `chat:cancelStream` 添加 TODO 和 warning
+  - 明确标注未实现的功能，防止误用
+
+#### AI 对话框 UI 优化 (2024-12-22)
+- ✅ 极简 pill 设计
+  - 移除原独立的 AIFloatingButton 组件
+  - 统一使用 AIChatDialog 管理所有 UI 状态
+  - 右下角固定位置显示圆形 AI 按钮
+- ✅ 按钮状态机设计
+  - **无会话状态**：60% 透明度，hover 时不透明并极慢旋转（20秒/圈）
+  - **有会话状态**：100% 透明度，持续极慢旋转，显示脉动指示点
+  - **Loading 状态**：显示三个跳动的点动画
+  - **对话框打开**：按钮隐藏，对话框和输入框显示在底部居中
+- ✅ 对齐 TodoList 行为
+  - **点击关闭按钮（X）**：完全清空会话状态（messages、conversationId、lastActivityTime）
+  - **点击外部或按 ESC**：
+    - 如果没有用户消息 → 清空会话状态，不显示 session
+    - 如果有用户消息 → 保留会话状态，显示 session pill（方便恢复）
+  - 必须有用户消息才算活动会话，避免空对话显示 session
+- ✅ 布局优化
+  - 对话框和输入框底部水平居中显示（使用 framer-motion 的 `x: '-50%'` 确保居中）
+  - AI 按钮固定在右下角作为入口
+  - 合理的垂直间距（对话框距底部 68px，输入框距底部 24px）
+  - 解决 fixed 定位在动画中的 transform 冲突问题
+- ✅ 视觉统一
+  - 对话框和输入框使用相同的背景色（`bg-app-bg`）
+  - Logo 在深色模式下自动反白（`filter: 'invert(1)'`）
+  - 保持整体视觉一致性
+
+#### 健壮性与内存安全修复 (2024-12-22)
+- ✅ 修复 webContents 崩溃问题（P0 严重）
+  - 流式响应过程中检查 `webContents.isDestroyed()`
+  - 用户快速关闭窗口时安全停止流循环，避免 "Object has been destroyed" 错误
+  - 影响：防止应用崩溃，提升稳定性
+- ✅ 修复 IPC 监听器内存泄漏（P0 严重）
+  - Preload API 返回 cleanup 函数（`onStatusChange`, `onStreamEvent`）
+  - Electron Adapter 添加 `cleanup()` 方法清理 IPC 监听器
+  - AIChatDialog 组件卸载时自动调用 `adapter.cleanup()`
+  - 影响：防止多次打开/关闭对话框导致的内存泄漏
+- ✅ 代码清理（P1）
+  - 删除 `sanqian-sdk.ts` 中冗余的 `syncingPromise = null` 赋值
+  - `setTimeout` 添加清理逻辑，符合 React 最佳实践
+  - 为 `chat:disconnect` 添加说明注释（no-op by design）
+

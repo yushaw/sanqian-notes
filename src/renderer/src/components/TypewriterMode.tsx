@@ -10,6 +10,8 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
+import { Extension } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Typography from '@tiptap/extension-typography'
@@ -51,6 +53,7 @@ import { TypewriterToolbar } from './TypewriterToolbar'
 import { TypewriterToc } from './TypewriterToc'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
+import { useTypewriterSound, type KeyType } from '../hooks/useTypewriterSound'
 import './Typewriter.css'
 
 // ==================== 类型定义 ====================
@@ -141,6 +144,17 @@ export function TypewriterMode({
   // ==================== Hooks ====================
   const { resolvedColorMode } = useTheme()
   const t = useTranslations()
+
+  // 打字音效（从 localStorage 读取设置，默认关闭）
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    const saved = localStorage.getItem('sanqian-notes-typewriter-sound')
+    return saved === 'true' // 默认关闭，只有显式设置为 true 才开启
+  })
+  const { play: playTypewriterSound } = useTypewriterSound({
+    enabled: soundEnabled,
+    volume: 0.3,
+    playbackRate: 1.0,
+  })
 
   // 主题配置（跟随系统深色/浅色）
   const isDark = resolvedColorMode === 'dark'
@@ -280,6 +294,61 @@ export function TypewriterMode({
     }
   }
 
+  // 创建按键音效扩展（参考 Tickeys 实现）
+  const TypewriterSoundExtension = Extension.create({
+    name: 'typewriterSound',
+
+    addKeyboardShortcuts() {
+      return {
+        // 监听特殊按键
+        'Backspace': () => {
+          playTypewriterSound('backspace')
+          return false
+        },
+        'Delete': () => {
+          playTypewriterSound('delete')
+          return false
+        },
+        'Enter': () => {
+          playTypewriterSound('enter')
+          return false
+        },
+        'Space': () => {
+          playTypewriterSound('space')
+          return false
+        },
+      }
+    },
+
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          key: new PluginKey('typewriterSound'),
+          props: {
+            handleKeyDown: (_view: any, event: KeyboardEvent) => {
+              // 忽略修饰键组合（撤销、重做等）
+              if (event.metaKey || event.ctrlKey) {
+                return false
+              }
+
+              // 特殊键已在 addKeyboardShortcuts 中处理
+              if (['Backspace', 'Delete', 'Enter', ' '].includes(event.key)) {
+                return false
+              }
+
+              // 普通字符输入（字母、数字、标点等）
+              if (event.key.length === 1) {
+                playTypewriterSound('normal')
+              }
+
+              return false
+            },
+          },
+        }),
+      ]
+    },
+  })
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -326,6 +395,7 @@ export function TypewriterMode({
       CustomCodeBlock,
       Footnote,
       MarkdownPaste,
+      TypewriterSoundExtension,
       FileHandler.configure({
         onPaste: async (currentEditor, files) => {
           for (const file of files) {
@@ -629,6 +699,12 @@ export function TypewriterMode({
     }
   }, [editor])
 
+  const handleToggleSound = useCallback(() => {
+    const newValue = !soundEnabled
+    setSoundEnabled(newValue)
+    localStorage.setItem('sanqian-notes-typewriter-sound', String(newValue))
+  }, [soundEnabled])
+
   const handleToggleFullscreen = useCallback(async () => {
     try {
       if (!document.fullscreenElement) {
@@ -697,6 +773,8 @@ export function TypewriterMode({
         onToggleFullscreen={handleToggleFullscreen}
         onExit={handleExit}
         isFullscreen={isFullscreen}
+        soundEnabled={soundEnabled}
+        onToggleSound={handleToggleSound}
       />
     </div>
   )

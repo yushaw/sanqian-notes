@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('electron', {
     delete: (id: string) => ipcRenderer.invoke('note:delete', id),
     search: (query: string) => ipcRenderer.invoke('note:search', query),
     createDemo: () => ipcRenderer.invoke('note:createDemo'),
+    onDataChanged: (callback: () => void) => {
+      ipcRenderer.on('data:changed', callback)
+      return () => ipcRenderer.removeListener('data:changed', callback)
+    },
   },
   trash: {
     getAll: () => ipcRenderer.invoke('trash:getAll'),
@@ -57,5 +61,33 @@ contextBridge.exposeInMainWorld('electron', {
     exists: (relativePath: string) => ipcRenderer.invoke('attachment:exists', relativePath),
     getAll: () => ipcRenderer.invoke('attachment:getAll'),
     cleanup: () => ipcRenderer.invoke('attachment:cleanup'),
+  },
+  chat: {
+    // Connection management
+    connect: () => ipcRenderer.invoke('chat:connect'),
+    disconnect: () => ipcRenderer.invoke('chat:disconnect'),
+    // Auto-reconnect control (reference counted)
+    acquireReconnect: () => ipcRenderer.invoke('chat:acquireReconnect'),
+    releaseReconnect: () => ipcRenderer.invoke('chat:releaseReconnect'),
+    // Chat streaming
+    stream: (params: unknown) => ipcRenderer.invoke('chat:stream', params),
+    cancelStream: (params: unknown) => ipcRenderer.invoke('chat:cancelStream', params),
+    // Conversation management
+    listConversations: (params: unknown) => ipcRenderer.invoke('chat:listConversations', params),
+    getConversation: (params: unknown) => ipcRenderer.invoke('chat:getConversation', params),
+    deleteConversation: (params: unknown) => ipcRenderer.invoke('chat:deleteConversation', params),
+    // Human-in-the-loop
+    sendHitlResponse: (params: unknown) => ipcRenderer.send('chat:hitlResponse', params),
+    // Event listeners
+    onStatusChange: (callback: (...args: unknown[]) => void) => {
+      const handler = (_event: unknown, ...args: unknown[]) => callback(...args)
+      ipcRenderer.on('chat:statusChange', handler)
+      return () => ipcRenderer.removeListener('chat:statusChange', handler)
+    },
+    onStreamEvent: (callback: (...args: unknown[]) => void) => {
+      const handler = (_event: unknown, ...args: unknown[]) => callback(...args)
+      ipcRenderer.on('chat:streamEvent', handler)
+      return () => ipcRenderer.removeListener('chat:streamEvent', handler)
+    },
   },
 })

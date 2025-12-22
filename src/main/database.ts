@@ -978,14 +978,15 @@ export interface Note {
   deleted_at: string | null
 }
 
-export function getNotes(): Note[] {
+export function getNotes(limit = 1000): Note[] {
   const stmt = db.prepare(`
     SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
     FROM notes
     WHERE deleted_at IS NULL
     ORDER BY is_pinned DESC, updated_at DESC
+    LIMIT ?
   `)
-  return stmt.all().map(row => {
+  return stmt.all(limit).map(row => {
     const r = row as Record<string, unknown>
     return {
       ...r,
@@ -1123,7 +1124,7 @@ export function cleanupOldTrash(): number {
   return result.changes
 }
 
-export function searchNotes(query: string): Note[] {
+export function searchNotes(query: string, limit = 100): Note[] {
   if (!query.trim()) return []
 
   // Use LIKE search for better CJK support
@@ -1131,14 +1132,18 @@ export function searchNotes(query: string): Note[] {
   const escaped = query.trim().replace(/%/g, '\\%').replace(/_/g, '\\_')
   const likeQuery = `%${escaped}%`
 
+  // Enforce maximum limit to prevent performance issues with large datasets
+  const actualLimit = Math.min(limit, 100)
+
   const stmt = db.prepare(`
     SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
     FROM notes
     WHERE deleted_at IS NULL AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
     ORDER BY is_pinned DESC, updated_at DESC
+    LIMIT ?
   `)
 
-  return stmt.all(likeQuery, likeQuery).map(row => {
+  return stmt.all(likeQuery, likeQuery, actualLimit).map(row => {
     const r = row as Record<string, unknown>
     return {
       ...r,

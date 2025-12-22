@@ -1,0 +1,70 @@
+appId: com.sanqian.notes
+productName: Sanqian Notes
+directories:
+  buildResources: resources
+  output: dist
+
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!.github/**'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{CLAUDE.md}'
+
+asarUnpack:
+  - '**/*.node'
+
+extraResources:
+  # macOS tray icons (Template icons for dark/light mode)
+  - from: resources/icons/tray/trayTemplate.png
+    to: trayTemplate.png
+  - from: resources/icons/tray/trayTemplate@2x.png
+    to: trayTemplate@2x.png
+  # Windows tray icon
+  - from: resources/icons/tray/tray.ico
+    to: tray-icon.ico
+  # Linux tray icon
+  - from: resources/icons/tray/tray_32x32.png
+    to: tray-icon.png
+
+# macOS configuration
+mac:
+  icon: resources/icons/mac/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+
+artifactName: ${name}-${version}-${arch}.${ext}
+
+# Windows configuration
+win:
+  icon: resources/icons/win/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+# Use normal compression for faster installation
+compression: normal
+
+npmRebuild: true
+
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

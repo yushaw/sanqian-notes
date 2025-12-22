@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Note } from '../types/note'
 import { useTranslations } from '../i18n'
+import { isMacOS } from '../utils/platform'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { getPreview } from '../utils/notePreview'
 
@@ -9,7 +10,7 @@ const TRASH_RETENTION_DAYS = 30
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 // 检测是否为 macOS
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+const isMac = isMacOS()
 
 interface TrashListProps {
   notes: Note[]

@@ -2172,3 +2172,22 @@ npm run reset-db
 **技术实现**：
 - 修改 `useConversations.ts` 的 `loadConversations` 和 `loadMore` 方法
 - 使用 `new Map(conversations.map(c => [c.id, c]))` 确保对话 ID 唯一性
+
+#### AI 对话 Thinking 内容显示修复 (2024-12-23)
+- ✅ **修复 thinking 内容不显示的问题**
+  - **根本原因**：SDK 发送的消息格式为 `{ type: "chat_stream", event: "thinking", content: "..." }`，但前端期望格式为 `{ type: "thinking", content: "..." }`
+  - **表现**：使用 thinking 模型（如 DeepSeek R1）时，思维过程完全不显示
+  - **修复**：在主进程中添加 SDK 消息格式转换逻辑
+
+**技术实现**：
+- `src/main/index.ts:699-713` - 添加 SDK 消息格式转换
+  ```typescript
+  if (sdkEvent.type === 'chat_stream' && sdkEvent.event) {
+    // 提取 event 字段作为实际类型
+    convertedEvent = { ...sdkEvent, type: sdkEvent.event }
+    delete convertedEvent.event
+    delete convertedEvent.id
+  }
+  ```
+- SDK 所有 chat_stream 事件（thinking, text, tool_call 等）统一转换为标准 StreamEvent 格式
+- 前端 adapter 和 useChat 无需修改，自动支持 thinking 内容显示

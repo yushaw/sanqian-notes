@@ -35,6 +35,11 @@ export interface ExpandableToolCallProps {
   resultPreviewLength?: number;
   /** Callback when expansion state changes */
   onExpandChange?: (expanded: boolean) => void;
+  /** Localized strings */
+  strings?: {
+    arguments?: string;
+    result?: string;
+  };
 }
 
 /**
@@ -72,6 +77,7 @@ export const ExpandableToolCall = memo(function ExpandableToolCall({
   pendingIcon,
   resultPreviewLength = 200,
   onExpandChange,
+  strings,
 }: ExpandableToolCallProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -171,7 +177,7 @@ export const ExpandableToolCall = memo(function ExpandableToolCall({
           {/* Arguments */}
           {hasArgs && (
             <div>
-              <div className="text-chat-muted/60 mb-1 text-xs">Arguments:</div>
+              <div className="text-chat-muted/60 mb-1 text-xs">{strings?.arguments || 'Arguments'}:</div>
               <ToolArgumentsDisplay args={args} />
             </div>
           )}
@@ -179,7 +185,7 @@ export const ExpandableToolCall = memo(function ExpandableToolCall({
           {/* Result */}
           {hasResult && status === 'completed' && (
             <div>
-              <div className="text-chat-muted/60 mb-1 text-xs">Result:</div>
+              <div className="text-chat-muted/60 mb-1 text-xs">{strings?.result || 'Result'}:</div>
               <pre className="text-chat-text/70 m-0 max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-xs">
                 {formatResult(result)}
               </pre>

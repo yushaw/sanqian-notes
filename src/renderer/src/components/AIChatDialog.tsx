@@ -5,6 +5,8 @@
  * Structure:
  * - Chat Panel (with header and messages/history)
  * - Input Bar (separate, below the panel)
+ *
+ * Debug: Added comprehensive logging to track adapter lifecycle
  */
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
@@ -14,14 +16,9 @@ import { CompactChat } from '../lib/chat-ui/components/CompactChat'
 import { createElectronAdapter } from '../lib/chat-ui/adapters/electron'
 import { useTheme } from '../theme'
 import { useTranslations } from '../i18n'
+import { truncateText } from '../utils/text'
+import { TIMING, EASING, RETRY } from '../constants'
 import notesLogo from '../assets/notes-logo.png'
-
-// Animation timing constants (copied from TodoList)
-const TIMING = {
-  panelEnter: 0.2,
-  panelExit: 0.15,
-  sessionPill: 0.2,
-}
 
 interface AIChatDialogProps {
   isOpen: boolean
@@ -40,35 +37,93 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [hasEverOpened, setHasEverOpened] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting')
   const inputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const chatSendMessageRef = useRef<((message: string) => void) | null>(null)
+  const chatNewConversationRef = useRef<(() => void) | null>(null)
+  const isOpenRef = useRef(isOpen)
 
-  // Create adapter instance (memoized)
-  const adapter = useMemo(() => createElectronAdapter(), [])
+  // Create adapter instance (using ref to ensure stability across HMR)
+  // This prevents creating new adapter instances on every HMR, which would
+  // cause IPC listener leaks
+  const adapterRef = useRef<ReturnType<typeof createElectronAdapter> | null>(null)
+  if (!adapterRef.current) {
+    console.log('[AIChatDialog] Creating new adapter')
+    adapterRef.current = createElectronAdapter()
+  } else {
+    console.log('[AIChatDialog] Reusing existing adapter')
+  }
+  const adapter = adapterRef.current
+
+  // Keep isOpenRef in sync (only update when opening, not when closing)
+  useEffect(() => {
+    if (isOpen) {
+      isOpenRef.current = true
+    }
+    // Don't set to false here - let clearAndClose handle closing
+  }, [isOpen])
 
   // Cleanup adapter on unmount
+  // Use adapterRef.current in cleanup to ensure we clean up the correct instance
   useEffect(() => {
+    const currentAdapter = adapterRef.current
+    console.log('[AIChatDialog] Mounted with adapter')
     return () => {
-      adapter.cleanup?.()
+      console.log('[AIChatDialog] Unmounting, cleaning up adapter')
+      currentAdapter?.cleanup?.()
     }
-  }, [adapter])
+  }, [])  // Empty deps: only run on real mount/unmount
 
-  // Check if we have an active session (loading or recent activity within 10 min)
-  // Must have at least one user message to be considered active
+  // Unified close handler - clears all state
+  const clearAndClose = useCallback(() => {
+    // Immediately mark as closed to prevent any further updates
+    isOpenRef.current = false
+    // Clear all state including hover state
+    setMessages([])
+    setConversationId(null)
+    setLastActivityTime(null)
+    setIsLoading(false)
+    setIsHovered(false)
+    setConnectionStatus('connecting')
+    onClose()
+  }, [onClose])
+
+  // Check if we have an active session
+  // Only consider active if there's at least one user message
   const hasUserMessage = messages.some(m => m.role === 'user')
-  const hasActiveSession = isLoading || (
-    lastActivityTime !== null &&
-    messages.length > 0 &&
-    hasUserMessage &&
-    Date.now() - lastActivityTime < 10 * 60 * 1000
-  )
+  const hasActiveSession = hasUserMessage
 
-  // Get last message summary for session pill
+  // Get last message summary for session pill (safely truncate to avoid breaking emoji)
   const lastMessage = messages[messages.length - 1]
   const sessionSummary = lastMessage?.role === 'assistant'
-    ? lastMessage.content.slice(0, 30) + (lastMessage.content.length > 30 ? '...' : '')
+    ? truncateText(lastMessage.content, 30)
     : null
+
+  // Connection retry with exponential backoff
+  const connectWithRetry = useCallback(async (maxRetries = RETRY.MAX_ATTEMPTS) => {
+    setConnectionStatus('connecting')
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        console.log(`[AIChatDialog] Connection attempt ${i + 1}/${maxRetries}`)
+        await window.electron.chat.connect()
+        console.log('[AIChatDialog] Connected successfully')
+        setConnectionStatus('connected')
+        return true
+      } catch (err) {
+        console.error(`[AIChatDialog] Connect failed (${i + 1}/${maxRetries}):`, err)
+        if (i < maxRetries - 1) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delayMs = Math.pow(2, i) * TIMING.RETRY_BASE_DELAY_MS
+          console.log(`[AIChatDialog] Retrying in ${delayMs}ms...`)
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+        }
+      }
+    }
+    console.error('[AIChatDialog] All connection attempts failed')
+    setConnectionStatus('error')
+    return false
+  }, [])
 
   // Manage Sanqian SDK connection based on dialog state
   // Pattern follows TodoList's ChatPanel for consistency:
@@ -91,9 +146,9 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
       window.electron.chat.acquireReconnect().catch((err) => {
         console.error('[AIChatDialog] Failed to acquire reconnect:', err)
       })
-      // Then ensure connection
-      window.electron.chat.connect().catch((err) => {
-        console.error('[AIChatDialog] Failed to connect:', err)
+      // Then ensure connection with retry
+      connectWithRetry().catch((err) => {
+        console.error('[AIChatDialog] Failed to connect after retries:', err)
       })
     } else {
       // Only release auto-reconnect, keep connection alive
@@ -101,7 +156,7 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
         console.error('[AIChatDialog] Failed to release reconnect:', err)
       })
     }
-  }, [isOpen])
+  }, [isOpen, connectWithRetry])
 
   // ESC key to close
   useEffect(() => {
@@ -109,20 +164,12 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // If no user messages, clear the session (empty conversation)
-        const hasUserMsg = messages.some(m => m.role === 'user')
-        if (!hasUserMsg) {
-          setMessages([])
-          setConversationId(null)
-          setLastActivityTime(null)
-        }
-
-        onClose()
+        clearAndClose()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose, messages])
+  }, [isOpen, clearAndClose])
 
   // Track if dialog has ever been opened (to preserve CompactChat state)
   useEffect(() => {
@@ -136,7 +183,7 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
     if (isOpen && inputRef.current) {
       const timer = setTimeout(() => {
         inputRef.current?.focus()
-      }, 100)
+      }, TIMING.FOCUS_DELAY_MS)
       return () => clearTimeout(timer)
     }
   }, [isOpen])
@@ -151,28 +198,19 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
           return
         }
 
-        // If no user messages, clear the session (empty conversation)
-        const hasUserMsg = messages.some(m => m.role === 'user')
-        if (!hasUserMsg) {
-          // Clear session state for empty conversations
-          setMessages([])
-          setConversationId(null)
-          setLastActivityTime(null)
-        }
-
-        onClose()
+        clearAndClose()
       }
     }
     if (isOpen) {
       const timer = setTimeout(() => {
         document.addEventListener('mousedown', handleClickOutside)
-      }, 150)
+      }, TIMING.CLICK_OUTSIDE_DELAY_MS)
       return () => {
         clearTimeout(timer)
         document.removeEventListener('mousedown', handleClickOutside)
       }
     }
-  }, [isOpen, onClose, messages])
+  }, [isOpen, clearAndClose])
 
   const handleSend = useCallback((message?: string) => {
     const textToSend = message || inputValue.trim()
@@ -204,6 +242,11 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
 
   // Handle chat state change (messages and conversationId)
   const handleStateChange = useCallback((state: { messages: Array<{ role: string; content: string }>; conversationId: string | null }) => {
+    // Only update state when dialog is open (use ref to avoid stale closure)
+    if (!isOpenRef.current) {
+      return
+    }
+
     setMessages(state.messages)
     setConversationId(state.conversationId)
     // Update last activity time when messages change
@@ -219,17 +262,21 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
 
   // Handle loading state change
   const handleLoadingChange = useCallback((loading: boolean) => {
+    // Only update loading state when dialog is open (use ref to avoid stale closure)
+    if (!isOpenRef.current) {
+      return
+    }
     setIsLoading(loading)
   }, [])
 
   // Handle close button - clear session completely (aligned with TodoList)
   const handleClose = useCallback(() => {
-    onClose()
-    // Clear all session state
-    setMessages([])
-    setConversationId(null)
-    setLastActivityTime(null)
-  }, [onClose])
+    // Clear CompactChat's conversation via its API
+    if (chatNewConversationRef.current) {
+      chatNewConversationRef.current()
+    }
+    clearAndClose()
+  }, [clearAndClose])
 
   // Handle session pill click
   const handleSessionPillClick = useCallback(() => {
@@ -250,8 +297,8 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
       scale: 1,
       x: '-50%',
       transition: {
-        duration: TIMING.panelEnter,
-        ease: [0.32, 0.72, 0, 1] as [number, number, number, number],
+        duration: TIMING.PANEL_ENTER_S,
+        ease: EASING.SMOOTH,
       }
     },
     exit: {
@@ -260,8 +307,8 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
       scale: 0.98,
       x: '-50%',
       transition: {
-        duration: TIMING.panelExit,
-        ease: [0.32, 0, 0.67, 0] as [number, number, number, number],
+        duration: TIMING.PANEL_EXIT_S,
+        ease: EASING.EXIT,
       }
     }
   }
@@ -285,13 +332,49 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
             exit="exit"
             variants={panelVariants}
           >
-          <CompactChat
+          {/* Connection Status Banner */}
+            {connectionStatus === 'error' && (
+              <div className="bg-red-100 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 px-4 py-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-red-800 dark:text-red-200">
+                    {t.ai.connectionFailed}
+                  </span>
+                  <button
+                    onClick={() => connectWithRetry()}
+                    className="text-sm text-red-800 dark:text-red-200 underline hover:no-underline"
+                  >
+                    {t.ai.retry}
+                  </button>
+                </div>
+                <p className="text-xs text-red-700 dark:text-red-300">
+                  {t.ai.ensureSanqianRunning}{' '}
+                  <a
+                    href="https://sanqian.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:no-underline font-medium"
+                  >
+                    {t.ai.visitSanqian}
+                  </a>
+                </p>
+              </div>
+            )}
+            {connectionStatus === 'connecting' && (
+              <div className="bg-blue-100 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 py-2">
+                <span className="text-sm text-blue-800 dark:text-blue-200">
+                  {t.ai.connecting}
+                </span>
+              </div>
+            )}
+
+            <CompactChat
               adapter={adapter}
               placeholder={t.ai.placeholder}
               autoConnect={false}
               hideHeader={false}
               hideInput={true}
               sendMessageRef={chatSendMessageRef}
+              newConversationRef={chatNewConversationRef}
               onMessageReceived={handleMessageReceived}
               onLoadingChange={handleLoadingChange}
               onStateChange={handleStateChange}
@@ -335,6 +418,8 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
                 </div>
               }
               strings={{
+                chat: t.ai.chat,
+                selectConversation: t.ai.selectConversation,
                 recentChats: t.ai.recentChats,
                 newChat: t.ai.newChat,
                 noHistory: t.ai.noHistory,
@@ -363,7 +448,7 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{
                 opacity: { duration: 0.3, ease: 'easeOut' },
-                scale: { duration: TIMING.sessionPill, ease: [0.32, 0.72, 0, 1] }
+                scale: { duration: TIMING.SESSION_PILL_S, ease: EASING.SMOOTH }
               }}
               onClick={handleSessionPillClick}
               onMouseEnter={() => setIsHovered(true)}

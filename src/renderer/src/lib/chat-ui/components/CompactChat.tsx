@@ -61,6 +61,8 @@ export interface CompactChatProps {
   hideInput?: boolean;
   /** Ref to expose sendMessage function for external input */
   sendMessageRef?: React.MutableRefObject<((message: string) => void) | null>;
+  /** Ref to expose newConversation function */
+  newConversationRef?: React.MutableRefObject<(() => void) | null>;
   /** Custom message renderer */
   renderMessage?: (message: ChatMessage) => ReactNode;
   /** Custom tool call renderer (for future use) */
@@ -77,6 +79,8 @@ export interface CompactChatProps {
     executing?: string;
     thinking?: string;
     // History related
+    chat?: string;
+    selectConversation?: string;
     recentChats?: string;
     newChat?: string;
     noHistory?: string;
@@ -118,6 +122,7 @@ export const CompactChat = memo(function CompactChat({
   hideConnectionStatus = false,
   hideInput = false,
   sendMessageRef,
+  newConversationRef,
   renderMessage,
   _renderToolCall,
   emptyState,
@@ -178,6 +183,13 @@ export const CompactChat = memo(function CompactChat({
       sendMessageRef.current = chat.sendMessage;
     }
   }, [sendMessageRef, chat.sendMessage]);
+
+  // Expose newConversation to parent via ref
+  useEffect(() => {
+    if (newConversationRef) {
+      newConversationRef.current = chat.newConversation;
+    }
+  }, [newConversationRef, chat.newConversation]);
 
   // Notify parent when messages change (for session tracking)
   useEffect(() => {
@@ -345,7 +357,7 @@ export const CompactChat = memo(function CompactChat({
             )}
             {headerLeft || (
               <span className="text-sm font-medium text-app-text">
-                {showHistory ? strings.recentChats || 'Recent Chats' : 'Chat'}
+                {showHistory ? strings.recentChats || 'Recent Chats' : strings.chat || 'Chat'}
               </span>
             )}
           </div>
@@ -489,7 +501,7 @@ export const CompactChat = memo(function CompactChat({
         <ChatInput
           onSend={chat.sendMessage}
           onStop={chat.stopStreaming}
-          placeholder={showHistory ? '选择一个对话继续...' : placeholder}
+          placeholder={showHistory ? (strings.selectConversation || 'Select a conversation to continue...') : placeholder}
           disabled={showHistory || chat.isLoading}
           isStreaming={chat.isStreaming}
           isLoading={chat.isLoading}

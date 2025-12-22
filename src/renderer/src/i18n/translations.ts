@@ -139,6 +139,28 @@ export interface Translations {
     close: string
     session: string
     thinking: string
+    connecting: string
+    connectionFailed: string
+    ensureSanqianRunning: string
+    visitSanqian: string
+    retry: string
+    chat: string
+    selectConversation: string
+    arguments: string
+    result: string
+    executeTool: string
+    toolLabel: string
+    argsLabel: string
+    defaultPrefix: string
+    enterResponse: string
+    executing: string
+    approve: string
+    reject: string
+    submit: string
+    rememberChoice: string
+    requiredField: string
+    timeoutIn: string
+    seconds: string
   }
   tray: {
     show: string
@@ -146,6 +168,8 @@ export interface Translations {
   }
   common: {
     loading: string
+    collapse: string
+    expand: string
   }
   noteLink: {
     create: string
@@ -290,6 +314,7 @@ export interface Translations {
     tooLarge: string
     tooLargeDetail: string
     insertFailed: string
+    cannotOpen: string
   }
 }
 
@@ -431,13 +456,37 @@ const zh: Translations = {
     close: '关闭',
     session: 'AI 会话',
     thinking: '思考中',
+    connecting: '正在连接...',
+    connectionFailed: '无法连接到 AI 服务',
+    ensureSanqianRunning: '请确保 Sanqian 已安装并运行。',
+    visitSanqian: '访问 sanqian.io',
+    retry: '重试',
+    chat: 'AI 对话',
+    selectConversation: '选择一个对话继续...',
+    arguments: '参数',
+    result: '结果',
+    executeTool: '执行',
+    toolLabel: '工具',
+    argsLabel: '参数',
+    defaultPrefix: '默认',
+    enterResponse: '输入你的回复...',
+    executing: '执行中...',
+    approve: '同意',
+    reject: '拒绝',
+    submit: '提交',
+    rememberChoice: '记住此选择',
+    requiredField: '此字段为必填项',
+    timeoutIn: '超时倒计时',
+    seconds: '秒',
   },
   tray: {
     show: '显示窗口',
     quit: '退出'
   },
   common: {
-    loading: '加载中...'
+    loading: '加载中...',
+    collapse: '收起',
+    expand: '展开',
   },
   noteLink: {
     create: '创建「{name}」',
@@ -581,7 +630,8 @@ const zh: Translations = {
   fileError: {
     tooLarge: '文件过大',
     tooLargeDetail: '文件大小 {size}MB 超过 100MB 限制',
-    insertFailed: '插入文件失败'
+    insertFailed: '插入文件失败',
+    cannotOpen: '无法打开文件：{name}\n文件可能已被移动或删除'
   }
 }
 
@@ -723,13 +773,37 @@ const en: Translations = {
     close: 'Close',
     session: 'AI Session',
     thinking: 'Thinking',
+    connecting: 'Connecting...',
+    connectionFailed: 'Unable to connect to AI service',
+    ensureSanqianRunning: 'Please ensure Sanqian is installed and running.',
+    visitSanqian: 'Visit sanqian.io',
+    retry: 'Retry',
+    chat: 'AI Chat',
+    selectConversation: 'Select a conversation to continue...',
+    arguments: 'Arguments',
+    result: 'Result',
+    executeTool: 'Execute',
+    toolLabel: 'Tool',
+    argsLabel: 'Args',
+    defaultPrefix: 'Default',
+    enterResponse: 'Enter your response...',
+    executing: 'Executing...',
+    approve: 'Approve',
+    reject: 'Reject',
+    submit: 'Submit',
+    rememberChoice: 'Remember this choice',
+    requiredField: 'This field is required',
+    timeoutIn: 'Timeout in',
+    seconds: 's',
   },
   tray: {
     show: 'Show Window',
     quit: 'Quit'
   },
   common: {
-    loading: 'Loading...'
+    loading: 'Loading...',
+    collapse: 'Collapse',
+    expand: 'Expand',
   },
   noteLink: {
     create: 'Create "{name}"',
@@ -873,7 +947,8 @@ const en: Translations = {
   fileError: {
     tooLarge: 'File too large',
     tooLargeDetail: 'File size {size}MB exceeds 100MB limit',
-    insertFailed: 'Failed to insert file'
+    insertFailed: 'Failed to insert file',
+    cannotOpen: 'Cannot open file: {name}\nThe file may have been moved or deleted'
   }
 }
 

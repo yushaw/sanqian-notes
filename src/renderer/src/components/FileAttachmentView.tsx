@@ -192,7 +192,7 @@ export function FileAttachmentView({ node, selected }: NodeViewProps) {
       await window.electron.attachment.open(attrs.src)
     } catch (error) {
       console.error('Failed to open file:', error)
-      alert(`无法打开文件：${attrs.name}\n文件可能已被移动或删除`)
+      alert(t.fileError.cannotOpen.replace('{name}', attrs.name))
     }
   }
 

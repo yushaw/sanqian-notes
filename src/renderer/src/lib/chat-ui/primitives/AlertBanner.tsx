@@ -31,6 +31,11 @@ export interface AlertBannerProps {
   icon?: ReactNode;
   /** Max lines before truncating (default: 3) */
   maxLines?: number;
+  /** Localized strings */
+  strings?: {
+    collapse?: string;
+    expand?: string;
+  };
 }
 
 export const AlertBanner = memo(function AlertBanner({
@@ -41,6 +46,7 @@ export const AlertBanner = memo(function AlertBanner({
   className = '',
   icon,
   maxLines = 3,
+  strings,
 }: AlertBannerProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -83,7 +89,9 @@ export const AlertBanner = memo(function AlertBanner({
         onClick={needsTruncation ? () => setIsExpanded(!isExpanded) : undefined}>
         {isStringMessage ? truncatedMessage : message}
         {needsTruncation && (
-          <span className="ml-1 text-xs opacity-60 hover:opacity-100">{isExpanded ? '(收起)' : '(展开)'}</span>
+          <span className="ml-1 text-xs opacity-60 hover:opacity-100">
+            {isExpanded ? `(${strings?.collapse || 'Collapse'})` : `(${strings?.expand || 'Expand'})`}
+          </span>
         )}
       </span>
 

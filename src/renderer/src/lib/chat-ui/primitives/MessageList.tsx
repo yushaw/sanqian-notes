@@ -91,7 +91,13 @@ export const MessageList = memo(function MessageList({
       aria-label="Chat messages"
       onScroll={handleScroll}>
       {/* Wrapper div to maintain correct visual order within flex-col-reverse */}
-      <div className="flex flex-col">{messages.map((message, index) => renderMessage(message, index))}</div>
+      <div className="flex flex-col">
+        {messages.map((message, index) => (
+          <div key={message.id}>
+            {renderMessage(message, index)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 });

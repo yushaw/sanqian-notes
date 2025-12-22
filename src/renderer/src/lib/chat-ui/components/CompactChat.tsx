@@ -278,7 +278,7 @@ export const CompactChat = memo(function CompactChat({
     const isToolCallsStreaming = message.toolCalls?.some(tc => tc.status === 'running') ?? false;
 
     return (
-      <div key={message.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
         <div className={`${isUser ? 'max-w-[85%] text-right' : 'w-full text-left'}`}>
           {/* IntermediateSteps: for completed messages with tool calls */}
           {!isUser && showIntermediateSteps && message.blocks && (

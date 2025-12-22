@@ -678,10 +678,6 @@ export const ThinkingSection = memo(function ThinkingSection({
 
   if (!displayThinking) return null;
 
-  // Truncate for collapsed view
-  const lines = displayThinking.split('\n');
-  const truncated = lines.length > 3 ? lines.slice(0, 3).join('\n') + '…' : displayThinking;
-
   return (
     <div className={`mb-2 ${className}`}>
       <button
@@ -698,13 +694,6 @@ export const ThinkingSection = memo(function ThinkingSection({
             {displayThinking}
             {isStreaming && <span className="ml-1 animate-pulse">▍</span>}
           </div>
-        </div>
-      )}
-
-      {!isExpanded && (
-        <div className="text-chat-muted/60 ml-4 mt-1 line-clamp-2 whitespace-pre-wrap text-xs italic">
-          {truncated}
-          {isStreaming && <span className="ml-1 animate-pulse">▍</span>}
         </div>
       )}
     </div>

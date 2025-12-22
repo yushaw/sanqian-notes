@@ -8,6 +8,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ToolCall, StreamEvent, MessageBlock, HitlInterruptData, HitlResponse } from '../core/types';
 import type { ChatAdapter, SendMessage } from '../adapters/types';
+import { TIMING } from '@/constants';
 
 export interface UseChatOptions {
   /** Chat adapter for backend communication */
@@ -68,6 +69,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const cancelRef = useRef<(() => void) | null>(null);
   const isMountedRef = useRef(true);
 
+  // Ref to hold latest messages (avoid closure trap in sendMessage)
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  const conversationIdRef = useRef<string | null>(conversationId);
+
   // ============================================================================
   // Block management refs (adapted from Sanqian's useSanqianChat)
   // ============================================================================
@@ -81,12 +86,30 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // Track accumulated content
   const fullContentRef = useRef<string>('');
 
+  // Batched update optimization for streaming text
+  const pendingTextUpdateRef = useRef<string>('');
+  const textUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const currentAssistantMessageIdRef = useRef<string | null>(null);
+
+  // Keep refs in sync with state (avoid closure trap)
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
+
   // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       cancelRef.current?.();
+      // Clear any pending text updates
+      if (textUpdateTimerRef.current) {
+        clearTimeout(textUpdateTimerRef.current);
+      }
     };
   }, []);
 
@@ -98,10 +121,39 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.conversationId]);
 
+  // Flush pending text updates immediately
+  const flushTextUpdate = useCallback(() => {
+    if (pendingTextUpdateRef.current && currentAssistantMessageIdRef.current) {
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === currentAssistantMessageIdRef.current);
+        if (idx === -1) return prev;
+
+        const msg = prev[idx];
+        const updated = [...prev];
+        updated[idx] = {
+          ...msg,
+          content: fullContentRef.current,
+          isStreaming: true,
+          blocks: [...currentBlocksRef.current],
+        };
+        return updated;
+      });
+      pendingTextUpdateRef.current = '';
+    }
+    if (textUpdateTimerRef.current) {
+      clearTimeout(textUpdateTimerRef.current);
+      textUpdateTimerRef.current = null;
+    }
+  }, []);
+
   // Handle stream events - builds blocks array using refs (like Sanqian)
   const handleStreamEvent = useCallback(
     (event: StreamEvent, assistantMessageId: string) => {
+      console.log('[useChat] handleStreamEvent called:', event.type, 'for message:', assistantMessageId);
       if (!isMountedRef.current) return;
+
+      // Store current assistant message ID for batched updates
+      currentAssistantMessageIdRef.current = assistantMessageId;
 
       switch (event.type) {
         case 'text': {
@@ -112,6 +164,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           const shouldClearContent = needsContentClearRef.current || fullContentRef.current === '';
 
           if (shouldClearContent) {
+            // Flush any pending updates first
+            flushTextUpdate();
+
             needsContentClearRef.current = false;
             fullContentRef.current = '';
 
@@ -130,8 +185,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             currentTextBlockIndexRef.current = currentBlocksRef.current.length - 1;
           }
 
-          // Accumulate content
+          // Accumulate content in refs (synchronous, no re-render)
           fullContentRef.current += content;
+          pendingTextUpdateRef.current += content;
           if (
             currentTextBlockIndexRef.current >= 0 &&
             currentTextBlockIndexRef.current < currentBlocksRef.current.length
@@ -139,24 +195,21 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             currentBlocksRef.current[currentTextBlockIndexRef.current].content += content;
           }
 
-          setMessages(prev => {
-            const idx = prev.findIndex(m => m.id === assistantMessageId);
-            if (idx === -1) return prev;
+          // Debounced state update - batch multiple text events
+          if (textUpdateTimerRef.current) {
+            clearTimeout(textUpdateTimerRef.current);
+          }
+          textUpdateTimerRef.current = setTimeout(() => {
+            flushTextUpdate();
+          }, TIMING.BATCH_UPDATE_DELAY_MS);
 
-            const msg = prev[idx];
-            const updated = [...prev];
-            updated[idx] = {
-              ...msg,
-              content: fullContentRef.current,
-              isStreaming: true,
-              blocks: [...currentBlocksRef.current],
-            };
-            return updated;
-          });
           break;
         }
 
         case 'thinking': {
+          // Flush pending text updates before processing thinking
+          flushTextUpdate();
+
           const thinkingContent = event.content;
           if (!thinkingContent) break;
 
@@ -196,6 +249,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'tool_call': {
+          // Flush pending text updates before processing tool call
+          flushTextUpdate();
+
           const toolCall = event.tool_call;
           if (!toolCall) break;
 
@@ -260,6 +316,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'tool_result': {
+          // Flush pending text updates before processing tool result
+          flushTextUpdate();
+
           const toolId = event.tool_call_id;
           const result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
 
@@ -315,6 +374,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'done': {
+          // Flush any pending text updates before finalizing
+          flushTextUpdate();
+
           // Finalize message
           const finalContent = fullContentRef.current;
           console.log(
@@ -372,6 +434,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'error': {
+          // Flush pending text updates before handling error
+          flushTextUpdate();
+
           setMessages(prev => {
             const idx = prev.findIndex(m => m.id === assistantMessageId);
             if (idx === -1) return prev;
@@ -401,6 +466,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'interrupt': {
+          // Flush pending text updates before handling interrupt
+          flushTextUpdate();
+
           // HITL interrupt received - pause for user input
           const interruptPayload = event.interrupt_payload;
           if (interruptPayload) {
@@ -422,7 +490,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
       }
     },
-    [onError, onConversationChange],
+    [onError, onConversationChange, flushTextUpdate],
   );
 
   // Send a message
@@ -470,15 +538,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           await adapter.connect();
         }
 
-        // Prepare messages for API (include history for context)
-        const apiMessages: SendMessage[] = messages
+        // Prepare messages for API (use ref to avoid closure trap)
+        const apiMessages: SendMessage[] = messagesRef.current
           .filter(m => m.role === 'user' || m.role === 'assistant')
           .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
           .concat({ role: 'user', content: content.trim() });
 
-        // Start streaming
-        const { cancel } = await adapter.chatStream(apiMessages, conversationId ?? undefined, event =>
-          handleStreamEvent(event, assistantMessage.id),
+        // Start streaming (use ref for conversationId)
+        const { cancel } = await adapter.chatStream(
+          apiMessages,
+          conversationIdRef.current ?? undefined,
+          event => handleStreamEvent(event, assistantMessage.id),
         );
 
         cancelRef.current = cancel;
@@ -505,7 +575,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         setIsStreaming(false);
       }
     },
-    [adapter, messages, conversationId, handleStreamEvent, onError],
+    [adapter, handleStreamEvent, onError],  // Removed messages & conversationId (use refs)
   );
 
   // Stop streaming

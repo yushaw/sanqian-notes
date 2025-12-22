@@ -85,7 +85,10 @@ contextBridge.exposeInMainWorld('electron', {
       return () => ipcRenderer.removeListener('chat:statusChange', handler)
     },
     onStreamEvent: (callback: (...args: unknown[]) => void) => {
-      const handler = (_event: unknown, ...args: unknown[]) => callback(...args)
+      const handler = (_event: unknown, ...args: unknown[]) => {
+        console.log('[Preload] Received streamEvent, args:', args.length, 'first arg:', args[0])
+        callback(...args)
+      }
       ipcRenderer.on('chat:streamEvent', handler)
       return () => ipcRenderer.removeListener('chat:streamEvent', handler)
     },

@@ -18,6 +18,7 @@ import type {
   StreamHitlInterruptPayload,
 } from '../core/types';
 import type { ChatAdapter, AdapterConfig, SendMessage } from './types';
+import { TIMING } from '@/constants';
 
 // =============================================================================
 // Message Processing Helpers (copied from sanqian adapter)
@@ -264,6 +265,47 @@ function mergeConsecutiveAssistantMessages(rawMessages: ApiMessage[]): ChatMessa
 }
 
 // =============================================================================
+// Runtime Type Guards
+// =============================================================================
+
+/**
+ * Runtime type guard for StreamEvent
+ * Validates that the event has the expected structure
+ */
+function isValidStreamEvent(event: unknown): event is StreamEvent {
+  if (!event || typeof event !== 'object') {
+    return false;
+  }
+
+  const evt = event as Record<string, unknown>;
+
+  // Check if it has a type field
+  if (typeof evt.type !== 'string') {
+    return false;
+  }
+
+  // Validate based on event type
+  switch (evt.type) {
+    case 'text':
+    case 'thinking':
+      return typeof evt.content === 'string';
+    case 'tool_call':
+      return !!evt.tool_call && typeof evt.tool_call === 'object';
+    case 'tool_result':
+      return typeof evt.tool_call_id === 'string' && 'result' in evt;
+    case 'done':
+      return typeof evt.conversationId === 'string';
+    case 'error':
+      return typeof evt.error === 'string';
+    case 'interrupt':
+      return typeof evt.interrupt_type === 'string' && !!evt.interrupt_payload;
+    default:
+      // Unknown event type
+      return false;
+  }
+}
+
+// =============================================================================
 // Electron Adapter
 // =============================================================================
 
@@ -272,10 +314,26 @@ export interface ElectronAdapterConfig extends AdapterConfig {
   agentType?: 'assistant' | 'writing';
 }
 
+// Singleton instance to prevent multiple IPC listener registrations
+let adapterInstance: ChatAdapter | null = null;
+let instanceRefCount = 0;
+
 /**
  * Create an Electron adapter that communicates via Electron IPC
+ * Uses singleton pattern to ensure only one instance exists
  */
 export function createElectronAdapter(config: ElectronAdapterConfig = {}): ChatAdapter {
+  // Return existing instance if available
+  if (adapterInstance) {
+    instanceRefCount++;
+    console.log(`[ElectronAdapter] Reusing existing instance, refCount: ${instanceRefCount}`);
+    return adapterInstance;
+  }
+
+  const adapterId = crypto.randomUUID().substring(0, 8);
+  console.log(`[ElectronAdapter ${adapterId}] Creating new adapter instance`);
+  instanceRefCount = 1;
+
   let connectionStatus: ConnectionStatus = 'disconnected';
   let connectionError: string | undefined;
   let connectionErrorCode: ConnectionErrorCode | undefined;
@@ -283,6 +341,7 @@ export function createElectronAdapter(config: ElectronAdapterConfig = {}): ChatA
     (status: ConnectionStatus, error?: string, errorCode?: ConnectionErrorCode) => void
   >();
   const streamCallbacks = new Map<string, (event: StreamEvent) => void>();
+  const streamTimeouts = new Map<string, NodeJS.Timeout>();
 
   // Get chat API (available in preload via contextBridge)
   const chat = (window as any).electron?.chat;
@@ -304,6 +363,20 @@ export function createElectronAdapter(config: ElectronAdapterConfig = {}): ChatA
 
   // Setup IPC listeners
   const setupListeners = () => {
+    console.log(`[ElectronAdapter ${adapterId}] Setting up IPC listeners`);
+
+    // Defensive cleanup: remove old listeners first to prevent accumulation
+    if (statusChangeCleanup) {
+      console.log(`[ElectronAdapter ${adapterId}] Cleaning up old status listener`);
+      statusChangeCleanup();
+      statusChangeCleanup = null;
+    }
+    if (streamEventCleanup) {
+      console.log(`[ElectronAdapter ${adapterId}] Cleaning up old stream listener`);
+      streamEventCleanup();
+      streamEventCleanup = null;
+    }
+
     // Listen for connection status changes
     statusChangeCleanup = chat.onStatusChange((status: string, error?: string, errorCode?: string) => {
       updateConnectionStatus(status as ConnectionStatus, error, errorCode as ConnectionErrorCode);
@@ -311,23 +384,50 @@ export function createElectronAdapter(config: ElectronAdapterConfig = {}): ChatA
 
     // Listen for stream events
     streamEventCleanup = chat.onStreamEvent((streamId: string, event: unknown) => {
+      // Runtime type validation
+      if (!isValidStreamEvent(event)) {
+        console.error(`[ElectronAdapter ${adapterId}] Invalid stream event:`, event);
+        return;
+      }
+
+      const streamEvent = event;
+      console.log(`[ElectronAdapter ${adapterId}] Received stream event:`, {
+        streamId,
+        eventType: streamEvent.type,
+        hasContent: !!(streamEvent as any)?.content,
+        contentPreview: ((streamEvent as any)?.content || '').substring(0, 50)
+      });
       const callback = streamCallbacks.get(streamId);
       if (callback) {
-        callback(event as StreamEvent);
+        console.log(`[ElectronAdapter ${adapterId}] Calling callback for streamId:`, streamId);
+        callback(streamEvent);
 
         // Clean up on done or error
-        const streamEvent = event as StreamEvent;
         if (streamEvent.type === 'done' || streamEvent.type === 'error') {
+          console.log(`[ElectronAdapter ${adapterId}] Stream finished, cleaning up:`, streamId);
           streamCallbacks.delete(streamId);
+
+          // Clear timeout timer
+          const timeout = streamTimeouts.get(streamId);
+          if (timeout) {
+            clearTimeout(timeout);
+            streamTimeouts.delete(streamId);
+          }
         }
+      } else {
+        console.warn(`[ElectronAdapter ${adapterId}] No callback found for streamId:`, streamId);
+        console.log(`[ElectronAdapter ${adapterId}] Available streamIds:`, Array.from(streamCallbacks.keys()));
+        console.log(`[ElectronAdapter ${adapterId}] Total callbacks registered:`, streamCallbacks.size);
       }
     });
   };
 
   // Setup listeners immediately
   setupListeners();
+  console.log(`[ElectronAdapter ${adapterId}] Adapter initialized`);
 
-  return {
+  // Store the adapter instance
+  const adapter: ChatAdapter = {
     async connect() {
       updateConnectionStatus('connecting');
 
@@ -459,9 +559,25 @@ export function createElectronAdapter(config: ElectronAdapterConfig = {}): ChatA
 
     async chatStream(messages: SendMessage[], conversationId: string | undefined, onEvent: (event: StreamEvent) => void) {
       const streamId = crypto.randomUUID();
+      console.log(`[ElectronAdapter ${adapterId}] Starting chat stream with streamId:`, streamId);
 
       // Register callback
       streamCallbacks.set(streamId, onEvent);
+      console.log(`[ElectronAdapter ${adapterId}] Registered callback for streamId:`, streamId, 'Total callbacks:', streamCallbacks.size);
+
+      // Set timeout to prevent zombie callbacks
+      const timeoutId = setTimeout(() => {
+        console.warn(`[ElectronAdapter ${adapterId}] Stream timeout after ${TIMING.STREAM_TIMEOUT_MS}ms:`, streamId);
+        streamCallbacks.delete(streamId);
+        streamTimeouts.delete(streamId);
+
+        // Notify with timeout error
+        onEvent({
+          type: 'error',
+          error: 'Stream timeout - no response received within 5 minutes',
+        });
+      }, TIMING.STREAM_TIMEOUT_MS);
+      streamTimeouts.set(streamId, timeoutId);
 
       try {
         // Start streaming (fire and forget, events come via IPC listener)
@@ -471,19 +587,37 @@ export function createElectronAdapter(config: ElectronAdapterConfig = {}): ChatA
           conversationId,
           agentId: config.agentType || 'assistant',
         });
+        console.log(`[ElectronAdapter ${adapterId}] Stream completed successfully`);
 
         return {
           cancel: async () => {
             try {
+              console.log(`[ElectronAdapter ${adapterId}] Cancelling stream:`, streamId);
               await chat.cancelStream({ streamId });
               streamCallbacks.delete(streamId);
+
+              // Clear timeout on cancel
+              const timeout = streamTimeouts.get(streamId);
+              if (timeout) {
+                clearTimeout(timeout);
+                streamTimeouts.delete(streamId);
+              }
             } catch (error) {
-              console.error('Failed to cancel stream:', error);
+              console.error(`[ElectronAdapter ${adapterId}] Failed to cancel stream:`, error);
             }
           },
         };
       } catch (error) {
+        console.error(`[ElectronAdapter ${adapterId}] Failed to start stream:`, error);
         streamCallbacks.delete(streamId);
+
+        // Clear timeout on error
+        const timeout = streamTimeouts.get(streamId);
+        if (timeout) {
+          clearTimeout(timeout);
+          streamTimeouts.delete(streamId);
+        }
+
         throw error instanceof Error ? error : new Error('Failed to start chat stream');
       }
     },
@@ -494,16 +628,38 @@ export function createElectronAdapter(config: ElectronAdapterConfig = {}): ChatA
 
     // Cleanup method to remove IPC listeners
     cleanup() {
-      if (statusChangeCleanup) {
-        statusChangeCleanup();
-        statusChangeCleanup = null;
+      instanceRefCount--;
+      console.log(`[ElectronAdapter ${adapterId}] Cleanup called, refCount: ${instanceRefCount}`);
+
+      // Only actually clean up when refCount reaches 0
+      if (instanceRefCount <= 0) {
+        console.log(`[ElectronAdapter ${adapterId}] Cleaning up adapter, had ${streamCallbacks.size} callbacks`);
+        if (statusChangeCleanup) {
+          statusChangeCleanup();
+          statusChangeCleanup = null;
+        }
+        if (streamEventCleanup) {
+          streamEventCleanup();
+          streamEventCleanup = null;
+        }
+
+        // Clear all timeout timers
+        streamTimeouts.forEach((timeout, streamId) => {
+          console.log(`[ElectronAdapter ${adapterId}] Clearing timeout for stream:`, streamId);
+          clearTimeout(timeout);
+        });
+        streamTimeouts.clear();
+
+        connectionListeners.clear();
+        streamCallbacks.clear();
+        adapterInstance = null;
+        instanceRefCount = 0;
+        console.log(`[ElectronAdapter ${adapterId}] Cleanup complete`);
       }
-      if (streamEventCleanup) {
-        streamEventCleanup();
-        streamEventCleanup = null;
-      }
-      connectionListeners.clear();
-      streamCallbacks.clear();
     },
   };
+
+  // Store singleton instance
+  adapterInstance = adapter;
+  return adapter;
 }

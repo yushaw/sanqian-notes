@@ -47,6 +47,7 @@ import {
   acquireReconnect,
   releaseReconnect,
   setOnSdkDataChange,
+  stopSanqianSDK,
 } from './sanqian-sdk'
 import {
   getSanqianApiUrl,
@@ -77,6 +78,14 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+
+// ============ Active Streams Management ============
+// Track active chat streams for cancellation support
+interface ActiveStream {
+  abortController: AbortController
+  webContents: Electron.WebContents
+}
+const activeStreams = new Map<string, ActiveStream>()
 
 // ============ Language Settings ============
 let currentLanguage: Language = 'system'
@@ -634,56 +643,121 @@ app.whenReady().then(() => {
   }) => {
     const webContents = event.sender
     const { streamId, messages, conversationId } = params
+    console.log(`[Chat] Stream request received:`, streamId)
+
+    // Cancel any existing stream with the same ID
+    const existingStream = activeStreams.get(streamId)
+    if (existingStream) {
+      console.log(`[Chat] Cancelling existing stream ${streamId}`)
+      existingStream.abortController.abort()
+      activeStreams.delete(streamId)
+    }
+
+    // Create abort controller for this stream
+    const abortController = new AbortController()
+    activeStreams.set(streamId, { abortController, webContents })
 
     try {
       // Determine which agent to use (default to assistant)
       const agentType = params.agentId?.includes('writing') ? 'writing' : 'assistant'
+      console.log(`[Chat] Getting agent:`, agentType)
       const { sdk, agentId } = await ensureAgentReady(agentType)
+      console.log(`[Chat] Agent ready:`, agentId)
 
       // Start streaming
+      // Note: SDK's chatStream doesn't support AbortSignal, so we check manually in the loop
+      console.log(`[Chat] Starting chatStream for:`, streamId)
       const stream = sdk.chatStream(
         agentId,
         messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         conversationId ? { conversationId } : undefined
       )
+      console.log(`[Chat] Stream created, entering event loop`)
 
       // Forward events to renderer
+      let eventCount = 0
       for await (const streamEvent of stream) {
+        eventCount++
+        if (eventCount % 10 === 1) {
+          console.log(`[Chat] Stream event #${eventCount}:`, streamEvent.type)
+        }
+        // Check if stream was cancelled
+        if (abortController.signal.aborted) {
+          console.log(`[Chat] Stream ${streamId} cancelled by user`)
+          // Send cancellation event to renderer
+          if (!webContents.isDestroyed()) {
+            webContents.send('chat:streamEvent', streamId, {
+              type: 'done',
+              reason: 'cancelled'
+            })
+          }
+          break
+        }
+
         // Check if webContents is still valid before sending
         if (!webContents.isDestroyed()) {
           webContents.send('chat:streamEvent', streamId, streamEvent)
+          if (eventCount % 20 === 1) {
+            console.log(`[Chat] Sent event to renderer:`, streamId, streamEvent.type)
+          }
         } else {
-          console.log('[Chat] WebContents destroyed, stopping stream')
+          console.log('[Chat] WebContents destroyed, aborting stream')
+          // Actively abort the stream to stop iteration and free resources
+          abortController.abort()
+          activeStreams.delete(streamId)
           break
         }
       }
 
+      // Clean up after stream completes
+      activeStreams.delete(streamId)
+      console.log(`[Chat] Stream ${streamId} completed successfully`)
       return { success: true }
     } catch (error) {
+      // Clean up on error
+      activeStreams.delete(streamId)
+
+      // Build detailed error info
+      const errorInfo = {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: (error as any).code,
+        stack: is.dev ? (error instanceof Error ? error.stack : undefined) : undefined,
+        name: error instanceof Error ? error.name : undefined,
+      }
+      console.error(`[Chat] Stream ${streamId} error:`, errorInfo)
+
       // Send error event to renderer (check if webContents is still valid)
       if (!webContents.isDestroyed()) {
         webContents.send('chat:streamEvent', streamId, {
           type: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: errorInfo.message,
+          errorCode: errorInfo.code,
+          errorName: errorInfo.name,
         })
       }
+
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to start stream'
+        error: errorInfo.message,
+        errorCode: errorInfo.code,
+        errorName: errorInfo.name,
+        // Only include stack in development mode
+        ...(is.dev && errorInfo.stack ? { stack: errorInfo.stack } : {}),
       }
     }
   })
 
   // Chat: Cancel Stream
   ipcMain.handle('chat:cancelStream', async (_, params: { streamId: string }) => {
-    // TODO: Implement proper stream cancellation
-    // Stream cancellation is handled by the SDK when the async iterator is aborted
-    // Currently this is a no-op - the stream will continue until completion
-    console.warn(`[Chat] cancelStream called for ${params.streamId}, but cancellation is not implemented yet`)
-    return {
-      success: true,
-      warning: 'Stream cancellation is not fully implemented - stream will complete naturally'
+    const stream = activeStreams.get(params.streamId)
+    if (stream) {
+      console.log(`[Chat] Cancelling stream ${params.streamId}`)
+      stream.abortController.abort()
+      activeStreams.delete(params.streamId)
+      return { success: true }
     }
+    // Stream not found or already completed
+    return { success: true, message: 'Stream not found or already completed' }
   })
 
   // Chat: List Conversations
@@ -830,4 +904,8 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   stopPortWatcher()
+  // Clean up SDK resources
+  stopSanqianSDK().catch((err) => {
+    console.error('[Main] Failed to stop SDK:', err)
+  })
 })

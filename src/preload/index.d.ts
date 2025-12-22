@@ -1,6 +1,24 @@
-import type { AttachmentResult, AttachmentSelectOptions, AttachmentAPI } from '../shared/types'
+import type {
+  AttachmentResult,
+  AttachmentSelectOptions,
+  AttachmentAPI,
+  ChatAPI,
+  ChatMessage,
+  ChatStreamEvent,
+  ConversationInfo,
+  ConversationDetail
+} from '../shared/types'
 
-export { AttachmentResult, AttachmentSelectOptions, AttachmentAPI }
+export {
+  AttachmentResult,
+  AttachmentSelectOptions,
+  AttachmentAPI,
+  ChatAPI,
+  ChatMessage,
+  ChatStreamEvent,
+  ConversationInfo,
+  ConversationDetail
+}
 
 declare global {
   interface Window {
@@ -44,32 +62,7 @@ declare global {
         get: () => Promise<string>
       }
       attachment: AttachmentAPI
-      chat: {
-        connect: () => Promise<{ success: boolean; error?: string }>
-        disconnect: () => Promise<{ success: boolean; error?: string }>
-        stream: (params: {
-          streamId: string
-          messages: unknown[]
-          conversationId?: string
-          agentId?: string
-        }) => Promise<{ success: boolean; error?: string }>
-        cancelStream: (params: { streamId: string }) => Promise<{ success: boolean; error?: string }>
-        listConversations: (params: {
-          limit?: number
-          offset?: number
-          agentId?: string
-        }) => Promise<{ success: boolean; data?: unknown; error?: string }>
-        getConversation: (params: {
-          conversationId: string
-          messageLimit?: number
-        }) => Promise<{ success: boolean; data?: unknown; error?: string }>
-        deleteConversation: (params: {
-          conversationId: string
-        }) => Promise<{ success: boolean; error?: string }>
-        sendHitlResponse: (params: { response: unknown; runId?: string }) => void
-        onStatusChange: (callback: (status: string, error?: string, errorCode?: string) => void) => void
-        onStreamEvent: (callback: (streamId: string, event: unknown) => void) => void
-      }
+      chat: ChatAPI
     }
     api: unknown
   }

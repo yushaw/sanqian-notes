@@ -365,12 +365,11 @@ async function syncPrivateAgents(): Promise<void> {
       console.log('[Notes SDK] Writing agent synced:', writingAgentId)
     } catch (e) {
       console.error('[Notes SDK] Failed to sync agents:', e)
-    } finally {
-      syncingPromise = null
     }
   })()
 
   await syncingPromise
+  syncingPromise = null  // Clean up after completion
 }
 
 /**
@@ -456,9 +455,13 @@ export async function initializeSanqianSDK(): Promise<void> {
 
 /**
  * Disconnect from Sanqian SDK (keeps instance for reconnection)
+ * Cleans up event listeners to prevent memory leaks
  */
 export async function stopSanqianSDK(): Promise<void> {
   if (sdk) {
+    // Clean up event listeners
+    sdk.removeAllListeners?.()
+
     await sdk.disconnect()
     // Don't set sdk to null - keep instance for reconnection
     // Reset agent IDs so they will be re-synced on next connection

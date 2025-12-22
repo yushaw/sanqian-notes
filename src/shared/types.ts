@@ -48,3 +48,105 @@ export interface AttachmentAPI {
   /** 清理孤儿附件文件，返回删除的文件数量 */
   cleanup: () => Promise<number>
 }
+
+/**
+ * Chat API 相关类型定义
+ */
+
+/** Chat API 消息格式 */
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+/** Chat API 流式事件 */
+export type ChatStreamEvent =
+  | { type: 'text'; content: string }
+  | { type: 'thinking'; content: string }
+  | {
+      type: 'tool_call'
+      tool_call: {
+        id: string
+        type: 'function'
+        function: {
+          name: string
+          arguments: string
+        }
+      }
+    }
+  | { type: 'tool_result'; tool_call_id: string; result: unknown }
+  | { type: 'done'; conversationId: string; title?: string }
+  | { type: 'error'; error: string; code?: string; errorCode?: string; errorName?: string }
+  | {
+      type: 'interrupt'
+      interrupt_type: string
+      interrupt_payload: unknown
+      run_id?: string
+    }
+
+/** 对话信息（列表） */
+export interface ConversationInfo {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  messageCount?: number
+}
+
+/** 对话详情（包含消息） */
+export interface ConversationDetail {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  messages: Array<{
+    id: string
+    role: 'user' | 'assistant' | 'system'
+    content: string
+    timestamp: string
+  }>
+}
+
+/** Chat API 接口 */
+export interface ChatAPI {
+  /** 连接到 Chat 服务 */
+  connect: () => Promise<{ success: boolean; error?: string }>
+  /** 断开连接 */
+  disconnect: () => Promise<{ success: boolean; error?: string }>
+  /** 获取/增加重连引用计数 */
+  acquireReconnect: () => Promise<void>
+  /** 释放/减少重连引用计数 */
+  releaseReconnect: () => Promise<void>
+  /** 发送消息并流式接收响应 */
+  stream: (params: {
+    streamId: string
+    messages: ChatMessage[]
+    conversationId?: string
+    agentId?: string
+  }) => Promise<{ success: boolean; error?: string; errorCode?: string; errorName?: string }>
+  /** 取消流式响应 */
+  cancelStream: (params: { streamId: string }) => Promise<{ success: boolean; error?: string }>
+  /** 获取对话列表 */
+  listConversations: (params: {
+    limit?: number
+    offset?: number
+    agentId?: string
+  }) => Promise<{
+    success: boolean
+    data?: { conversations: ConversationInfo[]; total: number }
+    error?: string
+  }>
+  /** 获取对话详情 */
+  getConversation: (params: {
+    conversationId: string
+    messageLimit?: number
+  }) => Promise<{ success: boolean; data?: ConversationDetail; error?: string }>
+  /** 删除对话 */
+  deleteConversation: (params: { conversationId: string }) => Promise<{ success: boolean; error?: string }>
+  /** 发送 HITL 响应 */
+  sendHitlResponse: (params: { response: unknown; runId?: string }) => void
+  /** 监听连接状态变化 */
+  onStatusChange: (callback: (status: string, error?: string, errorCode?: string) => void) => void
+  /** 监听流式事件 */
+  onStreamEvent: (callback: (streamId: string, event: ChatStreamEvent) => void) => void
+}

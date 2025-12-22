@@ -405,6 +405,18 @@ function AppContent() {
     }
   }, [notes])
 
+  // Handle move note to notebook
+  const handleMoveToNotebook = useCallback(async (noteId: string, notebookId: string | null) => {
+    try {
+      const updated = await window.electron.note.update(noteId, { notebook_id: notebookId })
+      if (updated) {
+        setNotes(prev => prev.map(n => n.id === noteId ? updated as Note : n))
+      }
+    } catch (error) {
+      console.error('Failed to move note to notebook:', error)
+    }
+  }, [])
+
   // Handle delete note (soft delete - move to trash)
   const handleDeleteNote = useCallback(async (id: string) => {
     try {
@@ -700,6 +712,7 @@ function AppContent() {
         onEditNotebook={handleEditNotebook}
         onDeleteNotebook={handleShowDeleteConfirm}
         onOpenSettings={handleOpenSettings}
+        onMoveNoteToNotebook={handleMoveToNotebook}
         noteCounts={noteCounts}
         onCollapsedChange={setIsSidebarCollapsed}
       />
@@ -724,6 +737,8 @@ function AppContent() {
           onTogglePinned={handleTogglePinned}
           onToggleFavorite={handleToggleFavorite}
           onDeleteNote={handleDeleteNote}
+          onMoveToNotebook={handleMoveToNotebook}
+          notebooks={notebooks}
           isSidebarCollapsed={isSidebarCollapsed}
         />
       )}

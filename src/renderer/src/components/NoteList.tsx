@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { Note } from '../types/note'
+import type { Note, Notebook } from '../types/note'
 import { useTranslations } from '../i18n'
 import { isMacOS } from '../utils/platform'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { getPreview } from '../utils/notePreview'
+import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 
 // 检测是否为 macOS
 const isMac = isMacOS()
@@ -18,6 +19,8 @@ interface NoteListProps {
   onTogglePinned: (id: string) => void
   onToggleFavorite: (id: string) => void
   onDeleteNote: (id: string) => void
+  onMoveToNotebook: (noteId: string, notebookId: string | null) => void
+  notebooks: Notebook[]
   isSidebarCollapsed?: boolean
 }
 
@@ -40,6 +43,8 @@ export function NoteList({
   onTogglePinned,
   onToggleFavorite,
   onDeleteNote,
+  onMoveToNotebook,
+  notebooks,
   isSidebarCollapsed = false,
 }: NoteListProps) {
   // macOS 且侧栏收起时隐藏标题（为红绿灯按钮留空间）
@@ -57,7 +62,6 @@ export function NoteList({
     isPinned: false,
     isFavorite: false,
   })
-  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   // 实时搜索
   const performSearch = useCallback(async (query: string) => {
@@ -125,39 +129,70 @@ export function NoteList({
     setContextMenu(prev => ({ ...prev, visible: false }))
   }
 
-  const handleTogglePinned = () => {
-    if (contextMenu.noteId) {
-      onTogglePinned(contextMenu.noteId)
-    }
-    closeContextMenu()
-  }
+  // Build context menu items
+  const getContextMenuItems = useCallback((): ContextMenuItem[] => {
+    if (!contextMenu.noteId) return []
 
-  const handleToggleFavorite = () => {
-    if (contextMenu.noteId) {
-      onToggleFavorite(contextMenu.noteId)
-    }
-    closeContextMenu()
-  }
-
-  const handleDelete = () => {
-    if (contextMenu.noteId) {
-      onDeleteNote(contextMenu.noteId)
-    }
-    closeContextMenu()
-  }
-
-  // 点击外部关闭右键菜单
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        closeContextMenu()
+    return [
+      // Pin/Unpin
+      {
+        label: contextMenu.isPinned ? t.noteList.unpin : t.noteList.pin,
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+          </svg>
+        ),
+        onClick: () => onTogglePinned(contextMenu.noteId!)
+      },
+      // Favorite/Unfavorite
+      {
+        label: contextMenu.isFavorite ? t.noteList.unfavorite : t.noteList.favorite,
+        icon: (
+          <svg className="w-4 h-4" fill={contextMenu.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+          </svg>
+        ),
+        onClick: () => onToggleFavorite(contextMenu.noteId!)
+      },
+      // Move (submenu)
+      {
+        label: t.noteList.move,
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+          </svg>
+        ),
+        subItems: [
+          // All Notes option
+          {
+            label: t.noteList.allNotes,
+            onClick: () => onMoveToNotebook(contextMenu.noteId!, null)
+          },
+          // All notebooks
+          ...notebooks.map(notebook => ({
+            label: notebook.name,
+            onClick: () => onMoveToNotebook(contextMenu.noteId!, notebook.id)
+          }))
+        ]
+      },
+      // Divider
+      { label: '', onClick: () => {}, divider: true },
+      // Delete
+      {
+        label: t.noteList.delete,
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        ),
+        danger: true,
+        onClick: () => onDeleteNote(contextMenu.noteId!)
       }
-    }
-    if (contextMenu.visible) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [contextMenu.visible])
+    ]
+  }, [contextMenu.noteId, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onMoveToNotebook, onDeleteNote])
+
+  // Dragging state
+  const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
 
   const displayNotes = searchResults !== null ? searchResults : notes
 
@@ -257,9 +292,20 @@ export function NoteList({
               return (
                 <button
                   key={note.id}
+                  draggable
                   onClick={() => onSelectNote(note.id)}
                   onContextMenu={(e) => handleContextMenu(e, note)}
-                  className={`w-full text-left px-4 py-2.5 transition-all duration-50 hover:bg-[var(--color-surface)] select-none`}
+                  onDragStart={(e) => {
+                    setDraggingNoteId(note.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                    e.dataTransfer.setData('text/plain', note.id)
+                  }}
+                  onDragEnd={(e) => {
+                    // Prevent snap-back animation
+                    e.preventDefault()
+                    setDraggingNoteId(null)
+                  }}
+                  className={`w-full text-left px-4 py-2.5 transition-all duration-50 hover:bg-[var(--color-surface)] select-none ${draggingNoteId === note.id ? 'opacity-50' : ''}`}
                   style={isSelected ? { backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -299,45 +345,13 @@ export function NoteList({
       </div>
 
       {/* Context Menu */}
-      {contextMenu.visible && (
-        <div
-          ref={contextMenuRef}
-          className="fixed z-50 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[140px] select-none"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          {/* 置顶 */}
-          <button
-            onClick={handleTogglePinned}
-            className="w-full px-3 py-1.5 text-left text-[0.867rem] text-[var(--color-text)] hover:bg-[var(--color-surface)] flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-            </svg>
-            {contextMenu.isPinned ? t.noteList.unpin : t.noteList.pin}
-          </button>
-          {/* 收藏 */}
-          <button
-            onClick={handleToggleFavorite}
-            className="w-full px-3 py-1.5 text-left text-[0.867rem] text-[var(--color-text)] hover:bg-[var(--color-surface)] flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill={contextMenu.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-            </svg>
-            {contextMenu.isFavorite ? t.noteList.unfavorite : t.noteList.favorite}
-          </button>
-          <div className="h-px bg-[var(--color-divider)] my-1" />
-          {/* 删除 */}
-          <button
-            onClick={handleDelete}
-            className="w-full px-3 py-1.5 text-left text-[0.867rem] text-red-500 hover:bg-[var(--color-surface)] flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            {t.noteList.delete}
-          </button>
-        </div>
-      )}
+      <ContextMenu
+        visible={contextMenu.visible}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={getContextMenuItems()}
+        onClose={closeContextMenu}
+      />
     </div>
   )
 }

@@ -45,6 +45,8 @@ export interface Translations {
     delete: string
     noteCount: string
     notesCount: string
+    move: string
+    allNotes: string
   }
   editor: {
     selectNote: string
@@ -361,7 +363,9 @@ const zh: Translations = {
     unfavorite: '取消收藏',
     delete: '删除',
     noteCount: '{n} 篇笔记',
-    notesCount: '{n} 篇笔记'
+    notesCount: '{n} 篇笔记',
+    move: '移动',
+    allNotes: '全部笔记'
   },
   editor: {
     selectNote: '选择一篇笔记开始编辑',
@@ -678,7 +682,9 @@ const en: Translations = {
     unfavorite: 'Unfavorite',
     delete: 'Delete',
     noteCount: '{n} note',
-    notesCount: '{n} notes'
+    notesCount: '{n} notes',
+    move: 'Move',
+    allNotes: 'All Notes'
   },
   editor: {
     selectNote: 'Select a note to start editing',

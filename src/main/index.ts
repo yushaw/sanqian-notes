@@ -696,9 +696,25 @@ app.whenReady().then(() => {
 
         // Check if webContents is still valid before sending
         if (!webContents.isDestroyed()) {
-          webContents.send('chat:streamEvent', streamId, streamEvent)
+          // Convert SDK format to standard StreamEvent format
+          // SDK sends: { type: "chat_stream", event: "thinking", content: "..." }
+          // We need: { type: "thinking", content: "..." }
+          const sdkEvent = streamEvent as any
+          let convertedEvent: any
+
+          if (sdkEvent.type === 'chat_stream' && sdkEvent.event) {
+            // Extract event type from SDK format
+            convertedEvent = { ...sdkEvent, type: sdkEvent.event }
+            delete convertedEvent.event
+            delete convertedEvent.id // Remove SDK message id
+          } else {
+            // Already in standard format (done, error, etc.)
+            convertedEvent = streamEvent
+          }
+
+          webContents.send('chat:streamEvent', streamId, convertedEvent)
           if (eventCount % 20 === 1) {
-            console.log(`[Chat] Sent event to renderer:`, streamId, streamEvent.type)
+            console.log(`[Chat] Sent event to renderer:`, streamId, convertedEvent.type)
           }
         } else {
           console.log('[Chat] WebContents destroyed, aborting stream')

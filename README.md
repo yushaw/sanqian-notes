@@ -2121,3 +2121,54 @@ npm run reset-db
 - Linux: `~/.config/Sanqian Notes/notes.db`
 
 详细说明请查看：[docs/database-reset.md](docs/database-reset.md)
+
+#### 笔记移动功能增强 (2024-12-22)
+- ✅ **实现右键菜单"移动到笔记本"功能**
+  - 支持通过右键菜单将笔记移动到任意笔记本
+  - 支持移除笔记本分类（设置 notebook_id 为 null）
+  - 使用子菜单方式展示所有可用笔记本
+
+- ✅ **实现拖拽移动功能**
+  - 支持从笔记列表拖拽笔记到侧边栏笔记本
+  - 拖拽时提供视觉反馈（高亮目标笔记本）
+  - 拖拽源笔记半透明显示
+
+**技术实现**：
+- 创建通用 `ContextMenu` 组件，支持子菜单功能
+- 笔记列表项添加 `draggable` 属性
+- 侧边栏笔记本项添加 `onDrop` 事件处理
+- 新增 `handleMoveToNotebook` 函数处理笔记本变更
+
+**国际化支持**：
+- `noteList.move` - "移动" / "Move"
+- `noteList.allNotes` - "全部笔记" / "All Notes"
+
+#### AI 对话 Intermediate Steps 显示修复 (2024-12-23)
+- ✅ **修复对话完成后 intermediate steps 不显示的问题**
+  - **根本原因**：done 事件处理时用空的 `currentBlocksRef.current` 覆盖了原有的 `msg.blocks`
+  - **表现**：对话流式传输时能看到工具调用过程，完成后整个 IntermediateSteps 组件消失
+  - **修复**：在 done 事件中判断，如果 ref 为空就保留原有的 blocks
+
+- ✅ **UI 交互优化**
+  - 对话流式传输时：`StreamingTimeline` 默认展开显示实时进度
+  - 对话完成后：`IntermediateSteps` 默认折叠，显示 "X steps" 按钮，用户可点击展开查看
+  - 符合 sanqian 主项目的设计理念
+
+**技术实现**：
+- `useChat.ts:413-415` - 修复 blocks 被清空的问题
+  ```typescript
+  const finalBlocks = currentBlocksRef.current.length > 0
+    ? [...currentBlocksRef.current]
+    : msg.blocks || [];
+  ```
+- 添加调试日志帮助诊断问题（done 事件、CompactChat 渲染）
+
+#### AI 对话历史去重优化 (2024-12-23)
+- ✅ **修复对话历史列表显示重复的问题**
+  - 在 `loadConversations` 和 `loadMore` 中添加去重逻辑
+  - 使用 `Map` 数据结构按 ID 去重
+  - 防止连接状态变化导致的重复加载
+
+**技术实现**：
+- 修改 `useConversations.ts` 的 `loadConversations` 和 `loadMore` 方法
+- 使用 `new Map(conversations.map(c => [c.id, c]))` 确保对话 ID 唯一性

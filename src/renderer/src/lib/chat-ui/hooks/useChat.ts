@@ -404,6 +404,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             if (idx === -1) return prev;
 
             const msg = prev[idx];
+
+            // Use currentBlocksRef if it has content, otherwise keep existing blocks
+            const finalBlocks = currentBlocksRef.current.length > 0
+              ? [...currentBlocksRef.current]
+              : msg.blocks || [];
+
             const updated = [...prev];
             updated[idx] = {
               ...msg,
@@ -411,8 +417,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               isStreaming: false,
               isThinkingStreaming: false,
               isComplete: true,
-              blocks: [...currentBlocksRef.current],
+              blocks: finalBlocks,
             };
+
             return updated;
           });
 

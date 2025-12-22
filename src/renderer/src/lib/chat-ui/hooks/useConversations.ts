@@ -63,9 +63,14 @@ export function useConversations(options: UseConversationsOptions): UseConversat
 
       if (!isMountedRef.current) return;
 
-      setConversations(result.conversations);
+      // Deduplicate conversations by ID (防止重复显示)
+      const uniqueConversations = Array.from(
+        new Map(result.conversations.map(c => [c.id, c])).values()
+      );
+
+      setConversations(uniqueConversations);
       setTotal(result.total);
-      offsetRef.current = result.conversations.length;
+      offsetRef.current = uniqueConversations.length;
     } catch (err) {
       if (!isMountedRef.current) return;
       const errorMessage = err instanceof Error ? err.message : 'Failed to load conversations';
@@ -92,7 +97,12 @@ export function useConversations(options: UseConversationsOptions): UseConversat
 
       if (!isMountedRef.current) return;
 
-      setConversations(prev => [...prev, ...result.conversations]);
+      // Deduplicate when appending more conversations (防止重复显示)
+      setConversations(prev => {
+        const combined = [...prev, ...result.conversations];
+        const uniqueMap = new Map(combined.map(c => [c.id, c]));
+        return Array.from(uniqueMap.values());
+      });
       offsetRef.current += result.conversations.length;
     } catch (err) {
       if (!isMountedRef.current) return;

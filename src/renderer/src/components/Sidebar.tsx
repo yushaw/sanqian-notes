@@ -100,6 +100,7 @@ interface SidebarProps {
   onEditNotebook: (notebook: Notebook) => void
   onDeleteNotebook: (notebook: Notebook) => void
   onOpenSettings: () => void
+  onMoveNoteToNotebook: (noteId: string, notebookId: string | null) => void
   noteCounts: {
     all: number
     daily: number
@@ -131,6 +132,7 @@ export function Sidebar({
   onEditNotebook,
   onDeleteNotebook,
   onOpenSettings,
+  onMoveNoteToNotebook,
   noteCounts,
   onCollapsedChange,
 }: SidebarProps) {
@@ -168,6 +170,7 @@ export function Sidebar({
   })
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const t = useTranslations()
+  const [dragOverNotebookId, setDragOverNotebookId] = useState<string | null>(null)
 
   // Handle right click on notebook
   const handleContextMenu = (e: React.MouseEvent, notebook: Notebook) => {
@@ -392,11 +395,27 @@ export function Sidebar({
                 key={notebook.id}
                 onClick={() => onSelectNotebook(notebook.id)}
                 onContextMenu={(e) => handleContextMenu(e, notebook)}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setDragOverNotebookId(notebook.id)
+                }}
+                onDragLeave={() => {
+                  setDragOverNotebookId(null)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const noteId = e.dataTransfer.getData('text/plain')
+                  if (noteId) {
+                    onMoveNoteToNotebook(noteId, notebook.id)
+                  }
+                  setDragOverNotebookId(null)
+                }}
                 className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[0.867rem] transition-all duration-150 ${
                   selectedNotebookId === notebook.id
                     ? 'text-[var(--color-text)]'
                     : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)]'
-                }`}
+                } ${dragOverNotebookId === notebook.id ? 'ring-2 ring-[var(--color-accent)] ring-opacity-50' : ''}`}
                 style={selectedNotebookId === notebook.id ? { backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
               >
                 <span className="flex items-center gap-2 min-w-0">

@@ -10,7 +10,8 @@
     "build:mac": "npm run build && electron-builder --mac",
     "build:win": "npm run build && electron-builder --win",
     "lint": "eslint . --ext .ts,.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "reset-db": "bash scripts/reset-database.sh"
   },
   "dependencies": {
     "@aarkue/tiptap-math-extension": "^1.4.0",

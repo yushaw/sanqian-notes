@@ -2100,3 +2100,24 @@ IPC 通信层 (Preload)
 - ✅ Chat UI 组件库多语言支持达到生产级别
 - ✅ 用户可在中英文环境下获得一致的体验
 - ✅ 为未来支持更多语言打下基础
+
+## 🔄 数据库重置 / Database Reset
+
+如需清空所有数据，恢复到出厂状态：
+
+```bash
+npm run reset-db
+```
+
+**功能特性：**
+- ✅ 自动备份到桌面（带时间戳）
+- ✅ 交互式确认，避免误操作
+- ✅ 清理所有数据库文件
+- ✅ 中英文双语提示
+
+**数据库位置：**
+- macOS: `~/Library/Application Support/Sanqian Notes/notes.db`
+- Windows: `%APPDATA%\Sanqian Notes\notes.db`
+- Linux: `~/.config/Sanqian Notes/notes.db`
+
+详细说明请查看：[docs/database-reset.md](docs/database-reset.md)

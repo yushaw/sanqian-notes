@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@aarkue/tiptap-math-extension": "^1.4.0",
+    "@tiptap/extension-bubble-menu": "^3.14.0",
     "@tiptap/extension-character-count": "^3.13.0",
     "@tiptap/extension-code-block-lowlight": "^3.13.0",
     "@tiptap/extension-color": "^3.13.0",

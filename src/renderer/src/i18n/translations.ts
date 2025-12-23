@@ -330,6 +330,15 @@ export interface Translations {
     divider: string
     table: string
     callout: string
+    // Table operations
+    tableOperations: string
+    addRowBefore: string
+    addRowAfter: string
+    deleteRow: string
+    addColumnBefore: string
+    addColumnAfter: string
+    deleteColumn: string
+    deleteTable: string
   }
   fileError: {
     tooLarge: string
@@ -667,7 +676,15 @@ const zh: Translations = {
     codeBlock: '代码块',
     divider: '分割线',
     table: '表格',
-    callout: '提示块'
+    callout: '提示块',
+    tableOperations: '表格操作',
+    addRowBefore: '在上方插入行',
+    addRowAfter: '在下方插入行',
+    deleteRow: '删除行',
+    addColumnBefore: '在左侧插入列',
+    addColumnAfter: '在右侧插入列',
+    deleteColumn: '删除列',
+    deleteTable: '删除表格'
   },
   fileError: {
     tooLarge: '文件过大',
@@ -1005,7 +1022,15 @@ const en: Translations = {
     codeBlock: 'Code Block',
     divider: 'Divider',
     table: 'Table',
-    callout: 'Callout'
+    callout: 'Callout',
+    tableOperations: 'Table',
+    addRowBefore: 'Insert Row Above',
+    addRowAfter: 'Insert Row Below',
+    deleteRow: 'Delete Row',
+    addColumnBefore: 'Insert Column Left',
+    addColumnAfter: 'Insert Column Right',
+    deleteColumn: 'Delete Column',
+    deleteTable: 'Delete Table'
   },
   fileError: {
     tooLarge: 'File too large',

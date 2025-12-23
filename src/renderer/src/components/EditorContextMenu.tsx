@@ -17,6 +17,51 @@ interface EditorContextMenuProps {
 
 // SVG 图标
 const Icons = {
+  table: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="3" y1="15" x2="21" y2="15" />
+      <line x1="9" y1="3" x2="9" y2="21" />
+      <line x1="15" y1="3" x2="15" y2="21" />
+    </svg>
+  ),
+  rowAdd: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18M3 12h18M3 18h18" />
+      <circle cx="19" cy="19" r="4" fill="var(--color-card)" />
+      <line x1="19" y1="17" x2="19" y2="21" />
+      <line x1="17" y1="19" x2="21" y2="19" />
+    </svg>
+  ),
+  rowDelete: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18M3 12h18M3 18h18" />
+      <circle cx="19" cy="19" r="4" fill="var(--color-card)" />
+      <line x1="17" y1="19" x2="21" y2="19" />
+    </svg>
+  ),
+  colAdd: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 3v18M12 3v18M18 3v18" />
+      <circle cx="19" cy="19" r="4" fill="var(--color-card)" />
+      <line x1="19" y1="17" x2="19" y2="21" />
+      <line x1="17" y1="19" x2="21" y2="19" />
+    </svg>
+  ),
+  colDelete: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 3v18M12 3v18M18 3v18" />
+      <circle cx="19" cy="19" r="4" fill="var(--color-card)" />
+      <line x1="17" y1="19" x2="21" y2="19" />
+    </svg>
+  ),
+  trash: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  ),
   cut: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="6" cy="6" r="3" />
@@ -114,11 +159,24 @@ const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
 
 export function EditorContextMenu({ editor, position, onClose, hasSelection }: EditorContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const insertSubmenuRef = useRef<HTMLDivElement>(null)
+  const tableSubmenuRef = useRef<HTMLDivElement>(null)
   const t = useTranslations()
   const insertItems = getInsertItems(t)
   const [showInsertSubmenu, setShowInsertSubmenu] = useState(false)
   const [insertSubmenuPosition, setInsertSubmenuPosition] = useState({ top: 0, left: 0 })
+  const [showTableSubmenu, setShowTableSubmenu] = useState(false)
+  const [tableSubmenuPosition, setTableSubmenuPosition] = useState({ top: 0, left: 0 })
   const closeTimeoutRef = useRef<number | null>(null)
+
+  // Check if cursor is in a table
+  const isInTable = editor?.isActive('table') ?? false
+
+  // 重置子菜单状态当菜单关闭或位置变化时
+  useEffect(() => {
+    setShowInsertSubmenu(false)
+    setShowTableSubmenu(false)
+  }, [position])
 
   // 清除关闭延时
   const clearCloseTimeout = useCallback(() => {
@@ -128,24 +186,43 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     }
   }, [])
 
-  // 延迟关闭子菜单
-  const scheduleCloseSubmenu = useCallback(() => {
+  // 延迟关闭插入子菜单
+  const scheduleCloseInsertSubmenu = useCallback(() => {
     clearCloseTimeout()
     closeTimeoutRef.current = window.setTimeout(() => {
       setShowInsertSubmenu(false)
-    }, 150) // 150ms 延迟，给用户足够时间移动到子菜单
+    }, 150)
   }, [clearCloseTimeout])
 
-  // 保持子菜单打开
-  const keepSubmenuOpen = useCallback(() => {
+  // 保持插入子菜单打开
+  const keepInsertSubmenuOpen = useCallback(() => {
     clearCloseTimeout()
     setShowInsertSubmenu(true)
+  }, [clearCloseTimeout])
+
+  // 延迟关闭表格子菜单
+  const scheduleCloseTableSubmenu = useCallback(() => {
+    clearCloseTimeout()
+    closeTimeoutRef.current = window.setTimeout(() => {
+      setShowTableSubmenu(false)
+    }, 150)
+  }, [clearCloseTimeout])
+
+  // 保持表格子菜单打开
+  const keepTableSubmenuOpen = useCallback(() => {
+    clearCloseTimeout()
+    setShowTableSubmenu(true)
   }, [clearCloseTimeout])
 
   // 点击外部关闭菜单
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      const isInsideMenu = menuRef.current?.contains(target)
+      const isInsideInsertSubmenu = insertSubmenuRef.current?.contains(target)
+      const isInsideTableSubmenu = tableSubmenuRef.current?.contains(target)
+
+      if (!isInsideMenu && !isInsideInsertSubmenu && !isInsideTableSubmenu) {
         onClose()
       }
     }
@@ -284,6 +361,44 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     onClose()
   }, [editor, onClose])
 
+  // 显示表格子菜单
+  const handleShowTableSubmenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const submenuWidth = 160
+    const submenuHeight = 7 * 32 + 8
+
+    let left = rect.right + 4
+    if (rect.right + submenuWidth + 10 > window.innerWidth) {
+      left = rect.left - submenuWidth - 4
+    }
+
+    let top = rect.top
+    if (rect.top + submenuHeight > window.innerHeight) {
+      top = window.innerHeight - submenuHeight - 10
+    }
+
+    setTableSubmenuPosition({ top, left })
+    setShowTableSubmenu(true)
+  }, [])
+
+  // 表格操作
+  const tableOperations = [
+    { id: 'addRowBefore', label: t.contextMenu.addRowBefore, icon: Icons.rowAdd, action: () => editor?.chain().focus().addRowBefore().run() },
+    { id: 'addRowAfter', label: t.contextMenu.addRowAfter, icon: Icons.rowAdd, action: () => editor?.chain().focus().addRowAfter().run() },
+    { id: 'deleteRow', label: t.contextMenu.deleteRow, icon: Icons.rowDelete, action: () => editor?.chain().focus().deleteRow().run(), danger: true },
+    { id: 'divider1', divider: true },
+    { id: 'addColumnBefore', label: t.contextMenu.addColumnBefore, icon: Icons.colAdd, action: () => editor?.chain().focus().addColumnBefore().run() },
+    { id: 'addColumnAfter', label: t.contextMenu.addColumnAfter, icon: Icons.colAdd, action: () => editor?.chain().focus().addColumnAfter().run() },
+    { id: 'deleteColumn', label: t.contextMenu.deleteColumn, icon: Icons.colDelete, action: () => editor?.chain().focus().deleteColumn().run(), danger: true },
+    { id: 'divider2', divider: true },
+    { id: 'deleteTable', label: t.contextMenu.deleteTable, icon: Icons.trash, action: () => editor?.chain().focus().deleteTable().run(), danger: true },
+  ]
+
+  const handleTableOperation = useCallback((action: () => void) => {
+    action()
+    onClose()
+  }, [onClose])
+
   if (!position || !editor) return null
 
   // 调整菜单位置，确保不超出视口
@@ -409,12 +524,27 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
           </div>
         )}
 
+        {/* 表格操作组 - 仅在表格内显示 */}
+        {isInTable && (
+          <div className="context-menu-group">
+            <button
+              className="context-menu-item"
+              onMouseEnter={handleShowTableSubmenu}
+              onMouseLeave={scheduleCloseTableSubmenu}
+            >
+              <span className="context-menu-icon">{Icons.table}</span>
+              <span className="context-menu-label">{t.contextMenu.tableOperations}</span>
+              <span className="context-menu-arrow">{Icons.chevronRight}</span>
+            </button>
+          </div>
+        )}
+
         {/* 插入组 */}
         <div className="context-menu-group">
           <button
             className="context-menu-item"
             onMouseEnter={handleShowInsertSubmenu}
-            onMouseLeave={scheduleCloseSubmenu}
+            onMouseLeave={scheduleCloseInsertSubmenu}
           >
             <span className="context-menu-icon">{Icons.plus}</span>
             <span className="context-menu-label">{t.contextMenu.insert}</span>
@@ -423,9 +553,42 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
         </div>
       </div>
 
+      {/* 表格操作子菜单 */}
+      {showTableSubmenu && (
+        <div
+          ref={tableSubmenuRef}
+          className="editor-context-menu editor-context-submenu"
+          style={{
+            position: 'fixed',
+            left: tableSubmenuPosition.left,
+            top: tableSubmenuPosition.top,
+            zIndex: 10000
+          }}
+          onMouseEnter={keepTableSubmenuOpen}
+          onMouseLeave={scheduleCloseTableSubmenu}
+        >
+          {tableOperations.map((item) => {
+            if (item.divider) {
+              return <div key={item.id} className="context-menu-divider" />
+            }
+            return (
+              <button
+                key={item.id}
+                className={`context-menu-item ${item.danger ? 'context-menu-item-danger' : ''}`}
+                onClick={() => handleTableOperation(item.action!)}
+              >
+                <span className="context-menu-icon">{item.icon}</span>
+                <span className="context-menu-label">{item.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* 插入子菜单 */}
       {showInsertSubmenu && (
         <div
+          ref={insertSubmenuRef}
           className="editor-context-menu editor-context-submenu"
           style={{
             position: 'fixed',
@@ -433,8 +596,8 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
             top: insertSubmenuPosition.top,
             zIndex: 10000
           }}
-          onMouseEnter={keepSubmenuOpen}
-          onMouseLeave={scheduleCloseSubmenu}
+          onMouseEnter={keepInsertSubmenuOpen}
+          onMouseLeave={scheduleCloseInsertSubmenu}
         >
           {insertItems.map((item) => (
             <button

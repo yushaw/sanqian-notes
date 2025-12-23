@@ -45,6 +45,7 @@ import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
+import { TableBubbleMenu } from './TableBubbleMenu'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
 import 'katex/dist/katex.min.css'
@@ -1154,6 +1155,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           {/* Editor */}
           <div onContextMenu={handleContextMenu}>
             <EditorContent editor={editor} className="zen-editor-content" />
+            {editor && <TableBubbleMenu editor={editor} />}
           </div>
 
           {/* Word count - subtle */}

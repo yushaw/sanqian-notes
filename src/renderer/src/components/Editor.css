@@ -2647,3 +2647,56 @@
 .dark .code-block-wrapper .hljs-type {
   color: #e5c07b;
 }
+
+/* ============================================
+   Table Bubble Menu
+   ============================================ */
+
+.table-bubble-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.table-bubble-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.table-bubble-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  margin: 0 4px;
+}
+
+.table-bubble-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 32px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.table-bubble-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.table-bubble-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}

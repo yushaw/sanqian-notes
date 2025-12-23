@@ -26,6 +26,24 @@ export const slashCommandSuggestion = {
           interactive: true,
           trigger: 'manual',
           placement: 'bottom-start',
+          popperOptions: {
+            strategy: 'fixed',
+            modifiers: [
+              {
+                name: 'flip',
+                options: {
+                  fallbackPlacements: ['top-start', 'bottom-end', 'top-end'],
+                },
+              },
+              {
+                name: 'preventOverflow',
+                options: {
+                  boundary: 'viewport',
+                  padding: 8,
+                },
+              },
+            ],
+          },
         })
       },
 

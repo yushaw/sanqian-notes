@@ -47,6 +47,8 @@ import { CustomCodeBlock } from './extensions/CodeBlock'
 import { Footnote } from './extensions/Footnote'
 import { MarkdownPaste } from './extensions/MarkdownPaste'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
+import { SlashCommand } from './extensions/SlashCommand'
+import { slashCommandSuggestion } from './extensions/slashCommandSuggestion'
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
 import { TypewriterToolbar } from './TypewriterToolbar'
@@ -395,6 +397,9 @@ export function TypewriterMode({
       CustomCodeBlock,
       Footnote,
       MarkdownPaste,
+      SlashCommand.configure({
+        suggestion: slashCommandSuggestion,
+      }),
       TypewriterSoundExtension,
       FileHandler.configure({
         onPaste: async (currentEditor, files) => {

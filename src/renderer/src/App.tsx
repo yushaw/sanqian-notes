@@ -743,11 +743,11 @@ function AppContent() {
         />
       )}
 
-      {/* Editor - only show when not in trash view */}
+      {/* Editor - only show when not in trash view and not in typewriter mode */}
       {selectedSmartView === 'trash' ? (
         // Empty placeholder for trash view (same background as editor)
         <div className="flex-1 bg-[var(--color-card-solid)]" />
-      ) : (
+      ) : !isTypewriterMode ? (
         <Editor
           ref={editorRef}
           note={selectedNote}
@@ -759,7 +759,7 @@ function AppContent() {
           onScrollComplete={handleScrollComplete}
           onTypewriterModeToggle={handleToggleTypewriter}
         />
-      )}
+      ) : null}
 
       {/* Typewriter Mode - 全屏覆盖层 */}
       {isTypewriterMode && selectedNote && (

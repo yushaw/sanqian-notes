@@ -142,11 +142,13 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
 
     // 获取对应的音效
     let audioBuffer: AudioBuffer | undefined
+    let volumeMultiplier = 1.0 // 音量倍数，用于调整不同音效的相对音量
 
     switch (keyType) {
       case 'backspace':
       case 'delete':
         audioBuffer = audioBuffersRef.current.get('backspace')
+        volumeMultiplier = 2.5 // backspace 音效本身较小，放大 2.5 倍
         break
       case 'enter':
         audioBuffer = audioBuffersRef.current.get('enter')
@@ -192,7 +194,7 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
 
       // 创建增益节点（音量控制）
       const gainNode = context.createGain()
-      gainNode.gain.value = volume
+      gainNode.gain.value = volume * volumeMultiplier
 
       // 连接节点：source -> gain -> destination
       source.connect(gainNode)

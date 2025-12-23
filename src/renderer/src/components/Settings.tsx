@@ -6,7 +6,16 @@ import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting }
 
 const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emerald', 'cyan', 'cobalt', 'indigo', 'magenta']
 
-type SettingsTab = 'general' | 'appearance'
+type SettingsTab = 'general' | 'appearance' | 'about'
+
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
+
+interface UpdateState {
+  status: UpdateStatus
+  version: string | null
+  progress: number
+  error: string | null
+}
 
 // Resizable modal constants
 const STORAGE_KEY = 'sanqian-notes-settings-size'
@@ -22,6 +31,44 @@ export function Settings({ onClose }: SettingsProps) {
   const { language, setLanguage, t } = useI18n()
   const { themeColor, setThemeColor, colorMode, setColorMode, fontSize, setFontSize } = useTheme()
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [appVersion, setAppVersion] = useState<string>('')
+  const [updateState, setUpdateState] = useState<UpdateState>({
+    status: 'idle',
+    version: null,
+    progress: 0,
+    error: null
+  })
+
+  // Fetch app version and setup updater status listener
+  useEffect(() => {
+    window.electron?.app?.getVersion().then((version) => {
+      setAppVersion(version)
+    })
+
+    window.electron?.updater?.getStatus().then((status) => {
+      setUpdateState(status as UpdateState)
+    })
+
+    const cleanup = window.electron?.updater?.onStatus((status) => {
+      setUpdateState(status as UpdateState)
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  const handleCheckUpdate = async () => {
+    await window.electron?.updater?.check()
+  }
+
+  const handleDownloadUpdate = async () => {
+    await window.electron?.updater?.download()
+  }
+
+  const handleInstallUpdate = async () => {
+    await window.electron?.updater?.install()
+  }
 
   // Resizable modal state
   const getSavedRatio = useCallback(() => {
@@ -139,6 +186,7 @@ export function Settings({ onClose }: SettingsProps) {
   const tabs: Array<{ key: SettingsTab; label: string }> = [
     { key: 'general', label: t.settings.general },
     { key: 'appearance', label: t.settings.appearance },
+    { key: 'about', label: t.settings.about },
   ]
 
   return createPortal(
@@ -331,6 +379,114 @@ export function Settings({ onClose }: SettingsProps) {
                     ))}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* About Tab */}
+            {activeTab === 'about' && (
+              <div className="space-y-5">
+                <div className="flex flex-col items-center py-6">
+                  {/* App Icon */}
+                  <img
+                    src={new URL('../assets/notes-logo.png', import.meta.url).href}
+                    alt={t.app.name}
+                    className="w-16 h-16 mb-3 dark:invert select-none"
+                  />
+                  <h3 className="text-lg font-semibold text-[var(--color-text)]">{t.app.name}</h3>
+                  <p className="text-sm text-[var(--color-muted)] mt-1">{t.settings.version} {appVersion || '0.1.0'}</p>
+                </div>
+
+                {/* Update Status Card */}
+                <div className="p-4 rounded-xl bg-black/5 dark:bg-white/5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      {updateState.status === 'checking' && (
+                        <p className="text-sm text-[var(--color-muted)]">{t.settings.updating.checking}</p>
+                      )}
+                      {updateState.status === 'available' && (
+                        <p className="text-sm text-[var(--color-text)]">{t.settings.updating.available(updateState.version || '')}</p>
+                      )}
+                      {updateState.status === 'downloading' && (
+                        <div className="space-y-2">
+                          <p className="text-sm text-[var(--color-text)]">{t.settings.updating.downloading(updateState.progress)}</p>
+                          <div className="w-full h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-[var(--color-accent)] transition-all"
+                              style={{ width: `${updateState.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {updateState.status === 'ready' && (
+                        <p className="text-sm text-green-600 dark:text-green-400">{t.settings.updating.ready}</p>
+                      )}
+                      {(updateState.status === 'idle' || updateState.status === 'not-available') && (
+                        <p className="text-sm text-[var(--color-muted)]">{t.settings.updating.upToDate}</p>
+                      )}
+                      {updateState.status === 'error' && (
+                        <p className="text-sm text-red-500">{t.settings.updating.error}</p>
+                      )}
+                    </div>
+                    <div className="ml-4 flex-shrink-0">
+                      {(updateState.status === 'idle' || updateState.status === 'not-available') && (
+                        <button
+                          onClick={handleCheckUpdate}
+                          className="px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)]/10 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
+                        >
+                          {t.settings.checkUpdate}
+                        </button>
+                      )}
+                      {updateState.status === 'available' && (
+                        <button
+                          onClick={handleDownloadUpdate}
+                          className="px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors"
+                        >
+                          {t.settings.buttons.download}
+                        </button>
+                      )}
+                      {updateState.status === 'ready' && (
+                        <button
+                          onClick={handleInstallUpdate}
+                          className="px-3 py-1.5 text-sm font-medium rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors"
+                        >
+                          {t.settings.buttons.restart}
+                        </button>
+                      )}
+                      {updateState.status === 'error' && (
+                        <button
+                          onClick={handleCheckUpdate}
+                          className="px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)]/10 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
+                        >
+                          {t.settings.buttons.retry}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Links */}
+                <div className="flex justify-center gap-4 pt-2">
+                  <a
+                    href="https://github.com/yushaw/sanqian-notes-releases/discussions"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-[var(--color-accent)] hover:underline"
+                  >
+                    {t.settings.feedback}
+                  </a>
+                  <a
+                    href="https://github.com/yushaw/sanqian-notes-releases"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-[var(--color-accent)] hover:underline"
+                  >
+                    {t.settings.github}
+                  </a>
+                </div>
+
+                <p className="text-xs text-[var(--color-muted)] text-center pt-4 border-t border-black/5 dark:border-white/10">
+                  {t.settings.copyright}
+                </p>
               </div>
             )}
           </div>

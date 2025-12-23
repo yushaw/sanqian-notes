@@ -404,7 +404,7 @@ export async function initializeSanqianSDK(): Promise<void> {
   const config: SDKConfig = {
     appName: 'sanqian-notes',
     appVersion: app.getVersion(),
-    displayName: 'Sanqian Notes',
+    displayName: 'Flow',
     launchCommand,
     tools: buildTools()
     // autoLaunchSanqian defaults to true in SDK - will auto-launch Sanqian when needed

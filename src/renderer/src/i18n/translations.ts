@@ -77,6 +77,7 @@ export interface Translations {
     title: string
     general: string
     appearance: string
+    about: string
     language: string
     languageDesc: string
     themeColor: string
@@ -92,6 +93,24 @@ export interface Translations {
     fontSizeNormal: string
     fontSizeLarge: string
     fontSizeExtraLarge: string
+    version: string
+    checkUpdate: string
+    feedback: string
+    github: string
+    copyright: string
+    updating: {
+      checking: string
+      available: (version: string) => string
+      downloading: (progress: number) => string
+      ready: string
+      upToDate: string
+      error: string
+    }
+    buttons: {
+      download: string
+      restart: string
+      retry: string
+    }
   }
   notebook: {
     selectIcon: string
@@ -322,7 +341,7 @@ export interface Translations {
 
 const zh: Translations = {
   app: {
-    name: '散墨笔记'
+    name: '心流'
   },
   sidebar: {
     smartViews: '智能视图',
@@ -396,6 +415,7 @@ const zh: Translations = {
     title: '设置',
     general: '通用',
     appearance: '外观',
+    about: '关于',
     language: '语言',
     languageDesc: '选择界面显示语言',
     themeColor: '主题色',
@@ -410,7 +430,25 @@ const zh: Translations = {
     fontSizeSmall: '小',
     fontSizeNormal: '标准',
     fontSizeLarge: '大',
-    fontSizeExtraLarge: '特大'
+    fontSizeExtraLarge: '特大',
+    version: '版本',
+    checkUpdate: '检查更新',
+    feedback: '反馈建议',
+    github: 'GitHub',
+    copyright: '© 2025 心流. All rights reserved.',
+    updating: {
+      checking: '正在检查更新...',
+      available: (version: string) => `发现新版本 ${version}`,
+      downloading: (progress: number) => `正在下载更新 ${progress}%`,
+      ready: '更新已就绪，重启后生效',
+      upToDate: '当前已是最新版本',
+      error: '检查更新失败'
+    },
+    buttons: {
+      download: '下载更新',
+      restart: '重启应用',
+      retry: '重试'
+    }
   },
   notebook: {
     selectIcon: '图标',
@@ -641,7 +679,7 @@ const zh: Translations = {
 
 const en: Translations = {
   app: {
-    name: 'Sanqian Notes'
+    name: 'Flow'
   },
   sidebar: {
     smartViews: 'Smart Views',
@@ -715,6 +753,7 @@ const en: Translations = {
     title: 'Settings',
     general: 'General',
     appearance: 'Appearance',
+    about: 'About',
     language: 'Language',
     languageDesc: 'Choose display language',
     themeColor: 'Theme Color',
@@ -729,7 +768,25 @@ const en: Translations = {
     fontSizeSmall: 'Small',
     fontSizeNormal: 'Normal',
     fontSizeLarge: 'Large',
-    fontSizeExtraLarge: 'Extra Large'
+    fontSizeExtraLarge: 'Extra Large',
+    version: 'Version',
+    checkUpdate: 'Check for Updates',
+    feedback: 'Feedback',
+    github: 'GitHub',
+    copyright: '© 2025 Flow. All rights reserved.',
+    updating: {
+      checking: 'Checking for updates...',
+      available: (version: string) => `New version ${version} available`,
+      downloading: (progress: number) => `Downloading update ${progress}%`,
+      ready: 'Update ready, restart to apply',
+      upToDate: 'You are up to date',
+      error: 'Update check failed'
+    },
+    buttons: {
+      download: 'Download',
+      restart: 'Restart',
+      retry: 'Retry'
+    }
   },
   notebook: {
     selectIcon: 'Icon',

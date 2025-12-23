@@ -297,12 +297,13 @@ export function TypewriterMode({
   }
 
   // 创建按键音效扩展（参考 Tickeys 实现）
+  // 使用 transaction 监听文档变化，支持 IME 输入法
   const TypewriterSoundExtension = Extension.create({
     name: 'typewriterSound',
 
     addKeyboardShortcuts() {
       return {
-        // 监听特殊按键
+        // 监听特殊按键（这些不会产生文档变化或需要特殊音效）
         'Backspace': () => {
           playTypewriterSound('backspace')
           return false
@@ -326,25 +327,36 @@ export function TypewriterMode({
       return [
         new Plugin({
           key: new PluginKey('typewriterSound'),
-          props: {
-            handleKeyDown: (_view: any, event: KeyboardEvent) => {
-              // 忽略修饰键组合（撤销、重做等）
-              if (event.metaKey || event.ctrlKey) {
-                return false
-              }
+          appendTransaction: (transactions, _oldState, _newState) => {
+            // 检查是否有文档内容变化
+            const docChanged = transactions.some(tr => tr.docChanged)
+            if (!docChanged) return null
 
-              // 特殊键已在 addKeyboardShortcuts 中处理
-              if (['Backspace', 'Delete', 'Enter', ' '].includes(event.key)) {
-                return false
-              }
+            // 检查是否是添加内容（而非删除）
+            for (const tr of transactions) {
+              if (!tr.docChanged) continue
 
-              // 普通字符输入（字母、数字、标点等）
-              if (event.key.length === 1) {
-                playTypewriterSound('normal')
-              }
+              // 遍历所有步骤，检查是否有内容添加
+              for (const step of tr.steps) {
+                const stepMap = step.getMap()
+                let hasInsert = false
 
-              return false
-            },
+                stepMap.forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+                  // 如果新范围比旧范围大，说明有插入
+                  if (newEnd > newStart) {
+                    hasInsert = true
+                  }
+                })
+
+                if (hasInsert) {
+                  // 播放普通按键音效
+                  playTypewriterSound('normal')
+                  return null // 只播放一次
+                }
+              }
+            }
+
+            return null
           },
         }),
       ]
@@ -724,6 +736,22 @@ export function TypewriterMode({
     }
   }, [])
 
+  /** 点击内容区域空白处时聚焦编辑器 */
+  const handleContentClick = useCallback((e: React.MouseEvent) => {
+    // 如果点击的是编辑器内部或标题输入框，不处理
+    const target = e.target as HTMLElement
+    if (
+      target.closest('.ProseMirror') ||
+      target.closest('.typewriter-title') ||
+      target.closest('.typewriter-toolbar') ||
+      target.closest('.typewriter-toc')
+    ) {
+      return
+    }
+    // 点击空白区域时聚焦编辑器
+    editor?.commands.focus()
+  }, [editor])
+
   // ==================== 渲染 ====================
 
   const cssVariables = {
@@ -755,7 +783,7 @@ export function TypewriterMode({
 
       {resolvedTheme.showCursorLine && <div className="typewriter-cursor-line" />}
 
-      <div ref={contentRef} className={`typewriter-content focus-${resolvedTheme.focusMode}`}>
+      <div ref={contentRef} className={`typewriter-content focus-${resolvedTheme.focusMode}`} onClick={handleContentClick}>
         <div className="typewriter-inner">
           <textarea
             ref={titleRef}

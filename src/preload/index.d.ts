@@ -23,6 +23,16 @@ export {
 declare global {
   interface Window {
     electron: {
+      app: {
+        getVersion: () => Promise<string>
+      }
+      updater: {
+        check: () => Promise<{ status: string; version?: string | null; error?: string }>
+        download: () => Promise<{ success: boolean; error?: string }>
+        install: () => Promise<{ success: boolean; error?: string }>
+        getStatus: () => Promise<{ status: string; version: string | null; progress: number; error: string | null }>
+        onStatus: (callback: (status: { status: string; version: string | null; progress: number; error: string | null }) => void) => () => void
+      }
       note: {
         getAll: () => Promise<unknown[]>
         getById: (id: string) => Promise<unknown | null>

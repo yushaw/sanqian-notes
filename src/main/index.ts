@@ -3,6 +3,7 @@ import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import {
   initDatabase,
   getNotes,
@@ -78,6 +79,87 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+
+// ============ Auto Updater State ============
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
+let updateStatus: UpdateStatus = 'idle'
+let updateVersion: string | null = null
+let updateProgress = 0
+let updateError: string | null = null
+
+function sendUpdateStatus(): void {
+  mainWindow?.webContents.send('updater:status', {
+    status: updateStatus,
+    version: updateVersion,
+    progress: updateProgress,
+    error: updateError
+  })
+}
+
+function setupAutoUpdater(): void {
+  // Don't check for updates in development
+  if (is.dev) {
+    console.log('Skipping auto-updater in development mode')
+    return
+  }
+
+  // Configure auto-updater
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  // Update available
+  autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info.version)
+    updateStatus = 'available'
+    updateVersion = info.version
+    updateError = null
+    sendUpdateStatus()
+  })
+
+  // No update available
+  autoUpdater.on('update-not-available', () => {
+    console.log('No update available')
+    updateStatus = 'not-available'
+    updateError = null
+    sendUpdateStatus()
+  })
+
+  // Download progress
+  autoUpdater.on('download-progress', (progressInfo) => {
+    updateStatus = 'downloading'
+    updateProgress = Math.round(progressInfo.percent)
+    mainWindow?.setProgressBar(progressInfo.percent / 100)
+    sendUpdateStatus()
+  })
+
+  // Update downloaded
+  autoUpdater.on('update-downloaded', () => {
+    console.log('Update downloaded')
+    updateStatus = 'ready'
+    updateProgress = 100
+    mainWindow?.setProgressBar(-1)
+    sendUpdateStatus()
+  })
+
+  // Error handling
+  autoUpdater.on('error', (err) => {
+    console.error('Auto-updater error:', err.message)
+    updateStatus = 'error'
+    updateError = err.message
+    mainWindow?.setProgressBar(-1)
+    sendUpdateStatus()
+  })
+
+  // Check for updates on startup
+  updateStatus = 'checking'
+  sendUpdateStatus()
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.log('Auto-updater check failed:', err.message)
+    updateStatus = 'error'
+    updateError = err.message
+    sendUpdateStatus()
+  })
+}
 
 // ============ Active Streams Management ============
 // Track active chat streams for cancellation support
@@ -337,7 +419,7 @@ function createTrayWithPath(iconPath: string): void {
       }
     }
   ])
-  tray.setToolTip('Sanqian Notes')
+  tray.setToolTip('Flow')
 
   // Left-click: show/activate window (both platforms)
   tray.on('click', () => showMainWindow())
@@ -886,8 +968,70 @@ app.whenReady().then(() => {
     }
   })
 
+  // App version
+  ipcMain.handle('app:getVersion', () => {
+    return app.getVersion()
+  })
+
+  // Auto updater IPC handlers
+  ipcMain.handle('updater:check', async () => {
+    if (is.dev) {
+      return { status: 'not-available' as UpdateStatus }
+    }
+    updateStatus = 'checking'
+    updateError = null
+    sendUpdateStatus()
+    try {
+      await autoUpdater.checkForUpdates()
+      return { status: updateStatus, version: updateVersion }
+    } catch (err) {
+      updateStatus = 'error'
+      updateError = err instanceof Error ? err.message : 'Unknown error'
+      sendUpdateStatus()
+      return { status: 'error', error: updateError }
+    }
+  })
+
+  ipcMain.handle('updater:download', async () => {
+    if (updateStatus !== 'available') {
+      return { success: false, error: 'No update available' }
+    }
+    try {
+      updateStatus = 'downloading'
+      updateProgress = 0
+      sendUpdateStatus()
+      await autoUpdater.downloadUpdate()
+      return { success: true }
+    } catch (err) {
+      updateStatus = 'error'
+      updateError = err instanceof Error ? err.message : 'Unknown error'
+      sendUpdateStatus()
+      return { success: false, error: updateError }
+    }
+  })
+
+  ipcMain.handle('updater:install', () => {
+    if (updateStatus !== 'ready') {
+      return { success: false, error: 'Update not ready' }
+    }
+    // Important: set isQuitting to prevent window close from being intercepted
+    isQuitting = true
+    autoUpdater.quitAndInstall()
+    return { success: true }
+  })
+
+  ipcMain.handle('updater:getStatus', () => {
+    return {
+      status: updateStatus,
+      version: updateVersion,
+      progress: updateProgress,
+      error: updateError
+    }
+  })
+
   createWindow()
   setupTray()
+  setupAutoUpdater()
 
   // 启动 5 分钟后自动清理孤儿附件（不阻塞启动）
   setTimeout(async () => {

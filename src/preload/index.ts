@@ -2,6 +2,20 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 // Expose APIs to renderer
 contextBridge.exposeInMainWorld('electron', {
+  app: {
+    getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    download: () => ipcRenderer.invoke('updater:download'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    getStatus: () => ipcRenderer.invoke('updater:getStatus'),
+    onStatus: (callback: (status: { status: string; version: string | null; progress: number; error: string | null }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, status: { status: string; version: string | null; progress: number; error: string | null }) => callback(status)
+      ipcRenderer.on('updater:status', handler)
+      return () => ipcRenderer.removeListener('updater:status', handler)
+    }
+  },
   note: {
     getAll: () => ipcRenderer.invoke('note:getAll'),
     getById: (id: string) => ipcRenderer.invoke('note:getById', id),

@@ -32,16 +32,29 @@ function isSubMenuItem(item: ContextMenuItem): item is SubMenuItem {
 
 export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const subMenuRef = useRef<HTMLDivElement>(null)
   const [hoveredSubMenuIndex, setHoveredSubMenuIndex] = useState<number | null>(null)
   const [subMenuPosition, setSubMenuPosition] = useState<{ top: number; left: number } | null>(null)
   const hoverTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Reset submenu state when menu closes
+  useEffect(() => {
+    if (!visible) {
+      setHoveredSubMenuIndex(null)
+      setSubMenuPosition(null)
+    }
+  }, [visible])
 
   // Close on click outside
   useEffect(() => {
     if (!visible) return
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      const isInsideMenu = menuRef.current?.contains(target)
+      const isInsideSubMenu = subMenuRef.current?.contains(target)
+
+      if (!isInsideMenu && !isInsideSubMenu) {
         onClose()
       }
     }
@@ -193,6 +206,7 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
       {/* Submenu */}
       {hoveredSubMenuIndex !== null && subMenuPosition && isSubMenuItem(items[hoveredSubMenuIndex]) && (
         <div
+          ref={subMenuRef}
           className="fixed z-[51] py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
           style={{ left: subMenuPosition.left, top: subMenuPosition.top }}
           onMouseEnter={() => {

@@ -13,7 +13,7 @@
  */
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
-import type { MessageBlock, ToolCallStatus } from '../core/types';
+import type { MessageBlock } from '../core/types';
 import { ToolArgumentsDisplay } from '../renderers/ToolArgumentsDisplay';
 
 // =============================================================================
@@ -329,7 +329,7 @@ export const IntermediateSteps = memo(function IntermediateSteps({
   const summary = `${stepCount} ${strings.steps || 'steps'}`;
 
   return (
-    <div className={`mb-3 ${className}`}>
+    <div className={className}>
       {/* Toggle */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
@@ -463,17 +463,19 @@ export const StreamingTimeline = memo(function StreamingTimeline({
 
       if (round.thinking?.content.trim()) {
         const isActive = Boolean(isLastRound && isThinkingStreaming && !round.text && !round.toolCall);
+        // trimStart is already done at source (useChat.ts), use content as-is during streaming
         items.push({
           type: 'thinking',
-          content: round.thinking.content.trim(),
+          content: round.thinking.content,
           isActive,
         });
       }
 
       if (round.text?.content.trim()) {
+        // trimStart is already done at source (useChat.ts), use content as-is
         items.push({
           type: 'text',
-          content: round.text.content.trim(),
+          content: round.text.content,
           isActive: false,
         });
       }
@@ -495,11 +497,12 @@ export const StreamingTimeline = memo(function StreamingTimeline({
     }
 
     // If thinking is active but no blocks, add a thinking-only round
+    // trimStart is already done at source (useChat.ts), use content as-is
     if (rounds.length === 0 && activeThinking) {
       result.push([
         {
           type: 'thinking',
-          content: activeThinking.trim(),
+          content: activeThinking,
           isActive: isThinkingStreaming || false,
         },
       ]);
@@ -512,7 +515,7 @@ export const StreamingTimeline = memo(function StreamingTimeline({
         result.push([
           {
             type: 'thinking',
-            content: activeThinking.trim(),
+            content: activeThinking,
             isActive: true,
           },
         ]);
@@ -554,7 +557,7 @@ export const StreamingTimeline = memo(function StreamingTimeline({
   if (stepCount === 0 && !isToolCallsStreaming) return null;
 
   return (
-    <div className={`mb-3 ${className}`}>
+    <div className={className}>
       {/* Toggle */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
@@ -592,13 +595,12 @@ export const StreamingTimeline = memo(function StreamingTimeline({
                     let displayContent: ReactNode;
                     if (item.type === 'thinking') {
                       if (item.isActive) {
-                        // Active thinking - show with cursor, truncate by lines
+                        // Active thinking - truncate by lines
                         const lines = item.content.trim().split('\n');
                         const truncated = lines.length > 3 ? lines.slice(0, 3).join('\n') + '…' : item.content;
                         displayContent = (
                           <span className="text-chat-muted/80 whitespace-pre-wrap italic">
                             {truncated}
-                            <span className="ml-1 animate-pulse">▍</span>
                           </span>
                         );
                       } else {
@@ -670,29 +672,39 @@ export const ThinkingSection = memo(function ThinkingSection({
   className = '',
   strings = {},
 }: ThinkingSectionProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Default expanded during streaming, collapsed when complete
+  const [isExpanded, setIsExpanded] = useState(isStreaming);
+
+  // Auto-expand when streaming starts, auto-collapse when complete
+  useEffect(() => {
+    if (isStreaming) {
+      setIsExpanded(true);
+    } else if (isComplete) {
+      setIsExpanded(false);
+    }
+  }, [isStreaming, isComplete]);
 
   // Use currentThinking if available (during streaming), otherwise use full thinking
-  // Always trim to remove leading/trailing whitespace
-  const displayThinking = (currentThinking || thinking)?.trim() || '';
+  // trimStart is already done at source (useChat.ts), only trimEnd when complete
+  const rawThinking = currentThinking || thinking || '';
+  const displayThinking = isComplete ? rawThinking.trim() : rawThinking;
 
   if (!displayThinking) return null;
 
   return (
-    <div className={`mb-2 ${className}`}>
+    <div className={className}>
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="text-chat-muted/50 hover:text-chat-muted/80 inline-flex items-center gap-1.5 text-xs transition-colors">
         <span className={`text-[10px] transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
         <span>{strings.thinking || 'Thinking'}</span>
-        {isStreaming && <span className="ml-1 animate-pulse">▍</span>}
+        {isStreaming && <span className="ml-1 animate-pulse text-amber-500">●</span>}
       </button>
 
       {isExpanded && (
         <div className="border-chat-border/30 ml-4 mt-1 border-l pl-2">
           <div className="text-chat-muted/80 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs italic">
             {displayThinking}
-            {isStreaming && <span className="ml-1 animate-pulse">▍</span>}
           </div>
         </div>
       )}

@@ -27,6 +27,21 @@ export const TIMING = {
   /** Batch update delay for streaming text (reduce re-renders) */
   BATCH_UPDATE_DELAY_MS: 50,
 
+  /** Typewriter effect delays (in milliseconds) */
+  TYPEWRITER_DELAYS: {
+    SLOW: 30,           // Natural typing speed (33 chars/sec)
+    NORMAL: 20,         // Smooth streaming (50 chars/sec)
+    FAST: 10,           // Reduce backlog (100 chars/sec)
+    VERY_FAST: 5,       // Catch up (200 chars/sec)
+  },
+
+  /** Typewriter queue thresholds for adaptive speed */
+  TYPEWRITER_THRESHOLDS: {
+    VERY_FAST: 300,     // Queue length to trigger very fast mode
+    FAST: 150,          // Queue length to trigger fast mode
+    NORMAL: 50,         // Queue length to trigger normal mode
+  },
+
   /** Stream timeout - auto-cleanup zombie streams after 5 minutes */
   STREAM_TIMEOUT_MS: 5 * 60 * 1000,
 

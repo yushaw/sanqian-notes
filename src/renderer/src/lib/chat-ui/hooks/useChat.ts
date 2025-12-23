@@ -86,10 +86,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // Track accumulated content
   const fullContentRef = useRef<string>('');
 
-  // Batched update optimization for streaming text
-  const pendingTextUpdateRef = useRef<string>('');
-  const textUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Typewriter effect refs for text (replaces batched update)
+  const tokenQueueRef = useRef<string[]>([]);
+  const displayedContentRef = useRef<string>('');
+  const typewriterIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentAssistantMessageIdRef = useRef<string | null>(null);
+
+  // Typewriter effect refs for thinking
+  const thinkingQueueRef = useRef<string[]>([]);
+  const displayedThinkingRef = useRef<string>('');
+  const thinkingTypewriterRef = useRef<NodeJS.Timeout | null>(null);
+  const fullThinkingRef = useRef<string>(''); // Full thinking content (for blocks)
 
   // Keep refs in sync with state (avoid closure trap)
   useEffect(() => {
@@ -106,10 +113,20 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     return () => {
       isMountedRef.current = false;
       cancelRef.current?.();
-      // Clear any pending text updates
-      if (textUpdateTimerRef.current) {
-        clearTimeout(textUpdateTimerRef.current);
+      // Clear text typewriter timer
+      if (typewriterIntervalRef.current) {
+        clearTimeout(typewriterIntervalRef.current);
+        typewriterIntervalRef.current = null;
       }
+      tokenQueueRef.current = [];
+      displayedContentRef.current = '';
+      // Clear thinking typewriter timer
+      if (thinkingTypewriterRef.current) {
+        clearTimeout(thinkingTypewriterRef.current);
+        thinkingTypewriterRef.current = null;
+      }
+      thinkingQueueRef.current = [];
+      displayedThinkingRef.current = '';
     };
   }, []);
 
@@ -121,9 +138,19 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.conversationId]);
 
-  // Flush pending text updates immediately
-  const flushTextUpdate = useCallback(() => {
-    if (pendingTextUpdateRef.current && currentAssistantMessageIdRef.current) {
+  // Flush text typewriter - stop animation and show all content immediately
+  const flushTypewriter = useCallback(() => {
+    // Stop typewriter timer
+    if (typewriterIntervalRef.current) {
+      clearTimeout(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
+
+    // If there's queued content, display it all immediately
+    if (tokenQueueRef.current.length > 0 && currentAssistantMessageIdRef.current) {
+      displayedContentRef.current += tokenQueueRef.current.join('');
+      tokenQueueRef.current = [];
+
       setMessages(prev => {
         const idx = prev.findIndex(m => m.id === currentAssistantMessageIdRef.current);
         if (idx === -1) return prev;
@@ -132,24 +159,48 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const updated = [...prev];
         updated[idx] = {
           ...msg,
-          content: fullContentRef.current,
+          content: displayedContentRef.current,
           isStreaming: true,
           blocks: [...currentBlocksRef.current],
         };
         return updated;
       });
-      pendingTextUpdateRef.current = '';
     }
-    if (textUpdateTimerRef.current) {
-      clearTimeout(textUpdateTimerRef.current);
-      textUpdateTimerRef.current = null;
+  }, []);
+
+  // Flush thinking typewriter - stop animation and show all thinking content immediately
+  const flushThinkingTypewriter = useCallback(() => {
+    // Stop thinking typewriter timer
+    if (thinkingTypewriterRef.current) {
+      clearTimeout(thinkingTypewriterRef.current);
+      thinkingTypewriterRef.current = null;
+    }
+
+    // If there's queued thinking content, display it all immediately
+    if (thinkingQueueRef.current.length > 0 && currentAssistantMessageIdRef.current) {
+      displayedThinkingRef.current += thinkingQueueRef.current.join('');
+      thinkingQueueRef.current = [];
+
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === currentAssistantMessageIdRef.current);
+        if (idx === -1) return prev;
+
+        const msg = prev[idx];
+        const updated = [...prev];
+        updated[idx] = {
+          ...msg,
+          currentThinking: displayedThinkingRef.current,
+          isThinkingStreaming: true,
+          blocks: [...currentBlocksRef.current],
+        };
+        return updated;
+      });
     }
   }, []);
 
   // Handle stream events - builds blocks array using refs (like Sanqian)
   const handleStreamEvent = useCallback(
     (event: StreamEvent, assistantMessageId: string) => {
-      console.log('[useChat] handleStreamEvent called:', event.type, 'for message:', assistantMessageId);
       if (!isMountedRef.current) return;
 
       // Store current assistant message ID for batched updates
@@ -164,11 +215,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           const shouldClearContent = needsContentClearRef.current || fullContentRef.current === '';
 
           if (shouldClearContent) {
-            // Flush any pending updates first
-            flushTextUpdate();
+            // Flush any pending typewriter first
+            flushTypewriter();
 
             needsContentClearRef.current = false;
             fullContentRef.current = '';
+            displayedContentRef.current = '';
 
             // Mark previous text blocks as intermediate
             currentBlocksRef.current.forEach(block => {
@@ -185,72 +237,178 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             currentTextBlockIndexRef.current = currentBlocksRef.current.length - 1;
           }
 
-          // Accumulate content in refs (synchronous, no re-render)
-          fullContentRef.current += content;
-          pendingTextUpdateRef.current += content;
+          // Accumulate full content in refs (for final message)
+          // Only trimStart on first chunk (when fullContentRef is empty)
+          const textToAdd = fullContentRef.current === '' ? content.trimStart() : content;
+          fullContentRef.current += textToAdd;
           if (
             currentTextBlockIndexRef.current >= 0 &&
             currentTextBlockIndexRef.current < currentBlocksRef.current.length
           ) {
-            currentBlocksRef.current[currentTextBlockIndexRef.current].content += content;
+            currentBlocksRef.current[currentTextBlockIndexRef.current].content += textToAdd;
           }
 
-          // Debounced state update - batch multiple text events
-          if (textUpdateTimerRef.current) {
-            clearTimeout(textUpdateTimerRef.current);
+          // Queue characters for typewriter effect (use trimmed content)
+          const chars = textToAdd.split('');
+          tokenQueueRef.current.push(...chars);
+
+          // Start typewriter interval if not already running
+          if (!typewriterIntervalRef.current) {
+            const typewriterTick = () => {
+              const char = tokenQueueRef.current.shift();
+              if (char !== undefined) {
+                displayedContentRef.current += char;
+
+                // Update the assistant message with displayed content
+                setMessages(prev => {
+                  const idx = prev.findIndex(m => m.id === assistantMessageId);
+                  if (idx === -1) return prev;
+
+                  const msg = prev[idx];
+                  const updated = [...prev];
+                  updated[idx] = {
+                    ...msg,
+                    content: displayedContentRef.current,
+                    isStreaming: true,
+                    blocks: [...currentBlocksRef.current],
+                  };
+                  return updated;
+                });
+
+                // Adaptive speed based on queue length
+                const queueLength = tokenQueueRef.current.length;
+                let delay: number;
+                if (queueLength > TIMING.TYPEWRITER_THRESHOLDS.VERY_FAST) {
+                  delay = TIMING.TYPEWRITER_DELAYS.VERY_FAST;
+                } else if (queueLength > TIMING.TYPEWRITER_THRESHOLDS.FAST) {
+                  delay = TIMING.TYPEWRITER_DELAYS.FAST;
+                } else if (queueLength > TIMING.TYPEWRITER_THRESHOLDS.NORMAL) {
+                  delay = TIMING.TYPEWRITER_DELAYS.NORMAL;
+                } else {
+                  delay = TIMING.TYPEWRITER_DELAYS.SLOW;
+                }
+
+                // Schedule next character with adaptive delay
+                if (typewriterIntervalRef.current !== null) {
+                  typewriterIntervalRef.current = setTimeout(typewriterTick, delay);
+                }
+              } else {
+                // Queue empty, stop the timer
+                typewriterIntervalRef.current = null;
+              }
+            };
+
+            // Start the typewriter loop
+            typewriterIntervalRef.current = setTimeout(typewriterTick, TIMING.TYPEWRITER_DELAYS.SLOW);
           }
-          textUpdateTimerRef.current = setTimeout(() => {
-            flushTextUpdate();
-          }, TIMING.BATCH_UPDATE_DELAY_MS);
 
           break;
         }
 
         case 'thinking': {
-          // Flush pending text updates before processing thinking
-          flushTextUpdate();
+          // Flush text typewriter before processing thinking (text and thinking don't mix)
+          flushTypewriter();
 
           const thinkingContent = event.content;
           if (!thinkingContent) break;
 
           // Check if we should start a new thinking block or append
           const lastBlock = currentBlocksRef.current[currentBlocksRef.current.length - 1];
-          if (!lastBlock || lastBlock.type !== 'thinking') {
+          const isNewThinkingBlock = !lastBlock || lastBlock.type !== 'thinking';
+
+          if (isNewThinkingBlock) {
+            // Reset thinking refs for new block
+            fullThinkingRef.current = '';
+            displayedThinkingRef.current = '';
+            thinkingQueueRef.current = [];
+            if (thinkingTypewriterRef.current) {
+              clearTimeout(thinkingTypewriterRef.current);
+              thinkingTypewriterRef.current = null;
+            }
+
             // Start new thinking block
             currentBlocksRef.current.push({
               type: 'thinking',
-              content: thinkingContent,
+              content: '',
               timestamp: Date.now(),
-              isIntermediate: true, // Thinking is always intermediate
+              isIntermediate: true,
             });
             // Reset text block index since we're starting a new round
             currentTextBlockIndexRef.current = -1;
-          } else {
-            // Append to existing thinking block
-            lastBlock.content += thinkingContent;
           }
 
-          setMessages(prev => {
-            const idx = prev.findIndex(m => m.id === assistantMessageId);
-            if (idx === -1) return prev;
+          // Accumulate full thinking content
+          // Only trimStart on first chunk (when fullThinkingRef is empty)
+          const contentToAdd = fullThinkingRef.current === '' ? thinkingContent.trimStart() : thinkingContent;
+          fullThinkingRef.current += contentToAdd;
 
-            const msg = prev[idx];
-            const updated = [...prev];
-            updated[idx] = {
-              ...msg,
-              thinking: (msg.thinking || '') + thinkingContent,
-              currentThinking: (msg.currentThinking || '') + thinkingContent,
-              isThinkingStreaming: true,
-              blocks: [...currentBlocksRef.current],
+          // Update the thinking block with full content (for blocks array)
+          // The thinking block is always the last one (either just pushed or existing)
+          const thinkingBlockIdx = currentBlocksRef.current.length - 1;
+          if (thinkingBlockIdx >= 0 && currentBlocksRef.current[thinkingBlockIdx].type === 'thinking') {
+            currentBlocksRef.current[thinkingBlockIdx].content = fullThinkingRef.current;
+          }
+
+          // Queue characters for typewriter effect (use trimmed content)
+          const chars = contentToAdd.split('');
+          thinkingQueueRef.current.push(...chars);
+
+          // Start thinking typewriter if not already running
+          if (!thinkingTypewriterRef.current) {
+            const thinkingTick = () => {
+              const char = thinkingQueueRef.current.shift();
+              if (char !== undefined) {
+                displayedThinkingRef.current += char;
+
+                // Update message with displayed thinking
+                setMessages(prev => {
+                  const idx = prev.findIndex(m => m.id === assistantMessageId);
+                  if (idx === -1) return prev;
+
+                  const msg = prev[idx];
+                  const updated = [...prev];
+                  updated[idx] = {
+                    ...msg,
+                    thinking: fullThinkingRef.current, // Full thinking for storage
+                    currentThinking: displayedThinkingRef.current, // Displayed for UI
+                    isThinkingStreaming: true,
+                    blocks: [...currentBlocksRef.current],
+                  };
+                  return updated;
+                });
+
+                // Adaptive speed (same as text)
+                const queueLength = thinkingQueueRef.current.length;
+                let delay: number;
+                if (queueLength > TIMING.TYPEWRITER_THRESHOLDS.VERY_FAST) {
+                  delay = TIMING.TYPEWRITER_DELAYS.VERY_FAST;
+                } else if (queueLength > TIMING.TYPEWRITER_THRESHOLDS.FAST) {
+                  delay = TIMING.TYPEWRITER_DELAYS.FAST;
+                } else if (queueLength > TIMING.TYPEWRITER_THRESHOLDS.NORMAL) {
+                  delay = TIMING.TYPEWRITER_DELAYS.NORMAL;
+                } else {
+                  delay = TIMING.TYPEWRITER_DELAYS.SLOW;
+                }
+
+                if (thinkingTypewriterRef.current !== null) {
+                  thinkingTypewriterRef.current = setTimeout(thinkingTick, delay);
+                }
+              } else {
+                // Queue empty
+                thinkingTypewriterRef.current = null;
+              }
             };
-            return updated;
-          });
+
+            thinkingTypewriterRef.current = setTimeout(thinkingTick, TIMING.TYPEWRITER_DELAYS.SLOW);
+          }
+
           break;
         }
 
         case 'tool_call': {
-          // Flush pending text updates before processing tool call
-          flushTextUpdate();
+          // Flush both typewriters before processing tool call
+          flushTypewriter();
+          flushThinkingTypewriter();
 
           const toolCall = event.tool_call;
           if (!toolCall) break;
@@ -258,12 +416,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           const toolId = toolCall.id;
           const toolName = toolCall.function?.name || '';
           const toolArgs = safeJsonParse(toolCall.function?.arguments || '{}');
-
-          console.log('[useChat] tool_call event:', { toolId, toolName, toolArgs });
-          console.log(
-            '[useChat] currentBlocks before:',
-            JSON.stringify(currentBlocksRef.current.map(b => ({ type: b.type, toolName: b.toolName }))),
-          );
 
           // Mark that next content stream should clear previous content
           needsContentClearRef.current = true;
@@ -279,11 +431,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             toolStatus: 'running',
             isIntermediate: true, // Tool calls are always intermediate
           });
-
-          console.log(
-            '[useChat] currentBlocks after:',
-            JSON.stringify(currentBlocksRef.current.map(b => ({ type: b.type, toolName: b.toolName }))),
-          );
 
           // Preserve current content
           const currentContent = fullContentRef.current;
@@ -316,25 +463,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'tool_result': {
-          // Flush pending text updates before processing tool result
-          flushTextUpdate();
+          // Flush pending updates before processing tool result
+          flushTypewriter();
+          flushThinkingTypewriter();
 
           const toolId = event.tool_call_id;
           const result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
-
-          console.log('[useChat] tool_result event:', { toolId, result: result?.slice(0, 100) });
-          console.log(
-            '[useChat] currentBlocks before tool_result:',
-            JSON.stringify(
-              currentBlocksRef.current.map(b => ({ type: b.type, toolName: b.toolName, toolCallId: b.toolCallId })),
-            ),
-          );
 
           // Update corresponding tool_call block status
           const toolCallBlockIndex = currentBlocksRef.current.findIndex(
             b => b.type === 'tool_call' && b.toolCallId === toolId,
           );
-          console.log('[useChat] toolCallBlockIndex:', toolCallBlockIndex);
           if (toolCallBlockIndex !== -1) {
             currentBlocksRef.current[toolCallBlockIndex].toolStatus = 'completed';
           }
@@ -347,11 +486,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             toolCallId: toolId,
             isIntermediate: true, // Tool results are always intermediate
           });
-
-          console.log(
-            '[useChat] currentBlocks after tool_result:',
-            JSON.stringify(currentBlocksRef.current.map(b => ({ type: b.type, toolName: b.toolName }))),
-          );
 
           setMessages(prev => {
             const idx = prev.findIndex(m => m.id === assistantMessageId);
@@ -374,21 +508,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'done': {
-          // Flush any pending text updates before finalizing
-          flushTextUpdate();
+          // Flush any pending updates before finalizing
+          flushTypewriter();
+          flushThinkingTypewriter();
 
           // Finalize message
           const finalContent = fullContentRef.current;
-          console.log(
-            '[useChat] done event, final blocks:',
-            JSON.stringify(
-              currentBlocksRef.current.map(b => ({
-                type: b.type,
-                toolName: b.toolName,
-                isIntermediate: b.isIntermediate,
-              })),
-            ),
-          );
 
           // Update the last text block with final content and mark as non-intermediate
           if (
@@ -428,6 +553,13 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           currentTextBlockIndexRef.current = -1;
           fullContentRef.current = '';
           needsContentClearRef.current = false;
+          // Reset text typewriter state
+          tokenQueueRef.current = [];
+          displayedContentRef.current = '';
+          // Reset thinking typewriter state
+          thinkingQueueRef.current = [];
+          displayedThinkingRef.current = '';
+          fullThinkingRef.current = '';
 
           setConversationId(event.conversationId);
           if (event.title) {
@@ -441,8 +573,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'error': {
-          // Flush pending text updates before handling error
-          flushTextUpdate();
+          // Flush pending updates before handling error
+          flushTypewriter();
+          flushThinkingTypewriter();
 
           setMessages(prev => {
             const idx = prev.findIndex(m => m.id === assistantMessageId);
@@ -464,6 +597,13 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           currentTextBlockIndexRef.current = -1;
           fullContentRef.current = '';
           needsContentClearRef.current = false;
+          // Reset text typewriter state
+          tokenQueueRef.current = [];
+          displayedContentRef.current = '';
+          // Reset thinking typewriter state
+          thinkingQueueRef.current = [];
+          displayedThinkingRef.current = '';
+          fullThinkingRef.current = '';
 
           setError(event.error);
           onError?.(new Error(event.error));
@@ -473,19 +613,13 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         case 'interrupt': {
-          // Flush pending text updates before handling interrupt
-          flushTextUpdate();
+          // Flush pending updates before handling interrupt
+          flushTypewriter();
+          flushThinkingTypewriter();
 
           // HITL interrupt received - pause for user input
           const interruptPayload = event.interrupt_payload;
           if (interruptPayload) {
-            console.log(
-              '[useChat] HITL interrupt received:',
-              event.interrupt_type,
-              interruptPayload,
-              'run_id:',
-              event.run_id,
-            );
             // Save run_id for HITL response
             currentRunIdRef.current = event.run_id ?? null;
             setPendingInterrupt({
@@ -497,7 +631,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
       }
     },
-    [onError, onConversationChange, flushTextUpdate],
+    [onError, onConversationChange, flushTypewriter, flushThinkingTypewriter],
   );
 
   // Send a message
@@ -508,11 +642,26 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       // Clear any previous error
       setError(null);
 
+      // Stop any running typewriters from previous message
+      if (typewriterIntervalRef.current) {
+        clearTimeout(typewriterIntervalRef.current);
+        typewriterIntervalRef.current = null;
+      }
+      if (thinkingTypewriterRef.current) {
+        clearTimeout(thinkingTypewriterRef.current);
+        thinkingTypewriterRef.current = null;
+      }
+
       // Reset refs for new message
       currentBlocksRef.current = [];
       currentTextBlockIndexRef.current = -1;
       fullContentRef.current = '';
       needsContentClearRef.current = false;
+      tokenQueueRef.current = [];
+      displayedContentRef.current = '';
+      thinkingQueueRef.current = [];
+      displayedThinkingRef.current = '';
+      fullThinkingRef.current = '';
 
       // Create user message
       const userMessage: ChatMessage = {
@@ -590,12 +739,23 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     cancelRef.current?.();
     cancelRef.current = null;
 
-    // Mark the last assistant message as not streaming
+    // Flush remaining content before stopping (don't discard queued content)
+    flushTypewriter();
+    flushThinkingTypewriter();
+
+    // Mark the last assistant message as not streaming, use full content
     setMessages(prev => {
       const lastAssistant = [...prev].reverse().find(m => m.role === 'assistant');
       if (!lastAssistant?.isStreaming) return prev;
 
-      return prev.map(m => (m.id === lastAssistant.id ? { ...m, isStreaming: false, isComplete: true } : m));
+      return prev.map(m => (m.id === lastAssistant.id ? {
+        ...m,
+        content: fullContentRef.current || m.content,
+        thinking: fullThinkingRef.current || m.thinking,
+        isStreaming: false,
+        isThinkingStreaming: false,
+        isComplete: true
+      } : m));
     });
 
     // Reset refs
@@ -603,15 +763,32 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     currentTextBlockIndexRef.current = -1;
     fullContentRef.current = '';
     needsContentClearRef.current = false;
+    tokenQueueRef.current = [];
+    displayedContentRef.current = '';
+    thinkingQueueRef.current = [];
+    displayedThinkingRef.current = '';
+    fullThinkingRef.current = '';
 
     setIsStreaming(false);
     setIsLoading(false);
-  }, []);
+  }, [flushTypewriter, flushThinkingTypewriter]);
 
   // Clear all messages
   const clearMessages = useCallback(() => {
     cancelRef.current?.();
     cancelRef.current = null;
+
+    // Stop text typewriter
+    if (typewriterIntervalRef.current) {
+      clearTimeout(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
+    // Stop thinking typewriter
+    if (thinkingTypewriterRef.current) {
+      clearTimeout(thinkingTypewriterRef.current);
+      thinkingTypewriterRef.current = null;
+    }
+
     setMessages([]);
     setError(null);
     setIsLoading(false);
@@ -622,6 +799,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     currentTextBlockIndexRef.current = -1;
     fullContentRef.current = '';
     needsContentClearRef.current = false;
+    tokenQueueRef.current = [];
+    displayedContentRef.current = '';
+    thinkingQueueRef.current = [];
+    displayedThinkingRef.current = '';
+    fullThinkingRef.current = '';
   }, []);
 
   // Load a conversation
@@ -655,6 +837,18 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const newConversation = useCallback(() => {
     cancelRef.current?.();
     cancelRef.current = null;
+
+    // Stop text typewriter
+    if (typewriterIntervalRef.current) {
+      clearTimeout(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
+    // Stop thinking typewriter
+    if (thinkingTypewriterRef.current) {
+      clearTimeout(thinkingTypewriterRef.current);
+      thinkingTypewriterRef.current = null;
+    }
+
     setMessages([]);
     setConversationId(null);
     setConversationTitle(null);
@@ -668,6 +862,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     currentTextBlockIndexRef.current = -1;
     fullContentRef.current = '';
     needsContentClearRef.current = false;
+    tokenQueueRef.current = [];
+    displayedContentRef.current = '';
+    thinkingQueueRef.current = [];
+    displayedThinkingRef.current = '';
+    fullThinkingRef.current = '';
   }, []);
 
   // ============================================================================
@@ -678,10 +877,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const sendHitlResponse = useCallback(
     (response: HitlResponse) => {
       if (!adapter.sendHitlResponse) {
-        console.error('[useChat] Adapter does not support HITL response');
         return;
       }
-      console.log('[useChat] Sending HITL response:', response);
       adapter.sendHitlResponse(response, currentRunIdRef.current ?? undefined);
     },
     [adapter],

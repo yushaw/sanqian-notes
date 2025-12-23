@@ -67,7 +67,7 @@ const PROSE_CLASSES = `
   prose-p:my-0 prose-p:leading-snug
   prose-ul:my-0.5 prose-ul:pl-5 prose-ul:list-disc
   prose-ol:my-0.5 prose-ol:pl-5 prose-ol:list-decimal
-  prose-li:my-0.5 prose-li:leading-relaxed
+  prose-li:my-0 prose-li:leading-normal
   prose-code:px-1 prose-code:py-0.5 prose-code:bg-chat-code prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
   prose-pre:my-0.5 prose-pre:bg-chat-code prose-pre:border prose-pre:border-chat-border prose-pre:rounded-lg prose-pre:p-2
   prose-blockquote:my-0.5 prose-blockquote:border-l-4 prose-blockquote:border-chat-accent/60 prose-blockquote:pl-3 prose-blockquote:italic

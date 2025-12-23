@@ -11,13 +11,13 @@
  */
 
 import { memo, useRef, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useChat } from '../hooks/useChat';
 import { useConnection } from '../hooks/useConnection';
 import { useConversations } from '../hooks/useConversations';
 import { MessageList } from '../primitives/MessageList';
 import { MessageBubble } from '../primitives/MessageBubble';
 import { ChatInput } from '../primitives/ChatInput';
-import { ConnectionStatus } from '../primitives/ConnectionStatus';
 import { AlertBanner, type AlertType, type AlertAction } from '../primitives/AlertBanner';
 import { MarkdownRenderer } from '../renderers/MarkdownRenderer';
 import { IntermediateSteps, StreamingTimeline, ThinkingSection } from './IntermediateSteps';
@@ -57,12 +57,24 @@ export interface CompactChatProps {
   hideHeader?: boolean;
   /** Whether to hide connection status bar */
   hideConnectionStatus?: boolean;
-  /** Whether to hide input area (for custom external input) */
+  /**
+   * Whether to hide input area (for custom external input)
+   * @deprecated Use `inputPortalContainer` instead for external input rendering
+   */
   hideInput?: boolean;
+  /**
+   * Container element for rendering input via Portal.
+   * When provided, input is rendered into this container, enabling separated layout.
+   */
+  inputPortalContainer?: HTMLElement | null;
   /** Ref to expose sendMessage function for external input */
   sendMessageRef?: React.MutableRefObject<((message: string) => void) | null>;
   /** Ref to expose newConversation function */
   newConversationRef?: React.MutableRefObject<(() => void) | null>;
+  /** Ref to expose focusInput function */
+  focusInputRef?: React.MutableRefObject<(() => void) | null>;
+  /** Ref to expose setText function (for filling input externally) */
+  setTextRef?: React.MutableRefObject<((text: string) => void) | null>;
   /** Custom message renderer */
   renderMessage?: (message: ChatMessage) => ReactNode;
   /** Custom tool call renderer (for future use) */
@@ -119,12 +131,15 @@ export const CompactChat = memo(function CompactChat({
   headerLeft,
   headerRight,
   hideHeader = false,
-  hideConnectionStatus = false,
+  hideConnectionStatus: _hideConnectionStatus = false,
   hideInput = false,
+  inputPortalContainer,
   sendMessageRef,
   newConversationRef,
+  focusInputRef: parentFocusInputRef,
+  setTextRef: parentSetTextRef,
   renderMessage,
-  _renderToolCall,
+  // _renderToolCall - reserved for future custom tool call rendering
   emptyState,
   className = '',
   isDarkMode = false,
@@ -138,6 +153,12 @@ export const CompactChat = memo(function CompactChat({
   const [showHistory, setShowHistory] = useState(false);
   // Internal connection error alert (auto-managed by SDK)
   const [connectionAlert, setConnectionAlert] = useState<AlertConfig | null>(null);
+
+  // Determine if input should be rendered externally via portal
+  // Use a ref to store this to avoid re-rendering when container changes
+  const portalContainerRef = useRef<HTMLElement | null>(inputPortalContainer ?? null);
+  portalContainerRef.current = inputPortalContainer ?? null;
+  const shouldRenderInputExternally = !!inputPortalContainer;
 
   // Connection state
   const connection = useConnection({
@@ -190,6 +211,20 @@ export const CompactChat = memo(function CompactChat({
       newConversationRef.current = chat.newConversation;
     }
   }, [newConversationRef, chat.newConversation]);
+
+  // Expose focusInput to parent via ref
+  useEffect(() => {
+    if (parentFocusInputRef) {
+      parentFocusInputRef.current = () => focusInputRef.current?.();
+    }
+  }, [parentFocusInputRef]);
+
+  // Expose setText to parent via ref
+  useEffect(() => {
+    if (parentSetTextRef) {
+      parentSetTextRef.current = (text: string) => setTextRef.current?.(text);
+    }
+  }, [parentSetTextRef]);
 
   // Notify parent when messages change (for session tracking)
   useEffect(() => {
@@ -264,7 +299,6 @@ export const CompactChat = memo(function CompactChat({
   // Default message renderer with Sanqian-style display strategy
   const defaultRenderMessage = (message: ChatMessage) => {
     const isUser = message.role === 'user';
-    const _isStreaming = message.isStreaming ?? false; // Reserved for future use
     const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
 
     // Determine display strategy
@@ -310,11 +344,10 @@ export const CompactChat = memo(function CompactChat({
 
           {/* Message bubble */}
           <div
-            className={`rounded-2xl px-3.5 py-2 ${
-              isUser
-                ? 'bg-chat-bubble-user text-chat-bubble-user'
-                : 'bg-chat-bubble-assistant text-chat-bubble-assistant'
-            }`}>
+            className={`rounded-2xl px-3.5 py-2 ${isUser
+              ? 'bg-chat-bubble-user text-chat-bubble-user'
+              : 'bg-chat-bubble-assistant text-chat-bubble-assistant'
+              }`}>
             <MessageBubble
               message={message}
               className="text-sm leading-relaxed"
@@ -420,104 +453,117 @@ export const CompactChat = memo(function CompactChat({
         />
       )}
 
-      {/* Input area - always visible, but disabled in history view */}
-      {!hideInput && (
-        <div className="flex flex-col gap-2 p-2">
-          {/* Alert banner above input - only show when not in history view
-              Priority: external alert > internal connectionAlert > chat.error */}
-          {!showHistory && (
-            <>
-              {alert ? (
-              <AlertBanner
-                type={alert.type}
-                message={alert.message}
-                action={alert.action}
-                onDismiss={alert.dismissible ? onAlertDismiss : undefined}
-                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${
-                  alert.type === 'error'
-                    ? isDarkMode
-                      ? 'bg-red-900/60 text-red-200'
-                      : 'bg-red-100 text-red-800'
-                    : isDarkMode
-                      ? 'bg-amber-900/60 text-amber-200'
-                      : 'bg-amber-100 text-amber-800'
-                }`}
-              />
-            ) : connectionAlert ? (
-              /* Internal connection alert (auto-dismissed on reconnect) */
-              <AlertBanner
-                type={connectionAlert.type}
-                message={connectionAlert.message}
-                action={connectionAlert.action}
-                onDismiss={connectionAlert.dismissible ? () => setConnectionAlert(null) : undefined}
-                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${
-                  connectionAlert.type === 'error'
-                    ? isDarkMode
-                      ? 'bg-red-900/60 text-red-200'
-                      : 'bg-red-100 text-red-800'
-                    : isDarkMode
-                      ? 'bg-amber-900/60 text-amber-200'
-                      : 'bg-amber-100 text-amber-800'
-                }`}
-              />
-            ) : (
-              /* Default: show chat error if exists */
-              chat.error && (
-                <AlertBanner
-                  type="error"
-                  message={chat.error}
-                  onDismiss={() => chat.setError(null)}
-                  className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${
-                    isDarkMode ? 'bg-red-900/60 text-red-200' : 'bg-red-100 text-red-800'
-                  }`}
-                />
-              )
+      {/* Input area - render via portal if inputPortalContainer provided, otherwise inline */}
+      {(() => {
+        // Don't render if explicitly hidden and no portal container
+        if (hideInput && !shouldRenderInputExternally) return null;
+
+        // For portal mode: only render ChatInput (no alerts/HITL in external container)
+        const inputElement = (
+          <ChatInput
+            onSend={chat.sendMessage}
+            onStop={chat.stopStreaming}
+            placeholder={showHistory ? (strings.selectConversation || 'Select a conversation to continue...') : placeholder}
+            disabled={showHistory || chat.isLoading}
+            isStreaming={chat.isStreaming}
+            isLoading={chat.isLoading}
+            setTextRef={setTextRef}
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus={!showHistory}
+            focusRef={focusInputRef}
+            className={`flex ${shouldRenderInputExternally ? 'items-center h-10' : 'items-end py-2'} gap-2 ${shouldRenderInputExternally ? '' : `rounded-2xl border ${borderClasses}`} bg-app-bg px-3 ${showHistory ? 'opacity-50' : ''}`}
+            textareaClassName={`flex-1 resize-none bg-transparent text-sm focus:outline-none ${shouldRenderInputExternally ? 'h-10 pt-2 whitespace-nowrap overflow-x-auto' : 'h-[36px]'} max-h-[120px] text-app-text placeholder:text-app-muted`}
+            sendButtonClassName="w-6 h-6 rounded-full flex items-center justify-center bg-app-accent text-white disabled:bg-app-border disabled:text-app-muted disabled:cursor-not-allowed text-xs"
+            stopButtonClassName={`w-6 h-6 rounded-full flex items-center justify-center bg-red-500 text-white text-xs`}
+            sendButtonContent={<span>↑</span>}
+            stopButtonContent={<span>■</span>}
+          />
+        );
+
+        // Portal mode: render only input into external container
+        if (shouldRenderInputExternally && portalContainerRef.current) {
+          return createPortal(inputElement, portalContainerRef.current);
+        }
+
+        // Normal mode: render with alerts and HITL
+        return (
+          <div className="flex flex-col gap-2 p-2">
+            {/* Alert banner above input - only show when not in history view
+                Priority: external alert > internal connectionAlert > chat.error */}
+            {!showHistory && (
+              <>
+                {alert ? (
+                  <AlertBanner
+                    type={alert.type}
+                    message={alert.message}
+                    action={alert.action}
+                    onDismiss={alert.dismissible ? onAlertDismiss : undefined}
+                    className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${alert.type === 'error'
+                      ? isDarkMode
+                        ? 'bg-red-900/60 text-red-200'
+                        : 'bg-red-100 text-red-800'
+                      : isDarkMode
+                        ? 'bg-amber-900/60 text-amber-200'
+                        : 'bg-amber-100 text-amber-800'
+                      }`}
+                  />
+                ) : connectionAlert ? (
+                  /* Internal connection alert (auto-dismissed on reconnect) */
+                  <AlertBanner
+                    type={connectionAlert.type}
+                    message={connectionAlert.message}
+                    action={connectionAlert.action}
+                    onDismiss={connectionAlert.dismissible ? () => setConnectionAlert(null) : undefined}
+                    className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${connectionAlert.type === 'error'
+                      ? isDarkMode
+                        ? 'bg-red-900/60 text-red-200'
+                        : 'bg-red-100 text-red-800'
+                      : isDarkMode
+                        ? 'bg-amber-900/60 text-amber-200'
+                        : 'bg-amber-100 text-amber-800'
+                      }`}
+                  />
+                ) : (
+                  /* Default: show chat error if exists */
+                  chat.error && (
+                    <AlertBanner
+                      type="error"
+                      message={chat.error}
+                      onDismiss={() => chat.setError(null)}
+                      className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDarkMode ? 'bg-red-900/60 text-red-200' : 'bg-red-100 text-red-800'
+                        }`}
+                    />
+                  )
+                )}
+
+                {/* HITL Card - show when there's a pending interrupt */}
+                {chat.pendingInterrupt && (
+                  <HitlCard
+                    interrupt={chat.pendingInterrupt}
+                    onApprove={chat.approveHitl}
+                    onReject={chat.rejectHitl}
+                    onSubmit={chat.submitHitlInput}
+                    onCancel={chat.cancelHitl}
+                    isDarkMode={isDarkMode}
+                    strings={{
+                      approve: strings.hitlApprove,
+                      reject: strings.hitlReject,
+                      submit: strings.hitlSubmit,
+                      cancel: strings.hitlCancel,
+                      rememberChoice: strings.hitlRememberChoice,
+                      requiredField: strings.hitlRequiredField,
+                      timeoutIn: strings.hitlTimeoutIn,
+                      seconds: strings.hitlSeconds,
+                    }}
+                  />
+                )}
+              </>
             )}
 
-            {/* HITL Card - show when there's a pending interrupt */}
-            {chat.pendingInterrupt && (
-              <HitlCard
-                interrupt={chat.pendingInterrupt}
-                onApprove={chat.approveHitl}
-                onReject={chat.rejectHitl}
-                onSubmit={chat.submitHitlInput}
-                onCancel={chat.cancelHitl}
-                isDarkMode={isDarkMode}
-                strings={{
-                  approve: strings.hitlApprove,
-                  reject: strings.hitlReject,
-                  submit: strings.hitlSubmit,
-                  cancel: strings.hitlCancel,
-                  rememberChoice: strings.hitlRememberChoice,
-                  requiredField: strings.hitlRequiredField,
-                  timeoutIn: strings.hitlTimeoutIn,
-                  seconds: strings.hitlSeconds,
-                }}
-              />
-            )}
-          </>
-        )}
-
-        <ChatInput
-          onSend={chat.sendMessage}
-          onStop={chat.stopStreaming}
-          placeholder={showHistory ? (strings.selectConversation || 'Select a conversation to continue...') : placeholder}
-          disabled={showHistory || chat.isLoading}
-          isStreaming={chat.isStreaming}
-          isLoading={chat.isLoading}
-          setTextRef={setTextRef}
-          // eslint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus={!showHistory}
-          focusRef={focusInputRef}
-          className={`flex items-end gap-2 rounded-2xl border ${borderClasses} bg-app-bg px-3 py-2 ${showHistory ? 'opacity-50' : ''}`}
-          textareaClassName="flex-1 resize-none bg-transparent text-sm focus:outline-none h-[36px] max-h-[120px] text-app-text placeholder:text-app-muted"
-          sendButtonClassName="w-6 h-6 rounded-full flex items-center justify-center bg-app-accent text-white disabled:bg-app-border disabled:text-app-muted disabled:cursor-not-allowed text-xs"
-          stopButtonClassName={`w-6 h-6 rounded-full flex items-center justify-center bg-red-500 text-white text-xs`}
-          sendButtonContent={<span>↑</span>}
-          stopButtonContent={<span>■</span>}
-        />
-        </div>
-      )}
+            {inputElement}
+          </div>
+        );
+      })()}
     </div>
   );
 });

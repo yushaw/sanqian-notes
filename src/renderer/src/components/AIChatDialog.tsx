@@ -1,88 +1,76 @@
 /**
  * AIChatDialog - Clean and minimal AI chat dialog
  *
- * Completely mirrors TodoList's ChatPanel structure.
  * Structure:
  * - Chat Panel (with header and messages/history)
- * - Input Bar (separate, below the panel)
- *
- * Debug: Added comprehensive logging to track adapter lifecycle
+ * - Input Bar (rendered via Portal from CompactChat)
  */
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { CompactChat } from '../lib/chat-ui/components/CompactChat'
 import { createElectronAdapter } from '../lib/chat-ui/adapters/electron'
 import { useTheme } from '../theme'
 import { useTranslations } from '../i18n'
-import { truncateText } from '../utils/text'
 import { TIMING, EASING, RETRY } from '../constants'
 import notesLogo from '../assets/notes-logo.png'
 
 interface AIChatDialogProps {
   isOpen: boolean
   onClose: () => void
-  onOpen?: () => void  // Callback to request opening (for session pill)
+  onOpen?: () => void
 }
 
 export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   const { resolvedColorMode } = useTheme()
   const t = useTranslations()
-  const [inputValue, setInputValue] = useState('')
-  const [isFocused, setIsFocused] = useState(false)
-  const [lastActivityTime, setLastActivityTime] = useState<number | null>(null)
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([])
-  const [conversationId, setConversationId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [hasEverOpened, setHasEverOpened] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting')
-  const inputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const chatSendMessageRef = useRef<((message: string) => void) | null>(null)
+  const inputContainerRef = useRef<HTMLDivElement>(null)
+  const [inputContainer, setInputContainer] = useState<HTMLElement | null>(null)
   const chatNewConversationRef = useRef<(() => void) | null>(null)
+  const chatFocusInputRef = useRef<(() => void) | null>(null)
+  const chatSetTextRef = useRef<((text: string) => void) | null>(null)
   const isOpenRef = useRef(isOpen)
 
   // Create adapter instance (using ref to ensure stability across HMR)
-  // This prevents creating new adapter instances on every HMR, which would
-  // cause IPC listener leaks
   const adapterRef = useRef<ReturnType<typeof createElectronAdapter> | null>(null)
   if (!adapterRef.current) {
-    console.log('[AIChatDialog] Creating new adapter')
     adapterRef.current = createElectronAdapter()
-  } else {
-    console.log('[AIChatDialog] Reusing existing adapter')
   }
   const adapter = adapterRef.current
 
-  // Keep isOpenRef in sync (only update when opening, not when closing)
+  // Keep isOpenRef in sync
   useEffect(() => {
     if (isOpen) {
       isOpenRef.current = true
     }
-    // Don't set to false here - let clearAndClose handle closing
   }, [isOpen])
 
   // Cleanup adapter on unmount
-  // Use adapterRef.current in cleanup to ensure we clean up the correct instance
   useEffect(() => {
     const currentAdapter = adapterRef.current
-    console.log('[AIChatDialog] Mounted with adapter')
     return () => {
-      console.log('[AIChatDialog] Unmounting, cleaning up adapter')
       currentAdapter?.cleanup?.()
     }
-  }, [])  // Empty deps: only run on real mount/unmount
+  }, [])
 
-  // Unified close handler - clears all state
-  const clearAndClose = useCallback(() => {
-    // Immediately mark as closed to prevent any further updates
+  // Close dialog without clearing session
+  const closeDialog = useCallback(() => {
     isOpenRef.current = false
-    // Clear all state including hover state
+    setIsHovered(false)
+    onClose()
+  }, [onClose])
+
+  // Close and clear session completely
+  const clearAndClose = useCallback(() => {
+    isOpenRef.current = false
     setMessages([])
-    setConversationId(null)
-    setLastActivityTime(null)
     setIsLoading(false)
     setIsHovered(false)
     setConnectionStatus('connecting')
@@ -90,69 +78,40 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   }, [onClose])
 
   // Check if we have an active session
-  // Only consider active if there's at least one user message
   const hasUserMessage = messages.some(m => m.role === 'user')
   const hasActiveSession = hasUserMessage
-
-  // Get last message summary for session pill (safely truncate to avoid breaking emoji)
-  const lastMessage = messages[messages.length - 1]
-  const sessionSummary = lastMessage?.role === 'assistant'
-    ? truncateText(lastMessage.content, 30)
-    : null
 
   // Connection retry with exponential backoff
   const connectWithRetry = useCallback(async (maxRetries = RETRY.MAX_ATTEMPTS) => {
     setConnectionStatus('connecting')
     for (let i = 0; i < maxRetries; i++) {
       try {
-        console.log(`[AIChatDialog] Connection attempt ${i + 1}/${maxRetries}`)
-        await window.electron.chat.connect()
-        console.log('[AIChatDialog] Connected successfully')
+        await adapter.connect()
         setConnectionStatus('connected')
         return true
       } catch (err) {
         console.error(`[AIChatDialog] Connect failed (${i + 1}/${maxRetries}):`, err)
         if (i < maxRetries - 1) {
-          // Exponential backoff: 1s, 2s, 4s
           const delayMs = Math.pow(2, i) * TIMING.RETRY_BASE_DELAY_MS
-          console.log(`[AIChatDialog] Retrying in ${delayMs}ms...`)
           await new Promise(resolve => setTimeout(resolve, delayMs))
         }
       }
     }
-    console.error('[AIChatDialog] All connection attempts failed')
     setConnectionStatus('error')
     return false
-  }, [])
+  }, [adapter])
 
-  // Manage Sanqian SDK connection based on dialog state
-  // Pattern follows TodoList's ChatPanel for consistency:
-  //
-  // When dialog opens:
-  //   1. acquireReconnect() - Enable auto-reconnect (ref count++)
-  //   2. connect() - Ensure SDK is connected and agent is ready
-  //
-  // When dialog closes:
-  //   1. releaseReconnect() - Disable auto-reconnect (ref count--)
-  //   2. Keep connection alive for faster next open
-  //
-  // This approach:
-  // - Saves resources when inactive (no auto-reconnect)
-  // - Keeps connection warm for instant reactivation
-  // - Supports multiple components via reference counting
+  // Manage connection based on dialog state  
   useEffect(() => {
     if (isOpen) {
-      // Enable auto-reconnect first
-      window.electron.chat.acquireReconnect().catch((err) => {
+      window.electron.chat.acquireReconnect().catch((err: unknown) => {
         console.error('[AIChatDialog] Failed to acquire reconnect:', err)
       })
-      // Then ensure connection with retry
-      connectWithRetry().catch((err) => {
-        console.error('[AIChatDialog] Failed to connect after retries:', err)
+      connectWithRetry().catch((err: unknown) => {
+        console.error('[AIChatDialog] Failed to connect:', err)
       })
     } else {
-      // Only release auto-reconnect, keep connection alive
-      window.electron.chat.releaseReconnect().catch((err) => {
+      window.electron.chat.releaseReconnect().catch((err: unknown) => {
         console.error('[AIChatDialog] Failed to release reconnect:', err)
       })
     }
@@ -161,28 +120,34 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   // ESC key to close
   useEffect(() => {
     if (!isOpen) return
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        clearAndClose()
+        closeDialog()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, clearAndClose])
+  }, [isOpen, closeDialog])
 
-  // Track if dialog has ever been opened (to preserve CompactChat state)
+  // Track if dialog has ever been opened
   useEffect(() => {
     if (isOpen && !hasEverOpened) {
       setHasEverOpened(true)
     }
   }, [isOpen, hasEverOpened])
 
+  // Sync inputContainerRef to state for Portal (ref.current is null on first render)
+  useEffect(() => {
+    if (inputContainerRef.current) {
+      setInputContainer(inputContainerRef.current)
+    }
+  }, [hasEverOpened])
+
   // Focus input when dialog opens
   useEffect(() => {
-    if (isOpen && inputRef.current) {
+    if (isOpen) {
       const timer = setTimeout(() => {
-        inputRef.current?.focus()
+        chatFocusInputRef.current?.()
       }, TIMING.FOCUS_DELAY_MS)
       return () => clearTimeout(timer)
     }
@@ -191,13 +156,10 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   // Click outside to close
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        // Don't close if clicking on input
-        const target = e.target as HTMLElement
-        if (target.closest('input[type="text"]')) {
-          return
-        }
+      const isOutsidePanel = panelRef.current && !panelRef.current.contains(e.target as Node)
+      const isOutsideInput = inputContainerRef.current && !inputContainerRef.current.contains(e.target as Node)
 
+      if (isOutsidePanel && isOutsideInput) {
         clearAndClose()
       }
     }
@@ -212,66 +174,31 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
     }
   }, [isOpen, clearAndClose])
 
-  const handleSend = useCallback((message?: string) => {
-    const textToSend = message || inputValue.trim()
-    if (!textToSend) return
-
-    // Clear input first
-    if (!message) {
-      setInputValue('')
-    }
-
-    // Send message through CompactChat's sendMessage
-    if (chatSendMessageRef.current) {
-      chatSendMessageRef.current(textToSend)
-    }
-  }, [inputValue])
-
-  // Handle suggestion click - fill input and focus
+  // Handle suggestion click - fill suggestion into input and focus
   const handleSuggestionClick = useCallback((suggestion: string) => {
-    setInputValue(suggestion)
-    inputRef.current?.focus()
+    chatSetTextRef.current?.(suggestion)
+    chatFocusInputRef.current?.()
   }, [])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault()
-      handleSend()
-    }
-  }, [handleSend])
-
-  // Handle chat state change (messages and conversationId)
+  // Handle chat state change
   const handleStateChange = useCallback((state: { messages: Array<{ role: string; content: string }>; conversationId: string | null }) => {
-    // Only update state when dialog is open (use ref to avoid stale closure)
-    if (!isOpenRef.current) {
-      return
-    }
-
+    if (!isOpenRef.current) return
     setMessages(state.messages)
-    setConversationId(state.conversationId)
-    // Update last activity time when messages change
-    if (state.messages.length > 0) {
-      setLastActivityTime(Date.now())
-    }
   }, [])
 
-  // Handle message received (update session state)
-  const handleMessageReceived = useCallback((message: { content: string }) => {
-    setLastActivityTime(Date.now())
+  // Handle message received
+  const handleMessageReceived = useCallback((_message: { content: string }) => {
+    // Message received
   }, [])
 
   // Handle loading state change
   const handleLoadingChange = useCallback((loading: boolean) => {
-    // Only update loading state when dialog is open (use ref to avoid stale closure)
-    if (!isOpenRef.current) {
-      return
-    }
+    if (!isOpenRef.current) return
     setIsLoading(loading)
   }, [])
 
-  // Handle close button - clear session completely (aligned with TodoList)
+  // Handle close button
   const handleClose = useCallback(() => {
-    // Clear CompactChat's conversation via its API
     if (chatNewConversationRef.current) {
       chatNewConversationRef.current()
     }
@@ -283,33 +210,16 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
     onOpen?.()
   }, [onOpen])
 
-  // Animation variants for the chat panel
+  // Animation variants
   const panelVariants = {
-    hidden: {
-      opacity: 0,
-      y: 12,
-      scale: 0.98,
-      x: '-50%',
-    },
+    hidden: { opacity: 0, y: 12, scale: 0.98, x: '-50%' },
     visible: {
-      opacity: 1,
-      y: 0,
-      scale: 1,
-      x: '-50%',
-      transition: {
-        duration: TIMING.PANEL_ENTER_S,
-        ease: EASING.SMOOTH,
-      }
+      opacity: 1, y: 0, scale: 1, x: '-50%',
+      transition: { duration: TIMING.PANEL_ENTER_S, ease: EASING.SMOOTH }
     },
     exit: {
-      opacity: 0,
-      y: 8,
-      scale: 0.98,
-      x: '-50%',
-      transition: {
-        duration: TIMING.PANEL_EXIT_S,
-        ease: EASING.EXIT,
-      }
+      opacity: 0, y: 8, scale: 0.98, x: '-50%',
+      transition: { duration: TIMING.PANEL_EXIT_S, ease: EASING.EXIT }
     }
   }
 
@@ -317,127 +227,108 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
 
   const dialog = (
     <>
-      {/* Chat Panel - bottom center */}
-      <AnimatePresence>
-        {hasEverOpened && isOpen && (
-          <motion.div
-            ref={panelRef}
-            className="fixed z-[99999] w-[420px] h-[360px] rounded-2xl shadow-app-elevated overflow-hidden flex flex-col border border-app-border"
-            style={{
-              bottom: '68px',
-              left: '50%',
-            }}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            variants={panelVariants}
-          >
+      {/* Chat Panel */}
+      {hasEverOpened && (
+        <motion.div
+          ref={panelRef}
+          className="fixed z-[99999] w-[420px] h-[360px] rounded-2xl shadow-app-elevated overflow-hidden flex flex-col border border-app-border"
+          style={{
+            bottom: '68px',
+            left: '50%',
+            visibility: isOpen ? 'visible' : 'hidden',
+            pointerEvents: isOpen ? 'auto' : 'none',
+          }}
+          initial="hidden"
+          animate={isOpen ? "visible" : "hidden"}
+          variants={panelVariants}
+        >
           {/* Connection Status Banner */}
-            {connectionStatus === 'error' && (
-              <div className="bg-red-100 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 px-4 py-2">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm text-red-800 dark:text-red-200">
-                    {t.ai.connectionFailed}
-                  </span>
-                  <button
-                    onClick={() => connectWithRetry()}
-                    className="text-sm text-red-800 dark:text-red-200 underline hover:no-underline"
-                  >
-                    {t.ai.retry}
-                  </button>
-                </div>
-                <p className="text-xs text-red-700 dark:text-red-300">
-                  {t.ai.ensureSanqianRunning}{' '}
-                  <a
-                    href="https://sanqian.io"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:no-underline font-medium"
-                  >
-                    {t.ai.visitSanqian}
-                  </a>
-                </p>
-              </div>
-            )}
-            {connectionStatus === 'connecting' && (
-              <div className="bg-blue-100 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 py-2">
-                <span className="text-sm text-blue-800 dark:text-blue-200">
-                  {t.ai.connecting}
-                </span>
-              </div>
-            )}
-
-            <CompactChat
-              adapter={adapter}
-              placeholder={t.ai.placeholder}
-              autoConnect={false}
-              hideHeader={false}
-              hideInput={true}
-              sendMessageRef={chatSendMessageRef}
-              newConversationRef={chatNewConversationRef}
-              onMessageReceived={handleMessageReceived}
-              onLoadingChange={handleLoadingChange}
-              onStateChange={handleStateChange}
-              isDarkMode={resolvedColorMode === 'dark'}
-              headerLeft={
-                <div className="flex items-center gap-2">
-                  <img
-                    src={notesLogo}
-                    alt="Notes"
-                    className="w-5 h-5"
-                  />
-                </div>
-              }
-              headerRight={
-                <button
-                  onClick={handleClose}
-                  className="p-1.5 rounded-lg hover:bg-app-surface text-app-muted hover:text-app-text transition-colors"
-                  title={t.ai.close}
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+          {connectionStatus === 'error' && (
+            <div className="bg-red-100 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 px-4 py-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-red-800 dark:text-red-200">{t.ai.connectionFailed}</span>
+                <button onClick={() => connectWithRetry()} className="text-sm text-red-800 dark:text-red-200 underline hover:no-underline">
+                  {t.ai.retry}
                 </button>
-              }
-              emptyState={
-                <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-                  <h3 className="text-base font-medium mb-3 text-app-text">
-                    {t.ai.greeting}
-                  </h3>
-                  <div className="flex flex-wrap justify-center gap-2 mb-3">
-                    {suggestions.map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        onClick={() => handleSuggestionClick(suggestion)}
-                        className="px-3 py-1.5 text-sm bg-app-surface rounded-full hover:bg-app-border transition-colors text-app-text"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              }
-              strings={{
-                chat: t.ai.chat,
-                selectConversation: t.ai.selectConversation,
-                recentChats: t.ai.recentChats,
-                newChat: t.ai.newChat,
-                noHistory: t.ai.noHistory,
-                loadMore: t.ai.loadMore,
-                today: t.date.today,
-                yesterday: t.date.yesterday,
-                delete: t.ai.delete,
-              }}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </div>
+              <p className="text-xs text-red-700 dark:text-red-300">
+                {t.ai.ensureSanqianRunning}{' '}
+                <a href="https://sanqian.io" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline font-medium">
+                  {t.ai.visitSanqian}
+                </a>
+              </p>
+            </div>
+          )}
+          {connectionStatus === 'connecting' && (
+            <div className="bg-blue-100 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 py-2">
+              <span className="text-sm text-blue-800 dark:text-blue-200">{t.ai.connecting}</span>
+            </div>
+          )}
 
-      {/* AI Button - fixed at bottom-right, Input Bar - centered at bottom */}
+          <CompactChat
+            adapter={adapter}
+            placeholder={t.ai.placeholder}
+            autoConnect={false}
+            hideHeader={false}
+            inputPortalContainer={inputContainer}
+            newConversationRef={chatNewConversationRef}
+            focusInputRef={chatFocusInputRef}
+            setTextRef={chatSetTextRef}
+            onMessageReceived={handleMessageReceived}
+            onLoadingChange={handleLoadingChange}
+            onStateChange={handleStateChange}
+            isDarkMode={resolvedColorMode === 'dark'}
+            headerLeft={
+              <div className="flex items-center gap-2">
+                <img src={notesLogo} alt="Notes" className="w-5 h-5" />
+              </div>
+            }
+            headerRight={
+              <button
+                onClick={handleClose}
+                className="p-1.5 rounded-lg hover:bg-app-surface text-app-muted hover:text-app-text transition-colors"
+                title={t.ai.close}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            }
+            emptyState={
+              <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+                <h3 className="text-base font-medium mb-3 text-app-text">{t.ai.greeting}</h3>
+                <div className="flex flex-wrap justify-center gap-2 mb-3">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="px-3 py-1.5 text-sm bg-app-surface rounded-full hover:bg-app-border transition-colors text-app-text"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            }
+            strings={{
+              chat: t.ai.chat,
+              selectConversation: t.ai.selectConversation,
+              recentChats: t.ai.recentChats,
+              newChat: t.ai.newChat,
+              noHistory: t.ai.noHistory,
+              loadMore: t.ai.loadMore,
+              today: t.date.today,
+              yesterday: t.date.yesterday,
+              delete: t.ai.delete,
+            }}
+          />
+        </motion.div>
+      )}
+
+      {/* AI Button */}
       <div className="fixed bottom-14 right-6 z-[99999]">
         <AnimatePresence mode="wait">
           {isOpen ? null : (
-            // AI Button
             <motion.button
               key="ai-button"
               initial={{ opacity: 0, scale: 0.9 }}
@@ -460,16 +351,13 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
                 alt="AI"
                 className="w-5 h-5"
                 style={resolvedColorMode === 'dark' ? { filter: 'invert(1)' } : {}}
-                animate={{
-                  rotate: (hasActiveSession || isHovered) ? 360 : 0,
-                }}
+                animate={{ rotate: (hasActiveSession || isHovered) ? 360 : 0 }}
                 transition={{
                   duration: 20,
                   ease: 'linear',
                   repeat: (hasActiveSession || isHovered) ? Infinity : 0,
                 }}
               />
-              {/* Loading indicator */}
               {isLoading && (
                 <div className="absolute -bottom-1 -right-1 flex gap-0.5 bg-app-surface rounded-full px-1.5 py-0.5 border border-app-border">
                   <span className="w-1 h-1 bg-app-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -477,7 +365,6 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
                   <span className="w-1 h-1 bg-app-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               )}
-              {/* Active session indicator - when not loading */}
               {hasActiveSession && !isLoading && (
                 <div className="absolute -bottom-0.5 -right-0.5">
                   <span className="relative flex h-2 w-2">
@@ -491,39 +378,18 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
         </AnimatePresence>
       </div>
 
-      {/* Input Bar - bottom center */}
-      {isOpen && (
-        <div className="fixed z-[100000]" style={{ bottom: '24px', left: '50%', transform: 'translateX(-50%)' }}>
-          <div className="w-[420px] bg-app-bg border border-app-border rounded-2xl shadow-app-elevated overflow-hidden relative">
-            <div className="relative flex items-center gap-3 px-4 h-10">
-              <input
-                ref={inputRef}
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                placeholder={t.ai.placeholder}
-                className="flex-1 bg-transparent text-sm text-app-text placeholder:text-app-muted focus:outline-none min-w-0"
-              />
-              <button
-                onClick={() => handleSend()}
-                disabled={!inputValue.trim()}
-                className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${
-                  inputValue.trim()
-                    ? 'bg-app-accent text-white hover:opacity-80'
-                    : 'bg-app-border text-app-muted cursor-not-allowed'
-                }`}
-              >
-                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Input Container - Portal target */}
+      <div
+        ref={inputContainerRef}
+        className="fixed z-[100000] w-[420px] bg-app-bg border border-app-border rounded-2xl shadow-app-elevated overflow-hidden"
+        style={{
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          visibility: isOpen ? 'visible' : 'hidden',
+          pointerEvents: isOpen ? 'auto' : 'none'
+        }}
+      />
     </>
   )
 

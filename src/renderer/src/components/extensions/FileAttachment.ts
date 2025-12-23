@@ -56,13 +56,13 @@ export const FileAttachment = Node.create({
   addCommands() {
     return {
       setFileAttachment:
-        (options) =>
-        ({ commands }) => {
+        (options: { src: string; name: string; size?: number; type?: string }) =>
+        ({ commands }: { commands: { insertContent: (content: unknown) => boolean } }) => {
           return commands.insertContent({
             type: this.name,
             attrs: options,
           })
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 })

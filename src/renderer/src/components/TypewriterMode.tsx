@@ -53,7 +53,7 @@ import { TypewriterToolbar } from './TypewriterToolbar'
 import { TypewriterToc } from './TypewriterToc'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
-import { useTypewriterSound, type KeyType } from '../hooks/useTypewriterSound'
+import { useTypewriterSound } from '../hooks/useTypewriterSound'
 import './Typewriter.css'
 
 // ==================== 类型定义 ====================

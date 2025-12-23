@@ -41,7 +41,7 @@ interface CodeBlockAttrs {
   language: string
 }
 
-export function CodeBlockView({ node, updateAttributes, extension }: NodeViewProps) {
+export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
   const attrs = node.attrs as CodeBlockAttrs
   const [showDropdown, setShowDropdown] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -181,7 +181,7 @@ export function CodeBlockView({ node, updateAttributes, extension }: NodeViewPro
       </div>
 
       <pre>
-        <NodeViewContent as="code" />
+        <NodeViewContent<"code"> as="code" />
       </pre>
     </NodeViewWrapper>
   )

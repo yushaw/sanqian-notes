@@ -1,6 +1,6 @@
 import Image from '@tiptap/extension-image'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { NodeSelection } from '@tiptap/pm/state'
 import { ResizableImageView } from '../ResizableImageView'
 
@@ -66,14 +66,14 @@ export const ResizableImage = Image.extend({
             if (event.key === 'Enter') {
               // Enter 键：只在图片后新起一行
               tr.insert(pos, state.schema.nodes.paragraph.create())
-              tr.setSelection(state.selection.constructor.near(tr.doc.resolve(pos + 1)))
+              tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)))
             } else {
               // 其他字符：新起一行并插入该字符
               const textNode = state.schema.text(event.key)
               const paragraph = state.schema.nodes.paragraph.create(null, textNode)
               tr.insert(pos, paragraph)
               // 将光标移动到插入字符之后
-              tr.setSelection(state.selection.constructor.near(tr.doc.resolve(pos + 2)))
+              tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 2)))
             }
 
             view.dispatch(tr)

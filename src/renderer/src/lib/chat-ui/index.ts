@@ -1,13 +1,13 @@
 /**
  * @extension/chat-ui
  *
- * Modular Chat UI SDK for Sanqian integration
+ * Modular Chat UI SDK for Sanqian integration (Electron)
  *
  * @example Basic usage with CompactChat
  * ```tsx
- * import { CompactChat, createSanqianAdapter } from '@extension/chat-ui';
+ * import { CompactChat, createElectronAdapter } from '@extension/chat-ui';
  *
- * const adapter = createSanqianAdapter();
+ * const adapter = createElectronAdapter();
  *
  * function App() {
  *   return <CompactChat adapter={adapter} />;
@@ -22,10 +22,10 @@
  *   MessageList,
  *   MessageBubble,
  *   ChatInput,
- *   createSanqianAdapter
+ *   createElectronAdapter
  * } from '@extension/chat-ui';
  *
- * const adapter = createSanqianAdapter();
+ * const adapter = createElectronAdapter();
  *
  * function CustomChat() {
  *   const connection = useConnection({ adapter });

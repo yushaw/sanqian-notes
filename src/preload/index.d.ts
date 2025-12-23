@@ -31,6 +31,7 @@ declare global {
         delete: (id: string) => Promise<boolean>
         search: (query: string) => Promise<unknown[]>
         createDemo: () => Promise<void>
+        onDataChanged: (callback: () => void) => () => void
       }
       trash: {
         getAll: () => Promise<unknown[]>
@@ -59,7 +60,7 @@ declare global {
         isFullScreen: () => Promise<boolean>
       }
       platform: {
-        get: () => Promise<string>
+        get: () => Promise<NodeJS.Platform>
       }
       attachment: AttachmentAPI
       chat: ChatAPI

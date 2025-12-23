@@ -53,13 +53,13 @@ export const Audio = Node.create({
   addCommands() {
     return {
       setAudio:
-        (options) =>
-        ({ commands }) => {
+        (options: { src: string; title?: string }) =>
+        ({ commands }: { commands: { insertContent: (content: unknown) => boolean } }) => {
           return commands.insertContent({
             type: this.name,
             attrs: options,
           })
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 })

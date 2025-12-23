@@ -787,7 +787,7 @@ app.whenReady().then(() => {
       const { sdk, agentId } = await ensureAgentReady(agentType)
 
       const result = await sdk.listConversations({
-        agent_id: agentId,
+        agentId: agentId,
         limit: params.limit,
         offset: params.offset
       })
@@ -808,10 +808,9 @@ app.whenReady().then(() => {
   }) => {
     try {
       // Always use assistant agent for conversation history
-      const { sdk, agentId } = await ensureAgentReady('assistant')
+      const { sdk } = await ensureAgentReady('assistant')
 
       const result = await sdk.getConversation(params.conversationId, {
-        agent_id: agentId,
         messageLimit: params.messageLimit
       })
 

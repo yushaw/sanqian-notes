@@ -92,21 +92,21 @@ export const Callout = Node.create({
   addCommands() {
     return {
       setCallout:
-        (attributes) =>
-        ({ commands }) => {
+        (attributes?: { type?: CalloutType; title?: string }) =>
+        ({ commands }: { commands: { wrapIn: (name: string, attrs?: unknown) => boolean } }) => {
           return commands.wrapIn(this.name, attributes)
         },
       toggleCallout:
-        (attributes) =>
-        ({ commands }) => {
+        (attributes?: { type?: CalloutType; title?: string }) =>
+        ({ commands }: { commands: { toggleWrap: (name: string, attrs?: unknown) => boolean } }) => {
           return commands.toggleWrap(this.name, attributes)
         },
       updateCallout:
-        (attributes) =>
-        ({ commands }) => {
+        (attributes: { type?: CalloutType; title?: string }) =>
+        ({ commands }: { commands: { updateAttributes: (name: string, attrs: unknown) => boolean } }) => {
           return commands.updateAttributes(this.name, attributes)
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 
   addInputRules() {

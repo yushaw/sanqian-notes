@@ -54,7 +54,7 @@ export const ChatInput = memo(function ChatInput({
   stopButtonClassName = '',
   sendButtonContent = 'Send',
   stopButtonContent = 'Stop',
-  maxRows = 5,
+  maxRows: _maxRows = 5,
   setTextRef,
   autoFocus = false,
   focusRef,

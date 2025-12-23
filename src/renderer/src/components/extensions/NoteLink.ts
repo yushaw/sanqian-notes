@@ -103,16 +103,16 @@ export const NoteLink = Mark.create<NoteLinkOptions>({
   addCommands() {
     return {
       setNoteLink:
-        attributes =>
-        ({ commands }) => {
+        (attributes: { noteId: string; noteTitle: string; targetType?: 'note' | 'heading' | 'block'; targetValue?: string }) =>
+        ({ commands }: { commands: { setMark: (name: string, attrs: unknown) => boolean } }) => {
           return commands.setMark(this.name, attributes)
         },
       unsetNoteLink:
         () =>
-        ({ commands }) => {
+        ({ commands }: { commands: { unsetMark: (name: string) => boolean } }) => {
           return commands.unsetMark(this.name)
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 
   addProseMirrorPlugins() {

@@ -7,8 +7,8 @@
  * 3. 点击即可选中
  */
 
-import { Node, mergeAttributes } from '@tiptap/core'
-import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
+import { Node, mergeAttributes, type InputRule } from '@tiptap/core'
+import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 
 export const CustomHorizontalRule = Node.create({
   name: 'horizontalRule',
@@ -35,6 +35,7 @@ export const CustomHorizontalRule = Node.create({
     ]
   },
 
+  // @ts-expect-error - TipTap 3.x type mismatch with addCommands return type
   addCommands() {
     return {
       setHorizontalRule:
@@ -59,10 +60,7 @@ export const CustomHorizontalRule = Node.create({
 
                 if ($to.nodeAfter) {
                   if ($to.nodeAfter.isTextblock) {
-                    tr.setSelection(
-                      // @ts-expect-error - TextSelection import issue
-                      state.selection.constructor.create(tr.doc, $to.pos + 1)
-                    )
+                    tr.setSelection(TextSelection.create(tr.doc, $to.pos + 1))
                   } else if ($to.nodeAfter.isBlock) {
                     tr.setSelection(NodeSelection.create(tr.doc, $to.pos))
                   }
@@ -72,10 +70,7 @@ export const CustomHorizontalRule = Node.create({
                   if (nodeType) {
                     const node = nodeType.create()
                     tr.insert(posAfter, node)
-                    tr.setSelection(
-                      // @ts-expect-error - TextSelection import issue
-                      state.selection.constructor.near(tr.doc.resolve(posAfter + 1))
-                    )
+                    tr.setSelection(TextSelection.near(tr.doc.resolve(posAfter + 1)))
                   }
                 }
                 tr.scrollIntoView()
@@ -87,18 +82,18 @@ export const CustomHorizontalRule = Node.create({
     }
   },
 
-  addInputRules() {
+  addInputRules(): InputRule[] {
     return [
       {
         find: /^(?:---|—-|___\s|\*\*\*\s)$/,
-        handler: ({ state, range, match }) => {
+        handler: ({ state, range, match }: { state: { tr: { replaceWith: (from: number, to: number, node: unknown) => unknown } }; range: { from: number; to: number }; match: string[] }) => {
           const { tr } = state
           if (match[0]) {
             tr.replaceWith(range.from - 1, range.to, this.type.create())
           }
           return tr
         },
-      },
+      } as unknown as InputRule,
     ]
   },
 

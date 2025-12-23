@@ -69,10 +69,10 @@ export const Toggle = Node.create({
     return {
       setToggle:
         () =>
-        ({ commands }) => {
+        ({ commands }: { commands: { wrapIn: (name: string) => boolean } }) => {
           return commands.wrapIn(this.name)
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 
   addKeyboardShortcuts() {

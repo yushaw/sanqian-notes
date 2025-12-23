@@ -50,7 +50,7 @@ export const Footnote = Node.create({
     return {
       setFootnote:
         (content = '') =>
-        ({ commands, state }) => {
+        ({ commands, state }: { commands: { insertContent: (content: unknown) => boolean }; state: { doc: { descendants: (fn: (node: { type: { name: string }; attrs: { id?: number } }) => void) => void } } }) => {
           // 找到最大的脚注 ID，生成新 ID
           let maxId = 0
           state.doc.descendants((node) => {
@@ -67,7 +67,7 @@ export const Footnote = Node.create({
             },
           })
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 
   addKeyboardShortcuts() {

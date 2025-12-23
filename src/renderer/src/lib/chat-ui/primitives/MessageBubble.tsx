@@ -24,7 +24,6 @@ export const MessageBubble = memo(function MessageBubble({
   children,
   renderContent,
 }: MessageBubbleProps) {
-  const isUser = message.role === 'user';
   const isStreaming = message.isStreaming ?? false;
 
   return (

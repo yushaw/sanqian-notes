@@ -54,7 +54,7 @@ export const Mermaid = Node.create({
     return {
       setMermaid:
         () =>
-        ({ commands }) => {
+        ({ commands }: { commands: { insertContent: (content: unknown) => boolean } }) => {
           return commands.insertContent({
             type: this.name,
             attrs: {
@@ -62,6 +62,6 @@ export const Mermaid = Node.create({
             },
           })
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 })

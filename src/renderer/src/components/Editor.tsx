@@ -594,7 +594,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     // 如果是 Markdown，使用 insertContent 转换
     if (externalContent === null) {
       const html = markdownToHtml(note.content)
-      editor.commands.setContent('', false) // 先清空
+      editor.commands.setContent('', { emitUpdate: false }) // 先清空
       editor.commands.insertContent(html, {
         parseOptions: {
           preserveWhitespace: false,
@@ -609,7 +609,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     // 只有当外部内容真正不同时才同步
     if (currentContent !== externalContentStr) {
       // 使用 setContent 同步，emitUpdate: false 避免触发 onUpdate 回调造成循环
-      editor.commands.setContent(externalContent, false)
+      editor.commands.setContent(externalContent, { emitUpdate: false })
       editorContentRef.current = note.content
     }
   }, [editor, note.content])

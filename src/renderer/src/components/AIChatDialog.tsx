@@ -61,6 +61,7 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   }, [])
 
   // Close dialog without clearing session
+  // ESC uses this: user may just want to temporarily hide the dialog
   const closeDialog = useCallback(() => {
     isOpenRef.current = false
     setIsHovered(false)
@@ -68,6 +69,7 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   }, [onClose])
 
   // Close and clear session completely
+  // Click outside uses this: user has finished the conversation
   const clearAndClose = useCallback(() => {
     isOpenRef.current = false
     setMessages([])
@@ -137,9 +139,14 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   }, [isOpen, hasEverOpened])
 
   // Sync inputContainerRef to state for Portal (ref.current is null on first render)
+  // Use requestAnimationFrame to ensure DOM has rendered
   useEffect(() => {
-    if (inputContainerRef.current) {
-      setInputContainer(inputContainerRef.current)
+    if (hasEverOpened) {
+      requestAnimationFrame(() => {
+        if (inputContainerRef.current) {
+          setInputContainer(inputContainerRef.current)
+        }
+      })
     }
   }, [hasEverOpened])
 
@@ -186,11 +193,6 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
     setMessages(state.messages)
   }, [])
 
-  // Handle message received
-  const handleMessageReceived = useCallback((_message: { content: string }) => {
-    // Message received
-  }, [])
-
   // Handle loading state change
   const handleLoadingChange = useCallback((loading: boolean) => {
     if (!isOpenRef.current) return
@@ -210,17 +212,18 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
     onOpen?.()
   }, [onOpen])
 
-  // Animation variants
+  // Animation variants for panel show/hide
+  // Note: No AnimatePresence used - panel stays mounted to preserve CompactChat state
+  // Using visibility:hidden + animate between states instead of mount/unmount
   const panelVariants = {
-    hidden: { opacity: 0, y: 12, scale: 0.98, x: '-50%' },
+    hidden: {
+      opacity: 0, y: 12, scale: 0.98, x: '-50%',
+      transition: { duration: TIMING.PANEL_EXIT_S, ease: EASING.EXIT }
+    },
     visible: {
       opacity: 1, y: 0, scale: 1, x: '-50%',
       transition: { duration: TIMING.PANEL_ENTER_S, ease: EASING.SMOOTH }
     },
-    exit: {
-      opacity: 0, y: 8, scale: 0.98, x: '-50%',
-      transition: { duration: TIMING.PANEL_EXIT_S, ease: EASING.EXIT }
-    }
   }
 
   const suggestions = [t.ai.suggestion1, t.ai.suggestion2, t.ai.suggestion3]
@@ -274,7 +277,6 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
             newConversationRef={chatNewConversationRef}
             focusInputRef={chatFocusInputRef}
             setTextRef={chatSetTextRef}
-            onMessageReceived={handleMessageReceived}
             onLoadingChange={handleLoadingChange}
             onStateChange={handleStateChange}
             isDarkMode={resolvedColorMode === 'dark'}

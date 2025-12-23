@@ -4,6 +4,7 @@
 type AttachmentResult = import('../../shared/types').AttachmentResult
 type AttachmentSelectOptions = import('../../shared/types').AttachmentSelectOptions
 type AttachmentAPI = import('../../shared/types').AttachmentAPI
+type ChatAPI = import('../../shared/types').ChatAPI
 
 interface Window {
   electron: {
@@ -14,6 +15,7 @@ interface Window {
       update: (id: string, updates: Partial<NoteInput>) => Promise<Note | null>
       delete: (id: string) => Promise<boolean>
       search: (query: string) => Promise<Note[]>
+      onDataChanged: (callback: () => void) => () => void
     }
     trash: {
       getAll: () => Promise<Note[]>
@@ -42,9 +44,10 @@ interface Window {
       isFullScreen: () => Promise<boolean>
     }
     platform: {
-      get: () => Promise<string>
+      get: () => Promise<NodeJS.Platform>
     }
     attachment: AttachmentAPI
+    chat: ChatAPI
   }
 }
 

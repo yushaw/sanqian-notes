@@ -9,13 +9,10 @@ import type {
   ConnectionStatus,
   ConnectionErrorCode,
   StreamEvent,
-  ConversationInfo,
-  ConversationDetail,
   ChatMessage,
   ToolCall,
   MessageBlock,
   HitlResponse,
-  StreamHitlInterruptPayload,
 } from '../core/types';
 import type { ChatAdapter, AdapterConfig, SendMessage } from './types';
 import { TIMING } from '@/constants';

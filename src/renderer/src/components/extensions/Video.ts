@@ -56,13 +56,13 @@ export const Video = Node.create({
   addCommands() {
     return {
       setVideo:
-        (options) =>
-        ({ commands }) => {
+        (options: { src: string }) =>
+        ({ commands }: { commands: { insertContent: (content: unknown) => boolean } }) => {
           return commands.insertContent({
             type: this.name,
             attrs: options,
           })
         },
-    }
+    } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 })

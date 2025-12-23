@@ -1,4 +1,4 @@
-import { Node, mergeAttributes } from '@tiptap/core'
+import { Node, mergeAttributes, type InputRule } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { MathView } from '../MathView'
 
@@ -62,12 +62,13 @@ export const Mathematics = Node.create<MathOptions>({
     return ReactNodeViewRenderer(MathView)
   },
 
-  addInputRules() {
+  addInputRules(): InputRule[] {
+    type InputRuleHandler = { state: { tr: { replaceWith: (from: number, to: number, node: unknown) => unknown } }; range: { from: number; to: number }; match: string[] }
     return [
       // Inline math: $...$
       {
         find: /(?<!\$)\$([^$\s][^$]*[^$\s]|[^$\s])\$$/,
-        handler: ({ state, range, match }) => {
+        handler: ({ state, range, match }: InputRuleHandler) => {
           const latex = match[1]
           if (!latex) return null
 
@@ -75,11 +76,11 @@ export const Mathematics = Node.create<MathOptions>({
           tr.replaceWith(range.from, range.to, this.type.create({ latex, display: 'no' }))
           return tr
         },
-      },
+      } as unknown as InputRule,
       // Block math: $$...$$
       {
         find: /\$\$([^$]+)\$\$$/,
-        handler: ({ state, range, match }) => {
+        handler: ({ state, range, match }: InputRuleHandler) => {
           const latex = match[1]
           if (!latex) return null
 
@@ -87,7 +88,7 @@ export const Mathematics = Node.create<MathOptions>({
           tr.replaceWith(range.from, range.to, this.type.create({ latex, display: 'yes' }))
           return tr
         },
-      },
+      } as unknown as InputRule,
     ]
   },
 })

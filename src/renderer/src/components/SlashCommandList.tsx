@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useState, useRef } from 'react'
 import type { SlashCommandItem } from './extensions/SlashCommand'
 import { useTranslations } from '../i18n'
 
@@ -11,10 +11,19 @@ export const SlashCommandList = forwardRef<unknown, SlashCommandListProps>(
   ({ items, command }, ref) => {
     const [selectedIndex, setSelectedIndex] = useState(0)
     const t = useTranslations()
+    const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
 
     useEffect(() => {
       setSelectedIndex(0)
     }, [items])
+
+    // Scroll selected item into view
+    useEffect(() => {
+      const selectedItem = itemRefs.current[selectedIndex]
+      if (selectedItem) {
+        selectedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }, [selectedIndex])
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }: { event: KeyboardEvent }) => {
@@ -50,6 +59,7 @@ export const SlashCommandList = forwardRef<unknown, SlashCommandListProps>(
         {items.map((item, index) => (
           <button
             key={item.id}
+            ref={(el) => { itemRefs.current[index] = el }}
             className={`slash-command-item ${index === selectedIndex ? 'selected' : ''}`}
             onClick={() => command(item)}
             onMouseEnter={() => setSelectedIndex(index)}

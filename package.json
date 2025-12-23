@@ -4,6 +4,7 @@
   "description": "Zen-style Notes App powered by Sanqian Agent",
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "electron-rebuild",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
@@ -59,6 +60,7 @@
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "@electron/rebuild": "^4.0.2",
     "@tailwindcss/typography": "^0.5.19",
     "@types/better-sqlite3": "^7.6.13",
     "@types/dompurify": "^3.0.5",

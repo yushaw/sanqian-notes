@@ -477,8 +477,25 @@ function createWindow(): void {
   }
 
   const isDarkMode = nativeTheme.shouldUseDarkColors
-  const initialBgColor = isDarkMode ? '#1a1a1a' : '#F5F5F7'
+  // Use card colors to match content area (basePalettes.light.card / dark.card)
+  const initialBgColor = isDarkMode ? '#1F1F1F' : '#FFFFFF'
   const initialTextColor = isDarkMode ? '#ffffff' : '#1D1D1F'
+
+  // Listen for theme changes to update titlebar overlay
+  nativeTheme.on('updated', () => {
+    if (mainWindow && process.platform === 'win32') {
+      const dark = nativeTheme.shouldUseDarkColors
+      try {
+        mainWindow.setTitleBarOverlay({
+          color: dark ? '#1F1F1F' : '#FFFFFF',
+          symbolColor: dark ? '#ffffff' : '#1D1D1F',
+          height: 40
+        })
+      } catch (err) {
+        console.error('Failed to update title bar overlay on theme change:', err)
+      }
+    }
+  })
 
   // macOS specific options
   if (process.platform === 'darwin') {

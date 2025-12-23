@@ -136,9 +136,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     docEl.classList.toggle('dark', resolvedColorMode === 'dark')
     docEl.style.setProperty('color-scheme', resolvedColorMode === 'dark' ? 'dark' : 'light')
 
-    // Update Windows titlebar overlay colors
+    // Update Windows titlebar overlay colors - use card color to match content area
     window.electron?.window?.setTitleBarOverlay?.({
-      color: bgTint,
+      color: palette.card,
       symbolColor: palette.text
     })
   }, [resolvedColorMode, themeColor])

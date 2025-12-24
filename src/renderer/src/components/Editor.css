@@ -458,18 +458,18 @@
 
 .zen-editor ul {
   padding-left: 1.5em;
-  margin: 0.75em 0;
+  margin: 0;
   list-style-type: disc;
 }
 
 .zen-editor ol {
   padding-left: 1.5em;
-  margin: 0.75em 0;
+  margin: 0;
   list-style-type: decimal;
 }
 
 .zen-editor li {
-  margin: 0.375em 0;
+  margin: 0;
 }
 
 .zen-editor li > p {

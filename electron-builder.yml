@@ -32,6 +32,7 @@ extraResources:
 # macOS configuration
 mac:
   icon: resources/icons/mac/icon.icns
+  notarize: true
   target:
     - target: dmg
       arch:

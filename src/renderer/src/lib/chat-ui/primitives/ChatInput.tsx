@@ -124,23 +124,14 @@ export const ChatInput = memo(function ChatInput({
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    const baseHeight = 36;
     const maxHeight = 120;
 
-    // If empty, always use base height
-    if (!text.trim()) {
-      textarea.style.height = `${baseHeight}px`;
-      return;
-    }
-
-    // Temporarily shrink to measure actual content height
-    textarea.style.height = `${baseHeight}px`;
+    // Reset to auto to measure content
+    textarea.style.height = 'auto';
     const scrollHeight = textarea.scrollHeight;
 
-    // Only grow if content exceeds base height
-    if (scrollHeight > baseHeight) {
-      textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
-    }
+    // Apply height with max limit
+    textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
   }, [text]);
 
   const handleSubmit = useCallback(
@@ -151,9 +142,9 @@ export const ChatInput = memo(function ChatInput({
       onSend(text.trim());
       setText('');
 
-      // Reset textarea height to base height
+      // Reset textarea height
       if (textareaRef.current) {
-        textareaRef.current.style.height = '36px';
+        textareaRef.current.style.height = 'auto';
       }
     },
     [text, canSend, onSend],
@@ -184,7 +175,6 @@ export const ChatInput = memo(function ChatInput({
         placeholder={placeholder}
         disabled={disabled}
         rows={1}
-        style={{ height: '36px' }}
         className={textareaClassName}
         aria-label="Message input"
       />

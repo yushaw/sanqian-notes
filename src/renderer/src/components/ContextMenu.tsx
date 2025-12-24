@@ -36,6 +36,7 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
   const [hoveredSubMenuIndex, setHoveredSubMenuIndex] = useState<number | null>(null)
   const [subMenuPosition, setSubMenuPosition] = useState<{ top: number; left: number } | null>(null)
   const hoverTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const showTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Reset submenu state when menu closes
   useEffect(() => {
@@ -92,36 +93,51 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
   }, [visible, x, y])
 
   const handleSubMenuHover = (index: number, itemElement: HTMLElement) => {
-    // Clear any existing timer
+    // Clear any existing hide timer
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current)
       hoverTimerRef.current = null
     }
 
-    const rect = itemElement.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-
-    // Default: show to the right
-    let left = rect.right + 4
-    let top = rect.top
-
-    // If not enough space on the right, show on the left
-    if (left + 200 > viewportWidth) {
-      left = rect.left - 204
+    // Clear any existing show timer
+    if (showTimerRef.current) {
+      clearTimeout(showTimerRef.current)
+      showTimerRef.current = null
     }
 
-    // Adjust vertical position if needed
-    const estimatedHeight = (items[index] as SubMenuItem).subItems.length * 32 + 8
-    if (top + estimatedHeight > viewportHeight) {
-      top = Math.max(8, viewportHeight - estimatedHeight - 8)
-    }
+    // Add a short delay before showing submenu to avoid accidental triggers
+    showTimerRef.current = setTimeout(() => {
+      const rect = itemElement.getBoundingClientRect()
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
 
-    setSubMenuPosition({ top, left })
-    setHoveredSubMenuIndex(index)
+      // Default: show to the right
+      let left = rect.right + 4
+      let top = rect.top
+
+      // If not enough space on the right, show on the left
+      if (left + 200 > viewportWidth) {
+        left = rect.left - 204
+      }
+
+      // Adjust vertical position if needed
+      const estimatedHeight = (items[index] as SubMenuItem).subItems.length * 32 + 8
+      if (top + estimatedHeight > viewportHeight) {
+        top = Math.max(8, viewportHeight - estimatedHeight - 8)
+      }
+
+      setSubMenuPosition({ top, left })
+      setHoveredSubMenuIndex(index)
+    }, 100) // 100ms delay to prevent accidental hover triggers
   }
 
   const handleSubMenuLeave = () => {
+    // Clear show timer if still pending
+    if (showTimerRef.current) {
+      clearTimeout(showTimerRef.current)
+      showTimerRef.current = null
+    }
+
     // Add delay before hiding to allow mouse to move to submenu
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current)
@@ -136,6 +152,9 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
     return () => {
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current)
+      }
+      if (showTimerRef.current) {
+        clearTimeout(showTimerRef.current)
       }
     }
   }, [])

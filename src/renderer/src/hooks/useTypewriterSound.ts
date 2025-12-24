@@ -21,17 +21,17 @@ interface TypewriterSoundOptions {
 
 export type KeyType = 'backspace' | 'enter' | 'space' | 'normal' | 'delete'
 
-// 音效文件映射
+// 音效文件映射（使用相对路径，兼容打包后的 file:// 协议）
 const SOUND_FILES = {
-  backspace: '/sounds/typewriter/backspace.wav',
-  enter: '/sounds/typewriter/return-new.wav',
-  space: '/sounds/typewriter/space-new.wav',
+  backspace: './sounds/typewriter/backspace.wav',
+  enter: './sounds/typewriter/return-new.wav',
+  space: './sounds/typewriter/space-new.wav',
   normal: [
-    '/sounds/typewriter/key-new-01.wav',
-    '/sounds/typewriter/key-new-02.wav',
-    '/sounds/typewriter/key-new-03.wav',
-    '/sounds/typewriter/key-new-04.wav',
-    '/sounds/typewriter/key-new-05.wav',
+    './sounds/typewriter/key-new-01.wav',
+    './sounds/typewriter/key-new-02.wav',
+    './sounds/typewriter/key-new-03.wav',
+    './sounds/typewriter/key-new-04.wav',
+    './sounds/typewriter/key-new-05.wav',
   ],
 }
 

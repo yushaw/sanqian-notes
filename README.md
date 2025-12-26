@@ -2362,3 +2362,20 @@ npm run reset-db
 - `src/renderer/src/i18n/translations.ts`
 - `src/main/database.ts`
 - `src/renderer/src/env.d.ts`
+
+### 2025-12-26 编辑器工具栏 AI 按钮
+
+- ✅ **工具栏添加 AI 图标**
+  - 最左侧添加 sparkles 图标
+  - hover 显示 AI actions 下拉菜单（最大高度 200px）
+  - 点击图标直接打开 AI 对话框
+
+- ✅ **右键菜单修复**
+  - 子菜单位置调整：与主菜单轻微重叠
+  - 打开新子菜单时关闭其他子菜单
+  - 滚动子菜单时不会意外关闭
+
+- ✅ **布局调整**
+  - 侧边栏宽度：w-52 → w-44
+  - 中间列宽度：w-64 → w-56
+

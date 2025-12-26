@@ -482,6 +482,63 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       attributes: {
         class: `zen-editor ${isFocusMode ? 'focus-mode' : ''}`,
       },
+      // 自定义剪贴板纯文本序列化，正确处理列表格式
+      clipboardTextSerializer: (slice) => {
+        const lines: string[] = []
+
+        const serializeNode = (node: any, indent: number = 0, listType?: 'bullet' | 'ordered' | 'task', listIndex?: number) => {
+          const indentStr = '  '.repeat(indent)
+
+          if (node.type.name === 'bulletList') {
+            node.content.forEach((child: any) => {
+              serializeNode(child, indent, 'bullet')
+            })
+          } else if (node.type.name === 'orderedList') {
+            let idx = 1
+            node.content.forEach((child: any) => {
+              serializeNode(child, indent, 'ordered', idx++)
+            })
+          } else if (node.type.name === 'taskList') {
+            node.content.forEach((child: any) => {
+              serializeNode(child, indent, 'task')
+            })
+          } else if (node.type.name === 'listItem') {
+            const prefix = listType === 'ordered' ? `${listIndex}. ` : '• '
+            const text = node.textContent || ''
+            lines.push(indentStr + prefix + text)
+            // Handle nested lists
+            node.content.forEach((child: any) => {
+              if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
+                serializeNode(child, indent + 1)
+              }
+            })
+          } else if (node.type.name === 'taskItem') {
+            const checked = node.attrs?.checked ? '☑' : '☐'
+            const text = node.textContent || ''
+            lines.push(indentStr + checked + ' ' + text)
+            // Handle nested lists
+            node.content.forEach((child: any) => {
+              if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
+                serializeNode(child, indent + 1)
+              }
+            })
+          } else if (node.isBlock) {
+            const text = node.textContent
+            if (text) {
+              lines.push(text)
+            } else if (node.type.name === 'paragraph' && lines.length > 0) {
+              // Empty paragraph = blank line, but not at start
+              lines.push('')
+            }
+          }
+        }
+
+        slice.content.forEach((node: any) => {
+          serializeNode(node)
+        })
+
+        return lines.join('\n')
+      },
     },
     onUpdate: ({ editor }) => {
       const json = editor.getJSON()

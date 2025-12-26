@@ -1,6 +1,6 @@
 {
   "name": "sanqian-notes",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zen-style Notes App powered by Sanqian Agent",
   "main": "./out/main/index.js",
   "scripts": {
@@ -40,7 +40,7 @@
     "@tiptap/react": "^3.13.0",
     "@tiptap/starter-kit": "^3.13.0",
     "@tiptap/suggestion": "^3.13.0",
-    "@yushaw/sanqian-sdk": "^0.2.13",
+    "@yushaw/sanqian-sdk": "^0.2.14",
     "better-sqlite3": "^12.5.0",
     "clsx": "^2.1.1",
     "dompurify": "^3.3.1",

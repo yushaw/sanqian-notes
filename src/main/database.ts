@@ -2,15 +2,18 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
+import { t, getSystemLang } from './i18n'
+import type { AIAction, AIActionInput, AIActionMode } from '../shared/types'
+
+// Re-export for backward compatibility
+export type { AIAction, AIActionInput, AIActionMode }
 
 // Constants
 export const TRASH_RETENTION_DAYS = 30
 
-// 获取系统语言
+// 获取系统语言 (alias for backward compatibility)
 function getSystemLanguage(): 'zh' | 'en' {
-  const locale = app.getLocale().toLowerCase()
-  if (locale.startsWith('zh')) return 'zh'
-  return 'en'
+  return getSystemLang()
 }
 
 let db: Database.Database
@@ -79,6 +82,25 @@ export function initDatabase(): void {
       FOREIGN KEY (target_note_id) REFERENCES notes(id) ON DELETE CASCADE
     );
 
+    -- AI Actions table (user-customizable AI operations)
+    CREATE TABLE IF NOT EXISTS ai_actions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      icon TEXT NOT NULL DEFAULT '✨',
+      prompt TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'replace',
+      show_in_context_menu INTEGER NOT NULL DEFAULT 1,
+      show_in_slash_command INTEGER NOT NULL DEFAULT 1,
+      show_in_shortcut INTEGER NOT NULL DEFAULT 1,
+      shortcut_key TEXT DEFAULT '',
+      order_index INTEGER NOT NULL DEFAULT 0,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_notes_notebook_id ON notes(notebook_id);
     CREATE INDEX IF NOT EXISTS idx_notes_is_daily ON notes(is_daily);
@@ -91,12 +113,17 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_note_tags_tag_id ON note_tags(tag_id);
     CREATE INDEX IF NOT EXISTS idx_note_links_source ON note_links(source_note_id);
     CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_actions_order ON ai_actions(order_index);
+    CREATE INDEX IF NOT EXISTS idx_ai_actions_enabled ON ai_actions(enabled);
   `)
 
   // Create demo note for new databases
   if (isNewDb) {
     createDemoNote()
   }
+
+  // Initialize default AI actions
+  initDefaultAIActions()
 
   // Clean up FTS tables if they exist (no longer used, LIKE search is better for CJK)
   cleanupFtsTables()
@@ -152,6 +179,46 @@ function runMigrations(): void {
     db.exec('ALTER TABLE notes ADD COLUMN deleted_at TEXT DEFAULT NULL')
     db.exec('CREATE INDEX IF NOT EXISTS idx_notes_deleted_at ON notes(deleted_at)')
     console.log('Migration completed: deleted_at column added.')
+  }
+
+  // Migration: Add shortcut_key column to ai_actions table
+  const aiActionColumns = db.prepare("PRAGMA table_info(ai_actions)").all() as { name: string }[]
+  const hasShortcutKey = aiActionColumns.some(col => col.name === 'shortcut_key')
+
+  if (!hasShortcutKey) {
+    console.log('Adding shortcut_key column to ai_actions table...')
+    db.exec("ALTER TABLE ai_actions ADD COLUMN shortcut_key TEXT DEFAULT ''")
+    console.log('Migration completed: shortcut_key column added.')
+  }
+
+  // Migration: Add description column to ai_actions table
+  const hasDescription = aiActionColumns.some(col => col.name === 'description')
+
+  if (!hasDescription) {
+    console.log('Adding description column to ai_actions table...')
+    db.exec("ALTER TABLE ai_actions ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+    console.log('Migration completed: description column added.')
+  }
+
+  // Always update builtin actions with latest descriptions (ensures updates after code changes)
+  const aiActions = t().aiActions
+  const builtinDescriptions: Record<string, string> = {
+    'builtin-improve': aiActions.improve.description,
+    'builtin-simplify': aiActions.simplify.description,
+    'builtin-expand': aiActions.expand.description,
+    'builtin-translate': aiActions.translate.description,
+    'builtin-summarize': aiActions.summarize.description,
+    'builtin-explain': aiActions.explain.description
+  }
+  const now = new Date().toISOString()
+  // Update if description is empty string OR NULL
+  const updateStmt = db.prepare(`
+    UPDATE ai_actions
+    SET description = ?, updated_at = ?
+    WHERE id = ? AND (description = '' OR description IS NULL)
+  `)
+  for (const [id, description] of Object.entries(builtinDescriptions)) {
+    updateStmt.run(description, now, id)
   }
 }
 
@@ -1362,4 +1429,286 @@ export function getUsedAttachmentPaths(): string[] {
   }
 
   return Array.from(paths)
+}
+
+// ============================================
+// AI Actions
+// ============================================
+
+// Get default builtin AI actions (localized based on system language)
+function getDefaultAIActions() {
+  const actions = t().aiActions
+  return [
+    {
+      id: 'builtin-improve',
+      name: actions.improve.name,
+      description: actions.improve.description,
+      icon: '✏️',
+      prompt: actions.improve.prompt,
+      mode: 'replace' as const
+    },
+    {
+      id: 'builtin-simplify',
+      name: actions.simplify.name,
+      description: actions.simplify.description,
+      icon: '📐',
+      prompt: actions.simplify.prompt,
+      mode: 'replace' as const
+    },
+    {
+      id: 'builtin-expand',
+      name: actions.expand.name,
+      description: actions.expand.description,
+      icon: '📖',
+      prompt: actions.expand.prompt,
+      mode: 'replace' as const
+    },
+    {
+      id: 'builtin-translate',
+      name: actions.translate.name,
+      description: actions.translate.description,
+      icon: '🌐',
+      prompt: actions.translate.prompt,
+      mode: 'replace' as const
+    },
+    {
+      id: 'builtin-summarize',
+      name: actions.summarize.name,
+      description: actions.summarize.description,
+      icon: '📋',
+      prompt: actions.summarize.prompt,
+      mode: 'insert' as const
+    },
+    {
+      id: 'builtin-explain',
+      name: actions.explain.name,
+      description: actions.explain.description,
+      icon: '💡',
+      prompt: actions.explain.prompt,
+      mode: 'popup' as const
+    }
+  ]
+}
+
+/**
+ * Initialize default AI actions if none exist
+ */
+export function initDefaultAIActions(): void {
+  const count = db.prepare('SELECT COUNT(*) as count FROM ai_actions').get() as { count: number }
+
+  if (count.count === 0) {
+    const now = new Date().toISOString()
+    const stmt = db.prepare(`
+      INSERT INTO ai_actions (id, name, description, icon, prompt, mode, show_in_context_menu, show_in_slash_command, show_in_shortcut, order_index, is_builtin, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, 1, 1, ?, 1, 1, ?, ?)
+    `)
+
+    getDefaultAIActions().forEach((action, index) => {
+      stmt.run(action.id, action.name, action.description, action.icon, action.prompt, action.mode, index, now, now)
+    })
+
+    console.log('[Database] Initialized default AI actions')
+  }
+}
+
+/**
+ * Get all AI actions sorted by order
+ */
+export function getAIActions(): AIAction[] {
+  const stmt = db.prepare('SELECT * FROM ai_actions WHERE enabled = 1 ORDER BY order_index ASC')
+  const rows = stmt.all() as any[]
+
+  return rows.map(row => ({
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    icon: row.icon,
+    prompt: row.prompt,
+    mode: row.mode as 'replace' | 'insert' | 'popup',
+    showInContextMenu: row.show_in_context_menu === 1,
+    showInSlashCommand: row.show_in_slash_command === 1,
+    showInShortcut: row.show_in_shortcut === 1,
+    shortcutKey: row.shortcut_key || '',
+    orderIndex: row.order_index,
+    isBuiltin: row.is_builtin === 1,
+    enabled: row.enabled === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }))
+}
+
+/**
+ * Get all AI actions including disabled ones (for settings)
+ */
+export function getAllAIActions(): AIAction[] {
+  const stmt = db.prepare('SELECT * FROM ai_actions ORDER BY order_index ASC')
+  const rows = stmt.all() as any[]
+
+  return rows.map(row => ({
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    icon: row.icon,
+    prompt: row.prompt,
+    mode: row.mode as 'replace' | 'insert' | 'popup',
+    showInContextMenu: row.show_in_context_menu === 1,
+    showInSlashCommand: row.show_in_slash_command === 1,
+    showInShortcut: row.show_in_shortcut === 1,
+    shortcutKey: row.shortcut_key || '',
+    orderIndex: row.order_index,
+    isBuiltin: row.is_builtin === 1,
+    enabled: row.enabled === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }))
+}
+
+/**
+ * Get a single AI action by ID
+ */
+export function getAIAction(id: string): AIAction | null {
+  const stmt = db.prepare('SELECT * FROM ai_actions WHERE id = ?')
+  const row = stmt.get(id) as any
+
+  if (!row) return null
+
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    icon: row.icon,
+    prompt: row.prompt,
+    mode: row.mode as 'replace' | 'insert' | 'popup',
+    showInContextMenu: row.show_in_context_menu === 1,
+    showInSlashCommand: row.show_in_slash_command === 1,
+    showInShortcut: row.show_in_shortcut === 1,
+    shortcutKey: row.shortcut_key || '',
+    orderIndex: row.order_index,
+    isBuiltin: row.is_builtin === 1,
+    enabled: row.enabled === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+/**
+ * Create a new AI action
+ */
+export function createAIAction(input: AIActionInput): AIAction {
+  const id = uuidv4()
+  const now = new Date().toISOString()
+
+  // Get max order index
+  const maxOrder = db.prepare('SELECT MAX(order_index) as max FROM ai_actions').get() as { max: number | null }
+  const orderIndex = (maxOrder.max ?? -1) + 1
+
+  db.prepare(`
+    INSERT INTO ai_actions (id, name, description, icon, prompt, mode, show_in_context_menu, show_in_slash_command, show_in_shortcut, shortcut_key, order_index, is_builtin, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)
+  `).run(
+    id,
+    input.name,
+    input.description || '',
+    input.icon,
+    input.prompt,
+    input.mode,
+    input.showInContextMenu !== false ? 1 : 0,
+    input.showInSlashCommand !== false ? 1 : 0,
+    input.showInShortcut !== false ? 1 : 0,
+    input.shortcutKey || '',
+    orderIndex,
+    now,
+    now
+  )
+
+  return getAIAction(id)!
+}
+
+/**
+ * Update an AI action
+ */
+export function updateAIAction(id: string, updates: Partial<AIActionInput> & { enabled?: boolean }): AIAction | null {
+  const existing = getAIAction(id)
+  if (!existing) return null
+
+  const now = new Date().toISOString()
+  const fields: string[] = ['updated_at = ?']
+  const values: any[] = [now]
+
+  if (updates.name !== undefined) {
+    fields.push('name = ?')
+    values.push(updates.name)
+  }
+  if (updates.description !== undefined) {
+    fields.push('description = ?')
+    values.push(updates.description)
+  }
+  if (updates.icon !== undefined) {
+    fields.push('icon = ?')
+    values.push(updates.icon)
+  }
+  if (updates.prompt !== undefined) {
+    fields.push('prompt = ?')
+    values.push(updates.prompt)
+  }
+  if (updates.mode !== undefined) {
+    fields.push('mode = ?')
+    values.push(updates.mode)
+  }
+  if (updates.showInContextMenu !== undefined) {
+    fields.push('show_in_context_menu = ?')
+    values.push(updates.showInContextMenu ? 1 : 0)
+  }
+  if (updates.showInSlashCommand !== undefined) {
+    fields.push('show_in_slash_command = ?')
+    values.push(updates.showInSlashCommand ? 1 : 0)
+  }
+  if (updates.showInShortcut !== undefined) {
+    fields.push('show_in_shortcut = ?')
+    values.push(updates.showInShortcut ? 1 : 0)
+  }
+  if (updates.shortcutKey !== undefined) {
+    fields.push('shortcut_key = ?')
+    values.push(updates.shortcutKey)
+  }
+  if (updates.enabled !== undefined) {
+    fields.push('enabled = ?')
+    values.push(updates.enabled ? 1 : 0)
+  }
+
+  values.push(id)
+  db.prepare(`UPDATE ai_actions SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+
+  return getAIAction(id)
+}
+
+/**
+ * Delete an AI action (only non-builtin)
+ */
+export function deleteAIAction(id: string): boolean {
+  const existing = getAIAction(id)
+  if (!existing || existing.isBuiltin) return false
+
+  db.prepare('DELETE FROM ai_actions WHERE id = ? AND is_builtin = 0').run(id)
+  return true
+}
+
+/**
+ * Reorder AI actions
+ */
+export function reorderAIActions(orderedIds: string[]): void {
+  const stmt = db.prepare('UPDATE ai_actions SET order_index = ?, updated_at = ? WHERE id = ?')
+  const now = new Date().toISOString()
+
+  orderedIds.forEach((id, index) => {
+    stmt.run(index, now, id)
+  })
+}
+
+/**
+ * Reset AI actions to defaults
+ */
+export function resetAIActionsToDefaults(): void {
+  db.prepare('DELETE FROM ai_actions').run()
+  initDefaultAIActions()
 }

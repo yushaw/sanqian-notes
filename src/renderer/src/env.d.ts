@@ -5,6 +5,9 @@ type AttachmentResult = import('../../shared/types').AttachmentResult
 type AttachmentSelectOptions = import('../../shared/types').AttachmentSelectOptions
 type AttachmentAPI = import('../../shared/types').AttachmentAPI
 type ChatAPI = import('../../shared/types').ChatAPI
+type AIAction = import('../../shared/types').AIAction
+type AIActionInput = import('../../shared/types').AIActionInput
+type AIActionAPI = import('../../shared/types').AIActionAPI
 
 interface Window {
   electron: {
@@ -43,6 +46,16 @@ interface Window {
     tag: {
       getAll: () => Promise<Tag[]>
       getByNote: (noteId: string) => Promise<Tag[]>
+    }
+    aiAction: {
+      getAll: () => Promise<AIAction[]>
+      getAllIncludingDisabled: () => Promise<AIAction[]>
+      getById: (id: string) => Promise<AIAction | null>
+      create: (input: AIActionInput) => Promise<AIAction>
+      update: (id: string, updates: Partial<AIActionInput> & { enabled?: boolean }) => Promise<AIAction | null>
+      delete: (id: string) => Promise<boolean>
+      reorder: (orderedIds: string[]) => Promise<void>
+      reset: () => Promise<void>
     }
     theme: {
       get: () => Promise<'light' | 'dark'>
@@ -102,3 +115,5 @@ interface Tag {
   id: string
   name: string
 }
+
+// AIAction and AIActionInput types are imported from shared/types

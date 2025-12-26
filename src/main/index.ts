@@ -27,6 +27,16 @@ import {
   cleanupOldTrash,
   // Attachment references
   getUsedAttachmentPaths,
+  // AI Actions
+  getAIActions,
+  getAllAIActions,
+  getAIAction,
+  createAIAction,
+  updateAIAction,
+  deleteAIAction,
+  reorderAIActions,
+  resetAIActionsToDefaults,
+  type AIActionInput,
 } from './database'
 import {
   saveAttachment,
@@ -648,6 +658,18 @@ app.whenReady().then(() => {
   // IPC handlers for tag operations
   ipcMain.handle('tag:getAll', () => getTags())
   ipcMain.handle('tag:getByNote', (_, noteId) => getTagsByNote(noteId))
+
+  // IPC handlers for AI actions
+  ipcMain.handle('aiAction:getAll', () => getAIActions())
+  ipcMain.handle('aiAction:getAllIncludingDisabled', () => getAllAIActions())
+  ipcMain.handle('aiAction:getById', (_, id: string) => getAIAction(id))
+  ipcMain.handle('aiAction:create', (_, input: AIActionInput) => createAIAction(input))
+  ipcMain.handle('aiAction:update', (_, id: string, updates: Partial<AIActionInput> & { enabled?: boolean }) =>
+    updateAIAction(id, updates)
+  )
+  ipcMain.handle('aiAction:delete', (_, id: string) => deleteAIAction(id))
+  ipcMain.handle('aiAction:reorder', (_, orderedIds: string[]) => reorderAIActions(orderedIds))
+  ipcMain.handle('aiAction:reset', () => resetAIActionsToDefaults())
 
   // IPC handlers for attachment operations
   ipcMain.handle('attachment:save', (_, filePath: string) => saveAttachment(filePath))

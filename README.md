@@ -2191,3 +2191,174 @@ npm run reset-db
   ```
 - SDK 所有 chat_stream 事件（thinking, text, tool_call 等）统一转换为标准 StreamEvent 格式
 - 前端 adapter 和 useChat 无需修改，自动支持 thinking 内容显示
+#### AI 右键菜单功能 (2025-12-25)
+- ✅ **编辑器右键菜单添加 AI 子菜单**
+  - 选中文本后右键可见 AI 操作菜单
+  - 支持操作：润色改写、简化语言、扩写详述、翻译、总结摘要、解释说明
+  - 翻译自动检测语言（中文↔英文互译）
+  - 支持"自由输入"自定义 AI 指令
+
+- ✅ **流式替换/插入**
+  - 大部分操作直接替换选中文本
+  - "解释说明"操作将结果插入到选区后方
+  - 所有操作支持 ⌘Z 撤销
+
+**新增文件**：
+- `src/renderer/src/hooks/useAIWriting.ts` - AI 写作操作 hook，包含 prompts 和流式处理逻辑
+- `src/renderer/src/components/AICustomInput.tsx` - 自定义 AI 指令输入框组件
+
+**修改文件**：
+- `src/renderer/src/components/EditorContextMenu.tsx` - 添加 AI 子菜单
+- `src/renderer/src/i18n/translations.ts` - 添加 AI 相关文案
+- `src/renderer/src/components/Editor.css` - 添加 AI 输入框样式
+
+#### AI 跨 Block 流式替换 (2025-12-26)
+- ✅ **实现跨 Block 选择的流式替换**
+  - 支持三种替换场景：
+    1. **单 Block 整体替换**：光标在段落中无选择，替换整个段落
+    2. **Block 内部选择替换**：选中段落内部分文字，只替换选中部分
+    3. **跨 Block 选择替换**：选中跨越多个段落/列表项，各 Block 独立流式更新
+
+- ✅ **跨 Block 实现方案**
+  - 使用 `blockId` 唯一标识每个 Block（自动生成 6 位 ID）
+  - Prompt 使用 `<block id="N">content</block>` XML 格式
+  - 发送给 LLM 的是简单数字 ID（1, 2, 3...），内部维护到真实 blockId 的映射
+  - 流式解析 XML 标签，根据 blockId 定位并更新对应 Block
+
+- ✅ **流式 XML 解析器**
+  - 处理流式传输中标签被拆分的情况（如 `</block` 和 `>` 分两次到达）
+  - 保留可能不完整的标签在 buffer 中，避免误解析
+  - 支持实时更新当前正在处理的 Block
+
+**技术实现**：
+- `src/renderer/src/utils/aiContext.ts`
+  - `BlockInfo` 接口添加 `blockId` 字段
+  - `getBlocksInSelection()` 自动为没有 blockId 的节点生成 ID
+  - `formatAIPrompt()` 返回 `FormattedPrompt`，包含 prompt 和 blockMapping
+
+- `src/renderer/src/hooks/useAIWriting.ts`
+  - `findBlockByIdInEditor()` 通过 blockId 查找 Block 位置
+  - `parseStreamingBlocks()` 流式 XML 解析器，处理标签拆分问题
+  - 三种模式自动切换：单 Block 流式、选择流式、跨 Block XML 流式
+
+#### AI Action Prompt 优化 (2025-12-26)
+- ✅ **精简内置 AI Action 的 Prompt**
+  - 基于业界最佳实践调研（Notion AI、WritingTools、Anthropic 官方文档）
+  - 删除冗余内容：角色声明、输出约束、格式保持（已在上层 System Prompt 和 formatAIPrompt 中覆盖）
+  - 保留任务特定指令：每个 Action 的核心功能描述和特有规则
+  - 平均长度从 ~120 字精简到 ~50 字
+
+- ✅ **优化后的 Prompt 结构**
+  - 润色改写：强调"尽量保留原文措辞，只改动必要的部分"
+  - 简化语言：明确"用短句替代长句，用常见词替代专业术语"
+  - 扩写详述：量化目标"1.5-2 倍长度"
+  - 翻译：明确"代码、专有名词、URL 保持原样不翻译"
+  - 总结摘要：从模糊的"15-25%"改为具体的"3-5 个核心要点"
+  - 解释说明：明确受众"假设读者没有专业背景"
+
+**修改文件**：
+- `src/main/database.ts` - DEFAULT_AI_ACTIONS 数组
+
+#### 多语言硬编码修复 (2025-12-26)
+- ✅ **修复渲染进程硬编码文本（6 个文件，约 15 处）**
+  - `AIChatDialog.tsx` - AI 错误消息和上下文模板
+  - `AIExplainPopup.tsx` - 连接错误消息和拖动提示
+  - `TypewriterMode.tsx` - 文件操作错误提示
+  - `SlashCommand.ts` - 文件插入失败提示
+  - `Settings.tsx` - 语言选项标签
+
+- ✅ **修复主进程硬编码文本（2 个文件，约 30+ 处）**
+  - `database.ts` - AI 操作描述
+  - `sanqian-sdk.ts` - Agent 描述和工具描述
+
+- ✅ **新增主进程 i18n 模块**
+  - `src/main/i18n.ts` - 主进程国际化模块
+  - 使用 `app.getLocale()` 检测系统语言
+  - 导出 `t()` 函数获取当前语言翻译
+
+- ✅ **扩展渲染进程翻译**
+  - `translations.ts` 新增命名空间：
+    - `ai.errorConnectionFailed/Timeout/AuthFailed/Generic/Disconnected`
+    - `ai.continueContextTemplate`
+    - `fileError.tooLargeWithName/insertFailedWithName/insertImageFailed`
+    - `ui.dragToMove/clickToReset/processing`
+    - `language.chinese/english/system`
+
+**架构说明**：
+- 保持现有渲染进程 i18n 架构（React Context + TypeScript 对象）
+- 主进程使用轻量级自定义方案，无外部依赖
+- 翻译 key 类型安全，IDE 自动补全
+
+#### AI 跨 Block 操作 Undo 修复 (2025-12-26)
+- ✅ **修复跨 Block AI 操作后 Cmd+Z 不能正确撤销的问题**
+  - **问题**：AI 翻译多个段落后，Undo 只能恢复部分内容，第一个 Block 显示截断的流式内容
+  - **原因**：多次流式更新（addToHistory: false）导致 ProseMirror 历史状态不一致
+  - **解决方案**：跨 Block 模式改为原子操作
+    - 流式期间：只解析 XML 并累积内容到内存，不更新编辑器
+    - 完成时：一次性事务替换所有原始内容为最终格式化内容
+    - Undo 干净地还原到原始内容
+
+- ✅ **代码变更**
+  - 移除流式期间的编辑器更新逻辑
+  - done 事件时执行单一原子事务
+  - 按文档位置逆序排序 Block，确保位置映射正确
+
+**权衡**：跨 Block 操作不再实时显示流式内容（保持 ⏳ 指示器），但换取干净的原子撤销
+
+**修改文件**：
+- `src/renderer/src/hooks/useAIWriting.ts`
+
+#### useAIWriting 代码优化 (2025-12-26)
+- ✅ **所有模式统一改为原子操作，undo 干净**
+  - 单 Block replace：流式期间不更新编辑器，最后一次性替换
+  - insertAfter：流式期间不更新编辑器，最后一次性插入
+  - 跨 Block：已经是原子操作（上一次修复）
+  - 所有模式 Cmd+Z 都能完整恢复原始内容
+
+- ✅ **统一 loading indicator 逻辑**
+  - 所有模式都显示 ⏳ 指示器（因为都不实时更新编辑器）
+  - 移除不再使用的变量：pendingWhitespace, currentBlockEnd, insertPosition
+
+- ✅ **错误消息改为 i18n 友好**
+  - 导出 `AIWritingErrorCode` 类型：`connectionFailed` | `disconnected` | `generic`
+  - `onError` 回调改为传递 error code，调用方可用 `t.ai.errorXxx` 获取翻译
+
+**权衡**：所有 AI 写作操作都不再实时显示流式内容，但换取干净的原子撤销
+
+**修改文件**：
+- `src/renderer/src/hooks/useAIWriting.ts`
+- `src/renderer/src/components/EditorContextMenu.tsx`
+
+#### 代码质量优化 (2025-12-26)
+- ✅ **提取错误处理到共用模块**
+  - 新增 `src/renderer/src/utils/aiErrors.ts`
+  - 统一 `AIErrorCode` 类型和 `getAIErrorCode`/`getAIErrorMessage` 函数
+  - 更新 `useAIWriting`、`AIChatDialog`、`AIExplainPopup` 使用共用模块
+
+- ✅ **类型定义统一到 shared/types.ts**
+  - 移动 `AIAction`、`AIActionInput`、`AIActionAPI` 到 shared
+  - 删除 `database.ts` 和 `env.d.ts` 中的重复定义
+  - 保持向后兼容的 re-export
+
+- ✅ **快捷键冲突检测**
+  - 设置快捷键时检测与其他 AI Actions 的冲突
+  - 显示冲突警告（橙色边框 + 提示文字）
+  - 新增翻译 key `shortcutConflict`
+
+- ✅ **其他清理**
+  - 移除不必要的 fallback 字符串
+  - 修复 ESLint 依赖警告
+  - 修复 README 日期（2024→2025）
+  - 清理调试 console.log
+
+**修改文件**：
+- `src/shared/types.ts` - 新增 AI Action 类型
+- `src/renderer/src/utils/aiErrors.ts` - 新增
+- `src/renderer/src/hooks/useAIWriting.ts`
+- `src/renderer/src/hooks/useAIActions.ts`
+- `src/renderer/src/components/AIChatDialog.tsx`
+- `src/renderer/src/components/AIExplainPopup.tsx`
+- `src/renderer/src/components/AIActionsSettings.tsx`
+- `src/renderer/src/i18n/translations.ts`
+- `src/main/database.ts`
+- `src/renderer/src/env.d.ts`

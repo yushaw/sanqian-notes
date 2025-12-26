@@ -2,6 +2,13 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { Editor } from '@tiptap/react'
 import { useTranslations } from '../i18n'
 import { shortcuts } from '../utils/shortcuts'
+import { useAIWriting } from '../hooks/useAIWriting'
+import { useAIActions } from '../hooks/useAIActions'
+import { AICustomInput } from './AICustomInput'
+import { AIExplainPopup } from './AIExplainPopup'
+import { openChatWithContext } from './AIChatDialog'
+import { SLASH_AI_ACTION_EVENT, type SlashAIActionDetail } from './extensions/SlashCommand'
+import { getAIContext, type AIContext } from '../utils/aiContext'
 
 interface ContextMenuPosition {
   x: number
@@ -143,6 +150,15 @@ const Icons = {
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
+  sparkles: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+      <path d="M5 3v4" />
+      <path d="M19 17v4" />
+      <path d="M3 5h4" />
+      <path d="M17 19h4" />
+    </svg>
+  ),
 }
 
 // 插入项配置 - 来自斜杠命令中常用的
@@ -157,25 +173,67 @@ const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
   { id: 'callout', label: t.contextMenu.callout, icon: 'ℹ', insert: (editor: Editor) => editor.chain().focus().setCallout({ type: 'note' }).run() },
 ]
 
+// AI 操作项配置现在从数据库动态加载
+
 export function EditorContextMenu({ editor, position, onClose, hasSelection }: EditorContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const insertSubmenuRef = useRef<HTMLDivElement>(null)
   const tableSubmenuRef = useRef<HTMLDivElement>(null)
+  const aiSubmenuRef = useRef<HTMLDivElement>(null)
   const t = useTranslations()
   const insertItems = getInsertItems(t)
+
+  // Load AI actions from database
+  const { getContextMenuActions } = useAIActions()
+  const aiActions = getContextMenuActions()
   const [showInsertSubmenu, setShowInsertSubmenu] = useState(false)
   const [insertSubmenuPosition, setInsertSubmenuPosition] = useState({ top: 0, left: 0 })
   const [showTableSubmenu, setShowTableSubmenu] = useState(false)
   const [tableSubmenuPosition, setTableSubmenuPosition] = useState({ top: 0, left: 0 })
+  const [showAISubmenu, setShowAISubmenu] = useState(false)
+  const [aiSubmenuPosition, setAISubmenuPosition] = useState({ top: 0, left: 0 })
+  const [showCustomInput, setShowCustomInput] = useState(false)
+  const [customInputPosition, setCustomInputPosition] = useState({ x: 0, y: 0 })
+  const [showExplainPopup, setShowExplainPopup] = useState(false)
+  const [explainPopupPosition, setExplainPopupPosition] = useState({ x: 0, y: 0 })
+  const [aiContext, setAIContext] = useState<AIContext | null>(null)
+  const [popupKey, setPopupKey] = useState(0) // Force remount on new request
   const closeTimeoutRef = useRef<number | null>(null)
+
+  // AI Writing hook
+  const { isProcessing, executeAction } = useAIWriting({
+    editor,
+    onComplete: () => {
+      // Focus editor after AI completes
+      editor?.commands.focus()
+    },
+    onError: (errorCode) => {
+      console.error('[AI Writing] Error code:', errorCode)
+      // Error codes: 'connectionFailed' | 'disconnected' | 'generic'
+      // Could show toast notification using t.ai.errorConnectionFailed etc.
+    }
+  })
+
+  // 处理中时显示等待光标
+  useEffect(() => {
+    if (isProcessing) {
+      document.body.style.cursor = 'wait'
+      return () => {
+        document.body.style.cursor = ''
+      }
+    }
+  }, [isProcessing])
 
   // Check if cursor is in a table
   const isInTable = editor?.isActive('table') ?? false
 
   // 重置子菜单状态当菜单关闭或位置变化时
+  // 注意：不重置 showExplainPopup，因为它独立于菜单渲染
   useEffect(() => {
     setShowInsertSubmenu(false)
     setShowTableSubmenu(false)
+    setShowAISubmenu(false)
+    setShowCustomInput(false)
   }, [position])
 
   // 清除关闭延时
@@ -185,6 +243,11 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       closeTimeoutRef.current = null
     }
   }, [])
+
+  // 组件卸载时清理 timeout，避免内存泄漏
+  useEffect(() => {
+    return () => clearCloseTimeout()
+  }, [clearCloseTimeout])
 
   // 延迟关闭插入子菜单
   const scheduleCloseInsertSubmenu = useCallback(() => {
@@ -214,6 +277,106 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     setShowTableSubmenu(true)
   }, [clearCloseTimeout])
 
+  // 延迟关闭 AI 子菜单
+  const scheduleCloseAISubmenu = useCallback(() => {
+    clearCloseTimeout()
+    closeTimeoutRef.current = window.setTimeout(() => {
+      setShowAISubmenu(false)
+    }, 150)
+  }, [clearCloseTimeout])
+
+  // 保持 AI 子菜单打开
+  const keepAISubmenuOpen = useCallback(() => {
+    clearCloseTimeout()
+    setShowAISubmenu(true)
+  }, [clearCloseTimeout])
+
+  // 显示 AI 子菜单
+  const handleShowAISubmenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const submenuWidth = 160
+    // +1 for custom input option, +1 for divider
+    const submenuHeight = (aiActions.length + 2) * 32 + 8
+
+    let left = rect.right + 4
+    if (rect.right + submenuWidth + 10 > window.innerWidth) {
+      left = rect.left - submenuWidth - 4
+    }
+
+    let top = rect.top
+    if (rect.top + submenuHeight > window.innerHeight) {
+      top = window.innerHeight - submenuHeight - 10
+    }
+
+    // Get AI context (target + surrounding text)
+    if (editor) {
+      const context = getAIContext(editor)
+      setAIContext(context)
+    }
+
+    setAISubmenuPosition({ top, left })
+    setShowAISubmenu(true)
+  }, [editor, aiActions.length])
+
+  // Store current action for popup mode
+  const [currentAction, setCurrentAction] = useState<AIAction | null>(null)
+
+  // 处理 AI 操作
+  const handleAIAction = useCallback((action: AIAction) => {
+    if (!aiContext) return
+
+    if (action.mode === 'popup') {
+      // Show popup (e.g., explain)
+      setShowAISubmenu(false)
+      setCurrentAction(action)
+      // 使用选区位置，而不是菜单位置
+      if (editor) {
+        const coords = editor.view.coordsAtPos(aiContext.targetFrom)
+        setExplainPopupPosition({ x: coords.left, y: coords.bottom + 10 })
+      }
+      setPopupKey(k => k + 1) // Force remount
+      setShowExplainPopup(true)
+      onClose()
+    } else {
+      // Execute AI action directly (replace or insert mode)
+      const insertMode = action.mode === 'insert' ? 'insertAfter' : 'replace'
+      executeAction(action.prompt, aiContext, insertMode)
+      onClose()
+    }
+  }, [editor, executeAction, aiContext, onClose])
+
+  // 处理自由输入 - 显示自定义输入框
+  const handleShowCustomInput = useCallback(() => {
+    setShowAISubmenu(false)
+    setCustomInputPosition({ x: aiSubmenuPosition.left, y: aiSubmenuPosition.top })
+    setShowCustomInput(true)
+  }, [aiSubmenuPosition])
+
+  // 处理自定义输入提交
+  const handleCustomInputSubmit = useCallback((prompt: string) => {
+    if (!aiContext) return
+    executeAction(prompt, aiContext)
+    setShowCustomInput(false)
+    onClose()
+  }, [executeAction, aiContext, onClose])
+
+  // 关闭自定义输入
+  const handleCustomInputClose = useCallback(() => {
+    setShowCustomInput(false)
+  }, [])
+
+  // 关闭解释弹窗
+  const handleExplainPopupClose = useCallback(() => {
+    setShowExplainPopup(false)
+  }, [])
+
+  // 继续对话（打开对话面板）
+  const handleContinueInChat = useCallback((text: string, explanation: string) => {
+    // Open chat dialog with context
+    openChatWithContext({ selectedText: text, explanation })
+    setShowExplainPopup(false)
+  }, [])
+
   // 点击外部关闭菜单
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -221,8 +384,12 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       const isInsideMenu = menuRef.current?.contains(target)
       const isInsideInsertSubmenu = insertSubmenuRef.current?.contains(target)
       const isInsideTableSubmenu = tableSubmenuRef.current?.contains(target)
+      const isInsideAISubmenu = aiSubmenuRef.current?.contains(target)
 
-      if (!isInsideMenu && !isInsideInsertSubmenu && !isInsideTableSubmenu) {
+      // Don't close if custom input is open (it has its own click-outside handler)
+      if (showCustomInput) return
+
+      if (!isInsideMenu && !isInsideInsertSubmenu && !isInsideTableSubmenu && !isInsideAISubmenu) {
         onClose()
       }
     }
@@ -258,6 +425,113 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [position, onClose])
+
+  // AI 快捷键监听（全局）
+  useEffect(() => {
+    const handleAIShortcut = (e: KeyboardEvent) => {
+      // 忽略输入框中的按键
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+
+      if (!editor) return
+
+      // 构建按键字符串
+      const parts: string[] = []
+      if (e.metaKey) parts.push('⌘')
+      if (e.ctrlKey) parts.push('⌃')
+      if (e.altKey) parts.push('⌥')
+      if (e.shiftKey) parts.push('⇧')
+
+      let key = e.key.toUpperCase()
+      if (key === ' ') key = 'Space'
+      parts.push(key)
+      const pressedShortcut = parts.join('')
+
+      // 查找匹配的 AI 操作
+      const matchedAction = aiActions.find(
+        action => action.shortcutKey && action.shortcutKey === pressedShortcut
+      )
+
+      if (matchedAction) {
+        e.preventDefault()
+        e.stopPropagation()
+
+        // 获取 AI 上下文
+        const context = getAIContext(editor)
+        if (!context) return
+
+        if (matchedAction.mode === 'popup') {
+          // 获取选区位置用于弹窗
+          const coords = editor.view.coordsAtPos(context.targetFrom)
+          setCurrentAction(matchedAction)
+          setAIContext(context)
+          setExplainPopupPosition({ x: coords.left, y: coords.bottom + 10 })
+          setPopupKey(k => k + 1) // Force remount
+          setShowExplainPopup(true)
+        } else {
+          // 直接执行 AI 操作
+          const insertMode = matchedAction.mode === 'insert' ? 'insertAfter' : 'replace'
+          executeAction(matchedAction.prompt, context, insertMode)
+        }
+      }
+    }
+
+    // 使用 capture: true 使 AI 快捷键优先于编辑器内置快捷键（如 Cmd+B 加粗）
+    document.addEventListener('keydown', handleAIShortcut, { capture: true })
+    return () => document.removeEventListener('keydown', handleAIShortcut, { capture: true })
+  }, [editor, aiActions, executeAction])
+
+  // 监听 Slash Command 触发的 AI 操作
+  useEffect(() => {
+    const handleSlashAIAction = (e: Event) => {
+      const detail = (e as CustomEvent<SlashAIActionDetail>).detail
+      if (!detail || !editor) return
+
+      const { prompt, mode } = detail
+
+      // 获取 AI 上下文（选中文本或当前 block）
+      const context = getAIContext(editor)
+      if (!context) {
+        console.warn('[SlashCommand] AI action requires content (selection or block)')
+        return
+      }
+
+      if (mode === 'popup') {
+        // 获取光标位置用于弹窗
+        const coords = editor.view.coordsAtPos(context.targetFrom)
+
+        // 创建一个临时的 action 对象
+        setCurrentAction({
+          id: detail.actionId,
+          name: '',
+          icon: '',
+          prompt: detail.prompt,
+          description: '',
+          mode: 'popup',
+          showInContextMenu: false,
+          showInSlashCommand: true,
+          showInShortcut: false,
+          shortcutKey: '',
+          orderIndex: 0,
+          isBuiltin: false,
+          enabled: true,
+          createdAt: '',
+          updatedAt: ''
+        })
+        setAIContext(context)
+        setExplainPopupPosition({ x: coords.left, y: coords.bottom + 10 })
+        setPopupKey(k => k + 1)
+        setShowExplainPopup(true)
+      } else {
+        // 执行 replace/insert 操作
+        const insertMode = mode === 'insert' ? 'insertAfter' : 'replace'
+        executeAction(prompt, context, insertMode)
+      }
+    }
+
+    window.addEventListener(SLASH_AI_ACTION_EVENT, handleSlashAIAction)
+    return () => window.removeEventListener(SLASH_AI_ACTION_EVENT, handleSlashAIAction)
+  }, [editor, executeAction])
 
   // 剪切
   const handleCut = useCallback(() => {
@@ -399,24 +673,41 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     onClose()
   }, [onClose])
 
-  if (!position || !editor) return null
+  // 如果没有编辑器，不渲染
+  if (!editor) return null
 
   // 调整菜单位置，确保不超出视口
-  const adjustedPosition = { ...position }
+  const adjustedPosition = position ? { ...position } : null
   const menuWidth = 220
-  // 有选中: 编辑行(40) + 段落行(40) + 格式行(40) + 链接(32) + 插入(32) + 分隔线 ≈ 210
-  // 无选中: 编辑行(40) + 段落行(40) + 插入(32) + 分隔线 ≈ 140
-  const menuHeight = hasSelection ? 210 : 140
+  // 有选中: 编辑行(40) + 段落行(40) + 格式行(40) + AI(32) + 插入(32) + 分隔线 ≈ 220
+  // 无选中: 编辑行(40) + 段落行(40) + AI(32) + 插入(32) + 分隔线 ≈ 180
+  const menuHeight = hasSelection ? 220 : 180
 
-  if (adjustedPosition.x + menuWidth > window.innerWidth) {
-    adjustedPosition.x = window.innerWidth - menuWidth - 10
-  }
-  if (adjustedPosition.y + menuHeight > window.innerHeight) {
-    adjustedPosition.y = window.innerHeight - menuHeight - 10
+  if (adjustedPosition) {
+    if (adjustedPosition.x + menuWidth > window.innerWidth) {
+      adjustedPosition.x = window.innerWidth - menuWidth - 10
+    }
+    if (adjustedPosition.y + menuHeight > window.innerHeight) {
+      adjustedPosition.y = window.innerHeight - menuHeight - 10
+    }
   }
 
   return (
     <>
+      {/* AI 解释弹窗 - 独立于菜单渲染 */}
+      {showExplainPopup && currentAction && aiContext && (
+        <AIExplainPopup
+          key={popupKey}
+          position={explainPopupPosition}
+          context={aiContext}
+          prompt={currentAction.prompt}
+          onClose={handleExplainPopupClose}
+          onContinueInChat={handleContinueInChat}
+        />
+      )}
+
+      {/* 右键菜单 - 仅当有位置时渲染 */}
+      {adjustedPosition && (
       <div
         ref={menuRef}
         className="editor-context-menu"
@@ -524,6 +815,22 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
           </div>
         )}
 
+        {/* AI 操作组 - 始终显示，支持选中文本或当前段落 */}
+        <div className="context-menu-group">
+          <button
+            className={`context-menu-item ${isProcessing ? 'context-menu-item-disabled' : ''}`}
+            onMouseEnter={handleShowAISubmenu}
+            onMouseLeave={scheduleCloseAISubmenu}
+            disabled={isProcessing}
+          >
+            <span className="context-menu-icon">{Icons.sparkles}</span>
+            <span className="context-menu-label">
+              {isProcessing ? t.contextMenu.aiProcessing : t.contextMenu.ai}
+            </span>
+            <span className="context-menu-arrow">{Icons.chevronRight}</span>
+          </button>
+        </div>
+
         {/* 表格操作组 - 仅在表格内显示 */}
         {isInTable && (
           <div className="context-menu-group">
@@ -552,6 +859,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
           </button>
         </div>
       </div>
+      )}
 
       {/* 表格操作子菜单 */}
       {showTableSubmenu && (
@@ -610,6 +918,50 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
             </button>
           ))}
         </div>
+      )}
+
+      {/* AI 子菜单 */}
+      {showAISubmenu && (
+        <div
+          ref={aiSubmenuRef}
+          className="editor-context-menu editor-context-submenu"
+          style={{
+            position: 'fixed',
+            left: aiSubmenuPosition.left,
+            top: aiSubmenuPosition.top,
+            zIndex: 10000
+          }}
+          onMouseEnter={keepAISubmenuOpen}
+          onMouseLeave={scheduleCloseAISubmenu}
+        >
+          {aiActions.map((action) => (
+            <button
+              key={action.id}
+              className="context-menu-item"
+              onClick={() => handleAIAction(action)}
+            >
+              <span className="context-menu-icon context-menu-icon-text">{action.icon}</span>
+              <span className="context-menu-label">{action.name}</span>
+            </button>
+          ))}
+          {aiActions.length > 0 && <div className="context-menu-divider" />}
+          <button
+            className="context-menu-item"
+            onClick={handleShowCustomInput}
+          >
+            <span className="context-menu-icon context-menu-icon-text">💬</span>
+            <span className="context-menu-label">{t.contextMenu.aiCustom}</span>
+          </button>
+        </div>
+      )}
+
+      {/* 自定义输入框 */}
+      {showCustomInput && (
+        <AICustomInput
+          position={customInputPosition}
+          onSubmit={handleCustomInputSubmit}
+          onClose={handleCustomInputClose}
+        />
       )}
     </>
   )

@@ -1,4 +1,4 @@
-# 散墨笔记 AI Agents & Tools 详细设计
+# 三千笔记 AI Agents & Tools 详细设计
 
 > 基于 Sanqian SDK 的 Agent 和 Tools 设计规范
 

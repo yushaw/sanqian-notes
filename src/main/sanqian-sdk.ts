@@ -16,6 +16,7 @@ import {
   getTags,
   type NoteInput
 } from './database'
+import { t } from './i18n'
 
 /**
  * Safely truncate text without breaking multi-byte characters (emoji, CJK, etc.)
@@ -79,24 +80,13 @@ function notifyDataChange(): void {
  * Build Agent configs for Notes
  */
 function buildAgentConfigs(): AgentConfig[] {
+  const sdk = t().sdk
   return [
     {
       agent_id: 'assistant',
-      name: 'Notes Assistant',
-      description: '帮你管理笔记的智能助手，可以搜索、创建、编辑笔记',
-      system_prompt: `你是一个专业的笔记助手，帮助用户管理他们的笔记。你可以：
-1. 搜索笔记 - 使用 search_notes 工具
-2. 查看笔记详情 - 使用 get_note 工具
-3. 创建新笔记 - 使用 create_note 工具
-4. 更新现有笔记 - 使用 update_note 工具
-5. 删除笔记 - 使用 delete_note 工具（需要用户确认）
-6. 查看所有标签 - 使用 get_tags 工具
-
-注意事项：
-- 删除笔记是危险操作，必须先询问用户确认
-- 创建或更新笔记时，content 使用 Markdown 格式
-- 搜索时，如果结果太多，建议用户提供更具体的关键词
-- 始终以用户的需求为中心，提供清晰、准确的帮助`,
+      name: sdk.assistantName,
+      description: sdk.assistantDescription,
+      system_prompt: sdk.assistantSystemPrompt,
       tools: [
         'search_notes',
         'get_note',
@@ -108,23 +98,9 @@ function buildAgentConfigs(): AgentConfig[] {
     },
     {
       agent_id: 'writing',
-      name: 'Writing Assistant',
-      description: '专注于文本处理的写作助手，可以改进、翻译、总结文本等',
-      system_prompt: `你是一个专业的写作助手，专注于文本处理和内容优化。你可以帮助用户：
-- 改进文本：提升表达清晰度和流畅度
-- 翻译文本：在中英文之间翻译
-- 扩展内容：添加更多细节和深度
-- 简化内容：使文本更简洁易懂
-- 总结内容：提取关键要点
-- 解释概念：用简单的语言说明复杂概念
-- 续写内容：基于上下文继续写作
-- 生成大纲：创建结构化的内容大纲
-- 头脑风暴：生成创意和想法
-
-注意事项：
-- 保持用户原文的风格和语气
-- 如果是翻译，确保准确传达原意
-- 如果用户的指令不清楚，主动询问澄清`,
+      name: sdk.writingName,
+      description: sdk.writingDescription,
+      system_prompt: sdk.writingSystemPrompt,
       tools: []
     }
   ]
@@ -134,20 +110,22 @@ function buildAgentConfigs(): AgentConfig[] {
  * Build tool definitions for Notes
  */
 function buildTools(): ToolDefinition[] {
+  const tools = t().tools
+  const common = t().common
   return [
     {
       name: 'search_notes',
-      description: '搜索笔记。可以根据标题和内容进行全文搜索。',
+      description: tools.searchNotes.description,
       parameters: {
         type: 'object',
         properties: {
           query: {
             type: 'string',
-            description: '搜索关键词，会在笔记标题和内容中搜索'
+            description: tools.searchNotes.queryDesc
           },
           limit: {
             type: 'number',
-            description: '返回结果的最大数量，默认 10'
+            description: tools.searchNotes.limitDesc
           }
         },
         required: ['query']
@@ -164,19 +142,19 @@ function buildTools(): ToolDefinition[] {
             notebook_id: note.notebook_id
           }))
         } catch (error) {
-          throw new Error(`搜索笔记失败: ${error instanceof Error ? error.message : '未知错误'}`)
+          throw new Error(`${tools.searchNotes.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },
     {
       name: 'get_note',
-      description: '获取笔记的完整内容。用于查看笔记详情或在编辑前读取笔记。',
+      description: tools.getNote.description,
       parameters: {
         type: 'object',
         properties: {
           id: {
             type: 'string',
-            description: '笔记 ID'
+            description: tools.getNote.idDesc
           }
         },
         required: ['id']
@@ -185,7 +163,7 @@ function buildTools(): ToolDefinition[] {
         try {
           const note = getNoteById(args.id)
           if (!note) {
-            throw new Error(`笔记不存在: ${args.id}`)
+            throw new Error(`${tools.getNote.notFound}: ${args.id}`)
           }
           return {
             id: note.id,
@@ -196,27 +174,27 @@ function buildTools(): ToolDefinition[] {
             notebook_id: note.notebook_id
           }
         } catch (error) {
-          throw new Error(`获取笔记失败: ${error instanceof Error ? error.message : '未知错误'}`)
+          throw new Error(`${tools.getNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },
     {
       name: 'create_note',
-      description: '创建新笔记。content 使用 Markdown 格式。',
+      description: tools.createNote.description,
       parameters: {
         type: 'object',
         properties: {
           title: {
             type: 'string',
-            description: '笔记标题'
+            description: tools.createNote.titleDesc
           },
           content: {
             type: 'string',
-            description: '笔记内容，使用 Markdown 格式'
+            description: tools.createNote.contentDesc
           },
           notebook_id: {
             type: 'string',
-            description: '笔记本 ID（可选），如果不指定则创建在默认笔记本'
+            description: tools.createNote.notebookIdDesc
           }
         },
         required: ['title']
@@ -233,30 +211,30 @@ function buildTools(): ToolDefinition[] {
           return {
             id: note.id,
             title: note.title,
-            message: '笔记创建成功'
+            message: tools.createNote.success
           }
         } catch (error) {
-          throw new Error(`创建笔记失败: ${error instanceof Error ? error.message : '未知错误'}`)
+          throw new Error(`${tools.createNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },
     {
       name: 'update_note',
-      description: '更新现有笔记的标题或内容。',
+      description: tools.updateNote.description,
       parameters: {
         type: 'object',
         properties: {
           id: {
             type: 'string',
-            description: '笔记 ID'
+            description: tools.updateNote.idDesc
           },
           title: {
             type: 'string',
-            description: '新标题（可选）'
+            description: tools.updateNote.titleDesc
           },
           content: {
             type: 'string',
-            description: '新内容，使用 Markdown 格式（可选）'
+            description: tools.updateNote.contentDesc
           }
         },
         required: ['id']
@@ -269,28 +247,28 @@ function buildTools(): ToolDefinition[] {
 
           const note = updateNote(args.id, updates)
           if (!note) {
-            throw new Error(`笔记不存在: ${args.id}`)
+            throw new Error(`${tools.updateNote.notFound}: ${args.id}`)
           }
           notifyDataChange()
           return {
             id: note.id,
             title: note.title,
-            message: '笔记更新成功'
+            message: tools.updateNote.success
           }
         } catch (error) {
-          throw new Error(`更新笔记失败: ${error instanceof Error ? error.message : '未知错误'}`)
+          throw new Error(`${tools.updateNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },
     {
       name: 'delete_note',
-      description: '删除笔记（移动到回收站）。这是危险操作，必须先获得用户确认。',
+      description: tools.deleteNote.description,
       parameters: {
         type: 'object',
         properties: {
           id: {
             type: 'string',
-            description: '笔记 ID'
+            description: tools.deleteNote.idDesc
           }
         },
         required: ['id']
@@ -299,20 +277,20 @@ function buildTools(): ToolDefinition[] {
         try {
           const success = deleteNote(args.id)
           if (!success) {
-            throw new Error(`笔记不存在: ${args.id}`)
+            throw new Error(`${tools.deleteNote.notFound}: ${args.id}`)
           }
           notifyDataChange()
           return {
-            message: '笔记已移动到回收站'
+            message: tools.deleteNote.success
           }
         } catch (error) {
-          throw new Error(`删除笔记失败: ${error instanceof Error ? error.message : '未知错误'}`)
+          throw new Error(`${tools.deleteNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },
     {
       name: 'get_tags',
-      description: '获取所有标签列表。',
+      description: tools.getTags.description,
       parameters: {
         type: 'object',
         properties: {}
@@ -325,7 +303,7 @@ function buildTools(): ToolDefinition[] {
             name: tag.name
           }))
         } catch (error) {
-          throw new Error(`获取标签失败: ${error instanceof Error ? error.message : '未知错误'}`)
+          throw new Error(`${tools.getTags.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     }

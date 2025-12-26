@@ -317,7 +317,14 @@ function AppContent() {
         daily_date: selectedSmartView === 'daily' ? new Date().toISOString().split('T')[0] : null,
         is_favorite: false,
       })
-      setNotes(prev => [newNote as Note, ...prev])
+      setNotes(prev => {
+        const newNotes = [newNote as Note, ...prev]
+        // Re-sort: pinned first, then by updated_at
+        return newNotes.sort((a, b) => {
+          if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        })
+      })
       setSelectedNoteId((newNote as Note).id)
     } catch (error) {
       console.error('Failed to create note:', error)
@@ -364,7 +371,14 @@ function AppContent() {
       daily_date: null,
       is_favorite: false,
     })
-    setNotes(prev => [newNote as Note, ...prev])
+    setNotes(prev => {
+      const newNotes = [newNote as Note, ...prev]
+      // Re-sort: pinned first, then by updated_at
+      return newNotes.sort((a, b) => {
+        if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      })
+    })
     return newNote as Note
   }, [selectedNotebookId])
 

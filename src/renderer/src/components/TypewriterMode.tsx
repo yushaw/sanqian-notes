@@ -199,7 +199,8 @@ export function TypewriterMode({
     // 前端文件大小检查（100MB）
     const MAX_FILE_SIZE = 100 * 1024 * 1024
     if (file.size > MAX_FILE_SIZE) {
-      alert(`文件过大：${file.name}\n文件大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 100MB 限制`)
+      const sizeInMB = (file.size / 1024 / 1024).toFixed(1)
+      alert(t.fileError.tooLargeWithName.replace('{name}', file.name).replace('{size}', sizeInMB))
       return
     }
 
@@ -276,7 +277,7 @@ export function TypewriterMode({
       }
     } catch (error) {
       console.error('Failed to insert file:', error)
-      alert(`文件插入失败：${file.name}`)
+      alert(t.fileError.insertFailedWithName.replace('{name}', file.name))
     }
   }
 

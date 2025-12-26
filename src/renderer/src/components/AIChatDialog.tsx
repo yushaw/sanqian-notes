@@ -14,6 +14,7 @@ import { createElectronAdapter } from '../lib/chat-ui/adapters/electron'
 import { useTheme } from '../theme'
 import { useTranslations } from '../i18n'
 import { TIMING, EASING, RETRY } from '../constants'
+import { mapLegacyErrorCode, getAIErrorMessage } from '../utils/aiErrors'
 import notesLogo from '../assets/notes-logo.png'
 
 interface AIChatDialogProps {
@@ -21,6 +22,19 @@ interface AIChatDialogProps {
   onClose: () => void
   onOpen?: () => void
 }
+
+// Event for opening chat with context
+export const OPEN_CHAT_WITH_CONTEXT_EVENT = 'open-chat-with-context'
+
+export interface OpenChatWithContextDetail {
+  selectedText: string
+  explanation: string
+}
+
+export function openChatWithContext(detail: OpenChatWithContextDetail) {
+  window.dispatchEvent(new CustomEvent(OPEN_CHAT_WITH_CONTEXT_EVENT, { detail }))
+}
+
 
 export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
   const { resolvedColorMode } = useTheme()
@@ -59,6 +73,32 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
       currentAdapter?.cleanup?.()
     }
   }, [])
+
+  // Listen for "open chat with context" events
+  useEffect(() => {
+    const handleOpenWithContext = (e: Event) => {
+      const detail = (e as CustomEvent<OpenChatWithContextDetail>).detail
+      if (detail) {
+        // Start a new conversation
+        chatNewConversationRef.current?.()
+        // Open the dialog
+        onOpen?.()
+        // Set the context text after a short delay to ensure dialog is open
+        setTimeout(() => {
+          const contextMessage = t.ai.continueContextTemplate
+            .replace('{selectedText}', detail.selectedText)
+            .replace('{explanation}', detail.explanation)
+          chatSetTextRef.current?.(contextMessage)
+          chatFocusInputRef.current?.()
+        }, 100)
+      }
+    }
+
+    window.addEventListener(OPEN_CHAT_WITH_CONTEXT_EVENT, handleOpenWithContext)
+    return () => {
+      window.removeEventListener(OPEN_CHAT_WITH_CONTEXT_EVENT, handleOpenWithContext)
+    }
+  }, [onOpen])
 
   // Close dialog without clearing session
   // ESC uses this: user may just want to temporarily hide the dialog
@@ -280,6 +320,7 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
             onLoadingChange={handleLoadingChange}
             onStateChange={handleStateChange}
             isDarkMode={resolvedColorMode === 'dark'}
+            getErrorMessage={(errorCode) => getAIErrorMessage(mapLegacyErrorCode(errorCode), t)}
             headerLeft={
               <div className="flex items-center gap-2">
                 <img src={notesLogo} alt="Notes" className="w-5 h-5" />

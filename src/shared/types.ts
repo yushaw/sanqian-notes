@@ -107,6 +107,56 @@ export interface ConversationDetail {
   }>
 }
 
+/**
+ * AI Action 相关类型定义
+ */
+
+/** AI Action 模式 */
+export type AIActionMode = 'replace' | 'insert' | 'popup'
+
+/** AI Action 完整类型 */
+export interface AIAction {
+  id: string
+  name: string
+  description: string
+  icon: string
+  prompt: string
+  mode: AIActionMode
+  showInContextMenu: boolean
+  showInSlashCommand: boolean
+  showInShortcut: boolean
+  shortcutKey: string
+  orderIndex: number
+  isBuiltin: boolean
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** AI Action 创建/更新输入类型 */
+export interface AIActionInput {
+  name: string
+  description?: string
+  icon: string
+  prompt: string
+  mode: AIActionMode
+  showInContextMenu?: boolean
+  showInSlashCommand?: boolean
+  showInShortcut?: boolean
+  shortcutKey?: string
+}
+
+/** AI Action API 接口 */
+export interface AIActionAPI {
+  getAll: () => Promise<AIAction[]>
+  getAllIncludingDisabled: () => Promise<AIAction[]>
+  create: (input: AIActionInput) => Promise<AIAction>
+  update: (id: string, updates: Partial<AIActionInput> & { enabled?: boolean }) => Promise<AIAction | null>
+  delete: (id: string) => Promise<boolean>
+  reorder: (orderedIds: string[]) => Promise<void>
+  reset: () => Promise<void>
+}
+
 /** Chat API 接口 */
 export interface ChatAPI {
   /** 连接到 Chat 服务 */

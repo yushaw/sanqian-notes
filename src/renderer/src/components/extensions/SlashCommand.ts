@@ -3,12 +3,96 @@ import Suggestion, { SuggestionOptions } from '@tiptap/suggestion'
 import type { Editor } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import { getFileCategory } from '../../utils/fileCategory'
+import { translations, getSystemLanguage } from '../../i18n/translations'
+
+// Helper to get current translation
+function getT() {
+  return translations[getSystemLanguage()]
+}
 
 export interface SlashCommandItem {
   id: string  // 用于查找翻译的 key
   icon: string
   command: (editor: Editor) => void | boolean | Promise<void | boolean>
   keywords?: string[]
+  // AI action specific fields
+  isAIAction?: boolean
+  aiActionId?: string
+  aiName?: string  // Display name from database
+  aiDescription?: string  // Description from database
+  aiPrompt?: string
+  aiMode?: 'replace' | 'insert' | 'popup'
+  // For grouping in the list
+  group?: 'format' | 'insert' | 'ai'
+}
+
+// Event for triggering AI actions from slash command
+export const SLASH_AI_ACTION_EVENT = 'slash-ai-action'
+
+export interface SlashAIActionDetail {
+  actionId: string
+  prompt: string
+  mode: 'replace' | 'insert' | 'popup'
+  selectedText: string
+}
+
+export function triggerSlashAIAction(detail: SlashAIActionDetail) {
+  window.dispatchEvent(new CustomEvent(SLASH_AI_ACTION_EVENT, { detail }))
+}
+
+// Cache for AI actions
+let cachedAIActions: SlashCommandItem[] = []
+let lastFetchTime = 0
+const CACHE_DURATION = 5000 // 5 seconds
+
+// Fetch AI actions from electron API
+async function fetchAIActions(): Promise<SlashCommandItem[]> {
+  const now = Date.now()
+  if (cachedAIActions.length > 0 && now - lastFetchTime < CACHE_DURATION) {
+    return cachedAIActions
+  }
+
+  try {
+    const actions = await window.electron.aiAction.getAll()
+    cachedAIActions = actions
+      .filter((a: AIAction) => a.showInSlashCommand)
+      .map((action: AIAction) => ({
+        id: `ai-${action.id}`,
+        icon: action.icon || '✨',
+        keywords: ['ai', action.name.toLowerCase(), ...action.name.split('')],
+        isAIAction: true,
+        aiActionId: action.id,
+        aiName: action.name,
+        aiDescription: action.description,
+        aiPrompt: action.prompt,
+        aiMode: action.mode,
+        group: 'ai' as const,
+        command: (editor: Editor) => {
+          // Get selected text if any
+          const { from, to } = editor.state.selection
+          const selectedText = from !== to ? editor.state.doc.textBetween(from, to, ' ') : ''
+
+          // Trigger AI action via event
+          triggerSlashAIAction({
+            actionId: action.id,
+            prompt: action.prompt,
+            mode: action.mode,
+            selectedText
+          })
+        }
+      }))
+    lastFetchTime = now
+    return cachedAIActions
+  } catch (error) {
+    console.error('[SlashCommand] Failed to fetch AI actions:', error)
+    return cachedAIActions // Return cached even if stale
+  }
+}
+
+// Notify that AI actions have changed (call from settings)
+export function invalidateAIActionsCache() {
+  lastFetchTime = 0
+  cachedAIActions = []
 }
 
 export const slashCommands: SlashCommandItem[] = [
@@ -145,8 +229,8 @@ export const slashCommands: SlashCommandItem[] = [
         }
       } catch (error) {
         console.error('Failed to insert image:', error)
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        alert(`插入图片失败：${message}`)
+        const message = error instanceof Error ? error.message : getT().common.unknownError
+        alert(getT().fileError.insertImageFailed.replace('{error}', message))
       }
     },
   },
@@ -188,8 +272,8 @@ export const slashCommands: SlashCommandItem[] = [
         }
       } catch (error) {
         console.error('Failed to insert file:', error)
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        alert(`插入文件失败：${message}`)
+        const message = error instanceof Error ? error.message : getT().common.unknownError
+        alert(getT().fileError.insertFileFailed.replace('{error}', message))
       }
     },
   },
@@ -226,8 +310,12 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
           return true
         },
         command: ({ editor, range, props }: { editor: Editor; range: { from: number; to: number }; props: SlashCommandItem }) => {
-          // 先删除触发字符和查询文本，再执行命令
-          editor.chain().focus().deleteRange(range).run()
+          // 删除触发字符和查询文本（不加入撤销历史）
+          const { tr } = editor.state
+          tr.delete(range.from, range.to)
+          tr.setMeta('addToHistory', false)
+          editor.view.dispatch(tr)
+          // 执行命令
           props.command(editor)
         },
       },
@@ -238,12 +326,34 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const suggestionConfig: any = {
       ...this.options.suggestion,
-      items: ({ query }: { query: string }) => {
+      items: async ({ query }: { query: string }) => {
         const search = query.toLowerCase()
-        return slashCommands.filter((item) => {
+
+        // Get AI actions dynamically
+        const aiActions = await fetchAIActions()
+        const allItems = [...slashCommands, ...aiActions]
+
+        return allItems.filter((item) => {
           const matchId = item.id.toLowerCase().includes(search)
           const matchKeywords = item.keywords?.some((k) => k.includes(search))
-          return matchId || matchKeywords
+
+          // For AI actions, match aiName and aiDescription
+          const matchAIName = item.aiName?.toLowerCase().includes(search)
+          const matchAIDesc = item.aiDescription?.toLowerCase().includes(search)
+
+          // For built-in commands, match translated title and description (both zh and en)
+          let matchTitle = false
+          let matchDesc = false
+          if (!item.isAIAction) {
+            const zhTitle = translations.zh.slashCommand[item.id as keyof typeof translations.zh.slashCommand]
+            const enTitle = translations.en.slashCommand[item.id as keyof typeof translations.en.slashCommand]
+            const zhDesc = translations.zh.slashCommand[`${item.id}Desc` as keyof typeof translations.zh.slashCommand]
+            const enDesc = translations.en.slashCommand[`${item.id}Desc` as keyof typeof translations.en.slashCommand]
+            matchTitle = zhTitle?.toLowerCase().includes(search) || enTitle?.toLowerCase().includes(search)
+            matchDesc = zhDesc?.toLowerCase().includes(search) || enDesc?.toLowerCase().includes(search)
+          }
+
+          return matchId || matchKeywords || matchAIName || matchAIDesc || matchTitle || matchDesc
         })
       },
     }

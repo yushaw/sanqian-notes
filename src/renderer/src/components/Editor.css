@@ -1127,23 +1127,25 @@
 .slash-command-list {
   background: var(--color-card);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 6px;
   box-shadow: var(--shadow-elevated);
   padding: 4px;
-  min-width: 240px;
-  max-height: 320px;
+  width: fit-content;
+  min-width: 160px;
+  max-width: 280px;
+  max-height: 300px;
   overflow-y: auto;
 }
 
 .slash-command-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 5px 10px;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
   text-align: left;
   transition: background var(--transition-fast);
@@ -1155,14 +1157,14 @@
 }
 
 .slash-command-icon {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--color-bg, var(--color-surface));
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: 4px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--color-text-secondary);
   flex-shrink: 0;
@@ -1170,20 +1172,32 @@
 
 .slash-command-content {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .slash-command-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--color-text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.slash-command-separator {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
 }
 
 .slash-command-description {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .slash-command-empty {
@@ -1191,6 +1205,26 @@
   text-align: center;
   color: var(--color-muted);
   font-size: 13px;
+}
+
+.slash-command-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.slash-command-group + .slash-command-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+.slash-command-group-header {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* Tippy 样式覆盖 */
@@ -2646,4 +2680,200 @@
 
 .dark .code-block-wrapper .hljs-type {
   color: #e5c07b;
+}
+
+/* ============================================
+   AI Custom Input 自定义输入框
+   ============================================ */
+
+.ai-custom-input {
+  background: var(--color-card-solid);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: 12px;
+  width: 280px;
+  animation: contextMenuFadeIn 0.15s ease;
+}
+
+.ai-custom-input-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-muted);
+  margin-bottom: 8px;
+}
+
+.ai-custom-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-custom-input-field {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.ai-custom-input-field:focus {
+  border-color: var(--color-accent);
+}
+
+.ai-custom-input-field::placeholder {
+  color: var(--color-muted);
+}
+
+.ai-custom-input-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--color-accent);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.ai-custom-input-submit:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.ai-custom-input-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-custom-input-submit svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Context Menu Item Disabled State */
+.context-menu-item-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.context-menu-item-disabled:hover {
+  background: transparent;
+  color: var(--color-text);
+}
+
+.context-menu-item-disabled .context-menu-icon {
+  color: var(--color-muted);
+}
+
+/* ============================================
+   AI Explain Popup - Zen Style
+   ============================================ */
+
+.ai-explain-popup {
+  background: var(--color-card-solid);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  width: 320px;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+  animation: explainPopupIn 0.15s ease;
+  overflow: hidden;
+}
+
+@keyframes explainPopupIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-explain-content {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.ai-explain-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ai-explain-content::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+  border-radius: 2px;
+}
+
+.ai-explain-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-explain-loading {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.ai-explain-error {
+  color: var(--color-danger, #ef4444);
+  font-size: 13px;
+}
+
+.ai-explain-cursor {
+  display: inline-block;
+  color: var(--color-accent);
+  animation: cursorBlink 1s infinite;
+  margin-left: 2px;
+}
+
+@keyframes cursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.ai-explain-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ai-explain-continue-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ai-explain-continue-btn:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.ai-explain-continue-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }

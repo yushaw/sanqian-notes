@@ -77,6 +77,7 @@ export interface Translations {
     title: string
     general: string
     appearance: string
+    ai: string
     about: string
     language: string
     languageDesc: string
@@ -110,6 +111,39 @@ export interface Translations {
       download: string
       restart: string
       retry: string
+    }
+    aiActions: {
+      title: string
+      description: string
+      loading: string
+      add: string
+      addAction: string
+      editAction: string
+      icon: string
+      name: string
+      namePlaceholder: string
+      prompt: string
+      promptPlaceholder: string
+      mode: string
+      modeReplace: string
+      modeInsert: string
+      modePopup: string
+      showIn: string
+      contextMenu: string
+      slashCommand: string
+      shortcut: string
+      shortcutKey: string
+      pressKey: string
+      noShortcut: string
+      shortcutConflict: string
+      save: string
+      saving: string
+      cancel: string
+      builtin: string
+      empty: string
+      resetToDefaults: string
+      resetConfirm: string
+      reset: string
     }
   }
   notebook: {
@@ -182,6 +216,14 @@ export interface Translations {
     requiredField: string
     timeoutIn: string
     seconds: string
+    // Error messages
+    errorConnectionFailed: string
+    errorTimeout: string
+    errorAuthFailed: string
+    errorGeneric: string
+    errorDisconnected: string
+    // Context message
+    continueContextTemplate: string
   }
   tray: {
     show: string
@@ -191,6 +233,7 @@ export interface Translations {
     loading: string
     collapse: string
     expand: string
+    unknownError: string
   }
   noteLink: {
     create: string
@@ -246,6 +289,10 @@ export interface Translations {
     file: string
     fileDesc: string
     noMatches: string
+    // Group headers
+    formatGroup: string
+    aiGroup: string
+    aiActionDesc: string
   }
   codeBlock: {
     searchPlaceholder: string
@@ -339,12 +386,39 @@ export interface Translations {
     addColumnAfter: string
     deleteColumn: string
     deleteTable: string
+    // AI operations
+    ai: string
+    aiImprove: string
+    aiSimplify: string
+    aiExpand: string
+    aiTranslate: string
+    aiSummarize: string
+    aiExplain: string
+    aiCustom: string
+    aiCustomPlaceholder: string
+    aiProcessing: string
+    aiError: string
+    aiContinueInChat: string
   }
   fileError: {
     tooLarge: string
     tooLargeDetail: string
+    tooLargeWithName: string
     insertFailed: string
+    insertFailedWithName: string
+    insertImageFailed: string
+    insertFileFailed: string
     cannotOpen: string
+  }
+  ui: {
+    dragToMove: string
+    clickToReset: string
+    processing: string
+  }
+  language: {
+    chinese: string
+    english: string
+    system: string
   }
 }
 
@@ -424,6 +498,7 @@ const zh: Translations = {
     title: '设置',
     general: '通用',
     appearance: '外观',
+    ai: 'AI',
     about: '关于',
     language: '语言',
     languageDesc: '选择界面显示语言',
@@ -457,6 +532,39 @@ const zh: Translations = {
       download: '下载更新',
       restart: '重启应用',
       retry: '重试'
+    },
+    aiActions: {
+      title: 'AI 操作',
+      description: '自定义选中文本的 AI 操作',
+      loading: '加载中...',
+      add: '添加',
+      addAction: '添加操作',
+      editAction: '编辑操作',
+      icon: '图标',
+      name: '名称',
+      namePlaceholder: '操作名称',
+      prompt: '提示词',
+      promptPlaceholder: 'AI 指令...',
+      mode: '模式',
+      modeReplace: '替换',
+      modeInsert: '插入',
+      modePopup: '弹窗',
+      showIn: '显示位置',
+      contextMenu: '右键菜单',
+      slashCommand: '斜杠命令',
+      shortcut: '快捷面板',
+      shortcutKey: '快捷键',
+      pressKey: '按下快捷键...',
+      noShortcut: '点击设置',
+      shortcutConflict: '与「{name}」冲突',
+      save: '保存',
+      saving: '保存中...',
+      cancel: '取消',
+      builtin: '内置',
+      empty: '暂无 AI 操作',
+      resetToDefaults: '恢复默认',
+      resetConfirm: '这将删除所有自定义操作，确定继续？',
+      reset: '恢复'
     }
   },
   notebook: {
@@ -529,6 +637,14 @@ const zh: Translations = {
     requiredField: '此字段为必填项',
     timeoutIn: '超时倒计时',
     seconds: '秒',
+    // Error messages
+    errorConnectionFailed: '连接失败，请确保三千已启动',
+    errorTimeout: '连接超时，请重试',
+    errorAuthFailed: '认证失败，请重新登录',
+    errorGeneric: '连接出错，请重试',
+    errorDisconnected: '连接已断开，请重试',
+    // Context message
+    continueContextTemplate: '我选中了以下文本：\n\n> {selectedText}\n\nAI 给出的解释是：\n\n{explanation}\n\n请继续帮我深入理解这个内容。',
   },
   tray: {
     show: '显示窗口',
@@ -538,6 +654,7 @@ const zh: Translations = {
     loading: '加载中...',
     collapse: '收起',
     expand: '展开',
+    unknownError: '未知错误',
   },
   noteLink: {
     create: '创建「{name}」',
@@ -592,7 +709,10 @@ const zh: Translations = {
     imageDesc: '从本地选择图片插入',
     file: '文件',
     fileDesc: '插入本地文件附件',
-    noMatches: '没有匹配的命令'
+    noMatches: '没有匹配的命令',
+    formatGroup: '格式',
+    aiGroup: 'AI 操作',
+    aiActionDesc: '使用 AI 处理选中文本'
   },
   codeBlock: {
     searchPlaceholder: '搜索语言...',
@@ -684,13 +804,39 @@ const zh: Translations = {
     addColumnBefore: '在左侧插入列',
     addColumnAfter: '在右侧插入列',
     deleteColumn: '删除列',
-    deleteTable: '删除表格'
+    deleteTable: '删除表格',
+    ai: 'AI',
+    aiImprove: '润色改写',
+    aiSimplify: '简化语言',
+    aiExpand: '扩写详述',
+    aiTranslate: '翻译',
+    aiSummarize: '总结摘要',
+    aiExplain: '解释说明',
+    aiCustom: '自由输入...',
+    aiCustomPlaceholder: '让 AI 帮你...',
+    aiProcessing: 'AI 处理中...',
+    aiError: 'AI 处理失败',
+    aiContinueInChat: '继续对话'
   },
   fileError: {
     tooLarge: '文件过大',
     tooLargeDetail: '文件大小 {size}MB 超过 100MB 限制',
+    tooLargeWithName: '文件过大：{name}\n文件大小 {size}MB 超过 100MB 限制',
     insertFailed: '插入文件失败',
+    insertFailedWithName: '文件插入失败：{name}',
+    insertImageFailed: '插入图片失败：{error}',
+    insertFileFailed: '插入文件失败：{error}',
     cannotOpen: '无法打开文件：{name}\n文件可能已被移动或删除'
+  },
+  ui: {
+    dragToMove: '拖动移动',
+    clickToReset: '点击复位',
+    processing: '处理中...'
+  },
+  language: {
+    chinese: '中文',
+    english: 'English',
+    system: '跟随系统'
   }
 }
 
@@ -770,6 +916,7 @@ const en: Translations = {
     title: 'Settings',
     general: 'General',
     appearance: 'Appearance',
+    ai: 'AI',
     about: 'About',
     language: 'Language',
     languageDesc: 'Choose display language',
@@ -803,6 +950,39 @@ const en: Translations = {
       download: 'Download',
       restart: 'Restart',
       retry: 'Retry'
+    },
+    aiActions: {
+      title: 'AI Actions',
+      description: 'Customize AI operations for selected text',
+      loading: 'Loading...',
+      add: 'Add',
+      addAction: 'Add Action',
+      editAction: 'Edit Action',
+      icon: 'Icon',
+      name: 'Name',
+      namePlaceholder: 'Action name',
+      prompt: 'Prompt',
+      promptPlaceholder: 'Instructions for AI...',
+      mode: 'Mode',
+      modeReplace: 'Replace',
+      modeInsert: 'Insert',
+      modePopup: 'Popup',
+      showIn: 'Show in',
+      contextMenu: 'Context menu',
+      slashCommand: 'Slash command',
+      shortcut: 'Shortcut panel',
+      shortcutKey: 'Shortcut Key',
+      pressKey: 'Press a key...',
+      noShortcut: 'Click to set',
+      shortcutConflict: 'Conflicts with "{name}"',
+      save: 'Save',
+      saving: 'Saving...',
+      cancel: 'Cancel',
+      builtin: 'Builtin',
+      empty: 'No AI actions configured',
+      resetToDefaults: 'Reset to defaults',
+      resetConfirm: 'This will remove all custom actions. Continue?',
+      reset: 'Reset'
     }
   },
   notebook: {
@@ -875,6 +1055,14 @@ const en: Translations = {
     requiredField: 'This field is required',
     timeoutIn: 'Timeout in',
     seconds: 's',
+    // Error messages
+    errorConnectionFailed: 'Connection failed, please ensure Sanqian is running',
+    errorTimeout: 'Connection timeout, please retry',
+    errorAuthFailed: 'Authentication failed, please login again',
+    errorGeneric: 'Connection error, please retry',
+    errorDisconnected: 'Connection lost, please retry',
+    // Context message
+    continueContextTemplate: 'I selected the following text:\n\n> {selectedText}\n\nAI explanation:\n\n{explanation}\n\nPlease help me understand this further.',
   },
   tray: {
     show: 'Show Window',
@@ -884,6 +1072,7 @@ const en: Translations = {
     loading: 'Loading...',
     collapse: 'Collapse',
     expand: 'Expand',
+    unknownError: 'Unknown error',
   },
   noteLink: {
     create: 'Create "{name}"',
@@ -938,7 +1127,10 @@ const en: Translations = {
     imageDesc: 'Select and insert local image',
     file: 'File',
     fileDesc: 'Insert local file attachment',
-    noMatches: 'No matching commands'
+    noMatches: 'No matching commands',
+    formatGroup: 'Format',
+    aiGroup: 'AI Actions',
+    aiActionDesc: 'Process selected text with AI'
   },
   codeBlock: {
     searchPlaceholder: 'Search language...',
@@ -1030,13 +1222,39 @@ const en: Translations = {
     addColumnBefore: 'Insert Column Left',
     addColumnAfter: 'Insert Column Right',
     deleteColumn: 'Delete Column',
-    deleteTable: 'Delete Table'
+    deleteTable: 'Delete Table',
+    ai: 'AI',
+    aiImprove: 'Improve Writing',
+    aiSimplify: 'Simplify',
+    aiExpand: 'Expand',
+    aiTranslate: 'Translate',
+    aiSummarize: 'Summarize',
+    aiExplain: 'Explain',
+    aiCustom: 'Custom prompt...',
+    aiCustomPlaceholder: 'Ask AI to...',
+    aiProcessing: 'AI processing...',
+    aiError: 'AI processing failed',
+    aiContinueInChat: 'Continue in chat'
   },
   fileError: {
     tooLarge: 'File too large',
     tooLargeDetail: 'File size {size}MB exceeds 100MB limit',
+    tooLargeWithName: 'File too large: {name}\nFile size {size}MB exceeds 100MB limit',
     insertFailed: 'Failed to insert file',
+    insertFailedWithName: 'Failed to insert file: {name}',
+    insertImageFailed: 'Failed to insert image: {error}',
+    insertFileFailed: 'Failed to insert file: {error}',
     cannotOpen: 'Cannot open file: {name}\nThe file may have been moved or deleted'
+  },
+  ui: {
+    dragToMove: 'Drag to move',
+    clickToReset: 'Click to reset',
+    processing: 'Processing...'
+  },
+  language: {
+    chinese: '中文',
+    english: 'English',
+    system: 'System'
   }
 }
 

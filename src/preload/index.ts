@@ -46,6 +46,16 @@ contextBridge.exposeInMainWorld('electron', {
     getAll: () => ipcRenderer.invoke('tag:getAll'),
     getByNote: (noteId: string) => ipcRenderer.invoke('tag:getByNote', noteId),
   },
+  aiAction: {
+    getAll: () => ipcRenderer.invoke('aiAction:getAll'),
+    getAllIncludingDisabled: () => ipcRenderer.invoke('aiAction:getAllIncludingDisabled'),
+    getById: (id: string) => ipcRenderer.invoke('aiAction:getById', id),
+    create: (input: unknown) => ipcRenderer.invoke('aiAction:create', input),
+    update: (id: string, updates: unknown) => ipcRenderer.invoke('aiAction:update', id, updates),
+    delete: (id: string) => ipcRenderer.invoke('aiAction:delete', id),
+    reorder: (orderedIds: string[]) => ipcRenderer.invoke('aiAction:reorder', orderedIds),
+    reset: () => ipcRenderer.invoke('aiAction:reset'),
+  },
   theme: {
     get: () => ipcRenderer.invoke('theme:get'),
     onChange: (callback: (theme: 'light' | 'dark') => void) => {

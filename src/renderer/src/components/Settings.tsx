@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom'
 import { useI18n } from '../i18n'
 import type { Language } from '../i18n'
 import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting } from '../theme'
+import { AIActionsSettings } from './AIActionsSettings'
 
 const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emerald', 'cyan', 'cobalt', 'indigo', 'magenta']
 
-type SettingsTab = 'general' | 'appearance' | 'about'
+type SettingsTab = 'general' | 'appearance' | 'ai' | 'about'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
 
@@ -186,6 +187,7 @@ export function Settings({ onClose }: SettingsProps) {
   const tabs: Array<{ key: SettingsTab; label: string }> = [
     { key: 'general', label: t.settings.general },
     { key: 'appearance', label: t.settings.appearance },
+    { key: 'ai', label: t.settings.ai || 'AI' },
     { key: 'about', label: t.settings.about },
   ]
 
@@ -263,7 +265,7 @@ export function Settings({ onClose }: SettingsProps) {
                           }
                         `}
                       >
-                        {lang === 'zh' ? '中文' : lang === 'en' ? 'English' : t.settings.system}
+                        {lang === 'zh' ? t.language.chinese : lang === 'en' ? t.language.english : t.language.system}
                       </button>
                     ))}
                   </div>
@@ -380,6 +382,11 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* AI Tab */}
+            {activeTab === 'ai' && (
+              <AIActionsSettings />
             )}
 
             {/* About Tab */}

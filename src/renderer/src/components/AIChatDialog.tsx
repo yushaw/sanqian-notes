@@ -25,6 +25,8 @@ interface AIChatDialogProps {
 
 // Event for opening chat with context
 export const OPEN_CHAT_WITH_CONTEXT_EVENT = 'open-chat-with-context'
+// Event for opening chat without context
+export const OPEN_CHAT_EVENT = 'open-ai-chat'
 
 export interface OpenChatWithContextDetail {
   selectedText: string
@@ -33,6 +35,10 @@ export interface OpenChatWithContextDetail {
 
 export function openChatWithContext(detail: OpenChatWithContextDetail) {
   window.dispatchEvent(new CustomEvent(OPEN_CHAT_WITH_CONTEXT_EVENT, { detail }))
+}
+
+export function openAIChat() {
+  window.dispatchEvent(new CustomEvent(OPEN_CHAT_EVENT))
 }
 
 
@@ -95,8 +101,16 @@ export function AIChatDialog({ isOpen, onClose, onOpen }: AIChatDialogProps) {
     }
 
     window.addEventListener(OPEN_CHAT_WITH_CONTEXT_EVENT, handleOpenWithContext)
+
+    // Also listen for simple open chat events
+    const handleOpenChat = () => {
+      onOpen?.()
+    }
+    window.addEventListener(OPEN_CHAT_EVENT, handleOpenChat)
+
     return () => {
       window.removeEventListener(OPEN_CHAT_WITH_CONTEXT_EVENT, handleOpenWithContext)
+      window.removeEventListener(OPEN_CHAT_EVENT, handleOpenChat)
     }
   }, [onOpen])
 

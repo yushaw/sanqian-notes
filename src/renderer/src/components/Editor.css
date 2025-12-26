@@ -41,7 +41,7 @@
 }
 
 .zen-header-title {
-  font-size: 1.625rem;
+  font-size: 1.5rem;
   font-weight: 600;
   color: var(--color-text);
   overflow: hidden;
@@ -275,7 +275,7 @@
   outline: none;
   resize: none;
   padding: 0;
-  font-size: 1.625rem;
+  font-size: 1.5rem;
   font-weight: 600;
   line-height: 1.2;
   color: var(--color-text);
@@ -775,6 +775,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  user-select: none;
   align-items: center;
   justify-content: center;
   text-align: center;
@@ -1131,8 +1132,8 @@
   box-shadow: var(--shadow-elevated);
   padding: 4px;
   width: fit-content;
-  min-width: 160px;
-  max-width: 280px;
+  min-width: 140px;
+  max-width: 220px;
   max-height: 300px;
   overflow-y: auto;
 }
@@ -1253,6 +1254,63 @@
   transform: translateX(-50%);
   z-index: 110;
   animation: dropdownFadeIn 0.15s ease;
+}
+
+/* AI 菜单样式 - 继承 dropdown-menu，添加最大高度和滚动 */
+.zen-toolbar-ai-menu {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.zen-toolbar-ai-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text);
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.zen-toolbar-ai-menu-item:hover {
+  background: var(--color-surface);
+}
+
+.zen-toolbar-ai-menu-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.zen-toolbar-ai-menu-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* AI 菜单滚动条 */
+.zen-toolbar-ai-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.zen-toolbar-ai-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.zen-toolbar-ai-menu::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.zen-toolbar-ai-menu:hover::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
 }
 
 /* ============================================
@@ -1883,8 +1941,32 @@
 
 .editor-context-submenu {
   min-width: 140px;
-  max-height: 300px;
+  max-height: 200px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 子菜单滚动条：hover 时显示，颜色淡 */
+.editor-context-submenu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.editor-context-submenu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editor-context-submenu::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.editor-context-submenu:hover::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+}
+
+.editor-context-submenu::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5);
 }
 
 @keyframes contextMenuFadeIn {

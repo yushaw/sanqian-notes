@@ -45,6 +45,10 @@ import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
+import { useAIActions } from '../hooks/useAIActions'
+import { useAIWriting } from '../hooks/useAIWriting'
+import { getAIContext } from '../utils/aiContext'
+import { openAIChat } from './AIChatDialog'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
 import 'katex/dist/katex.min.css'
@@ -175,6 +179,11 @@ const ToolbarIcons = {
       <path d="M4 20h16" />
       <path d="m6 16 6-12 6 12" />
       <path d="M8 12h8" />
+    </svg>
+  ),
+  sparkles: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
     </svg>
   ),
 }
@@ -607,6 +616,34 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   useImperativeHandle(ref, () => ({
     getEditor: () => editor,
   }), [editor])
+
+  // AI actions hook
+  const { getContextMenuActions } = useAIActions()
+  const aiActions = getContextMenuActions()
+
+  // AI Writing hook for executing actions
+  const { executeAction: executeAIAction, isProcessing: isAIProcessing } = useAIWriting({
+    editor,
+    onComplete: () => {
+      editor?.commands.focus()
+    },
+    onError: (errorCode) => {
+      console.error('[AI Writing] Error:', errorCode)
+    }
+  })
+
+  const handleAIButtonClick = useCallback(() => {
+    openAIChat()
+  }, [])
+
+  const handleAIActionClick = useCallback((action: AIAction) => {
+    if (!editor) return
+    const context = getAIContext(editor)
+    if (!context) return
+
+    const insertMode = action.mode === 'insert' ? 'insertAfter' : 'replace'
+    executeAIAction(action.prompt, context, insertMode)
+  }, [editor, executeAIAction])
 
   // 跟踪编辑器自身的内容版本，用于区分外部更新和内部更新
   const editorContentRef = useRef<string | null>(null)
@@ -1178,6 +1215,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         toggleFocusMode={toggleFocusMode}
         toggleTypewriterMode={toggleTypewriterMode}
         showToolbar={showToolbar}
+        aiActions={aiActions}
+        onAIActionClick={handleAIActionClick}
+        onAIButtonClick={handleAIButtonClick}
+        isAIProcessing={isAIProcessing}
       />
 
       {/* Scroll wrapper - keeps scrollbar at right edge, click to focus editor */}
@@ -1305,7 +1346,11 @@ function EditorToolbar({
   isTypewriterMode,
   toggleFocusMode: _toggleFocusMode,
   toggleTypewriterMode,
-  showToolbar
+  showToolbar,
+  aiActions,
+  onAIActionClick,
+  onAIButtonClick,
+  isAIProcessing
 }: {
   editor: ReturnType<typeof useEditor>
   t: ReturnType<typeof useTranslations>
@@ -1314,11 +1359,33 @@ function EditorToolbar({
   toggleFocusMode: () => void
   toggleTypewriterMode: () => void
   showToolbar: boolean
+  aiActions: AIAction[]
+  onAIActionClick: (action: AIAction) => void
+  onAIButtonClick: () => void
+  isAIProcessing: boolean
 }) {
   const toolbarRef = useRef<HTMLDivElement>(null)
   const [isCompact, setIsCompact] = useState(false)
   const [showColorPicker, setShowColorPicker] = useState(false)
+  const [showAIMenu, setShowAIMenu] = useState(false)
   const colorPickerRef = useRef<HTMLDivElement>(null)
+  const aiMenuRef = useRef<HTMLDivElement>(null)
+  const aiMenuTimeoutRef = useRef<number | null>(null)
+
+  // AI menu hover handlers
+  const handleAIMenuEnter = useCallback(() => {
+    if (aiMenuTimeoutRef.current) {
+      clearTimeout(aiMenuTimeoutRef.current)
+      aiMenuTimeoutRef.current = null
+    }
+    setShowAIMenu(true)
+  }, [])
+
+  const handleAIMenuLeave = useCallback(() => {
+    aiMenuTimeoutRef.current = window.setTimeout(() => {
+      setShowAIMenu(false)
+    }, 200)
+  }, [])
 
   // 监听容器宽度变化
   useEffect(() => {
@@ -1357,6 +1424,39 @@ function EditorToolbar({
   if (isCompact) {
     return (
       <div ref={toolbarRef} className={`zen-toolbar ${showToolbar ? 'visible' : ''}`}>
+        {/* AI - 放在最左边 */}
+        <div
+          className="zen-toolbar-dropdown"
+          onMouseEnter={handleAIMenuEnter}
+          onMouseLeave={handleAIMenuLeave}
+        >
+          <button
+            className={`zen-toolbar-btn zen-toolbar-dropdown-trigger ${isAIProcessing ? 'active' : ''} ${showAIMenu ? 'open' : ''}`}
+            onClick={onAIButtonClick}
+            title={t.contextMenu.ai}
+          >
+            {ToolbarIcons.sparkles}
+            {ToolbarIcons.chevronUp}
+          </button>
+          {showAIMenu && aiActions.length > 0 && (
+            <div className="zen-toolbar-dropdown-menu zen-toolbar-ai-menu">
+              {aiActions.map((action) => (
+                <button
+                  key={action.id}
+                  className="zen-toolbar-ai-menu-item"
+                  onClick={() => {
+                    onAIActionClick(action)
+                    setShowAIMenu(false)
+                  }}
+                >
+                  <span className="zen-toolbar-ai-menu-icon">{action.icon}</span>
+                  <span className="zen-toolbar-ai-menu-label">{action.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="zen-toolbar-divider" />
         {/* 文本格式下拉 */}
         <ToolbarDropdown
           icon={ToolbarIcons.bold}
@@ -1424,6 +1524,40 @@ function EditorToolbar({
   // 展开模式：所有按钮平铺
   return (
     <div ref={toolbarRef} className={`zen-toolbar ${showToolbar ? 'visible' : ''}`}>
+      {/* AI - 放在最左边 */}
+      <div
+        className="zen-toolbar-dropdown"
+        ref={aiMenuRef}
+        onMouseEnter={handleAIMenuEnter}
+        onMouseLeave={handleAIMenuLeave}
+      >
+        <button
+          className={`zen-toolbar-btn zen-toolbar-dropdown-trigger ${isAIProcessing ? 'active' : ''} ${showAIMenu ? 'open' : ''}`}
+          onClick={onAIButtonClick}
+          title={t.contextMenu.ai}
+        >
+          {ToolbarIcons.sparkles}
+          {ToolbarIcons.chevronUp}
+        </button>
+        {showAIMenu && aiActions.length > 0 && (
+          <div className="zen-toolbar-dropdown-menu zen-toolbar-ai-menu">
+            {aiActions.map((action) => (
+              <button
+                key={action.id}
+                className="zen-toolbar-ai-menu-item"
+                onClick={() => {
+                  onAIActionClick(action)
+                  setShowAIMenu(false)
+                }}
+              >
+                <span className="zen-toolbar-ai-menu-icon">{action.icon}</span>
+                <span className="zen-toolbar-ai-menu-label">{action.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="zen-toolbar-divider" />
       {/* 文本格式 */}
       <ToolbarButton active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title={`${t.toolbar.bold} (${shortcuts.bold})`} icon={ToolbarIcons.bold} />
       <ToolbarButton active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title={`${t.toolbar.italic} (${shortcuts.italic})`} icon={ToolbarIcons.italic} />

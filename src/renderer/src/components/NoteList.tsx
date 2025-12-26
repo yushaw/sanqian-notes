@@ -197,7 +197,7 @@ export function NoteList({
   const displayNotes = searchResults !== null ? searchResults : notes
 
   return (
-    <div className="w-64 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col drag-region">
+    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col drag-region">
       {/* Header */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
         {isSearching ? (

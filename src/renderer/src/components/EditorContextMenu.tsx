@@ -4,7 +4,6 @@ import { useTranslations } from '../i18n'
 import { shortcuts } from '../utils/shortcuts'
 import { useAIWriting } from '../hooks/useAIWriting'
 import { useAIActions } from '../hooks/useAIActions'
-import { AICustomInput } from './AICustomInput'
 import { AIExplainPopup } from './AIExplainPopup'
 import { openChatWithContext } from './AIChatDialog'
 import { SLASH_AI_ACTION_EVENT, type SlashAIActionDetail } from './extensions/SlashCommand'
@@ -192,8 +191,6 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
   const [tableSubmenuPosition, setTableSubmenuPosition] = useState({ top: 0, left: 0 })
   const [showAISubmenu, setShowAISubmenu] = useState(false)
   const [aiSubmenuPosition, setAISubmenuPosition] = useState({ top: 0, left: 0 })
-  const [showCustomInput, setShowCustomInput] = useState(false)
-  const [customInputPosition, setCustomInputPosition] = useState({ x: 0, y: 0 })
   const [showExplainPopup, setShowExplainPopup] = useState(false)
   const [explainPopupPosition, setExplainPopupPosition] = useState({ x: 0, y: 0 })
   const [aiContext, setAIContext] = useState<AIContext | null>(null)
@@ -233,7 +230,6 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     setShowInsertSubmenu(false)
     setShowTableSubmenu(false)
     setShowAISubmenu(false)
-    setShowCustomInput(false)
   }, [position])
 
   // 清除关闭延时
@@ -254,7 +250,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     clearCloseTimeout()
     closeTimeoutRef.current = window.setTimeout(() => {
       setShowInsertSubmenu(false)
-    }, 150)
+    }, 300)
   }, [clearCloseTimeout])
 
   // 保持插入子菜单打开
@@ -268,7 +264,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     clearCloseTimeout()
     closeTimeoutRef.current = window.setTimeout(() => {
       setShowTableSubmenu(false)
-    }, 150)
+    }, 300)
   }, [clearCloseTimeout])
 
   // 保持表格子菜单打开
@@ -282,7 +278,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     clearCloseTimeout()
     closeTimeoutRef.current = window.setTimeout(() => {
       setShowAISubmenu(false)
-    }, 150)
+    }, 300)
   }, [clearCloseTimeout])
 
   // 保持 AI 子菜单打开
@@ -293,14 +289,18 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
   // 显示 AI 子菜单
   const handleShowAISubmenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    // 关闭其他子菜单
+    setShowInsertSubmenu(false)
+    setShowTableSubmenu(false)
+    clearCloseTimeout()
+
     const rect = e.currentTarget.getBoundingClientRect()
     const submenuWidth = 160
-    // +1 for custom input option, +1 for divider
-    const submenuHeight = (aiActions.length + 2) * 32 + 8
+    const submenuHeight = aiActions.length * 32 + 8
 
-    let left = rect.right + 4
-    if (rect.right + submenuWidth + 10 > window.innerWidth) {
-      left = rect.left - submenuWidth - 4
+    let left = rect.right - 2
+    if (rect.right + submenuWidth > window.innerWidth) {
+      left = rect.left - submenuWidth + 2
     }
 
     let top = rect.top
@@ -316,7 +316,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
     setAISubmenuPosition({ top, left })
     setShowAISubmenu(true)
-  }, [editor, aiActions.length])
+  }, [editor, aiActions.length, clearCloseTimeout])
 
   // Store current action for popup mode
   const [currentAction, setCurrentAction] = useState<AIAction | null>(null)
@@ -345,26 +345,6 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     }
   }, [editor, executeAction, aiContext, onClose])
 
-  // 处理自由输入 - 显示自定义输入框
-  const handleShowCustomInput = useCallback(() => {
-    setShowAISubmenu(false)
-    setCustomInputPosition({ x: aiSubmenuPosition.left, y: aiSubmenuPosition.top })
-    setShowCustomInput(true)
-  }, [aiSubmenuPosition])
-
-  // 处理自定义输入提交
-  const handleCustomInputSubmit = useCallback((prompt: string) => {
-    if (!aiContext) return
-    executeAction(prompt, aiContext)
-    setShowCustomInput(false)
-    onClose()
-  }, [executeAction, aiContext, onClose])
-
-  // 关闭自定义输入
-  const handleCustomInputClose = useCallback(() => {
-    setShowCustomInput(false)
-  }, [])
-
   // 关闭解释弹窗
   const handleExplainPopupClose = useCallback(() => {
     setShowExplainPopup(false)
@@ -386,15 +366,21 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       const isInsideTableSubmenu = tableSubmenuRef.current?.contains(target)
       const isInsideAISubmenu = aiSubmenuRef.current?.contains(target)
 
-      // Don't close if custom input is open (it has its own click-outside handler)
-      if (showCustomInput) return
-
       if (!isInsideMenu && !isInsideInsertSubmenu && !isInsideTableSubmenu && !isInsideAISubmenu) {
         onClose()
       }
     }
 
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
+      // 如果滚动发生在子菜单内部，不关闭菜单
+      const target = e.target as Node
+      if (
+        insertSubmenuRef.current?.contains(target) ||
+        tableSubmenuRef.current?.contains(target) ||
+        aiSubmenuRef.current?.contains(target)
+      ) {
+        return
+      }
       onClose()
     }
 
@@ -610,13 +596,18 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
   // 显示插入子菜单
   const handleShowInsertSubmenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    // 关闭其他子菜单
+    setShowTableSubmenu(false)
+    setShowAISubmenu(false)
+    clearCloseTimeout()
+
     const rect = e.currentTarget.getBoundingClientRect()
-    const submenuWidth = 140
+    const submenuWidth = 160
     const submenuHeight = insertItems.length * 32 + 8
 
-    let left = rect.right + 4
-    if (rect.right + submenuWidth + 10 > window.innerWidth) {
-      left = rect.left - submenuWidth - 4
+    let left = rect.right - 2
+    if (rect.right + submenuWidth > window.innerWidth) {
+      left = rect.left - submenuWidth + 2
     }
 
     let top = rect.top
@@ -626,7 +617,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
     setInsertSubmenuPosition({ top, left })
     setShowInsertSubmenu(true)
-  }, [])
+  }, [clearCloseTimeout])
 
   // 插入内容
   const handleInsert = useCallback((insertFn: (editor: Editor) => void) => {
@@ -637,13 +628,18 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
   // 显示表格子菜单
   const handleShowTableSubmenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    // 关闭其他子菜单
+    setShowInsertSubmenu(false)
+    setShowAISubmenu(false)
+    clearCloseTimeout()
+
     const rect = e.currentTarget.getBoundingClientRect()
     const submenuWidth = 160
     const submenuHeight = 7 * 32 + 8
 
-    let left = rect.right + 4
-    if (rect.right + submenuWidth + 10 > window.innerWidth) {
-      left = rect.left - submenuWidth - 4
+    let left = rect.right - 2
+    if (rect.right + submenuWidth > window.innerWidth) {
+      left = rect.left - submenuWidth + 2
     }
 
     let top = rect.top
@@ -653,7 +649,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
     setTableSubmenuPosition({ top, left })
     setShowTableSubmenu(true)
-  }, [])
+  }, [clearCloseTimeout])
 
   // 表格操作
   const tableOperations = [
@@ -944,24 +940,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
               <span className="context-menu-label">{action.name}</span>
             </button>
           ))}
-          {aiActions.length > 0 && <div className="context-menu-divider" />}
-          <button
-            className="context-menu-item"
-            onClick={handleShowCustomInput}
-          >
-            <span className="context-menu-icon context-menu-icon-text">💬</span>
-            <span className="context-menu-label">{t.contextMenu.aiCustom}</span>
-          </button>
         </div>
-      )}
-
-      {/* 自定义输入框 */}
-      {showCustomInput && (
-        <AICustomInput
-          position={customInputPosition}
-          onSubmit={handleCustomInputSubmit}
-          onClose={handleCustomInputClose}
-        />
       )}
     </>
   )

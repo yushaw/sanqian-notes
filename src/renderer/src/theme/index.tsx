@@ -157,9 +157,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Apply font size class to document
   useEffect(() => {
-    document.documentElement.classList.remove('text-small', 'text-large', 'text-extra-large')
+    document.documentElement.classList.remove('text-small', 'text-normal', 'text-large', 'text-extra-large')
     if (fontSize === 'small') {
       document.documentElement.classList.add('text-small')
+    } else if (fontSize === 'normal') {
+      document.documentElement.classList.add('text-normal')
     } else if (fontSize === 'large') {
       document.documentElement.classList.add('text-large')
     } else if (fontSize === 'extra-large') {

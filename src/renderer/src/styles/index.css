@@ -180,12 +180,16 @@ html.text-small {
   font-size: 13px;
 }
 
+html.text-normal {
+  font-size: 14px;
+}
+
 html.text-large {
-  font-size: 17px;
+  font-size: 16px;
 }
 
 html.text-extra-large {
-  font-size: 19px;
+  font-size: 17px;
 }
 
 /* ============================================

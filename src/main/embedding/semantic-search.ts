@@ -17,6 +17,15 @@ import {
 // RRF 常数，通常使用 60
 const RRF_K = 60
 
+// Chunk 搜索结果（内部使用）
+interface ChunkResult {
+  noteId: string
+  notebookId: string
+  chunkId: string
+  chunkText: string
+  score: number
+}
+
 // 语义搜索结果
 export interface SemanticSearchResult {
   noteId: string
@@ -138,43 +147,50 @@ export async function hybridSearch(
     return []
   }
 
-  // 并行执行向量搜索和关键词搜索
   const searchLimit = limit * 3
 
-  // 1. 向量搜索（如果知识库启用）
-  let vectorResults: Array<{ noteId: string; notebookId: string; chunkId: string; chunkText: string; score: number }> = []
-  if (config.enabled) {
-    try {
-      const queryEmbedding = await getEmbedding(query)
-      const vecResults = notebookId
-        ? searchEmbeddingsInNotebook(queryEmbedding, notebookId, searchLimit, threshold)
-        : searchEmbeddings(queryEmbedding, searchLimit, threshold)
-
-      vectorResults = vecResults.map((r) => ({
+  // 并行执行向量搜索和关键词搜索
+  const [vectorPromise, keywordPromise] = await Promise.allSettled([
+    // 向量搜索（如果知识库启用）
+    config.enabled
+      ? (async (): Promise<ChunkResult[]> => {
+          const queryEmbedding = await getEmbedding(query)
+          const vecResults = notebookId
+            ? searchEmbeddingsInNotebook(queryEmbedding, notebookId, searchLimit, threshold)
+            : searchEmbeddings(queryEmbedding, searchLimit, threshold)
+          return vecResults.map((r) => ({
+            noteId: r.noteId,
+            notebookId: r.notebookId,
+            chunkId: r.chunkId,
+            chunkText: r.chunkText,
+            score: r.score
+          }))
+        })()
+      : Promise.resolve([]),
+    // 关键词搜索（同步函数包装为 Promise）
+    Promise.resolve().then(() => {
+      const ftsResults = searchKeyword(query, searchLimit, notebookId)
+      return ftsResults.map((r) => ({
         noteId: r.noteId,
         notebookId: r.notebookId,
         chunkId: r.chunkId,
         chunkText: r.chunkText,
-        score: r.score
+        matchCount: r.matchCount
       }))
-    } catch (error) {
-      console.error('[HybridSearch] Vector search error:', error)
-    }
+    })
+  ])
+
+  // 处理结果，失败时返回空数组
+  const vectorResults: ChunkResult[] =
+    vectorPromise.status === 'fulfilled' ? vectorPromise.value : []
+  if (vectorPromise.status === 'rejected') {
+    console.error('[HybridSearch] Vector search error:', vectorPromise.reason)
   }
 
-  // 2. 关键词搜索（FTS）
-  let keywordResults: Array<{ noteId: string; notebookId: string; chunkId: string; chunkText: string; matchCount: number }> = []
-  try {
-    const ftsResults = searchKeyword(query, searchLimit, notebookId)
-    keywordResults = ftsResults.map((r) => ({
-      noteId: r.noteId,
-      notebookId: r.notebookId,
-      chunkId: r.chunkId,
-      chunkText: r.chunkText,
-      matchCount: r.matchCount
-    }))
-  } catch (error) {
-    console.error('[HybridSearch] Keyword search error:', error)
+  const keywordResults =
+    keywordPromise.status === 'fulfilled' ? keywordPromise.value : []
+  if (keywordPromise.status === 'rejected') {
+    console.error('[HybridSearch] Keyword search error:', keywordPromise.reason)
   }
 
   // 如果两者都没有结果，返回空
@@ -184,17 +200,24 @@ export async function hybridSearch(
 
   // 如果只有一种结果，直接使用
   if (vectorResults.length === 0) {
-    return aggregateByNote(keywordResults.map((r) => ({ ...r, score: 1 / (RRF_K + 1) })), limit)
+    const mapped = keywordResults.map((r, index) => ({
+      noteId: r.noteId,
+      notebookId: r.notebookId,
+      chunkId: r.chunkId,
+      chunkText: r.chunkText,
+      score: 1 / (RRF_K + index + 1)
+    }))
+    return aggregateByNote(mapped, limit)
   }
   if (keywordResults.length === 0) {
     return aggregateByNote(vectorResults, limit)
   }
 
-  // 3. RRF 融合
+  // RRF 融合
   const chunkScores = new Map<string, number>()
-  const chunkData = new Map<string, { noteId: string; notebookId: string; chunkId: string; chunkText: string }>()
+  const chunkData = new Map<string, Omit<ChunkResult, 'score'>>()
 
-  // 向量搜索贡献（按 score 降序排列）
+  // 向量搜索贡献（已按 score 降序排列）
   vectorResults.forEach((result, index) => {
     const rank = index + 1
     const rrfScore = 1 / (RRF_K + rank)
@@ -205,29 +228,22 @@ export async function hybridSearch(
   })
 
   // 关键词搜索贡献（按 matchCount 降序排列）
-  keywordResults
-    .sort((a, b) => b.matchCount - a.matchCount)
-    .forEach((result, index) => {
-      const rank = index + 1
-      const rrfScore = 1 / (RRF_K + rank)
-      chunkScores.set(result.chunkId, (chunkScores.get(result.chunkId) || 0) + rrfScore)
-      if (!chunkData.has(result.chunkId)) {
-        chunkData.set(result.chunkId, result)
-      }
-    })
+  const sortedKeywordResults = [...keywordResults].sort((a, b) => b.matchCount - a.matchCount)
+  sortedKeywordResults.forEach((result, index) => {
+    const rank = index + 1
+    const rrfScore = 1 / (RRF_K + rank)
+    chunkScores.set(result.chunkId, (chunkScores.get(result.chunkId) || 0) + rrfScore)
+    if (!chunkData.has(result.chunkId)) {
+      chunkData.set(result.chunkId, result)
+    }
+  })
 
-  // 4. 按 RRF 分数排序并转换为结果格式
-  const sortedChunks = Array.from(chunkScores.entries())
+  // 按 RRF 分数排序并转换为结果格式
+  const sortedChunks: ChunkResult[] = Array.from(chunkScores.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([chunkId, score]) => {
       const data = chunkData.get(chunkId)!
-      return {
-        noteId: data.noteId,
-        notebookId: data.notebookId,
-        chunkId: data.chunkId,
-        chunkText: data.chunkText,
-        score
-      }
+      return { ...data, score }
     })
 
   console.log(
@@ -239,11 +255,11 @@ export async function hybridSearch(
 
 /**
  * 按笔记聚合 chunk 结果
+ *
+ * 使用累加策略：匹配多个 chunk 的笔记获得更高分数
+ * 这样一个笔记有 3 个 chunk 都匹配会比只有 1 个 chunk 匹配的笔记排名更高
  */
-function aggregateByNote(
-  chunks: Array<{ noteId: string; notebookId: string; chunkId: string; chunkText: string; score: number }>,
-  limit: number
-): SemanticSearchResult[] {
+function aggregateByNote(chunks: ChunkResult[], limit: number): SemanticSearchResult[] {
   const noteMap = new Map<string, SemanticSearchResult>()
 
   for (const chunk of chunks) {
@@ -255,10 +271,8 @@ function aggregateByNote(
         chunkText: chunk.chunkText,
         score: chunk.score
       })
-      // 使用最高分
-      if (chunk.score > existing.score) {
-        existing.score = chunk.score
-      }
+      // 累加分数：匹配更多 chunk 的笔记排名更高
+      existing.score += chunk.score
     } else {
       noteMap.set(chunk.noteId, {
         noteId: chunk.noteId,

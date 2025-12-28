@@ -51,6 +51,9 @@ function AppContent() {
   const [showSettings, setShowSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
+  // Knowledge base enabled status (cached to avoid IPC on every search)
+  const [kbEnabled, setKbEnabled] = useState(false)
+
   // Notebook modal state
   const [showNotebookModal, setShowNotebookModal] = useState(false)
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null>(null)
@@ -87,16 +90,18 @@ function AppContent() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [notesData, notebooksData, trashData] = await Promise.all([
+        const [notesData, notebooksData, trashData, kbConfig] = await Promise.all([
           window.electron.note.getAll(),
           window.electron.notebook.getAll(),
-          window.electron.trash.getAll()
+          window.electron.trash.getAll(),
+          window.electron.knowledgeBase.getConfig()
         ])
         const loadedNotes = notesData as Note[]
         const loadedNotebooks = notebooksData as Notebook[]
         setNotes(loadedNotes)
         setNotebooks(loadedNotebooks)
         setTrashNotes(trashData as Note[])
+        setKbEnabled(kbConfig.enabled)
 
         // Validate restored navigation state
         // Check if saved notebook still exists
@@ -452,28 +457,32 @@ function AppContent() {
     }
   }, [selectedNoteId, notes])
 
-  // Handle search - use hybrid search (RRF fusion of vector + keyword)
+  // Handle search - use hybrid search (RRF fusion of vector + keyword) when KB enabled
   const handleSearch = useCallback(async (query: string): Promise<Note[]> => {
     try {
-      // Use hybrid search which combines vector and keyword search with RRF
-      const hybridResults = await window.electron.knowledgeBase.hybridSearch(query, { limit: 20 })
-      if (hybridResults.length > 0) {
-        // Fetch full note objects for each result
-        const notePromises = hybridResults.map(result =>
-          window.electron.note.getById(result.noteId)
-        )
-        const notesResult = await Promise.all(notePromises)
-        // Filter out nulls and return
-        return notesResult.filter((n): n is Note => n !== null)
+      if (kbEnabled) {
+        // Use hybrid search which combines vector and keyword search with RRF
+        // hybridSearch searches note_chunks table (indexed content)
+        const hybridResults = await window.electron.knowledgeBase.hybridSearch(query, { limit: 20 })
+        if (hybridResults.length > 0) {
+          // Fetch full note objects for each result
+          const notePromises = hybridResults.map(result =>
+            window.electron.note.getById(result.noteId)
+          )
+          const notesResult = await Promise.all(notePromises)
+          // Filter out nulls and return
+          return notesResult.filter((n): n is Note => n !== null)
+        }
       }
-      // No results from hybrid search, fall back to simple keyword search
+      // Fall back to note.search which searches notes table directly
+      // This catches notes not yet indexed (too short, just created, etc.)
       return window.electron.note.search(query)
     } catch (error) {
       console.error('Search failed:', error)
       // Fall back to keyword search on error
       return window.electron.note.search(query)
     }
-  }, [])
+  }, [kbEnabled])
 
   // Handle restore note from trash
   const handleRestoreNote = useCallback(async (id: string) => {
@@ -614,8 +623,11 @@ function AppContent() {
     setShowSettings(true)
   }, [])
 
-  const handleCloseSettings = useCallback(() => {
+  const handleCloseSettings = useCallback(async () => {
     setShowSettings(false)
+    // Refresh kbEnabled in case user changed knowledge base settings
+    const kbConfig = await window.electron.knowledgeBase.getConfig()
+    setKbEnabled(kbConfig.enabled)
   }, [])
 
   // Toggle typewriter mode - 现在接收 cursorInfo 参数

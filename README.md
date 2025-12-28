@@ -2379,3 +2379,35 @@ npm run reset-db
   - 侧边栏宽度：w-52 → w-44
   - 中间列宽度：w-64 → w-56
 
+
+### 2025-12-28 AI 操作预览确认机制
+
+- ✅ **新增 AI 替换预览功能**
+  - 参考 Notion AI 和 Tiptap AI 的最佳实践
+  - 替换操作不再直接执行，而是显示预览供用户确认
+  - 原文显示删除线（红色），新文本高亮（绿色）
+  - 用户可以：接受、拒绝、重新生成
+
+- ✅ **交互方式**
+  - 操作按钮：✓ 接受 | ✗ 拒绝 | ↻ 重试
+  - 快捷键：Enter 接受，Escape 拒绝，⌘R 重新生成
+  - 预览激活时阻止编辑操作（防止误操作）
+
+- ✅ **支持场景**
+  - 单块替换：选中文本后执行 AI 操作
+  - 跨块替换：选中多个段落后执行 AI 操作（整体预览）
+  - insertAfter 模式：保持原有行为（直接插入）
+  - popup 模式：保持原有行为（弹窗解释）
+
+- ✅ **技术实现**
+  - 使用 ProseMirror Decoration API（不污染文档结构）
+  - 新增 `AIPreview` Tiptap 扩展
+  - 修改 `useAIWriting` hook 集成预览逻辑
+
+**新增文件**：
+- `src/renderer/src/components/extensions/AIPreview.ts`
+
+**修改文件**：
+- `src/renderer/src/hooks/useAIWriting.ts`
+- `src/renderer/src/components/Editor.tsx`
+- `src/renderer/src/components/Editor.css`

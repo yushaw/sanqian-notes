@@ -3,6 +3,8 @@
  *
  * Provides AI writing operations with streaming text replacement/insertion in the editor.
  * All prompts come from AIAction database - no hardcoded prompts here.
+ *
+ * For 'replace' mode, shows a preview with accept/reject/regenerate options.
  */
 
 import { useState, useCallback, useRef } from 'react'
@@ -11,6 +13,7 @@ import { DOMParser as ProseMirrorDOMParser, type Node as ProseMirrorNode } from 
 import type { Transaction } from '@tiptap/pm/state'
 import { type AIContext, formatAIPrompt } from '../utils/aiContext'
 import { type AIErrorCode, getAIErrorCode } from '../utils/aiErrors'
+import { aiPreviewPluginKey, type AIPreviewBlock } from '../components/extensions/AIPreview'
 
 // Re-export for backward compatibility
 export type { AIErrorCode as AIWritingErrorCode }
@@ -323,7 +326,7 @@ export function useAIWriting(options: UseAIWritingOptions) {
 
         if (event.type === 'done') {
 
-          // Cross-block mode: apply all changes in one atomic transaction
+          // Cross-block mode: show preview for all blocks
           // Editor still has original content (we didn't update during streaming)
           if (useCrossBlockMode) {
             // Store any remaining content from the last block
@@ -334,39 +337,103 @@ export function useAIWriting(options: UseAIWritingOptions) {
               }
             }
 
-            // Sort blocks by document position (process in reverse order for correct position mapping)
-            // Get positions for all blocks first, then sort
-            const blocksWithPos = Object.entries(blockContentBuffers)
-              .map(([blockId, content]) => {
+            // Build preview blocks with current positions
+            const previewBlocks: AIPreviewBlock[] = Object.entries(blockContentBuffers)
+              .map(([blockId, newText]) => {
                 const pos = findBlockByIdInEditor(editor, blockId)
-                return { blockId, content, pos }
+                if (!pos) return null
+                const oldText = editor.state.doc.textBetween(pos.textFrom, pos.textTo)
+                return {
+                  blockId,
+                  from: pos.textFrom,
+                  to: pos.textTo,
+                  oldText,
+                  newText: newText.trim()
+                }
               })
-              .filter(b => b.pos !== null)
-              .sort((a, b) => b.pos!.textFrom - a.pos!.textFrom) // Reverse document order
+              .filter((b): b is AIPreviewBlock => b !== null)
+              .sort((a, b) => a.from - b.from) // Document order for display
 
-            if (blocksWithPos.length > 0) {
-              // One transaction replaces all blocks: original -> final formatted content
-              // Undo will restore original content in one step
-              const tr = editor.state.tr
-              for (const { content, pos } of blocksWithPos) {
-                const mappedFrom = tr.mapping.map(pos!.textFrom)
-                const mappedTo = tr.mapping.map(pos!.textTo)
-                replaceWithFormattedContent(tr, mappedFrom, mappedTo, content, editor)
-              }
-
-              // Dispatch with history - this is the only transaction user can undo
-              editor.view.dispatch(tr)
+            if (previewBlocks.length > 0) {
+              // Show preview instead of direct replacement
+              editor.commands.showAIPreview({
+                id: streamId,
+                from: previewBlocks[0].from,
+                to: previewBlocks[previewBlocks.length - 1].to,
+                oldText: '',
+                newText: '',
+                blocks: previewBlocks,
+                onAccept: () => {
+                  // Accept: execute actual replacement (reverse order for correct position mapping)
+                  const sortedBlocks = [...previewBlocks].sort((a, b) => b.from - a.from)
+                  const tr = editor.state.tr
+                  for (const block of sortedBlocks) {
+                    const pos = findBlockByIdInEditor(editor, block.blockId)
+                    if (pos) {
+                      const mappedFrom = tr.mapping.map(pos.textFrom)
+                      const mappedTo = tr.mapping.map(pos.textTo)
+                      replaceWithFormattedContent(tr, mappedFrom, mappedTo, block.newText, editor)
+                    }
+                  }
+                  editor.view.dispatch(tr)
+                  editor.commands.hideAIPreview()
+                  editor.commands.focus()
+                },
+                onReject: () => {
+                  // Reject: just hide preview, keep original text
+                  editor.commands.hideAIPreview()
+                  editor.commands.focus()
+                },
+                onRegenerate: () => {
+                  // Regenerate: hide preview and re-execute
+                  editor.commands.hideAIPreview()
+                  // Use setTimeout to ensure preview is hidden before re-executing
+                  setTimeout(() => {
+                    executeAction(prompt, context, insertMode)
+                  }, 0)
+                }
+              })
             }
           } else if (mode === 'replace') {
-            // Single block mode: atomic replace (original -> final formatted content)
+            // Single block mode: show preview instead of direct replacement
             // Editor still has original content (we didn't update during streaming)
             const finalContent = bufferedContent.trimEnd()
             if (finalContent) {
-              const tr = editor.state.tr
-              replaceWithFormattedContent(tr, from, to, finalContent, editor)
+              const oldText = editor.state.doc.textBetween(from, to)
 
-              // Dispatch with history - this is the only transaction user can undo
-              editor.view.dispatch(tr)
+              // Show preview
+              editor.commands.showAIPreview({
+                id: streamId,
+                from,
+                to,
+                oldText,
+                newText: finalContent,
+                onAccept: () => {
+                  // Accept: execute actual replacement
+                  // Use mapped positions from plugin state to handle document changes
+                  const pluginState = aiPreviewPluginKey.getState(editor.state)
+                  if (!pluginState?.data) return
+                  const currentFrom = pluginState.data.from
+                  const currentTo = pluginState.data.to
+                  const tr = editor.state.tr
+                  replaceWithFormattedContent(tr, currentFrom, currentTo, finalContent, editor)
+                  editor.view.dispatch(tr)
+                  editor.commands.hideAIPreview()
+                  editor.commands.focus()
+                },
+                onReject: () => {
+                  // Reject: just hide preview
+                  editor.commands.hideAIPreview()
+                  editor.commands.focus()
+                },
+                onRegenerate: () => {
+                  // Regenerate: hide preview and re-execute
+                  editor.commands.hideAIPreview()
+                  setTimeout(() => {
+                    executeAction(prompt, context, insertMode)
+                  }, 0)
+                }
+              })
             }
           } else if (mode === 'insertAfter') {
             // insertAfter mode: insert a new paragraph block after the current block

@@ -2959,3 +2959,100 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ============================================
+   AI Preview - Zen Style Accept/Reject
+   ============================================ */
+
+/* 原文 - 淡化删除线 */
+.ai-preview-old {
+  text-decoration: line-through;
+  text-decoration-color: var(--color-muted);
+  color: var(--color-muted);
+  opacity: 0.6;
+}
+
+/* 新文本 - 轻微强调 */
+.ai-preview-new {
+  color: var(--color-text);
+  background: var(--color-accent-soft);
+  border-radius: 2px;
+  padding: 0 2px;
+  margin-left: 4px;
+}
+
+/* 操作栏 - 简洁浮动 */
+.ai-preview-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 8px;
+  padding: 2px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
+  vertical-align: middle;
+  user-select: none;
+}
+
+.ai-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: transparent;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.ai-preview-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.ai-preview-btn svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.ai-preview-btn:hover svg {
+  opacity: 1;
+}
+
+/* 接受按钮 - 主要操作 */
+.ai-preview-accept {
+  color: var(--color-accent);
+}
+
+.ai-preview-accept:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+
+/* 拒绝按钮 */
+.ai-preview-reject {
+  color: var(--color-muted);
+}
+
+.ai-preview-reject:hover {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+/* 重试按钮 */
+.ai-preview-regenerate {
+  color: var(--color-muted);
+}
+
+.ai-preview-regenerate:hover {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}

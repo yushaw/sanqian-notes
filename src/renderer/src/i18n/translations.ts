@@ -224,6 +224,10 @@ export interface Translations {
     errorDisconnected: string
     // Context message
     continueContextTemplate: string
+    // Preview actions
+    previewAccept: string
+    previewReject: string
+    previewRegenerate: string
   }
   tray: {
     show: string
@@ -645,6 +649,10 @@ const zh: Translations = {
     errorDisconnected: '连接已断开，请重试',
     // Context message
     continueContextTemplate: '我选中了以下文本：\n\n> {selectedText}\n\nAI 给出的解释是：\n\n{explanation}\n\n请继续帮我深入理解这个内容。',
+    // Preview actions
+    previewAccept: '接受',
+    previewReject: '拒绝',
+    previewRegenerate: '重试',
   },
   tray: {
     show: '显示窗口',
@@ -1063,6 +1071,10 @@ const en: Translations = {
     errorDisconnected: 'Connection lost, please retry',
     // Context message
     continueContextTemplate: 'I selected the following text:\n\n> {selectedText}\n\nAI explanation:\n\n{explanation}\n\nPlease help me understand this further.',
+    // Preview actions
+    previewAccept: 'Accept',
+    previewReject: 'Reject',
+    previewRegenerate: 'Retry',
   },
   tray: {
     show: 'Show Window',

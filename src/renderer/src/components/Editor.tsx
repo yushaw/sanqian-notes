@@ -43,6 +43,7 @@ import { CustomCodeBlock } from './extensions/CodeBlock'
 import { MarkdownPaste, looksLikeMarkdown, markdownToHtml } from './extensions/MarkdownPaste'
 import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
+import { AIPreview } from './extensions/AIPreview'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
 import { useAIActions } from '../hooks/useAIActions'
@@ -466,6 +467,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       }),
       MarkdownPaste,
       CustomKeyboardShortcuts,
+      AIPreview.configure({
+        labels: {
+          accept: t.ai.previewAccept,
+          reject: t.ai.previewReject,
+          regenerate: t.ai.previewRegenerate
+        }
+      }),
       NoteLink.configure({
         onNoteClick: (noteId: string, _noteTitle: string, target?: { type: 'heading' | 'block'; value: string }) => {
           onNoteClick(noteId, target)

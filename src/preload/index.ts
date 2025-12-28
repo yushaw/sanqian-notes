@@ -56,6 +56,22 @@ contextBridge.exposeInMainWorld('electron', {
     reorder: (orderedIds: string[]) => ipcRenderer.invoke('aiAction:reorder', orderedIds),
     reset: () => ipcRenderer.invoke('aiAction:reset'),
   },
+  knowledgeBase: {
+    getConfig: () => ipcRenderer.invoke('knowledgeBase:getConfig'),
+    setConfig: (config: unknown) => ipcRenderer.invoke('knowledgeBase:setConfig', config),
+    testAPI: (config?: unknown) => ipcRenderer.invoke('knowledgeBase:testAPI', config),
+    getStats: () => ipcRenderer.invoke('knowledgeBase:getStats'),
+    clearIndex: () => ipcRenderer.invoke('knowledgeBase:clearIndex'),
+    getQueueStatus: () => ipcRenderer.invoke('knowledgeBase:getQueueStatus'),
+    rebuildIndex: () => ipcRenderer.invoke('knowledgeBase:rebuildIndex'),
+    onProgress: (callback: (progress: { type: string; total?: number; current?: number; noteId?: string; error?: string }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, progress: { type: string; total?: number; current?: number; noteId?: string; error?: string }) => callback(progress)
+      ipcRenderer.on('knowledgeBase:progress', handler)
+      return () => ipcRenderer.removeListener('knowledgeBase:progress', handler)
+    },
+    semanticSearch: (query: string, options?: { limit?: number; notebookId?: string }) =>
+      ipcRenderer.invoke('knowledgeBase:semanticSearch', query, options),
+  },
   theme: {
     get: () => ipcRenderer.invoke('theme:get'),
     onChange: (callback: (theme: 'light' | 'dark') => void) => {

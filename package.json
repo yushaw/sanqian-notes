@@ -53,6 +53,7 @@
     "mermaid": "^11.12.2",
     "rehype-harden": "^1.1.6",
     "remark-gfm": "^4.0.1",
+    "sqlite-vec": "^0.1.7-alpha.2",
     "streamdown": "^1.6.9",
     "tailwind-merge": "^2.4.0",
     "tippy.js": "^6.3.7",

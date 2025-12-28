@@ -4,10 +4,11 @@ import { useI18n } from '../i18n'
 import type { Language } from '../i18n'
 import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting } from '../theme'
 import { AIActionsSettings } from './AIActionsSettings'
+import { KnowledgeBaseSettings } from './KnowledgeBaseSettings'
 
 const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emerald', 'cyan', 'cobalt', 'indigo', 'magenta']
 
-type SettingsTab = 'general' | 'appearance' | 'ai' | 'about'
+type SettingsTab = 'general' | 'appearance' | 'ai-actions' | 'knowledge-base' | 'about'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
 
@@ -187,7 +188,8 @@ export function Settings({ onClose }: SettingsProps) {
   const tabs: Array<{ key: SettingsTab; label: string }> = [
     { key: 'general', label: t.settings.general },
     { key: 'appearance', label: t.settings.appearance },
-    { key: 'ai', label: t.settings.ai || 'AI' },
+    { key: 'ai-actions', label: t.settings.aiActions.title },
+    { key: 'knowledge-base', label: t.settings.knowledgeBase.title },
     { key: 'about', label: t.settings.about },
   ]
 
@@ -384,9 +386,14 @@ export function Settings({ onClose }: SettingsProps) {
               </div>
             )}
 
-            {/* AI Tab */}
-            {activeTab === 'ai' && (
+            {/* AI Actions Tab */}
+            {activeTab === 'ai-actions' && (
               <AIActionsSettings />
+            )}
+
+            {/* Knowledge Base Tab */}
+            {activeTab === 'knowledge-base' && (
+              <KnowledgeBaseSettings />
             )}
 
             {/* About Tab */}

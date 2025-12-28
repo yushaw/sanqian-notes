@@ -1,0 +1,58 @@
+/**
+ * 知识库模块 - 统一导出
+ */
+
+// 类型
+export type {
+  EmbeddingConfig,
+  IndexStatus,
+  NoteChunk,
+  NoteIndexStatus,
+  VectorSearchResult
+} from './types'
+
+export { EMBEDDING_PRESETS, DEFAULT_CONFIG } from './types'
+
+// 数据库
+export {
+  initVectorDatabase,
+  closeVectorDatabase,
+  getEmbeddingConfig,
+  setEmbeddingConfig,
+  insertNoteChunks,
+  deleteNoteChunks,
+  getNoteChunks,
+  updateNoteIndexStatus,
+  getNoteIndexStatus,
+  deleteNoteIndexStatus,
+  getAllIndexStatus,
+  insertEmbeddings,
+  deleteNoteEmbeddings,
+  searchEmbeddings,
+  searchEmbeddingsInNotebook,
+  searchKeyword,
+  getEmbeddingCount,
+  getIndexStats,
+  clearAllIndexData,
+  getLastIndexedTime,
+  type KeywordSearchResult
+} from './database'
+
+// API
+export { getEmbeddings, getEmbedding, testEmbeddingAPI } from './api'
+
+// 分块
+export {
+  ChunkingService,
+  getChunkingService,
+  chunkNote,
+  CHUNK_SIZE,
+  CHUNK_OVERLAP,
+  MIN_CHUNK_SIZE
+} from './chunking'
+
+// 索引服务
+export { indexingService } from './indexing-service'
+
+// 语义搜索
+export { semanticSearch, type SemanticSearchResult } from './semantic-search'

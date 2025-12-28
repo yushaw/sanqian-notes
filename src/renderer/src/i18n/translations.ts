@@ -145,6 +145,50 @@ export interface Translations {
       resetConfirm: string
       reset: string
     }
+    knowledgeBase: {
+      title: string
+      description: string
+      enable: string
+      enableDesc: string
+      provider: string
+      custom: string
+      apiKey: string
+      apiKeyPlaceholder: string
+      apiUrl: string
+      modelName: string
+      dimensions: string
+      testConnection: string
+      testing: string
+      testSuccess: (dimensions: number) => string
+      testFailed: string
+      stats: string
+      totalChunks: string
+      totalEmbeddings: string
+      indexedNotes: string
+      pendingNotes: string
+      errorNotes: string
+      lastIndexedTime: string
+      never: string
+      clearIndex: string
+      clearConfirm: string
+      clearing: string
+      rebuildIndex: string
+      rebuildConfirm: string
+      rebuilding: string
+      rebuildProgress: (current: number, total: number) => string
+      queueStatus: string
+      processing: string
+      waiting: string
+      getApiKey: string
+      dimensionsChangedWarning: string
+      presets: {
+        openaiSmall: string
+        openaiLarge: string
+        zhipu: string
+        ollama: string
+        custom: string
+      }
+    }
   }
   notebook: {
     selectIcon: string
@@ -569,6 +613,50 @@ const zh: Translations = {
       resetToDefaults: '恢复默认',
       resetConfirm: '这将删除所有自定义操作，确定继续？',
       reset: '恢复'
+    },
+    knowledgeBase: {
+      title: '知识库',
+      description: '使用向量索引增强语义搜索能力',
+      enable: '启用知识库',
+      enableDesc: '启用后将自动为笔记创建向量索引',
+      provider: 'Embedding 服务',
+      custom: '自定义',
+      apiKey: 'API Key',
+      apiKeyPlaceholder: '输入 API Key',
+      apiUrl: 'API 地址',
+      modelName: '模型名称',
+      dimensions: '向量维度',
+      testConnection: '测试连接',
+      testing: '测试中...',
+      testSuccess: (dimensions: number) => `连接成功 (维度: ${dimensions})`,
+      testFailed: '连接失败',
+      stats: '索引统计',
+      totalChunks: '文本块',
+      totalEmbeddings: '向量数',
+      indexedNotes: '已索引',
+      pendingNotes: '待处理',
+      errorNotes: '错误',
+      lastIndexedTime: '最后索引',
+      never: '从未',
+      clearIndex: '清空索引',
+      clearConfirm: '确定要清空所有索引数据吗？',
+      clearing: '清空中...',
+      rebuildIndex: '重建索引',
+      rebuildConfirm: '确定要重建所有笔记的索引吗？这可能需要一些时间。',
+      rebuilding: '重建中...',
+      rebuildProgress: (current: number, total: number) => `${current} / ${total}`,
+      queueStatus: '队列状态',
+      processing: '处理中',
+      waiting: '等待中',
+      getApiKey: '获取 API Key',
+      dimensionsChangedWarning: '向量维度已变更，索引已清空',
+      presets: {
+        openaiSmall: 'OpenAI text-embedding-3-small',
+        openaiLarge: 'OpenAI text-embedding-3-large',
+        zhipu: '智谱 embedding-3',
+        ollama: 'Ollama 本地模型',
+        custom: '自定义'
+      }
     }
   },
   notebook: {
@@ -991,6 +1079,50 @@ const en: Translations = {
       resetToDefaults: 'Reset to defaults',
       resetConfirm: 'This will remove all custom actions. Continue?',
       reset: 'Reset'
+    },
+    knowledgeBase: {
+      title: 'Knowledge Base',
+      description: 'Enhance semantic search with vector indexing',
+      enable: 'Enable Knowledge Base',
+      enableDesc: 'Automatically create vector index for notes when enabled',
+      provider: 'Embedding Provider',
+      custom: 'Custom',
+      apiKey: 'API Key',
+      apiKeyPlaceholder: 'Enter API Key',
+      apiUrl: 'API URL',
+      modelName: 'Model Name',
+      dimensions: 'Dimensions',
+      testConnection: 'Test Connection',
+      testing: 'Testing...',
+      testSuccess: (dimensions: number) => `Connected (dimensions: ${dimensions})`,
+      testFailed: 'Connection failed',
+      stats: 'Index Statistics',
+      totalChunks: 'Chunks',
+      totalEmbeddings: 'Embeddings',
+      indexedNotes: 'Indexed',
+      pendingNotes: 'Pending',
+      errorNotes: 'Errors',
+      lastIndexedTime: 'Last Indexed',
+      never: 'Never',
+      clearIndex: 'Clear Index',
+      clearConfirm: 'Are you sure you want to clear all index data?',
+      clearing: 'Clearing...',
+      rebuildIndex: 'Rebuild Index',
+      rebuildConfirm: 'Are you sure you want to rebuild all note indexes? This may take a while.',
+      rebuilding: 'Rebuilding...',
+      rebuildProgress: (current: number, total: number) => `${current} / ${total}`,
+      queueStatus: 'Queue Status',
+      processing: 'Processing',
+      waiting: 'Waiting',
+      getApiKey: 'Get API Key',
+      dimensionsChangedWarning: 'Dimensions changed, index cleared',
+      presets: {
+        openaiSmall: 'OpenAI text-embedding-3-small',
+        openaiLarge: 'OpenAI text-embedding-3-large',
+        zhipu: 'Zhipu embedding-3',
+        ollama: 'Ollama Local',
+        custom: 'Custom'
+      }
     }
   },
   notebook: {

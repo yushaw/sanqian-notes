@@ -66,6 +66,19 @@ import {
   stopPortWatcher,
 } from './sanqian'
 import {
+  initVectorDatabase,
+  closeVectorDatabase,
+  getEmbeddingConfig,
+  setEmbeddingConfig,
+  getIndexStats,
+  clearAllIndexData,
+  getLastIndexedTime,
+  indexingService,
+  type EmbeddingConfig,
+} from './embedding'
+import { testEmbeddingAPI } from './embedding/api'
+import { semanticSearch } from './embedding/semantic-search'
+import {
   type Language,
   type ResolvedLanguage,
   translations
@@ -623,6 +636,13 @@ app.whenReady().then(() => {
   // Initialize database
   initDatabase()
 
+  // Initialize vector database for knowledge base
+  initVectorDatabase()
+
+  // Initialize and start indexing service
+  indexingService.setMainWindow(mainWindow!)
+  indexingService.start()
+
   // Initialize Sanqian SDK
   initializeSanqianSDK().catch((err) => {
     console.error('[Main] Failed to initialize Sanqian SDK:', err)
@@ -636,9 +656,30 @@ app.whenReady().then(() => {
   // IPC handlers for note operations
   ipcMain.handle('note:getAll', () => getNotes())
   ipcMain.handle('note:getById', (_, id) => getNoteById(id))
-  ipcMain.handle('note:add', (_, note) => addNote(note))
-  ipcMain.handle('note:update', (_, id, updates) => updateNote(id, updates))
-  ipcMain.handle('note:delete', (_, id) => deleteNote(id))
+  ipcMain.handle('note:add', (_, note) => {
+    const result = addNote(note)
+    // Trigger indexing for new note
+    if (result && getEmbeddingConfig().enabled) {
+      indexingService.markPending(result.id, result.notebook_id || '', result.content)
+    }
+    return result
+  })
+  ipcMain.handle('note:update', (_, id, updates) => {
+    const result = updateNote(id, updates)
+    // Trigger indexing if content changed
+    if (result && updates.content && getEmbeddingConfig().enabled) {
+      indexingService.markPending(result.id, result.notebook_id || '', result.content)
+    }
+    return result
+  })
+  ipcMain.handle('note:delete', (_, id) => {
+    const result = deleteNote(id)
+    // Clean up index data
+    if (result) {
+      indexingService.deleteNoteIndex(id)
+    }
+    return result
+  })
   ipcMain.handle('note:search', (_, query) => searchNotes(query))
   ipcMain.handle('note:createDemo', () => createDemoNote())
 
@@ -670,6 +711,36 @@ app.whenReady().then(() => {
   ipcMain.handle('aiAction:delete', (_, id: string) => deleteAIAction(id))
   ipcMain.handle('aiAction:reorder', (_, orderedIds: string[]) => reorderAIActions(orderedIds))
   ipcMain.handle('aiAction:reset', () => resetAIActionsToDefaults())
+
+  // IPC handlers for knowledge base (embedding)
+  ipcMain.handle('knowledgeBase:getConfig', () => getEmbeddingConfig())
+  ipcMain.handle('knowledgeBase:setConfig', (_, config: EmbeddingConfig) => {
+    const result = setEmbeddingConfig(config)
+    return { success: true, indexCleared: result.indexCleared }
+  })
+  ipcMain.handle('knowledgeBase:testAPI', async (_, config?: EmbeddingConfig) => {
+    return testEmbeddingAPI(config)
+  })
+  ipcMain.handle('knowledgeBase:getStats', () => {
+    const stats = getIndexStats()
+    const lastIndexedTime = getLastIndexedTime()
+    return { ...stats, lastIndexedTime }
+  })
+  ipcMain.handle('knowledgeBase:clearIndex', () => {
+    clearAllIndexData()
+    return { success: true }
+  })
+  ipcMain.handle('knowledgeBase:getQueueStatus', () => {
+    return indexingService.getQueueStatus()
+  })
+  ipcMain.handle('knowledgeBase:rebuildIndex', async () => {
+    const notes = getNotes()
+    await indexingService.rebuildAllNotes(notes)
+    return { success: true }
+  })
+  ipcMain.handle('knowledgeBase:semanticSearch', async (_, query: string, options?: { limit?: number; notebookId?: string }) => {
+    return semanticSearch(query, options)
+  })
 
   // IPC handlers for attachment operations
   ipcMain.handle('attachment:save', (_, filePath: string) => saveAttachment(filePath))
@@ -1102,7 +1173,11 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   stopPortWatcher()
-  // Clean up SDK resources
+  // Stop indexing service (sync cleanup)
+  indexingService.stop()
+  // Close vector database
+  closeVectorDatabase()
+  // Clean up SDK resources (fire and forget)
   stopSanqianSDK().catch((err) => {
     console.error('[Main] Failed to stop SDK:', err)
   })

@@ -2411,3 +2411,136 @@ npm run reset-db
 - `src/renderer/src/hooks/useAIWriting.ts`
 - `src/renderer/src/components/Editor.tsx`
 - `src/renderer/src/components/Editor.css`
+
+
+### 2025-12-28 知识库 Phase 1 完成
+
+- ✅ **sqlite-vec 向量搜索集成**
+  - 使用 vec0 虚拟表存储向量
+  - Float32Array 格式存储，KNN 搜索使用 MATCH + LIMIT 语法
+  - 支持 notebook 级别过滤搜索
+
+- ✅ **Embedding API 模块**
+  - 支持 OpenAI、智谱、Ollama、自定义 API
+  - 批量处理（50条/批）
+  - Ollama 单独处理（响应格式不同）
+
+- ✅ **文本分块模块**
+  - Markdown 感知分块
+  - 800 字符块大小，100 字符重叠
+  - 两阶段切分：先按段落，再按句子
+
+- ✅ **前端设置组件**
+  - 开关启用/禁用
+  - 模型预设选择（OpenAI small/large、智谱、Ollama、自定义）
+  - API Key 配置 & 连接测试
+  - 索引状态显示 & 清空索引
+
+**新增文件**：
+- `src/main/embedding/database.ts` - 向量数据库
+- `src/main/embedding/api.ts` - API 调用
+- `src/main/embedding/chunking.ts` - 文本分块
+- `src/main/embedding/types.ts` - 类型定义
+- `src/main/embedding/index.ts` - 统一导出
+- `src/renderer/src/components/KnowledgeBaseSettings.tsx` - 前端设置
+
+**修改文件**：
+- `src/main/index.ts` - 添加 IPC handlers
+- `src/preload/index.ts` - 暴露 API
+- `src/preload/index.d.ts` - 类型声明
+- `src/renderer/src/env.d.ts` - 前端类型
+- `src/renderer/src/components/Settings.tsx` - 集成设置组件
+
+
+### 2025-12-28 知识库 Phase 2 自动索引服务
+
+- ✅ **IndexingService 核心服务**
+  - Throttle 60s + Debounce 5s 防止频繁 API 调用
+  - 内容变化 ≥ 10% 才重新索引
+  - 内容 ≥ 100 字符才索引
+  - 队列管理，支持批量处理
+
+- ✅ **自动索引触发**
+  - 笔记创建时：标记 pending
+  - 笔记更新时：标记 pending (防抖)
+  - 笔记删除时：清理索引数据
+  - 应用退出时：优雅停止服务
+
+- ✅ **手动重建索引**
+  - 清空所有索引后全量重建
+  - 进度条实时显示
+  - 前端实时刷新统计
+
+- ✅ **前端设置增强**
+  - 队列状态显示
+  - 重建索引按钮
+  - 进度条展示
+
+**新增文件**：
+- `src/main/embedding/indexing-service.ts` - 索引服务核心
+
+**修改文件**：
+- `src/main/embedding/index.ts` - 导出 indexingService
+- `src/main/index.ts` - IPC hooks + 服务生命周期
+- `src/preload/index.ts` - 新增 IPC 暴露
+- `src/preload/index.d.ts` - 类型声明
+- `src/renderer/src/env.d.ts` - 前端类型
+- `src/renderer/src/components/KnowledgeBaseSettings.tsx` - 进度显示 + 重建按钮
+
+
+### 2025-12-28 知识库 Phase 3 语义搜索集成
+
+- ✅ **语义搜索后端**
+  - `semanticSearch()` 函数：查询 embedding → 向量搜索 → 按笔记聚合
+  - 支持相似度阈值和数量限制
+  - 返回匹配的 chunk 片段和分数
+
+- ✅ **搜索 UI 集成**
+  - 知识库启用时自动使用语义搜索
+  - 语义搜索无结果时回退到关键词搜索
+  - 对用户透明，无需额外操作
+
+**新增文件**：
+- `src/main/embedding/semantic-search.ts` - 语义搜索模块
+
+**修改文件**：
+- `src/main/index.ts` - 添加 `knowledgeBase:semanticSearch` IPC
+- `src/preload/index.ts` - 暴露 semanticSearch API
+- `src/preload/index.d.ts` - 类型声明
+- `src/renderer/src/env.d.ts` - 前端类型
+- `src/renderer/src/App.tsx` - `handleSearch` 智能切换搜索模式
+
+
+### 2025-12-28 知识库设置多语言支持
+
+- ✅ **翻译类型定义**
+  - 在 `Translations` 接口添加 `knowledgeBase` 字段
+  - 包含所有设置项的翻译 key
+
+- ✅ **中英文翻译**
+  - 标题、描述、按钮、状态提示等
+  - 支持动态参数（如维度、进度）
+
+- ✅ **组件国际化**
+  - `KnowledgeBaseSettings.tsx` 使用 `useTranslations`
+  - `Settings.tsx` 标签页标题使用翻译
+
+**修改文件**：
+- `src/renderer/src/i18n/translations.ts` - 添加 knowledgeBase 翻译
+- `src/renderer/src/components/KnowledgeBaseSettings.tsx` - 使用翻译
+- `src/renderer/src/components/Settings.tsx` - 标签页标题
+
+
+### 2025-12-28 知识库设置优化
+
+- ✅ **Embedding 预设多语言化**
+  - 移除 Ollama 本地模型预设
+  - 预设名称支持中英文切换
+
+- ✅ **API Key 获取链接**
+  - OpenAI: https://platform.openai.com/api-keys
+  - 智谱: https://open.bigmodel.cn/usercenter/apikeys
+
+- ✅ **索引统计时间优化**
+  - 移到标题 "Index Statistics" 后面
+  - 使用 24 小时制格式

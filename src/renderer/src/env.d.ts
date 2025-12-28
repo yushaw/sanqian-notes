@@ -71,6 +71,71 @@ interface Window {
     }
     attachment: AttachmentAPI
     chat: ChatAPI
+    knowledgeBase: {
+      getConfig: () => Promise<{
+        enabled: boolean
+        apiType: 'openai' | 'zhipu' | 'local' | 'custom'
+        apiUrl: string
+        apiKey: string
+        modelName: string
+        dimensions: number
+      }>
+      setConfig: (config: {
+        enabled?: boolean
+        apiType?: 'openai' | 'zhipu' | 'local' | 'custom'
+        apiUrl?: string
+        apiKey?: string
+        modelName?: string
+        dimensions?: number
+      }) => Promise<{ success: boolean; indexCleared: boolean }>
+      testAPI: (config?: {
+        enabled?: boolean
+        apiType?: 'openai' | 'zhipu' | 'local' | 'custom'
+        apiUrl?: string
+        apiKey?: string
+        modelName?: string
+        dimensions?: number
+      }) => Promise<{
+        success: boolean
+        dimensions?: number
+        error?: string
+      }>
+      getStats: () => Promise<{
+        totalChunks: number
+        totalEmbeddings: number
+        indexedNotes: number
+        pendingNotes: number
+        errorNotes: number
+        lastIndexedTime: string | null
+      }>
+      clearIndex: () => Promise<{ success: boolean }>
+      getQueueStatus: () => Promise<{
+        pending: number
+        queue: number
+        processing: boolean
+      }>
+      rebuildIndex: () => Promise<{ success: boolean }>
+      onProgress: (callback: (progress: {
+        type: 'start' | 'progress' | 'complete' | 'error'
+        total?: number
+        current?: number
+        noteId?: string
+        error?: string
+      }) => void) => () => void
+      semanticSearch: (query: string, options?: {
+        limit?: number
+        notebookId?: string
+      }) => Promise<Array<{
+        noteId: string
+        notebookId: string
+        score: number
+        matchedChunks: Array<{
+          chunkId: string
+          chunkText: string
+          score: number
+        }>
+      }>>
+    }
   }
 }
 

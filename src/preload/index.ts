@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('electron', {
     },
     semanticSearch: (query: string, options?: { limit?: number; notebookId?: string }) =>
       ipcRenderer.invoke('knowledgeBase:semanticSearch', query, options),
+    hybridSearch: (query: string, options?: { limit?: number; notebookId?: string }) =>
+      ipcRenderer.invoke('knowledgeBase:hybridSearch', query, options),
   },
   theme: {
     get: () => ipcRenderer.invoke('theme:get'),

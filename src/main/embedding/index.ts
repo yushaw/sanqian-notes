@@ -55,4 +55,4 @@ export {
 export { indexingService } from './indexing-service'
 
 // 语义搜索
-export { semanticSearch, type SemanticSearchResult } from './semantic-search'
+export { semanticSearch, hybridSearch, type SemanticSearchResult } from './semantic-search'

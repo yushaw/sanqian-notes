@@ -77,7 +77,7 @@ import {
   type EmbeddingConfig,
 } from './embedding'
 import { testEmbeddingAPI } from './embedding/api'
-import { semanticSearch } from './embedding/semantic-search'
+import { semanticSearch, hybridSearch } from './embedding/semantic-search'
 import {
   type Language,
   type ResolvedLanguage,
@@ -740,6 +740,9 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('knowledgeBase:semanticSearch', async (_, query: string, options?: { limit?: number; notebookId?: string }) => {
     return semanticSearch(query, options)
+  })
+  ipcMain.handle('knowledgeBase:hybridSearch', async (_, query: string, options?: { limit?: number; notebookId?: string }) => {
+    return hybridSearch(query, options)
   })
 
   // IPC handlers for attachment operations

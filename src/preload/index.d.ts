@@ -134,6 +134,19 @@ declare global {
             score: number
           }>
         }>>
+        hybridSearch: (query: string, options?: {
+          limit?: number
+          notebookId?: string
+        }) => Promise<Array<{
+          noteId: string
+          notebookId: string
+          score: number
+          matchedChunks: Array<{
+            chunkId: string
+            chunkText: string
+            score: number
+          }>
+        }>>
       }
     }
     api: unknown

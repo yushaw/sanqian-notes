@@ -457,26 +457,42 @@ function AppContent() {
     }
   }, [selectedNoteId, notes])
 
-  // Handle search - use hybrid search (RRF fusion of vector + keyword) when KB enabled
+  // Handle search - merge hybrid search (indexed) and keyword search (all notes)
   const handleSearch = useCallback(async (query: string): Promise<Note[]> => {
     try {
-      if (kbEnabled) {
-        // Use hybrid search which combines vector and keyword search with RRF
-        // hybridSearch searches note_chunks table (indexed content)
-        const hybridResults = await window.electron.knowledgeBase.hybridSearch(query, { limit: 20 })
-        if (hybridResults.length > 0) {
-          // Fetch full note objects for each result
-          const notePromises = hybridResults.map(result =>
-            window.electron.note.getById(result.noteId)
-          )
-          const notesResult = await Promise.all(notePromises)
-          // Filter out nulls and return
-          return notesResult.filter((n): n is Note => n !== null)
+      // Parallel search: hybrid (indexed notes) + keyword (all notes including unindexed)
+      const [hybridResults, keywordResults] = await Promise.all([
+        kbEnabled
+          ? window.electron.knowledgeBase.hybridSearch(query, { limit: 20 })
+          : Promise.resolve([]),
+        window.electron.note.search(query)
+      ])
+
+      // Merge results: hybrid first (already ranked by RRF), then unindexed notes
+      const noteIds = new Set<string>()
+      const results: Note[] = []
+
+      // Add hybrid search results first (higher quality ranking)
+      if (hybridResults.length > 0) {
+        const ids = hybridResults.map(result => result.noteId)
+        const notes = await window.electron.note.getByIds(ids) as Note[]
+        for (const note of notes) {
+          if (note && !noteIds.has(note.id)) {
+            noteIds.add(note.id)
+            results.push(note)
+          }
         }
       }
-      // Fall back to note.search which searches notes table directly
-      // This catches notes not yet indexed (too short, just created, etc.)
-      return window.electron.note.search(query)
+
+      // Add keyword search results (catches unindexed notes)
+      for (const note of keywordResults) {
+        if (!noteIds.has(note.id)) {
+          noteIds.add(note.id)
+          results.push(note)
+        }
+      }
+
+      return results.slice(0, 20)
     } catch (error) {
       console.error('Search failed:', error)
       // Fall back to keyword search on error

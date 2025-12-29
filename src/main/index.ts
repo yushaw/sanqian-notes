@@ -8,6 +8,7 @@ import {
   initDatabase,
   getNotes,
   getNoteById,
+  getNotesByIds,
   addNote,
   updateNote,
   deleteNote,
@@ -656,6 +657,7 @@ app.whenReady().then(() => {
   // IPC handlers for note operations
   ipcMain.handle('note:getAll', () => getNotes())
   ipcMain.handle('note:getById', (_, id) => getNoteById(id))
+  ipcMain.handle('note:getByIds', (_, ids: string[]) => getNotesByIds(ids))
   ipcMain.handle('note:add', (_, note) => {
     const result = addNote(note)
     // Trigger indexing for new note
@@ -735,8 +737,10 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('knowledgeBase:rebuildIndex', async () => {
     const notes = getNotes()
-    await indexingService.rebuildAllNotes(notes)
-    return { success: true }
+    const total = notes.length
+    // 异步执行，不等待完成，让前端通过 onProgress 监听进度
+    indexingService.rebuildAllNotes(notes).catch(console.error)
+    return { success: true, total }
   })
   ipcMain.handle('knowledgeBase:semanticSearch', async (_, query: string, options?: { limit?: number; notebookId?: string }) => {
     return semanticSearch(query, options)

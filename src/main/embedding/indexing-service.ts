@@ -448,6 +448,13 @@ class IndexingService {
 
       // 跳过太短的笔记
       if (text.length < MIN_CONTENT_LENGTH) {
+        // 仍然发送进度，避免进度条卡住
+        this.sendProgress({
+          type: 'progress',
+          total: notes.length,
+          current: i + 1,
+          noteId: note.id
+        })
         continue
       }
 

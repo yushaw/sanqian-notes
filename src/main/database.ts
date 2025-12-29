@@ -1080,6 +1080,31 @@ export function getNoteById(id: string): Note | null {
   }
 }
 
+export function getNotesByIds(ids: string[]): Note[] {
+  if (ids.length === 0) return []
+
+  // 使用 IN 查询批量获取，保持传入顺序
+  const placeholders = ids.map(() => '?').join(',')
+  const stmt = db.prepare(`
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    FROM notes
+    WHERE id IN (${placeholders})
+  `)
+  const rows = stmt.all(...ids) as Note[]
+
+  // 按传入的 ids 顺序排序
+  const noteMap = new Map(rows.map(row => [row.id, row]))
+  return ids
+    .map(id => noteMap.get(id))
+    .filter((note): note is Note => note !== undefined)
+    .map(row => ({
+      ...row,
+      is_daily: Boolean(row.is_daily),
+      is_favorite: Boolean(row.is_favorite),
+      is_pinned: Boolean(row.is_pinned),
+    }))
+}
+
 export function addNote(input: NoteInput): Note {
   const id = uuidv4()
   const now = new Date().toISOString()

@@ -11,7 +11,7 @@
  * - 清空索引
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslations } from '../i18n'
 
 // Embedding 配置类型（与后端 types.ts 保持一致）
@@ -109,6 +109,16 @@ export function KnowledgeBaseSettings() {
   const [selectedPreset, setSelectedPreset] = useState<string>('openai-small')
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildProgress, setRebuildProgress] = useState<{ current: number; total: number } | null>(null)
+  const rebuildCheckTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 清理 rebuild 检查 timer
+  useEffect(() => {
+    return () => {
+      if (rebuildCheckTimer.current) {
+        clearInterval(rebuildCheckTimer.current)
+      }
+    }
+  }, [])
 
   // 加载配置
   useEffect(() => {
@@ -148,8 +158,16 @@ export function KnowledgeBaseSettings() {
         setRebuilding(true)
         setRebuildProgress({ current: 0, total: progress.total || 0 })
       } else if (progress.type === 'progress') {
-        setRebuildProgress({ current: progress.current || 0, total: progress.total || 0 })
+        // 只在有有效 total 时更新进度（indexNote 内部发送的 progress 没有 total）
+        if (progress.total !== undefined && progress.total > 0) {
+          setRebuildProgress({ current: progress.current || 0, total: progress.total })
+        }
       } else if (progress.type === 'complete') {
+        // 清理轮询 timer，避免与 complete 事件竞争
+        if (rebuildCheckTimer.current) {
+          clearInterval(rebuildCheckTimer.current)
+          rebuildCheckTimer.current = null
+        }
         setRebuilding(false)
         setRebuildProgress(null)
         // 刷新统计
@@ -259,11 +277,40 @@ export function KnowledgeBaseSettings() {
   // 重建索引
   const handleRebuild = useCallback(async () => {
     try {
+      // 清理之前的 timer
+      if (rebuildCheckTimer.current) {
+        clearInterval(rebuildCheckTimer.current)
+        rebuildCheckTimer.current = null
+      }
+
       setRebuilding(true)
-      await window.electron.knowledgeBase.rebuildIndex()
+      const result = await window.electron.knowledgeBase.rebuildIndex()
+      // 用返回的 total 初始化进度条
+      setRebuildProgress({ current: 0, total: result.total || 0 })
+
+      // 兜底：轮询检查队列状态，如果不再处理中就重置
+      // 用于处理 complete 事件丢失的情况
+      rebuildCheckTimer.current = setInterval(async () => {
+        try {
+          const status = await window.electron.knowledgeBase.getQueueStatus()
+          if (!status.processing && status.queue === 0) {
+            if (rebuildCheckTimer.current) {
+              clearInterval(rebuildCheckTimer.current)
+              rebuildCheckTimer.current = null
+            }
+            setRebuilding(false)
+            setRebuildProgress(null)
+            const newStats = await window.electron.knowledgeBase.getStats()
+            setStats(newStats)
+          }
+        } catch {
+          // 忽略错误，继续轮询
+        }
+      }, 1000) // 每秒检查一次
     } catch (error) {
       console.error('Failed to rebuild index:', error)
       setRebuilding(false)
+      setRebuildProgress(null)
     }
   }, [])
 

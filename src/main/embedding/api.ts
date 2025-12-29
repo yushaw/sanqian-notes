@@ -6,6 +6,7 @@
 
 import { getEmbeddingConfig } from './database'
 import type { EmbeddingConfig } from './types'
+import { normalizeCjkAscii } from './utils'
 
 // 批处理配置
 const DEFAULT_BATCH_SIZE = 50
@@ -52,21 +53,24 @@ export async function getEmbeddings(
     return []
   }
 
+  // 预处理：在中英文之间插入空格，提升分词效果
+  const normalizedTexts = texts.map(normalizeCjkAscii)
+
   // 批处理
-  if (texts.length <= DEFAULT_BATCH_SIZE) {
-    return callEmbeddingAPI(texts, embeddingConfig)
+  if (normalizedTexts.length <= DEFAULT_BATCH_SIZE) {
+    return callEmbeddingAPI(normalizedTexts, embeddingConfig)
   }
 
-  console.log(`[Embedding] Batching ${texts.length} texts into chunks of ${DEFAULT_BATCH_SIZE}`)
+  console.log(`[Embedding] Batching ${normalizedTexts.length} texts into chunks of ${DEFAULT_BATCH_SIZE}`)
   const allEmbeddings: number[][] = []
 
-  for (let i = 0; i < texts.length; i += DEFAULT_BATCH_SIZE) {
-    const batch = texts.slice(i, i + DEFAULT_BATCH_SIZE)
+  for (let i = 0; i < normalizedTexts.length; i += DEFAULT_BATCH_SIZE) {
+    const batch = normalizedTexts.slice(i, i + DEFAULT_BATCH_SIZE)
     const batchEmbeddings = await callEmbeddingAPI(batch, embeddingConfig)
     allEmbeddings.push(...batchEmbeddings)
 
     const batchNum = Math.floor(i / DEFAULT_BATCH_SIZE) + 1
-    const totalBatches = Math.ceil(texts.length / DEFAULT_BATCH_SIZE)
+    const totalBatches = Math.ceil(normalizedTexts.length / DEFAULT_BATCH_SIZE)
     console.log(`[Embedding] Processed batch ${batchNum}/${totalBatches}`)
   }
 

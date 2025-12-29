@@ -11,6 +11,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import type { EmbeddingConfig, NoteChunk, NoteIndexStatus, VectorSearchResult } from './types'
 import { DEFAULT_CONFIG } from './types'
+import { normalizeCjkAscii } from './utils'
 
 let db: Database.Database | null = null
 
@@ -569,7 +570,9 @@ export interface KeywordSearchResult {
 /**
  * 关键词搜索（用于混合搜索）
  *
- * 使用 LIKE 进行模糊匹配
+ * 支持中英文分词：
+ * - "math公式怎么写" → 搜索 "math" OR "公式怎么写"
+ * - 使用 OR 连接多个词，提高召回率
  */
 export function searchKeyword(
   keyword: string,
@@ -577,16 +580,36 @@ export function searchKeyword(
   notebookId?: string
 ): KeywordSearchResult[] {
   const database = getDb()
-  // 转义 LIKE 特殊字符
-  const escapedKeyword = keyword.replace(/[%_\\]/g, '\\$&')
-  const searchPattern = `%${escapedKeyword}%`
+
+  // 预处理：在中英文之间插入空格
+  const normalizedKeyword = normalizeCjkAscii(keyword.trim())
+
+  // 按空格分割成多个词（过滤空字符串和过短的词）
+  const words = normalizedKeyword
+    .split(/\s+/)
+    .filter((w) => w.length >= 1)
+    .slice(0, 5) // 最多 5 个词
+
+  if (words.length === 0) {
+    return []
+  }
+
+  // 构建 OR 查询
+  const conditions: string[] = []
+  const params: (string | number)[] = []
+
+  for (const word of words) {
+    // 转义 LIKE 特殊字符
+    const escapedWord = word.replace(/[%_\\]/g, '\\$&')
+    conditions.push("chunk_text LIKE ? ESCAPE '\\\\'")
+    params.push(`%${escapedWord}%`)
+  }
 
   let sql = `
     SELECT chunk_id, note_id, notebook_id, chunk_text
     FROM note_chunks
-    WHERE chunk_text LIKE ? ESCAPE '\\'
+    WHERE (${conditions.join(' OR ')})
   `
-  const params: (string | number)[] = [searchPattern]
 
   if (notebookId) {
     sql += ' AND notebook_id = ?'
@@ -603,12 +626,12 @@ export function searchKeyword(
     chunk_text: string
   }>
 
-  // 转义正则特殊字符，避免注入
-  const escapedForRegex = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const regex = new RegExp(escapedForRegex, 'gi')
+  // 构建匹配正则（所有词 OR）
+  const regexParts = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const regex = new RegExp(regexParts.join('|'), 'gi')
 
-  return rows.map((row) => {
-    // 计算匹配次数
+  const results = rows.map((row) => {
+    // 计算所有词的总匹配次数
     const matches = row.chunk_text.match(regex)
     const matchCount = matches ? matches.length : 0
 
@@ -620,6 +643,9 @@ export function searchKeyword(
       matchCount
     }
   })
+
+  // 按匹配次数降序排序
+  return results.sort((a, b) => b.matchCount - a.matchCount)
 }
 
 /**

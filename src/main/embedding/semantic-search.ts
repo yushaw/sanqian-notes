@@ -17,6 +17,55 @@ import {
 // RRF 常数，通常使用 60
 const RRF_K = 60
 
+// 单源搜索时的最低分数要求（防止返回不相关结果）
+// 当只有一个搜索源返回结果时，要求该源的最高分数 >= 此阈值
+// 0.35: 平衡召回和精度，避免误杀边界情况（如 bidirectional links 0.369）
+const SINGLE_SOURCE_MIN_SCORE = 0.35
+
+// AutoCut 跳跃比例阈值
+const AUTOCUT_JUMP_RATIO = 2.0
+
+/**
+ * 检测分数跳跃点，返回截断位置（AutoCut 风格）
+ *
+ * 灵感来源于 Weaviate AutoCut 功能，通过检测分数曲线中的
+ * 不连续性（跳跃点）来自动识别"相关"和"不相关"的分界线。
+ *
+ * 参考:
+ * - https://weaviate.io/learn/knowledgecards/autocut
+ * - https://github.com/weaviate/weaviate/issues/2318 (Kneed 算法)
+ *
+ * @param scores - 分数列表，按降序排列（最高分在前）
+ * @param jumpRatio - 跳跃比例阈值，当 scores[i-1] / scores[i] > ratio 时认为是跳跃
+ * @returns 截断位置索引（应保留 scores.slice(0, cutoff)）
+ */
+function detectScoreJump(scores: number[], jumpRatio: number = AUTOCUT_JUMP_RATIO): number {
+  if (scores.length <= 1) {
+    return scores.length
+  }
+
+  for (let i = 1; i < scores.length; i++) {
+    const prevScore = scores[i - 1]
+    const currScore = scores[i]
+
+    // 防止除零
+    if (currScore <= 0) {
+      return i
+    }
+
+    const ratio = prevScore / currScore
+    if (ratio > jumpRatio) {
+      console.log(
+        `[AutoCut] detected jump at position ${i}, ratio ${ratio.toFixed(2)} > ${jumpRatio} ` +
+          `(scores: ${prevScore.toFixed(3)} -> ${currScore.toFixed(3)})`
+      )
+      return i
+    }
+  }
+
+  return scores.length
+}
+
 // Chunk 搜索结果（内部使用）
 interface ChunkResult {
   noteId: string
@@ -77,45 +126,16 @@ export async function semanticSearch(
       return []
     }
 
-    // 3. 按笔记聚合结果
-    const noteMap = new Map<string, SemanticSearchResult>()
+    // 3. 转换为 ChunkResult 格式并聚合
+    const chunks: ChunkResult[] = searchResults.map((r) => ({
+      noteId: r.noteId,
+      notebookId: r.notebookId,
+      chunkId: r.chunkId,
+      chunkText: r.chunkText,
+      score: r.score
+    }))
 
-    for (const result of searchResults) {
-      const existing = noteMap.get(result.noteId)
-
-      if (existing) {
-        // 添加匹配的 chunk
-        existing.matchedChunks.push({
-          chunkId: result.chunkId,
-          chunkText: result.chunkText,
-          score: result.score
-        })
-        // 更新分数为最高分
-        if (result.score > existing.score) {
-          existing.score = result.score
-        }
-      } else {
-        noteMap.set(result.noteId, {
-          noteId: result.noteId,
-          notebookId: result.notebookId,
-          score: result.score,
-          matchedChunks: [
-            {
-              chunkId: result.chunkId,
-              chunkText: result.chunkText,
-              score: result.score
-            }
-          ]
-        })
-      }
-    }
-
-    // 4. 按分数排序并限制数量
-    const results = Array.from(noteMap.values())
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-
-    return results
+    return aggregateByNote(chunks, limit)
   } catch (error) {
     console.error('[SemanticSearch] Error:', error)
     return []
@@ -198,8 +218,9 @@ export async function hybridSearch(
     return []
   }
 
-  // 如果只有一种结果，直接使用
+  // 如果只有一种结果，进行单源质量检查后返回
   if (vectorResults.length === 0) {
+    // 关键词搜索没有原始分数，使用 RRF 分数
     const mapped = keywordResults.map((r, index) => ({
       noteId: r.noteId,
       notebookId: r.notebookId,
@@ -207,10 +228,21 @@ export async function hybridSearch(
       chunkText: r.chunkText,
       score: 1 / (RRF_K + index + 1)
     }))
-    return aggregateByNote(mapped, limit)
+    const results = aggregateByNote(mapped, limit)
+    return applyAutoCut(results)
   }
   if (keywordResults.length === 0) {
-    return aggregateByNote(vectorResults, limit)
+    // 单源质量检查：向量搜索最高分必须达到阈值
+    // 防止只有向量搜索返回语义上"最接近"但实际不相关的结果
+    const topScore = vectorResults[0]?.score ?? 0
+    if (topScore < SINGLE_SOURCE_MIN_SCORE) {
+      console.log(
+        `[HybridSearch] Single-source (vector) top score ${topScore.toFixed(3)} < threshold ${SINGLE_SOURCE_MIN_SCORE}, returning empty`
+      )
+      return []
+    }
+    const results = aggregateByNote(vectorResults, limit)
+    return applyAutoCut(results)
   }
 
   // RRF 融合
@@ -227,9 +259,8 @@ export async function hybridSearch(
     }
   })
 
-  // 关键词搜索贡献（按 matchCount 降序排列）
-  const sortedKeywordResults = [...keywordResults].sort((a, b) => b.matchCount - a.matchCount)
-  sortedKeywordResults.forEach((result, index) => {
+  // 关键词搜索贡献（searchKeyword 已按 matchCount 降序排列）
+  keywordResults.forEach((result, index) => {
     const rank = index + 1
     const rrfScore = 1 / (RRF_K + rank)
     chunkScores.set(result.chunkId, (chunkScores.get(result.chunkId) || 0) + rrfScore)
@@ -246,18 +277,47 @@ export async function hybridSearch(
       return { ...data, score }
     })
 
+  const aggregated = aggregateByNote(sortedChunks, limit)
+
+  // 应用 AutoCut：检测分数跳跃，自动截断不相关结果
+  const results = applyAutoCut(aggregated)
+
   console.log(
-    `[HybridSearch] RRF fusion: vector=${vectorResults.length}, keyword=${keywordResults.length}, merged=${sortedChunks.length}`
+    `[HybridSearch] RRF fusion: vector=${vectorResults.length}, keyword=${keywordResults.length}, chunks=${sortedChunks.length}, notes=${results.length}`
   )
 
-  return aggregateByNote(sortedChunks, limit)
+  return results
 }
+
+/**
+ * 应用 AutoCut 截断不相关结果
+ */
+function applyAutoCut(results: SemanticSearchResult[]): SemanticSearchResult[] {
+  if (results.length <= 1) {
+    return results
+  }
+
+  const scores = results.map((r) => r.score)
+  const cutoff = detectScoreJump(scores)
+
+  if (cutoff < results.length) {
+    console.log(`[AutoCut] truncating results from ${results.length} to ${cutoff}`)
+    return results.slice(0, cutoff)
+  }
+
+  return results
+}
+
+// 聚合时最多累加的 chunk 数量（防止长文档获得过大优势）
+const MAX_CHUNKS_FOR_SCORING = 3
 
 /**
  * 按笔记聚合 chunk 结果
  *
- * 使用累加策略：匹配多个 chunk 的笔记获得更高分数
- * 这样一个笔记有 3 个 chunk 都匹配会比只有 1 个 chunk 匹配的笔记排名更高
+ * 使用 Capped Sum 策略：
+ * - 累加多个 chunk 的分数，但最多只计入前 N 个最高分的 chunk
+ * - 这样多个匹配仍有加成，但长文档不会获得过大优势
+ * - 参考业界做法：GraphRAG Parent-Child Retriever 使用 max 或 average
  */
 function aggregateByNote(chunks: ChunkResult[], limit: number): SemanticSearchResult[] {
   const noteMap = new Map<string, SemanticSearchResult>()
@@ -271,13 +331,11 @@ function aggregateByNote(chunks: ChunkResult[], limit: number): SemanticSearchRe
         chunkText: chunk.chunkText,
         score: chunk.score
       })
-      // 累加分数：匹配更多 chunk 的笔记排名更高
-      existing.score += chunk.score
     } else {
       noteMap.set(chunk.noteId, {
         noteId: chunk.noteId,
         notebookId: chunk.notebookId,
-        score: chunk.score,
+        score: 0, // 稍后计算
         matchedChunks: [
           {
             chunkId: chunk.chunkId,
@@ -287,6 +345,15 @@ function aggregateByNote(chunks: ChunkResult[], limit: number): SemanticSearchRe
         ]
       })
     }
+  }
+
+  // 计算最终分数：Capped Sum - 只累加前 N 个最高分的 chunk
+  for (const result of noteMap.values()) {
+    const topScores = result.matchedChunks
+      .map((c) => c.score)
+      .sort((a, b) => b - a)
+      .slice(0, MAX_CHUNKS_FOR_SCORING)
+    result.score = topScores.reduce((sum, s) => sum + s, 0)
   }
 
   return Array.from(noteMap.values())

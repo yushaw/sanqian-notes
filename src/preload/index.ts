@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electron', {
   note: {
     getAll: () => ipcRenderer.invoke('note:getAll'),
     getById: (id: string) => ipcRenderer.invoke('note:getById', id),
+    getByIds: (ids: string[]) => ipcRenderer.invoke('note:getByIds', ids),
     add: (note: unknown) => ipcRenderer.invoke('note:add', note),
     update: (id: string, updates: unknown) => ipcRenderer.invoke('note:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('note:delete', id),

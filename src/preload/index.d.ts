@@ -36,6 +36,7 @@ declare global {
       note: {
         getAll: () => Promise<unknown[]>
         getById: (id: string) => Promise<unknown | null>
+        getByIds: (ids: string[]) => Promise<unknown[]>
         add: (note: unknown) => Promise<unknown>
         update: (id: string, updates: unknown) => Promise<unknown | null>
         delete: (id: string) => Promise<boolean>
@@ -113,7 +114,7 @@ declare global {
           queue: number
           processing: boolean
         }>
-        rebuildIndex: () => Promise<{ success: boolean }>
+        rebuildIndex: () => Promise<{ success: boolean; total: number }>
         onProgress: (callback: (progress: {
           type: 'start' | 'progress' | 'complete' | 'error'
           total?: number

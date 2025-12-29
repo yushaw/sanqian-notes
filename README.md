@@ -2544,3 +2544,58 @@ npm run reset-db
 - ✅ **索引统计时间优化**
   - 移到标题 "Index Statistics" 后面
   - 使用 24 小时制格式
+
+
+### 2025-12-29 混合搜索 AutoCut 优化
+
+从 sanqian 项目移植的 RRF 混合搜索优化：
+
+- ✅ **AutoCut 自动截断**
+  - `detectScoreJump` 函数检测分数曲线跳跃点
+  - 当分数下降超过 50% (ratio > 2.0) 时自动截断
+  - 参考 Weaviate AutoCut 实现
+
+- ✅ **单源质量检查**
+  - 向量搜索独立返回时，最高分必须 >= 0.35
+  - 防止返回语义上"最接近"但实际不相关的结果
+
+- ✅ **阈值常量**
+  - `SINGLE_SOURCE_MIN_SCORE = 0.35`
+  - `AUTOCUT_JUMP_RATIO = 2.0`
+
+**修改文件**：
+- `src/main/embedding/semantic-search.ts` - 添加 AutoCut 和单源质量检查
+
+**搜索质量测试**（23 个测试用例）：
+- 精确匹配：3/3 通过
+- 语义相似：3/3 通过
+- 中文查询：4/4 通过
+- 英文查询：3/3 通过
+- 边界情况：6/7 通过（中英混合、大写、多词正常）
+- 否定测试：2/3 通过（machine learning 轻微泄漏，阈值权衡）
+
+测试脚本：`scripts/test-search.py`
+
+
+### 2025-12-29 中英文分词优化
+
+- ✅ **中英文边界预处理**
+  - `normalizeCjkAscii()` 在中英文之间插入空格
+  - 示例：`"math公式"` → `"math 公式"`
+  - 参考 pangu.js 业界实践
+
+- ✅ **Embedding 规范化**
+  - 索引时：chunk 文本自动规范化
+  - 查询时：query 文本自动规范化
+  - 保证向量空间对齐
+
+- ✅ **关键词搜索 OR 查询**
+  - 分词后多个词用 OR 连接
+  - `"math公式怎么写"` → `LIKE '%math%' OR LIKE '%公式怎么写%'`
+  - 提高中英夹杂查询的召回率
+
+**修改文件**：
+- `src/main/embedding/api.ts` - 添加 normalizeCjkAscii，embedding 前规范化
+- `src/main/embedding/database.ts` - searchKeyword 支持分词 OR 查询
+
+**注意**：此改动后需要重建索引以保持一致性

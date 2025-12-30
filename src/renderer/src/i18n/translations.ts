@@ -579,7 +579,7 @@ const zh: Translations = {
     checkUpdate: '检查更新',
     feedback: '反馈建议',
     github: 'GitHub',
-    copyright: '© 2025 心流. All rights reserved.',
+    copyright: '© 2026 心流. All rights reserved.',
     updating: {
       checking: '正在检查更新...',
       available: (version: string) => `发现新版本 ${version}`,
@@ -1057,7 +1057,7 @@ const en: Translations = {
     checkUpdate: 'Check for Updates',
     feedback: 'Feedback',
     github: 'GitHub',
-    copyright: '© 2025 Flow. All rights reserved.',
+    copyright: '© 2026 Flow. All rights reserved.',
     updating: {
       checking: 'Checking for updates...',
       available: (version: string) => `New version ${version} available`,

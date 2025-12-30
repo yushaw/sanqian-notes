@@ -1480,7 +1480,7 @@ function EditorToolbar({
         {/* 段落类型下拉 */}
         <ToolbarDropdown
           icon={ToolbarIcons.heading}
-          active={editor.isActive('heading') || isBody}
+          active={editor.isActive('heading')}
           items={[
             { label: 'Body', active: isBody, onClick: () => editor.chain().focus().setParagraph().run(), shortcut: shortcuts.body },
             { label: 'H1', active: editor.isActive('heading', { level: 1 }), onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), shortcut: shortcuts.h1 },

@@ -124,6 +124,8 @@ function migrateDatabase(database: Database.Database): void {
   if (hasUniqueConstraint) {
     console.log('[Embedding] Migrating: removing UNIQUE(note_id, chunk_index) constraint')
     database.exec(`
+      -- 清理可能残留的临时表（上次迁移失败的情况）
+      DROP TABLE IF EXISTS note_chunks_new;
       -- 创建新表（无 UNIQUE 约束）
       CREATE TABLE note_chunks_new (
         chunk_id TEXT PRIMARY KEY,
@@ -137,8 +139,12 @@ function migrateDatabase(database: Database.Database): void {
         heading TEXT,
         created_at TEXT NOT NULL
       );
-      -- 复制数据
-      INSERT INTO note_chunks_new SELECT * FROM note_chunks;
+      -- 复制数据（为 created_at 提供默认值，防止旧数据为 NULL）
+      INSERT INTO note_chunks_new
+      SELECT chunk_id, note_id, notebook_id, chunk_index, chunk_text, chunk_hash,
+             char_start, char_end, heading,
+             COALESCE(created_at, datetime('now')) as created_at
+      FROM note_chunks;
       -- 删除旧表
       DROP TABLE note_chunks;
       -- 重命名新表
@@ -416,17 +422,17 @@ export function getNoteChunks(noteId: string): NoteChunk[] {
   const rows = database
     .prepare('SELECT * FROM note_chunks WHERE note_id = ? ORDER BY chunk_index')
     .all(noteId) as Array<{
-    chunk_id: string
-    note_id: string
-    notebook_id: string
-    chunk_index: number
-    chunk_text: string
-    chunk_hash: string | null
-    char_start: number
-    char_end: number
-    heading: string | null
-    created_at: string
-  }>
+      chunk_id: string
+      note_id: string
+      notebook_id: string
+      chunk_index: number
+      chunk_text: string
+      chunk_hash: string | null
+      char_start: number
+      char_end: number
+      heading: string | null
+      created_at: string
+    }>
 
   return rows.map((row) => ({
     chunkId: row.chunk_id,
@@ -523,14 +529,14 @@ export function getNoteIndexStatus(noteId: string): NoteIndexStatus | null {
   const database = getDb()
   const row = database.prepare('SELECT * FROM note_index_status WHERE note_id = ?').get(noteId) as
     | {
-        note_id: string
-        content_hash: string
-        chunk_count: number
-        model_name: string
-        indexed_at: string
-        status: string
-        error_message: string | null
-      }
+      note_id: string
+      content_hash: string
+      chunk_count: number
+      model_name: string
+      indexed_at: string
+      status: string
+      error_message: string | null
+    }
     | undefined
 
   if (!row) return null
@@ -666,12 +672,12 @@ export function searchEmbeddings(
     `
     )
     .all(queryVector, limit * 2) as Array<{
-    chunk_id: string
-    note_id: string
-    notebook_id: string
-    distance: number
-    chunk_text: string
-  }>
+      chunk_id: string
+      note_id: string
+      notebook_id: string
+      distance: number
+      chunk_text: string
+    }>
 
   // 过滤距离阈值并转换为结果格式
   const results: VectorSearchResult[] = []
@@ -727,12 +733,12 @@ export function searchEmbeddingsInNotebook(
     `
     )
     .all(queryVector, limit * 5) as Array<{
-    chunk_id: string
-    note_id: string
-    notebook_id: string
-    distance: number
-    chunk_text: string
-  }>
+      chunk_id: string
+      note_id: string
+      notebook_id: string
+      distance: number
+      chunk_text: string
+    }>
 
   const results: VectorSearchResult[] = []
 

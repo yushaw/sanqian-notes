@@ -637,10 +637,9 @@ export function KnowledgeBaseSettings() {
             </>
           )}
 
-          {/* 测试连接 & 保存 */}
-          <div className="flex items-center gap-3">
-            {/* 自定义模式显示测试按钮 */}
-            {config.source === 'custom' && (
+          {/* 测试连接 & 保存 - 仅自定义模式 */}
+          {config.source === 'custom' && (
+            <div className="flex items-center gap-3">
               <button
                 onClick={handleTest}
                 disabled={testing || !config.apiKey}
@@ -648,20 +647,20 @@ export function KnowledgeBaseSettings() {
               >
                 {testing ? t.settings.knowledgeBase.testing : t.settings.knowledgeBase.testConnection}
               </button>
-            )}
-            <button
-              onClick={handleSave}
-              disabled={saving || (config.source === 'sanqian' && !sanqianConfig?.available)}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors disabled:opacity-50"
-            >
-              {saving ? t.settings.aiActions.saving : t.actions.save}
-            </button>
-            {testResult && (
-              <span className={`text-sm ${testResult.success ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
-                {testResult.message}
-              </span>
-            )}
-          </div>
+              <button
+                onClick={handleSave}
+                disabled={saving || !config.apiKey}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors disabled:opacity-50"
+              >
+                {saving ? t.settings.aiActions.saving : t.actions.save}
+              </button>
+              {testResult && (
+                <span className={`text-sm ${testResult.success ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+                  {testResult.message}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* 索引状态 */}
           {stats && (

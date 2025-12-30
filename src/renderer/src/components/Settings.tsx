@@ -244,7 +244,7 @@ export function Settings({ onClose }: SettingsProps) {
           </div>
 
           {/* Right Content */}
-          <div className="flex-1 px-5 py-2 overflow-y-auto">
+          <div className="flex-1 px-5 py-2 overflow-y-auto [scrollbar-gutter:stable]">
             {/* General Tab */}
             {activeTab === 'general' && (
               <div className="space-y-5">

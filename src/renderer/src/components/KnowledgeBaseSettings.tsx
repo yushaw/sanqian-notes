@@ -427,16 +427,16 @@ export function KnowledgeBaseSettings() {
         <button
           onClick={() => updateConfig({ enabled: !config.enabled })}
           className={`
-            relative w-11 h-6 rounded-full transition-colors
+            relative w-11 h-6 flex-shrink-0 rounded-full transition-colors
             ${config.enabled ? 'bg-[var(--color-accent)]' : 'bg-black/20 dark:bg-white/20'}
           `}
         >
-          <div
+          <span
             className={`
-              absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform
-              ${config.enabled ? 'translate-x-5.5 left-0.5' : 'translate-x-0.5 left-0'}
+              absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow
+              transition-transform duration-200
+              ${config.enabled ? 'translate-x-5' : 'translate-x-0'}
             `}
-            style={{ transform: config.enabled ? 'translateX(22px)' : 'translateX(2px)' }}
           />
         </button>
       </div>

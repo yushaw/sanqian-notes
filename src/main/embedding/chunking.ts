@@ -11,6 +11,7 @@
  */
 
 import type { NoteChunk } from './types'
+import { computeContentHash } from './utils'
 
 // 分块配置
 export const CHUNK_SIZE = 800 // 字符数（约 300 tokens）
@@ -63,13 +64,18 @@ export class ChunkingService {
 
     // 短文本不分块
     if (!this.shouldChunk(text)) {
+      const hash = computeContentHash(text)
       return [
         {
-          chunkId: `${noteId}:0`,
+          // chunkId = noteId:hash:index
+          // - hash 用于增量更新时匹配内容
+          // - index 用于区分相同内容的不同 chunks（防碰撞）
+          chunkId: `${noteId}:${hash}:0`,
           noteId,
           notebookId,
           chunkIndex: 0,
           chunkText: text,
+          chunkHash: hash,
           charStart: 0,
           charEnd: text.length,
           heading: null,
@@ -83,17 +89,22 @@ export class ChunkingService {
     const positions = this.computeChunkPositions(text, chunksText)
 
     // 构建 NoteChunk 对象
-    return chunksText.map((content, i) => ({
-      chunkId: `${noteId}:${i}`,
-      noteId,
-      notebookId,
-      chunkIndex: i,
-      chunkText: content,
-      charStart: positions[i][0],
-      charEnd: positions[i][1],
-      heading: this.extractHeading(content),
-      createdAt: now
-    }))
+    // 注意：index 仅用于区分相同 hash 的 chunks，diffChunks 仍按 hash 匹配
+    return chunksText.map((content, i) => {
+      const hash = computeContentHash(content)
+      return {
+        chunkId: `${noteId}:${hash}:${i}`,
+        noteId,
+        notebookId,
+        chunkIndex: i,
+        chunkText: content,
+        chunkHash: hash,
+        charStart: positions[i][0],
+        charEnd: positions[i][1],
+        heading: this.extractHeading(content),
+        createdAt: now
+      }
+    })
   }
 
   /**

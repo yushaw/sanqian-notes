@@ -2692,3 +2692,140 @@ npm run reset-db
 - `src/main/embedding/encryption.ts` - decrypt 失败返回空字符串
 - `scripts/test-search.ts` - 已删除
 - `scripts/test-search.py` - 已删除
+
+
+### 2025-12-30 知识库索引策略重构
+
+基于业界最佳实践（LangChain Indexing API）重构索引逻辑：
+
+**核心改动：**
+
+1. **触发时机优化**
+   - 从「每次编辑 + 5s debounce」改为「笔记失焦时触发」
+   - 减少不必要的 IPC 调用和 API 请求
+
+2. **Chunk 级增量更新**
+   - 每个 chunk 计算 hash（MD5 前 16 位）
+   - 对比新旧 chunks，只处理变化的部分
+   - 未变化的 chunks 保留原有 embedding，不重复调用 API
+
+3. **数据库变更**
+   - `note_chunks` 表新增 `chunk_hash` 列
+   - 自动迁移兼容旧数据
+
+**优势：**
+- 大文档改几个字，只更新 1-2 个 chunks
+- 节省 80%+ 的 embedding API 调用
+- 切换笔记体验更流畅
+
+**修改文件：**
+- `src/main/embedding/types.ts` - NoteChunk 添加 chunkHash 字段
+- `src/main/embedding/database.ts` - 添加 chunk_hash 列和迁移逻辑
+- `src/main/embedding/chunking.ts` - 分块时计算 hash
+- `src/main/embedding/indexing-service.ts` - 实现 chunk 级增量索引
+- `src/main/index.ts` - 新增 note:checkIndex handler
+- `src/preload/index.ts` - 暴露 checkIndex API
+- `src/renderer/src/App.tsx` - 切换笔记时触发索引
+- `src/renderer/src/env.d.ts` - 添加 checkIndex 类型定义
+
+
+### 测试覆盖
+
+**测试文件：**
+- `src/main/embedding/__tests__/chunking.test.ts` - 分块模块测试（17 个用例）
+- `src/main/embedding/__tests__/indexing-service.test.ts` - 索引服务测试（22 个用例）
+- `src/main/embedding/__tests__/utils.test.ts` - 工具函数测试（19 个用例）
+
+**测试命令：**
+```bash
+npm run test          # 运行测试
+npm run test:watch    # 监听模式
+npm run test:coverage # 覆盖率报告
+```
+
+
+### 2025-12-30 chunkId 碰撞修复
+
+**问题：** 原 `chunkId = noteId:index` 设计在中间插入内容时会导致后续 chunks 的 ID 碰撞，覆盖已有数据。
+
+**修复方案（参考 LangChain RecordManager 模式）：**
+
+1. **chunkId 与位置解耦**
+   - 改为 `chunkId = noteId:contentHash` 格式
+   - 文件: `src/main/embedding/chunking.ts`
+
+2. **unchanged chunk 复用旧 chunkId**
+   - diffChunks 按 hash 匹配，匹配成功复用旧 ID 保持 embedding 关联
+   - 文件: `src/main/embedding/indexing-service.ts`
+
+3. **新增 updateChunksMetadata 函数**
+   - unchanged chunks 更新位置元数据（chunkIndex, charStart, charEnd）
+   - 文件: `src/main/embedding/database.ts`
+
+4. **status=error 重试**
+   - 允许索引失败的笔记重试，只跳过 status='indexed' 且 hash 相同的
+
+5. **笔记级锁**
+   - `indexingLocks: Set<string>` 防止同一笔记并发索引
+
+**测试更新：**
+- chunking.test.ts: 更新 chunkId 格式断言（现为 23 个用例）
+- indexing-service.test.ts: 新增「复用旧 chunkId」测试（现为 23 个用例）
+
+
+### 2025-12-30 代码质量改进（基于 Code Review）
+
+**修复内容：**
+
+1. **快速切换笔记 debounce** (`App.tsx`)
+   - `triggerIndexCheck` 添加 300ms debounce
+   - 避免快速键盘导航时的大量 IPC 调用
+
+2. **测试代码复制问题** (`indexing-service.ts/test.ts`)
+   - `diffChunks` 提取为独立导出函数
+   - 测试直接 import 源码，避免代码重复
+
+3. **删除废弃方法** (`indexing-service.ts`)
+   - 移除 `markPending` 和 `removeFromPending`
+   - 无调用方，直接清理
+
+4. **MD5 截断决策注释** (`utils.ts`)
+   - 说明 16 位 hex（64 bit）的碰撞概率权衡
+   - 对个人笔记应用可接受
+
+
+### 2025-12-30 深度 Bug 修复（第二轮 Code Review）
+
+**高优先级修复：**
+
+1. **chunkId 碰撞问题** (`chunking.ts`)
+   - 问题：`chunkId = noteId:hash` 导致重复内容（引用、代码示例）只保留一个
+   - 修复：改为 `noteId:hash:index`，index 用于区分相同内容
+
+2. **UNIQUE 约束冲突** (`database.ts`)
+   - 问题：`UNIQUE(note_id, chunk_index)` 在更新位置时因顺序问题报错
+   - 修复：删除约束（chunk_id 已是 PRIMARY KEY），添加迁移逻辑
+
+3. **diffChunks 重复 hash 处理** (`indexing-service.ts`)
+   - 问题：`Map<hash, chunk>` 相同 hash 会覆盖，只能复用一个
+   - 修复：改为 `Map<hash, chunk[]>`，支持多个相同内容的 chunks
+
+**低优先级说明：**
+
+4. **Debounce 行为** (`App.tsx`)
+   - 添加注释说明：快速切换 A→B→C 时只索引 B，A 下次访问时补上
+
+**新增测试：**
+- `笔记包含重复内容（相同 hash 的多个 chunks）`
+- `新增一个与已有内容相同的段落`
+
+
+### 2025-12-30 防御性编程修复
+
+**api.ts - Embedding 数量验证**
+- 添加 `embeddings.length !== texts.length` 检查
+- 防止 API 返回数量不匹配时插入 undefined 到数据库
+
+**indexing-service.ts - rebuildAllNotes 并发锁**
+- `indexNoteFull` 调用前后添加 `indexingLocks` 保护
+- 防止用户在 rebuild 过程中切换笔记触发并发索引

@@ -747,20 +747,15 @@ app.whenReady().then(() => {
   ipcMain.handle('note:getById', (_, id) => getNoteById(id))
   ipcMain.handle('note:getByIds', (_, ids: string[]) => getNotesByIds(ids))
   ipcMain.handle('note:add', (_, note) => {
-    const result = addNote(note)
-    // Trigger indexing for new note
-    if (result && getEmbeddingConfig().enabled) {
-      indexingService.markPending(result.id, result.notebook_id || '', result.content)
-    }
-    return result
+    return addNote(note)
   })
   ipcMain.handle('note:update', (_, id, updates) => {
-    const result = updateNote(id, updates)
-    // Trigger indexing if content changed
-    if (result && updates.content && getEmbeddingConfig().enabled) {
-      indexingService.markPending(result.id, result.notebook_id || '', result.content)
-    }
-    return result
+    return updateNote(id, updates)
+  })
+  // 笔记失焦时触发增量索引检查
+  ipcMain.handle('note:checkIndex', async (_, noteId: string, notebookId: string, content: string) => {
+    if (!getEmbeddingConfig().enabled) return false
+    return indexingService.checkAndIndex(noteId, notebookId, content)
   })
   ipcMain.handle('note:delete', (_, id) => {
     const result = deleteNote(id)

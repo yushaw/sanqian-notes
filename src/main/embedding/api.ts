@@ -137,6 +137,13 @@ async function callEmbeddingAPI(texts: string[], config: EmbeddingConfig): Promi
     const sortedData = data.data.sort((a, b) => a.index - b.index)
     const embeddings = sortedData.map((item) => item.embedding)
 
+    // 防御性检查：确保返回数量与请求数量一致
+    if (embeddings.length !== texts.length) {
+      throw new Error(
+        `Embedding count mismatch: expected ${texts.length}, got ${embeddings.length}`
+      )
+    }
+
     console.log(`[Embedding] Generated ${embeddings.length} embeddings (dim=${embeddings[0]?.length})`)
     return embeddings
   } catch (error) {

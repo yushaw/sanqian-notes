@@ -29,6 +29,8 @@ interface Window {
       update: (id: string, updates: Partial<NoteInput>) => Promise<Note | null>
       delete: (id: string) => Promise<boolean>
       search: (query: string) => Promise<Note[]>
+      // 笔记失焦时触发增量索引检查
+      checkIndex: (noteId: string, notebookId: string, content: string) => Promise<boolean>
       onDataChanged: (callback: () => void) => () => void
     }
     trash: {

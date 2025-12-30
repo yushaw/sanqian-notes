@@ -95,6 +95,7 @@ export interface NoteChunk {
   notebookId: string
   chunkIndex: number
   chunkText: string
+  chunkHash: string | null // 内容哈希，用于增量更新检测。旧数据可能为 null
   charStart: number
   charEnd: number
   heading: string | null

@@ -2,43 +2,104 @@
  * IndexingService - 知识库自动索引服务
  *
  * 功能：
- * - 监听笔记变更，自动触发索引
- * - Throttle 60s + Debounce 5s 防止频繁调用
- * - 内容变化检测 (contentHash)
- * - 索引队列管理
+ * - 笔记失焦时触发增量索引
+ * - Chunk 级增量更新（基于 hash 对比）
+ * - 只索引变化的 chunks，复用未变化的
  * - 进度通知
+ *
+ * 参考: LangChain Indexing API
  */
 
-import crypto from 'crypto'
 import { BrowserWindow } from 'electron'
 import {
   getEmbeddingConfig,
   insertNoteChunks,
-  deleteNoteChunks,
+  deleteChunksByIds,
   insertEmbeddings,
+  deleteEmbeddingsByChunkIds,
+  deleteNoteChunks,
   deleteNoteEmbeddings,
   updateNoteIndexStatus,
   getNoteIndexStatus,
   deleteNoteIndexStatus,
+  getNoteChunks,
+  updateChunksMetadata,
   clearAllIndexData
 } from './database'
 import { chunkNote } from './chunking'
 import { getEmbeddings } from './api'
-import type { NoteIndexStatus } from './types'
+import { computeContentHash } from './utils'
+import type { NoteChunk, NoteIndexStatus } from './types'
 
 // 配置常量
-const DEBOUNCE_DELAY = 5000 // 5 秒
-const THROTTLE_INTERVAL = 60000 // 60 秒
 const MIN_CONTENT_LENGTH = 100 // 最小内容长度
 const MAX_BATCH_SIZE = 10 // 每批处理的笔记数
 
-// Pending 笔记信息
-interface PendingNote {
-  noteId: string
-  notebookId: string
-  content: string
-  timestamp: number
-  timeoutId?: NodeJS.Timeout
+/**
+ * Chunk 差异对比结果
+ */
+export interface ChunkDiffResult {
+  toAdd: NoteChunk[]
+  toDelete: NoteChunk[]
+  unchanged: NoteChunk[]
+}
+
+/**
+ * 对比新旧 chunks，返回需要添加、删除、未变化的列表
+ *
+ * 关键：
+ * - unchanged 的 chunk 复用旧 chunkId，只更新位置元数据
+ * - 支持重复内容（相同 hash 的多个 chunks）
+ *
+ * 导出供测试使用
+ */
+export function diffChunks(oldChunks: NoteChunk[], newChunks: NoteChunk[]): ChunkDiffResult {
+  // 构建 hash -> oldChunks[] 的映射（支持重复 hash）
+  const oldHashMap = new Map<string, NoteChunk[]>()
+  for (const chunk of oldChunks) {
+    if (chunk.chunkHash) {
+      const list = oldHashMap.get(chunk.chunkHash) || []
+      list.push(chunk)
+      oldHashMap.set(chunk.chunkHash, list)
+    }
+  }
+
+  // 记录已使用的旧 chunkId（用于判断哪些需要删除）
+  const usedOldChunkIds = new Set<string>()
+
+  // 分类
+  const toAdd: NoteChunk[] = []
+  const unchanged: NoteChunk[] = []
+
+  for (const newChunk of newChunks) {
+    const oldChunkList = newChunk.chunkHash ? oldHashMap.get(newChunk.chunkHash) : null
+
+    // 找一个未使用的旧 chunk
+    const oldChunk = oldChunkList?.find(c => !usedOldChunkIds.has(c.chunkId))
+
+    if (oldChunk) {
+      // 匹配成功：复用旧 chunkId，但更新位置等元数据
+      usedOldChunkIds.add(oldChunk.chunkId)
+      unchanged.push({
+        ...newChunk,
+        chunkId: oldChunk.chunkId  // 复用旧 ID，保持 embedding 关联
+      })
+    } else {
+      // 新增的 chunk
+      toAdd.push(newChunk)
+    }
+  }
+
+  // 未被匹配的旧 chunks 需要删除
+  const toDelete: NoteChunk[] = []
+  for (const chunk of oldChunks) {
+    // 空 hash 的旧数据（迁移前的数据）或未被匹配的都需要删除
+    if (!chunk.chunkHash || !usedOldChunkIds.has(chunk.chunkId)) {
+      toDelete.push(chunk)
+    }
+  }
+
+  return { toAdd, toDelete, unchanged }
 }
 
 // 索引进度事件
@@ -48,13 +109,6 @@ interface IndexingProgress {
   current?: number
   noteId?: string
   error?: string
-}
-
-/**
- * 计算内容哈希
- */
-function computeContentHash(content: string): string {
-  return crypto.createHash('md5').update(content).digest('hex').slice(0, 16)
 }
 
 /**
@@ -86,20 +140,10 @@ function extractTextFromNode(node: unknown): string {
   return ''
 }
 
-/**
- * 检测内容是否有变化
- */
-function hasContentChanged(oldHash: string, newHash: string): boolean {
-  return oldHash !== newHash
-}
-
 class IndexingService {
-  private pendingNotes: Map<string, PendingNote> = new Map()
-  private indexQueue: string[] = []
-  private isProcessing = false
-  private throttleTimer: NodeJS.Timeout | null = null
   private mainWindow: BrowserWindow | null = null
   private isRunning = false
+  private indexingLocks = new Set<string>()  // 防止同一笔记并发索引
 
   /**
    * 设置主窗口引用（用于发送进度通知）
@@ -114,212 +158,204 @@ class IndexingService {
   start(): void {
     if (this.isRunning) return
     this.isRunning = true
-
-    // 启动 throttle 定时器
-    this.throttleTimer = setInterval(() => {
-      this.checkPendingNotes()
-    }, THROTTLE_INTERVAL)
-
     console.log('[IndexingService] Started')
   }
 
   /**
-   * 停止服务（同步清理，不等待正在进行的索引）
-   * 注意：Electron will-quit 事件不会等待 async，所以这里用同步清理
+   * 停止服务
    */
   stop(): void {
     this.isRunning = false
-
-    // 清除 throttle 定时器
-    if (this.throttleTimer) {
-      clearInterval(this.throttleTimer)
-      this.throttleTimer = null
-    }
-
-    // 清除所有 pending 的 debounce 定时器
-    for (const pending of this.pendingNotes.values()) {
-      if (pending.timeoutId) {
-        clearTimeout(pending.timeoutId)
-      }
-    }
-    this.pendingNotes.clear()
-    this.indexQueue = []
-
     console.log('[IndexingService] Stopped')
   }
 
   /**
-   * 标记笔记为待索引
+   * 笔记失焦时检查并索引
+   * 这是主要的入口点，由前端在切换笔记时调用
    */
-  markPending(noteId: string, notebookId: string, content: string): void {
-    if (!this.isRunning) return
+  async checkAndIndex(noteId: string, notebookId: string, content: string): Promise<boolean> {
+    if (!this.isRunning) return false
 
     const config = getEmbeddingConfig()
-    if (!config.enabled) return
+    if (!config.enabled) return false
 
-    // 提取纯文本
+    // 防止同一笔记并发索引
+    if (this.indexingLocks.has(noteId)) {
+      console.log(`[IndexingService] Note ${noteId} is already being indexed, skipping`)
+      return false
+    }
+
     const text = extractTextFromTiptap(content)
 
     // 内容太短，不索引
     if (text.length < MIN_CONTENT_LENGTH) {
       console.log(`[IndexingService] Note ${noteId} too short (${text.length} chars), skipping`)
-      return
-    }
-
-    // 清除之前的 debounce 定时器
-    const existing = this.pendingNotes.get(noteId)
-    if (existing?.timeoutId) {
-      clearTimeout(existing.timeoutId)
-    }
-
-    // 设置新的 debounce 定时器
-    const timeoutId = setTimeout(() => {
-      this.onDebounceComplete(noteId)
-    }, DEBOUNCE_DELAY)
-
-    this.pendingNotes.set(noteId, {
-      noteId,
-      notebookId: notebookId || '',
-      content,
-      timestamp: Date.now(),
-      timeoutId
-    })
-
-    console.log(`[IndexingService] Note ${noteId} marked as pending`)
-  }
-
-  /**
-   * 从待处理列表移除笔记
-   */
-  removeFromPending(noteId: string): void {
-    const pending = this.pendingNotes.get(noteId)
-    if (pending?.timeoutId) {
-      clearTimeout(pending.timeoutId)
-    }
-    this.pendingNotes.delete(noteId)
-  }
-
-  /**
-   * Debounce 完成回调
-   */
-  private onDebounceComplete(noteId: string): void {
-    const pending = this.pendingNotes.get(noteId)
-    if (!pending) return
-
-    // 清除 timeout 引用
-    pending.timeoutId = undefined
-
-    // 检查是否需要索引
-    if (this.shouldIndex(pending)) {
-      this.addToQueue(noteId)
-      // 注意：不在这里删除 pendingNotes，让 processQueue 处理后删除
-    } else {
-      // 不需要索引，直接删除
-      this.pendingNotes.delete(noteId)
-    }
-  }
-
-  /**
-   * Throttle 定时检查
-   */
-  private checkPendingNotes(): void {
-    const now = Date.now()
-
-    for (const [noteId, pending] of this.pendingNotes.entries()) {
-      // 超过 throttle 间隔的笔记强制加入队列
-      if (now - pending.timestamp >= THROTTLE_INTERVAL) {
-        if (pending.timeoutId) {
-          clearTimeout(pending.timeoutId)
-          pending.timeoutId = undefined
-        }
-
-        if (this.shouldIndex(pending)) {
-          this.addToQueue(noteId)
-          // 注意：不在这里删除 pendingNotes，让 processQueue 处理后删除
-        } else {
-          // 不需要索引，直接删除
-          this.pendingNotes.delete(noteId)
-        }
-      }
-    }
-  }
-
-  /**
-   * 判断是否需要索引
-   */
-  private shouldIndex(pending: PendingNote): boolean {
-    const text = extractTextFromTiptap(pending.content)
-
-    // 内容太短
-    if (text.length < MIN_CONTENT_LENGTH) {
       return false
     }
 
-    // 检查内容是否有变化
-    const existingStatus = getNoteIndexStatus(pending.noteId)
+    // 检查内容是否有变化（快速判断）
+    const existingStatus = getNoteIndexStatus(noteId)
     if (existingStatus) {
       const newHash = computeContentHash(text)
-      const oldHash = existingStatus.contentHash
-
-      if (!hasContentChanged(oldHash, newHash)) {
-        console.log(`[IndexingService] Note ${pending.noteId} no change, skipping`)
+      // 只有内容相同且上次成功时才跳过（允许 error 状态重试）
+      if (existingStatus.contentHash === newHash && existingStatus.status === 'indexed') {
+        console.log(`[IndexingService] Note ${noteId} no change (hash match), skipping`)
         return false
       }
     }
 
-    return true
-  }
-
-  /**
-   * 添加到索引队列
-   */
-  private addToQueue(noteId: string): void {
-    if (!this.indexQueue.includes(noteId)) {
-      this.indexQueue.push(noteId)
-      console.log(`[IndexingService] Note ${noteId} added to queue (queue size: ${this.indexQueue.length})`)
-
-      // 触发队列处理
-      this.processQueue()
-    }
-  }
-
-  /**
-   * 处理索引队列
-   */
-  async processQueue(): Promise<void> {
-    if (this.isProcessing || this.indexQueue.length === 0) return
-
-    this.isProcessing = true
+    // 加锁
+    this.indexingLocks.add(noteId)
 
     try {
-      while (this.indexQueue.length > 0 && this.isRunning) {
-        const noteId = this.indexQueue.shift()!
-        const pending = this.pendingNotes.get(noteId)
-
-        if (pending) {
-          await this.indexNote(pending.noteId, pending.notebookId, pending.content)
-          this.pendingNotes.delete(noteId)
-        } else {
-          // 如果不在 pending 中，可能是从数据库恢复的
-          // 需要从数据库获取笔记内容
-          console.log(`[IndexingService] Note ${noteId} not in pending, skipping`)
-        }
-      }
+      // 执行增量索引
+      return await this.indexNoteIncremental(noteId, notebookId, text)
     } finally {
-      this.isProcessing = false
+      // 解锁
+      this.indexingLocks.delete(noteId)
     }
   }
 
   /**
-   * 索引单个笔记
+   * 增量索引单个笔记（Chunk 级别）
+   *
+   * 核心逻辑：
+   * 1. 分块并计算每个 chunk 的 hash
+   * 2. 获取已有的 chunks
+   * 3. 对比 hash，分类为：新增、删除、未变化
+   * 4. 只为新增的 chunks 生成 embedding
+   * 5. 删除旧的、插入新的
    */
-  async indexNote(noteId: string, notebookId: string, content: string): Promise<boolean> {
+  async indexNoteIncremental(noteId: string, notebookId: string, text: string): Promise<boolean> {
+    const config = getEmbeddingConfig()
+    if (!config.enabled) return false
+
+    console.log(`[IndexingService] Incremental indexing note ${noteId} (${text.length} chars)`)
+
+    try {
+      // 1. 分块（每个 chunk 已包含 chunkHash）
+      const newChunks = chunkNote(noteId, notebookId, text)
+      if (newChunks.length === 0) {
+        console.log(`[IndexingService] Note ${noteId} produced no chunks`)
+        return false
+      }
+
+      // 2. 获取已有的 chunks
+      const oldChunks = getNoteChunks(noteId)
+
+      // 3. 对比 hash，分类
+      const result = diffChunks(oldChunks, newChunks)
+
+      console.log(
+        `[IndexingService] Note ${noteId}: +${result.toAdd.length} -${result.toDelete.length} =${result.unchanged.length}`
+      )
+
+      // 4. 如果没有变化，跳过
+      if (result.toAdd.length === 0 && result.toDelete.length === 0) {
+        console.log(`[IndexingService] Note ${noteId} no chunk changes, skipping`)
+        return true
+      }
+
+      // 5. 先获取新 embeddings（可能失败，失败时不影响现有数据）
+      let embeddings: number[][] = []
+      if (result.toAdd.length > 0) {
+        const chunkTexts = result.toAdd.map((c) => c.chunkText)
+        embeddings = await getEmbeddings(chunkTexts)
+      }
+
+      // 6. 删除旧的 chunks 和 embeddings（在 embedding 获取成功后再删除）
+      if (result.toDelete.length > 0) {
+        const deleteIds = result.toDelete.map((c) => c.chunkId)
+        deleteChunksByIds(deleteIds)
+        deleteEmbeddingsByChunkIds(deleteIds)
+      }
+
+      // 7. 插入新 chunks 和 embeddings
+      if (result.toAdd.length > 0) {
+        insertNoteChunks(result.toAdd)
+
+        const embeddingData = result.toAdd.map((chunk, i) => ({
+          chunkId: chunk.chunkId,
+          noteId: chunk.noteId,
+          notebookId: chunk.notebookId,
+          embedding: embeddings[i]
+        }))
+        insertEmbeddings(embeddingData)
+      }
+
+      // 8. 更新 unchanged chunks 的位置元数据（chunkIndex, charStart, charEnd 可能变化）
+      if (result.unchanged.length > 0) {
+        updateChunksMetadata(result.unchanged)
+      }
+
+      // 9. 更新索引状态
+      const status: NoteIndexStatus = {
+        noteId,
+        contentHash: computeContentHash(text),
+        chunkCount: newChunks.length,
+        modelName: config.modelName,
+        indexedAt: new Date().toISOString(),
+        status: 'indexed'
+      }
+      updateNoteIndexStatus(status)
+
+      console.log(`[IndexingService] Note ${noteId} indexed successfully`)
+
+      // 发送进度通知
+      this.sendProgress({
+        type: 'progress',
+        noteId
+      })
+
+      return true
+    } catch (error) {
+      console.error(`[IndexingService] Failed to index note ${noteId}:`, error)
+
+      // 更新错误状态
+      const status: NoteIndexStatus = {
+        noteId,
+        contentHash: computeContentHash(text),
+        chunkCount: 0,
+        modelName: config.modelName,
+        indexedAt: new Date().toISOString(),
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      }
+      updateNoteIndexStatus(status)
+
+      // 发送错误通知
+      this.sendProgress({
+        type: 'error',
+        noteId,
+        error: status.errorMessage
+      })
+
+      return false
+    }
+  }
+
+  /**
+   * 删除笔记索引
+   */
+  deleteNoteIndex(noteId: string): void {
+    // 删除数据库中的索引数据
+    deleteNoteChunks(noteId)
+    deleteNoteEmbeddings(noteId)
+    deleteNoteIndexStatus(noteId)
+
+    console.log(`[IndexingService] Note ${noteId} index deleted`)
+  }
+
+  /**
+   * 全量索引单个笔记（用于首次索引或强制重建）
+   */
+  async indexNoteFull(noteId: string, notebookId: string, content: string): Promise<boolean> {
     const config = getEmbeddingConfig()
     if (!config.enabled) return false
 
     const text = extractTextFromTiptap(content)
 
-    console.log(`[IndexingService] Indexing note ${noteId} (${text.length} chars)`)
+    console.log(`[IndexingService] Full indexing note ${noteId} (${text.length} chars)`)
 
     try {
       // 1. 分块
@@ -331,11 +367,11 @@ class IndexingService {
 
       console.log(`[IndexingService] Note ${noteId} split into ${chunks.length} chunks`)
 
-      // 2. 获取 embeddings（先获取，成功后再删除旧数据）
+      // 2. 获取 embeddings
       const chunkTexts = chunks.map((c) => c.chunkText)
       const embeddings = await getEmbeddings(chunkTexts)
 
-      // 3. 删除旧数据（embedding 获取成功后再删除）
+      // 3. 删除旧数据
       deleteNoteChunks(noteId)
       deleteNoteEmbeddings(noteId)
 
@@ -398,29 +434,11 @@ class IndexingService {
   }
 
   /**
-   * 删除笔记索引
-   */
-  deleteNoteIndex(noteId: string): void {
-    this.removeFromPending(noteId)
-
-    // 从队列中移除
-    const queueIndex = this.indexQueue.indexOf(noteId)
-    if (queueIndex !== -1) {
-      this.indexQueue.splice(queueIndex, 1)
-    }
-
-    // 删除数据库中的索引数据
-    deleteNoteChunks(noteId)
-    deleteNoteEmbeddings(noteId)
-    deleteNoteIndexStatus(noteId)
-
-    console.log(`[IndexingService] Note ${noteId} index deleted`)
-  }
-
-  /**
    * 重建所有笔记索引
    */
-  async rebuildAllNotes(notes: Array<{ id: string; notebook_id: string | null; content: string }>): Promise<void> {
+  async rebuildAllNotes(
+    notes: Array<{ id: string; notebook_id: string | null; content: string }>
+  ): Promise<void> {
     const config = getEmbeddingConfig()
     if (!config.enabled) {
       console.log('[IndexingService] Knowledge base disabled, skipping rebuild')
@@ -458,7 +476,14 @@ class IndexingService {
         continue
       }
 
-      const success = await this.indexNote(note.id, note.notebook_id || '', note.content)
+      // 加锁防止用户切换到正在 rebuild 的笔记时触发并发索引
+      this.indexingLocks.add(note.id)
+      let success: boolean
+      try {
+        success = await this.indexNoteFull(note.id, note.notebook_id || '', note.content)
+      } finally {
+        this.indexingLocks.delete(note.id)
+      }
 
       if (success) {
         successCount++
@@ -491,13 +516,13 @@ class IndexingService {
   }
 
   /**
-   * 获取队列状态
+   * 获取队列状态（兼容旧接口）
    */
   getQueueStatus(): { pending: number; queue: number; processing: boolean } {
     return {
-      pending: this.pendingNotes.size,
-      queue: this.indexQueue.length,
-      processing: this.isProcessing
+      pending: 0,
+      queue: 0,
+      processing: false
     }
   }
 

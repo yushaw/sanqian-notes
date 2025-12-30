@@ -74,6 +74,37 @@ function AppContent() {
   // Editor ref for cursor position sync
   const editorRef = useRef<EditorHandle>(null)
 
+  // 使用 ref 保存 notes，避免 triggerIndexCheck 依赖 notes 导致的性能问题
+  const notesRef = useRef<Note[]>(notes)
+  notesRef.current = notes
+
+  // Debounce timer for index check
+  const indexCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 触发增量索引检查（失焦时调用）
+  // Debounce 300ms 避免快速切换时的大量 IPC 调用
+  // 注意：快速切换 A→B→C 时，只有最后停留的 B 会被索引
+  // A 的索引会在下次访问 A 时触发，这是可接受的权衡
+  const triggerIndexCheck = useCallback((noteId: string | null) => {
+    if (!noteId) return
+
+    // 清除之前的 timer（取消排队中的索引请求）
+    if (indexCheckTimerRef.current) {
+      clearTimeout(indexCheckTimerRef.current)
+    }
+
+    indexCheckTimerRef.current = setTimeout(() => {
+      const note = notesRef.current.find(n => n.id === noteId)
+      if (note) {
+        window.electron.note.checkIndex(
+          note.id,
+          note.notebook_id || '',
+          note.content
+        ).catch(console.error)
+      }
+    }, 300)
+  }, [])
+
   // Global keyboard shortcut for AI chat (Cmd/Ctrl + K)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -84,6 +115,15 @@ function AppContent() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Cleanup index check timer on unmount
+  useEffect(() => {
+    return () => {
+      if (indexCheckTimerRef.current) {
+        clearTimeout(indexCheckTimerRef.current)
+      }
+    }
   }, [])
 
   // Load data from database and validate restored navigation state
@@ -264,16 +304,19 @@ function AppContent() {
     }
   }, [notes, isNoteEmpty])
 
-  // Handle selecting a note (with empty note cleanup)
+  // Handle selecting a note (with empty note cleanup and index check)
   const handleSelectNote = useCallback(async (noteId: string) => {
     // Don't do anything if selecting the same note
     if (noteId === selectedNoteId) return
+
+    // Trigger incremental index check for the note being left
+    triggerIndexCheck(selectedNoteId)
 
     // Delete empty note if switching away from it
     await deleteEmptyNoteIfNeeded(selectedNoteId)
 
     setSelectedNoteId(noteId)
-  }, [selectedNoteId, deleteEmptyNoteIfNeeded])
+  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
   // Get list title based on current view
   const listTitle = useMemo(() => {
@@ -297,19 +340,23 @@ function AppContent() {
 
   // Handle selecting a notebook
   const handleSelectNotebook = useCallback(async (id: string | null) => {
+    // Trigger incremental index check for the note being left
+    triggerIndexCheck(selectedNoteId)
     await deleteEmptyNoteIfNeeded(selectedNoteId)
     setSelectedNotebookId(id)
     setSelectedSmartView(null)
     setSelectedNoteId(null)
-  }, [selectedNoteId, deleteEmptyNoteIfNeeded])
+  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
   // Handle selecting a smart view
   const handleSelectSmartView = useCallback(async (view: SmartViewId) => {
+    // Trigger incremental index check for the note being left
+    triggerIndexCheck(selectedNoteId)
     await deleteEmptyNoteIfNeeded(selectedNoteId)
     setSelectedSmartView(view)
     setSelectedNotebookId(null)
     setSelectedNoteId(null)
-  }, [selectedNoteId, deleteEmptyNoteIfNeeded])
+  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
   // Handle creating a new note
   const handleCreateNote = useCallback(async () => {

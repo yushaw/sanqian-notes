@@ -49,17 +49,20 @@ export function initVectorDatabase(): void {
   // 创建元数据表
   db.exec(`
     -- 笔记块元数据表
+    -- 注意：不再使用 UNIQUE(note_id, chunk_index)，因为：
+    -- 1. chunk_id 已是 PRIMARY KEY，保证唯一性
+    -- 2. 更新 chunk_index 时可能因顺序问题违反约束
     CREATE TABLE IF NOT EXISTS note_chunks (
       chunk_id TEXT PRIMARY KEY,
       note_id TEXT NOT NULL,
       notebook_id TEXT NOT NULL,
       chunk_index INTEGER NOT NULL,
       chunk_text TEXT NOT NULL,
+      chunk_hash TEXT,
       char_start INTEGER,
       char_end INTEGER,
       heading TEXT,
-      created_at TEXT NOT NULL,
-      UNIQUE(note_id, chunk_index)
+      created_at TEXT NOT NULL
     );
 
     -- 笔记索引状态表
@@ -85,11 +88,69 @@ export function initVectorDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_status_updated ON note_index_status(indexed_at);
   `)
 
+  // 数据库迁移：为已有表添加 chunk_hash 列
+  migrateDatabase(db)
+
   // 获取当前配置的维度来创建向量表
   const config = getEmbeddingConfigInternal(db)
   createVectorTable(db, config.dimensions)
 
   console.log('[Embedding] Vector database initialized:', dbPath)
+}
+
+/**
+ * 数据库迁移
+ */
+function migrateDatabase(database: Database.Database): void {
+  // 检查 chunk_hash 列是否存在
+  const columns = database.prepare("PRAGMA table_info(note_chunks)").all() as Array<{ name: string }>
+  const hasChunkHash = columns.some(col => col.name === 'chunk_hash')
+
+  if (!hasChunkHash) {
+    console.log('[Embedding] Migrating: adding chunk_hash column')
+    database.exec('ALTER TABLE note_chunks ADD COLUMN chunk_hash TEXT')
+  }
+
+  // 检查是否有 UNIQUE(note_id, chunk_index) 约束需要移除
+  // SQLite 无法直接 DROP CONSTRAINT，需要重建表
+  const indexInfo = database.prepare("PRAGMA index_list(note_chunks)").all() as Array<{
+    name: string
+    unique: number
+  }>
+  const hasUniqueConstraint = indexInfo.some(
+    idx => idx.unique === 1 && idx.name.includes('sqlite_autoindex')
+  )
+
+  if (hasUniqueConstraint) {
+    console.log('[Embedding] Migrating: removing UNIQUE(note_id, chunk_index) constraint')
+    database.exec(`
+      -- 创建新表（无 UNIQUE 约束）
+      CREATE TABLE note_chunks_new (
+        chunk_id TEXT PRIMARY KEY,
+        note_id TEXT NOT NULL,
+        notebook_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk_text TEXT NOT NULL,
+        chunk_hash TEXT,
+        char_start INTEGER,
+        char_end INTEGER,
+        heading TEXT,
+        created_at TEXT NOT NULL
+      );
+      -- 复制数据
+      INSERT INTO note_chunks_new SELECT * FROM note_chunks;
+      -- 删除旧表
+      DROP TABLE note_chunks;
+      -- 重命名新表
+      ALTER TABLE note_chunks_new RENAME TO note_chunks;
+      -- 重建索引
+      CREATE INDEX idx_chunks_note_id ON note_chunks(note_id);
+      CREATE INDEX idx_chunks_notebook_id ON note_chunks(notebook_id);
+    `)
+  }
+
+  // 确保 chunk_hash 索引存在（无论新表还是迁移后的表）
+  database.exec('CREATE INDEX IF NOT EXISTS idx_chunks_hash ON note_chunks(chunk_hash)')
 }
 
 /**
@@ -315,8 +376,8 @@ export function insertNoteChunks(chunks: NoteChunk[]): void {
   const database = getDb()
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO note_chunks
-    (chunk_id, note_id, notebook_id, chunk_index, chunk_text, char_start, char_end, heading, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (chunk_id, note_id, notebook_id, chunk_index, chunk_text, chunk_hash, char_start, char_end, heading, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   const insertMany = database.transaction((items: NoteChunk[]) => {
@@ -327,6 +388,7 @@ export function insertNoteChunks(chunks: NoteChunk[]): void {
         chunk.notebookId,
         chunk.chunkIndex,
         chunk.chunkText,
+        chunk.chunkHash,
         chunk.charStart,
         chunk.charEnd,
         chunk.heading,
@@ -359,6 +421,7 @@ export function getNoteChunks(noteId: string): NoteChunk[] {
     notebook_id: string
     chunk_index: number
     chunk_text: string
+    chunk_hash: string | null
     char_start: number
     char_end: number
     heading: string | null
@@ -371,11 +434,60 @@ export function getNoteChunks(noteId: string): NoteChunk[] {
     notebookId: row.notebook_id,
     chunkIndex: row.chunk_index,
     chunkText: row.chunk_text,
+    chunkHash: row.chunk_hash,
     charStart: row.char_start,
     charEnd: row.char_end,
     heading: row.heading,
     createdAt: row.created_at
   }))
+}
+
+/**
+ * 根据 chunk_id 列表删除指定的块
+ */
+export function deleteChunksByIds(chunkIds: string[]): void {
+  if (chunkIds.length === 0) return
+  const database = getDb()
+  const placeholders = chunkIds.map(() => '?').join(',')
+  database.prepare(`DELETE FROM note_chunks WHERE chunk_id IN (${placeholders})`).run(...chunkIds)
+}
+
+/**
+ * 根据 chunk_id 列表删除指定的向量
+ */
+export function deleteEmbeddingsByChunkIds(chunkIds: string[]): void {
+  if (chunkIds.length === 0) return
+  const database = getDb()
+  // vec0 虚拟表需要逐条删除
+  const stmt = database.prepare('DELETE FROM note_embeddings WHERE chunk_id = ?')
+  const deleteMany = database.transaction((ids: string[]) => {
+    for (const id of ids) {
+      stmt.run(id)
+    }
+  })
+  deleteMany(chunkIds)
+}
+
+/**
+ * 更新 chunks 的位置元数据（用于 unchanged chunks 位置变化的情况）
+ */
+export function updateChunksMetadata(chunks: NoteChunk[]): void {
+  if (chunks.length === 0) return
+  const database = getDb()
+
+  const stmt = database.prepare(`
+    UPDATE note_chunks
+    SET chunk_index = ?, char_start = ?, char_end = ?, heading = ?
+    WHERE chunk_id = ?
+  `)
+
+  const updateMany = database.transaction((chunkList: NoteChunk[]) => {
+    for (const chunk of chunkList) {
+      stmt.run(chunk.chunkIndex, chunk.charStart, chunk.charEnd, chunk.heading, chunk.chunkId)
+    }
+  })
+
+  updateMany(chunks)
 }
 
 // ============ 索引状态管理 ============

@@ -2,6 +2,27 @@
  * 知识库 - 工具函数
  */
 
+import crypto from 'crypto'
+
+/**
+ * 计算内容哈希（MD5 前 16 位）
+ *
+ * 用于：
+ * - Chunk 级增量更新检测
+ * - 笔记内容变化快速判断
+ *
+ * 设计决策：使用 16 位 hex（64 bit）而非完整 MD5
+ * - 碰撞概率：约 1/2^32（生日悖论），在几千个 chunks 时极低
+ * - 对于个人笔记应用，这个风险可以接受
+ * - 优势：chunkId 更短，存储和索引更高效
+ *
+ * @param content - 文本内容
+ * @returns 16 位哈希字符串
+ */
+export function computeContentHash(content: string): string {
+  return crypto.createHash('md5').update(content).digest('hex').slice(0, 16)
+}
+
 /**
  * 在中文和英文/数字之间插入空格
  *

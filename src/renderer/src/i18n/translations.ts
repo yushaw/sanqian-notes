@@ -181,6 +181,18 @@ export interface Translations {
       waiting: string
       getApiKey: string
       dimensionsChangedWarning: string
+      modelChangedRebuild: string
+      source: string
+      sourceSanqian: string
+      sourceCustom: string
+      fetchingSanqian: string
+      sanqianConnected: string
+      sanqianNotConfigured: string
+      sanqianNotConfiguredHint: string
+      sanqianVersionTooOld: string
+      sanqianVersionTooOldHint: string
+      refreshSanqian: string
+      retryFetch: string
       presets: {
         openaiSmall: string
         openaiLarge: string
@@ -650,6 +662,18 @@ const zh: Translations = {
       waiting: '等待中',
       getApiKey: '获取 API Key',
       dimensionsChangedWarning: '向量维度已变更，索引已清空',
+      modelChangedRebuild: '模型已变更，正在重建索引...',
+      source: '配置来源',
+      sourceSanqian: '使用三千配置',
+      sourceCustom: '自定义配置',
+      fetchingSanqian: '正在获取三千配置...',
+      sanqianConnected: '已连接到三千',
+      sanqianNotConfigured: '三千未配置 Embedding',
+      sanqianNotConfiguredHint: '请先在三千中配置 Embedding 模型，或切换到自定义模式',
+      sanqianVersionTooOld: '三千版本过低，请升级',
+      sanqianVersionTooOldHint: '请访问 Sanqian.io 下载升级',
+      refreshSanqian: '刷新',
+      retryFetch: '重试',
       presets: {
         openaiSmall: 'OpenAI text-embedding-3-small',
         openaiLarge: 'OpenAI text-embedding-3-large',
@@ -1116,6 +1140,18 @@ const en: Translations = {
       waiting: 'Waiting',
       getApiKey: 'Get API Key',
       dimensionsChangedWarning: 'Dimensions changed, index cleared',
+      modelChangedRebuild: 'Model changed, rebuilding index...',
+      source: 'Configuration Source',
+      sourceSanqian: 'From Sanqian',
+      sourceCustom: 'Custom',
+      fetchingSanqian: 'Fetching from Sanqian...',
+      sanqianConnected: 'Connected to Sanqian',
+      sanqianNotConfigured: 'Sanqian not configured',
+      sanqianNotConfiguredHint: 'Please configure embedding model in Sanqian first, or switch to custom mode.',
+      sanqianVersionTooOld: 'Sanqian version is too old, please upgrade',
+      sanqianVersionTooOldHint: 'Please visit Sanqian.io to download and upgrade',
+      refreshSanqian: 'Refresh',
+      retryFetch: 'Retry',
       presets: {
         openaiSmall: 'OpenAI text-embedding-3-small',
         openaiLarge: 'OpenAI text-embedding-3-large',

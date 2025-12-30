@@ -2599,3 +2599,96 @@ npm run reset-db
 - `src/main/embedding/database.ts` - searchKeyword 支持分词 OR 查询
 
 **注意**：此改动后需要重建索引以保持一致性
+
+
+### 2025-12-30 知识库配置来源支持
+
+- ✅ **双配置来源**
+  - 支持从三千获取配置（默认）
+  - 支持自定义配置（手动填写）
+
+- ✅ **三千配置同步**
+  - SDK: 新增 `getEmbeddingConfig()` API
+  - 后端: 新增 `get_embedding_config` handler
+  - 启动时自动同步配置（失败不阻塞）
+
+- ✅ **模型变更检测**
+  - 检测 modelName 变化
+  - 变更时自动触发索引重建
+  - 启动时和保存设置时都会检测
+
+- ✅ **API Key 加密存储**
+  - 使用 AES-256-CBC 加密
+  - 复用三千的加密密钥（~/.sanqian/encryption.key）
+  - 所有模式统一加密存储
+
+**修改文件**：
+- `packages/sdk/src/types.ts` - 添加 EmbeddingConfigResult 类型
+- `packages/sdk/src/client.ts` - 添加 getEmbeddingConfig() 方法
+- `backend/api/sdk_api.py` - 添加 handle_get_embedding_config handler
+- `src/main/embedding/encryption.ts` - 新增加密模块
+- `src/main/embedding/types.ts` - 添加 source 字段和模型维度映射
+- `src/main/embedding/database.ts` - 添加加密/解密和模型变更检测
+- `src/main/sanqian-sdk.ts` - 添加 fetchEmbeddingConfigFromSanqian()
+- `src/main/index.ts` - 添加启动时配置同步
+- `src/renderer/src/components/KnowledgeBaseSettings.tsx` - 添加来源选择 UI
+- `src/renderer/src/i18n/translations.ts` - 添加新翻译字符串
+
+
+### 2025-12-30 Code Review 修复
+
+基于 AI Code Review 反馈修复的问题：
+
+**sanqian-notes 修复：**
+
+- ✅ **Hook 依赖顺序** - `handleRebuild` 移到 `handleSave` 之前
+- ✅ **sanqian 模式 apiKey 丢失** - 保存时使用 `sanqianConfig.apiKey`
+- ✅ **initialConfig 未使用** - 删除多余状态
+- ✅ **modelChanged 注释** - 添加首次设置不触发的说明
+- ✅ **统一 apiKey 加密** - sanqian/custom 模式都加密存储
+
+**sanqian 修复：**
+
+- ✅ **重复 import Config** - 移除 `handle_get_embedding_config` 中的重复导入
+
+**修改文件：**
+- `src/renderer/src/components/KnowledgeBaseSettings.tsx`
+- `src/main/embedding/database.ts`
+- `backend/api/sdk_api.py` (sanqian 仓库)
+
+
+### 2025-12-30 三千版本过低提示优化
+
+当三千版本过低（不支持 `get_embedding_config` API）时，给出明确提示：
+
+- ✅ **区分错误类型**
+  - `timeout` - 三千版本过低，请升级
+  - `not_configured` - 三千未配置 Embedding
+
+- ✅ **UI 优化**
+  - 版本过低时显示「三千版本过低，请升级」
+  - 提供 Sanqian.io 下载链接
+
+- ✅ **多语言支持**
+  - 中文/英文完整支持
+
+**修改文件：**
+- `src/main/index.ts` - IPC handler 返回 error 字段
+- `src/renderer/src/env.d.ts` - 添加 error 类型定义
+- `src/renderer/src/components/KnowledgeBaseSettings.tsx` - 处理不同错误类型
+- `src/renderer/src/i18n/translations.ts` - 添加新翻译字符串
+
+
+### 2025-12-30 Code Review 修复（第二轮）
+
+基于深度 Code Review 反馈修复的问题：
+
+- ✅ **P0: mainWindow 传入 null** - `setMainWindow` 移到 `createWindow` 内部，确保 mainWindow 已创建
+- ✅ **P2: decrypt 失败返回密文** - 改为返回空字符串，避免泄露加密值到 API
+- ✅ **P3: 测试脚本过时** - 删除 `scripts/test-search.ts` 和 `scripts/test-search.py`
+
+**修改文件：**
+- `src/main/index.ts` - 移动 setMainWindow 到 createWindow 内部
+- `src/main/embedding/encryption.ts` - decrypt 失败返回空字符串
+- `scripts/test-search.ts` - 已删除
+- `scripts/test-search.py` - 已删除

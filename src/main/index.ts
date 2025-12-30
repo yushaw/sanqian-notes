@@ -71,12 +71,15 @@ import {
   closeVectorDatabase,
   getEmbeddingConfig,
   setEmbeddingConfig,
+  checkModelConsistency,
   getIndexStats,
   clearAllIndexData,
   getLastIndexedTime,
   indexingService,
+  getDimensionsForModel,
   type EmbeddingConfig,
 } from './embedding'
+import { fetchEmbeddingConfigFromSanqian } from './sanqian-sdk'
 import { testEmbeddingAPI } from './embedding/api'
 import { semanticSearch, hybridSearch } from './embedding/semantic-search'
 import {
@@ -600,6 +603,87 @@ function createWindow(): void {
     mainWindow?.webContents.send('data:changed')
   }
   setOnSdkDataChange(notifyRenderer)
+
+  // Set mainWindow for indexing service (must be after mainWindow is created)
+  indexingService.setMainWindow(mainWindow)
+}
+
+// ============ Embedding Config Sync ============
+
+/**
+ * Sync embedding config from Sanqian on startup
+ *
+ * If source is 'sanqian':
+ * - Try to fetch config from Sanqian
+ * - If successful, update local config
+ * - If model changed, trigger rebuild
+ *
+ * Also checks model consistency and triggers rebuild if needed.
+ */
+async function syncEmbeddingConfigFromSanqian(): Promise<void> {
+  try {
+    const config = getEmbeddingConfig()
+
+    // Only sync if source is 'sanqian' and enabled
+    if (config.source !== 'sanqian' || !config.enabled) {
+      console.log('[Main] Embedding source is not sanqian, skipping sync')
+      return
+    }
+
+    console.log('[Main] Syncing embedding config from Sanqian...')
+
+    // Try to fetch config from Sanqian
+    const sanqianConfig = await fetchEmbeddingConfigFromSanqian()
+
+    if (sanqianConfig?.available) {
+      // Get dimensions from modelName
+      const dimensions = sanqianConfig.dimensions || getDimensionsForModel(sanqianConfig.modelName || '')
+
+      // Update local config with Sanqian's config
+      const newConfig: EmbeddingConfig = {
+        ...config,
+        apiUrl: sanqianConfig.apiUrl || '',
+        apiKey: sanqianConfig.apiKey || '',
+        modelName: sanqianConfig.modelName || '',
+        dimensions,
+        // Determine apiType from apiUrl
+        apiType: sanqianConfig.apiUrl?.includes('openai.com')
+          ? 'openai'
+          : sanqianConfig.apiUrl?.includes('bigmodel.cn')
+            ? 'zhipu'
+            : sanqianConfig.apiUrl?.includes('localhost')
+              ? 'local'
+              : 'custom',
+      }
+
+      const result = setEmbeddingConfig(newConfig)
+
+      if (result.modelChanged) {
+        console.log('[Main] Model changed, triggering rebuild...')
+        // Clear and rebuild index
+        clearAllIndexData()
+        const notes = getNotes()
+        indexingService.rebuildAllNotes(notes).catch(console.error)
+      } else {
+        console.log('[Main] Embedding config synced from Sanqian')
+      }
+    } else {
+      console.log('[Main] Sanqian embedding not available, using cached config')
+
+      // Check model consistency with cached config
+      const consistency = checkModelConsistency()
+      if (consistency.needsRebuild) {
+        console.log(
+          `[Main] Model mismatch detected (config: ${consistency.currentModel}, indexed: ${consistency.indexedModel}), triggering rebuild...`
+        )
+        clearAllIndexData()
+        const notes = getNotes()
+        indexingService.rebuildAllNotes(notes).catch(console.error)
+      }
+    }
+  } catch (error) {
+    console.error('[Main] Failed to sync embedding config:', error)
+  }
 }
 
 // ============ App Lifecycle ============
@@ -640,14 +724,18 @@ app.whenReady().then(() => {
   // Initialize vector database for knowledge base
   initVectorDatabase()
 
-  // Initialize and start indexing service
-  indexingService.setMainWindow(mainWindow!)
+  // Start indexing service (mainWindow is set in createWindow)
   indexingService.start()
 
   // Initialize Sanqian SDK
-  initializeSanqianSDK().catch((err) => {
-    console.error('[Main] Failed to initialize Sanqian SDK:', err)
-  })
+  initializeSanqianSDK()
+    .then(async () => {
+      // After SDK init, try to sync embedding config if source is 'sanqian'
+      await syncEmbeddingConfigFromSanqian()
+    })
+    .catch((err) => {
+      console.error('[Main] Failed to initialize Sanqian SDK:', err)
+    })
 
   // Start port watcher
   startPortWatcher((port) => {
@@ -718,7 +806,29 @@ app.whenReady().then(() => {
   ipcMain.handle('knowledgeBase:getConfig', () => getEmbeddingConfig())
   ipcMain.handle('knowledgeBase:setConfig', (_, config: EmbeddingConfig) => {
     const result = setEmbeddingConfig(config)
-    return { success: true, indexCleared: result.indexCleared }
+    return { success: true, indexCleared: result.indexCleared, modelChanged: result.modelChanged }
+  })
+  ipcMain.handle('knowledgeBase:fetchFromSanqian', async () => {
+    const config = await fetchEmbeddingConfigFromSanqian()
+    if (config?.available) {
+      const dimensions = config.dimensions || getDimensionsForModel(config.modelName || '')
+      return {
+        success: true,
+        config: {
+          available: true,
+          apiUrl: config.apiUrl,
+          apiKey: config.apiKey,
+          modelName: config.modelName,
+          dimensions,
+        },
+      }
+    }
+    // config is null means timeout/error (likely Sanqian version too old)
+    // config.available === false means Sanqian responded but embedding not configured
+    if (config === null) {
+      return { success: false, config: { available: false }, error: 'timeout' }
+    }
+    return { success: false, config: { available: false }, error: 'not_configured' }
   })
   ipcMain.handle('knowledgeBase:testAPI', async (_, config?: EmbeddingConfig) => {
     return testEmbeddingAPI(config)

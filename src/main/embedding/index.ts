@@ -5,13 +5,19 @@
 // 类型
 export type {
   EmbeddingConfig,
+  EmbeddingSource,
   IndexStatus,
   NoteChunk,
   NoteIndexStatus,
   VectorSearchResult
 } from './types'
 
-export { EMBEDDING_PRESETS, DEFAULT_CONFIG } from './types'
+export {
+  EMBEDDING_PRESETS,
+  DEFAULT_CONFIG,
+  MODEL_DIMENSIONS,
+  getDimensionsForModel
+} from './types'
 
 // 数据库
 export {
@@ -19,6 +25,7 @@ export {
   closeVectorDatabase,
   getEmbeddingConfig,
   setEmbeddingConfig,
+  checkModelConsistency,
   insertNoteChunks,
   deleteNoteChunks,
   getNoteChunks,

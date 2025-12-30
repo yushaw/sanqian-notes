@@ -2,9 +2,13 @@
  * 知识库 - 类型定义
  */
 
+// Embedding 配置来源
+export type EmbeddingSource = 'sanqian' | 'custom'
+
 // Embedding 配置
 export interface EmbeddingConfig {
   enabled: boolean
+  source: EmbeddingSource // 配置来源：sanqian（从三千获取）或 custom（自定义）
   apiType: 'openai' | 'zhipu' | 'local' | 'custom'
   apiUrl: string
   apiKey: string
@@ -43,11 +47,34 @@ export const EMBEDDING_PRESETS: Record<string, Partial<EmbeddingConfig>> = {
 // 默认配置
 export const DEFAULT_CONFIG: EmbeddingConfig = {
   enabled: false,
+  source: 'sanqian', // 默认从三千获取
   apiType: 'openai',
-  apiUrl: 'https://api.openai.com/v1/embeddings',
+  apiUrl: '',
   apiKey: '',
-  modelName: 'text-embedding-3-small',
-  dimensions: 1536
+  modelName: '',
+  dimensions: 0
+}
+
+// 根据 modelName 获取 dimensions
+export const MODEL_DIMENSIONS: Record<string, number> = {
+  // OpenAI
+  'text-embedding-3-small': 1536,
+  'text-embedding-3-large': 3072,
+  'text-embedding-ada-002': 1536,
+  // 智谱
+  'embedding-3': 2048,
+  'embedding-2': 1024,
+  // Ollama / 本地
+  'bge-m3': 1024,
+  'bge-large-zh-v1.5': 1024,
+  'nomic-embed-text': 768,
+}
+
+/**
+ * 根据 modelName 获取 dimensions，未知模型返回默认值 1536
+ */
+export function getDimensionsForModel(modelName: string): number {
+  return MODEL_DIMENSIONS[modelName] || 1536
 }
 
 // 索引状态

@@ -540,3 +540,46 @@ export async function ensureAgentReady(
 
   return { sdk, agentId: finalAgentId }
 }
+
+/**
+ * Fetch embedding configuration from Sanqian
+ *
+ * This allows Notes to use the same embedding model configured in Sanqian.
+ * Returns null if Sanqian is not running or embedding is not configured.
+ */
+export async function fetchEmbeddingConfigFromSanqian(): Promise<{
+  available: boolean
+  apiUrl?: string
+  apiKey?: string
+  modelName?: string
+  dimensions?: number
+} | null> {
+  if (!sdk) {
+    console.log('[Notes SDK] SDK not initialized, cannot fetch embedding config')
+    return null
+  }
+
+  try {
+    // Try to connect if not connected
+    await sdk.ensureReady()
+
+    // Get embedding config from Sanqian
+    const config = await sdk.getEmbeddingConfig()
+
+    if (config.available) {
+      console.log(
+        `[Notes SDK] Got embedding config from Sanqian: model=${config.modelName}, apiUrl=${config.apiUrl}`
+      )
+    } else {
+      console.log('[Notes SDK] Sanqian has no embedding configured')
+    }
+
+    return config
+  } catch (error) {
+    console.log(
+      '[Notes SDK] Failed to fetch embedding config from Sanqian:',
+      error instanceof Error ? error.message : error
+    )
+    return null
+  }
+}

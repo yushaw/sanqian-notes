@@ -12,6 +12,7 @@ import { join } from 'path'
 import type { EmbeddingConfig, NoteChunk, NoteIndexStatus, VectorSearchResult } from './types'
 import { DEFAULT_CONFIG } from './types'
 import { normalizeCjkAscii } from './utils'
+import { encrypt, decrypt } from './encryption'
 
 let db: Database.Database | null = null
 
@@ -178,7 +179,19 @@ function getEmbeddingConfigInternal(database: Database.Database): EmbeddingConfi
 
   if (row) {
     try {
-      return JSON.parse(row.value)
+      const config = JSON.parse(row.value) as EmbeddingConfig
+
+      // 兼容旧版本配置（没有 source 字段）
+      if (!config.source) {
+        config.source = 'custom'
+      }
+
+      // 解密 API key（所有模式都加密存储）
+      if (config.apiKey) {
+        config.apiKey = decrypt(config.apiKey)
+      }
+
+      return config
     } catch {
       // 解析失败，返回默认配置
     }
@@ -196,26 +209,101 @@ export function getEmbeddingConfig(): EmbeddingConfig {
 
 /**
  * 保存 Embedding 配置
+ * @returns indexCleared: 是否清空了索引, modelChanged: 模型是否变化（需要 rebuild）
  */
-export function setEmbeddingConfig(config: EmbeddingConfig): { indexCleared: boolean } {
+export function setEmbeddingConfig(config: EmbeddingConfig): {
+  indexCleared: boolean
+  modelChanged: boolean
+} {
   const database = getDb()
   const oldConfig = getEmbeddingConfig()
 
+  // 准备存储的配置（加密 API key，所有模式统一加密）
+  const configToStore = { ...config }
+  if (configToStore.apiKey) {
+    configToStore.apiKey = encrypt(configToStore.apiKey)
+  }
+
   database
     .prepare('INSERT OR REPLACE INTO embedding_config (key, value) VALUES (?, ?)')
-    .run('config', JSON.stringify(config))
+    .run('config', JSON.stringify(configToStore))
+
+  // 检测模型变化（dimensions 或 modelName 变化）
+  // 注意：首次设置（oldConfig 为空）时不触发变更，因为没有旧索引需要 rebuild
+  const dimensionsChanged = oldConfig.dimensions !== config.dimensions && oldConfig.dimensions > 0
+  const modelChanged =
+    oldConfig.modelName !== config.modelName &&
+    oldConfig.modelName !== '' && // 旧配置为空时不触发（首次设置）
+    config.modelName !== '' // 新配置为空时不触发（清空配置）
 
   // 如果维度变更，需要重建向量表
-  if (oldConfig.dimensions !== config.dimensions) {
+  if (dimensionsChanged) {
     console.log('[Embedding] Dimensions changed, recreating vector table')
     // 清空旧索引数据
     clearAllIndexData()
     // 重建向量表
     createVectorTable(database, config.dimensions)
-    return { indexCleared: true }
+    return { indexCleared: true, modelChanged: true }
   }
 
-  return { indexCleared: false }
+  // 如果只是模型名变化（dimensions 相同），需要 rebuild 但不用重建表
+  if (modelChanged) {
+    console.log(`[Embedding] Model changed from ${oldConfig.modelName} to ${config.modelName}`)
+    return { indexCleared: false, modelChanged: true }
+  }
+
+  return { indexCleared: false, modelChanged: false }
+}
+
+/**
+ * 检测当前配置的模型与已索引数据的模型是否一致
+ * 用于启动时判断是否需要 rebuild
+ */
+export function checkModelConsistency(): {
+  needsRebuild: boolean
+  currentModel: string
+  indexedModel: string | null
+} {
+  const database = getDb()
+  const config = getEmbeddingConfig()
+
+  // 获取已索引笔记使用的模型（取最新索引的笔记的模型）
+  const row = database
+    .prepare(
+      `
+      SELECT model_name FROM note_index_status
+      WHERE status = 'indexed'
+      ORDER BY indexed_at DESC
+      LIMIT 1
+    `
+    )
+    .get() as { model_name: string } | undefined
+
+  const indexedModel = row?.model_name || null
+
+  // 如果没有已索引的笔记，不需要 rebuild
+  if (!indexedModel) {
+    return {
+      needsRebuild: false,
+      currentModel: config.modelName,
+      indexedModel: null
+    }
+  }
+
+  // 如果当前配置的模型与已索引的模型不一致，需要 rebuild
+  const needsRebuild = config.modelName !== indexedModel && config.modelName !== ''
+
+  if (needsRebuild) {
+    console.log(
+      `[Embedding] Model mismatch: config=${config.modelName}, indexed=${indexedModel}, rebuild needed`
+    )
+  }
+
+  return {
+    needsRebuild,
+    currentModel: config.modelName,
+    indexedModel
+  }
 }
 
 // ============ 笔记块管理 ============

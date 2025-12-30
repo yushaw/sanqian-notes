@@ -24,6 +24,7 @@ interface Window {
     note: {
       getAll: () => Promise<Note[]>
       getById: (id: string) => Promise<Note | null>
+      getByIds: (ids: string[]) => Promise<Note[]>
       add: (note: NoteInput) => Promise<Note>
       update: (id: string, updates: Partial<NoteInput>) => Promise<Note | null>
       delete: (id: string) => Promise<boolean>
@@ -74,6 +75,7 @@ interface Window {
     knowledgeBase: {
       getConfig: () => Promise<{
         enabled: boolean
+        source: 'sanqian' | 'custom'
         apiType: 'openai' | 'zhipu' | 'local' | 'custom'
         apiUrl: string
         apiKey: string
@@ -82,14 +84,27 @@ interface Window {
       }>
       setConfig: (config: {
         enabled?: boolean
+        source?: 'sanqian' | 'custom'
         apiType?: 'openai' | 'zhipu' | 'local' | 'custom'
         apiUrl?: string
         apiKey?: string
         modelName?: string
         dimensions?: number
-      }) => Promise<{ success: boolean; indexCleared: boolean }>
+      }) => Promise<{ success: boolean; indexCleared: boolean; modelChanged: boolean }>
+      fetchFromSanqian: () => Promise<{
+        success: boolean
+        config: {
+          available: boolean
+          apiUrl?: string
+          apiKey?: string
+          modelName?: string
+          dimensions?: number
+        }
+        error?: 'timeout' | 'not_configured'
+      }>
       testAPI: (config?: {
         enabled?: boolean
+        source?: 'sanqian' | 'custom'
         apiType?: 'openai' | 'zhipu' | 'local' | 'custom'
         apiUrl?: string
         apiKey?: string
@@ -114,7 +129,7 @@ interface Window {
         queue: number
         processing: boolean
       }>
-      rebuildIndex: () => Promise<{ success: boolean }>
+      rebuildIndex: () => Promise<{ success: boolean; total?: number }>
       onProgress: (callback: (progress: {
         type: 'start' | 'progress' | 'complete' | 'error'
         total?: number

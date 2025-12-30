@@ -17,6 +17,7 @@ import { useTranslations } from '../i18n'
 // Embedding 配置类型（与后端 types.ts 保持一致）
 interface EmbeddingConfig {
   enabled: boolean
+  source: 'sanqian' | 'custom'
   apiType: 'openai' | 'zhipu' | 'local' | 'custom'
   apiUrl: string
   apiKey: string
@@ -109,6 +110,15 @@ export function KnowledgeBaseSettings() {
   const [selectedPreset, setSelectedPreset] = useState<string>('openai-small')
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildProgress, setRebuildProgress] = useState<{ current: number; total: number } | null>(null)
+  const [sanqianConfig, setSanqianConfig] = useState<{
+    available: boolean
+    apiUrl?: string
+    apiKey?: string // 不在 UI 显示，但保存时需要
+    modelName?: string
+    dimensions?: number
+  } | null>(null)
+  const [sanqianError, setSanqianError] = useState<'timeout' | 'not_configured' | null>(null)
+  const [fetchingSanqian, setFetchingSanqian] = useState(false)
   const rebuildCheckTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 清理 rebuild 检查 timer
@@ -129,18 +139,31 @@ export function KnowledgeBaseSettings() {
           window.electron.knowledgeBase.getStats(),
           window.electron.knowledgeBase.getQueueStatus()
         ])
+
+        // 兼容旧版本配置
+        if (!configResult.source) {
+          configResult.source = 'custom'
+        }
+
         setConfig(configResult)
         setStats(statsResult)
         setQueueStatus(queueResult)
 
-        // 根据配置确定当前预设
-        const preset = Object.entries(PRESETS).find(
-          ([, p]) => p.config.apiType === configResult.apiType && p.config.modelName === configResult.modelName
-        )
-        if (preset) {
-          setSelectedPreset(preset[0])
-        } else {
-          setSelectedPreset('custom')
+        // 根据配置确定当前预设（仅 custom 模式）
+        if (configResult.source === 'custom') {
+          const preset = Object.entries(PRESETS).find(
+            ([, p]) => p.config.apiType === configResult.apiType && p.config.modelName === configResult.modelName
+          )
+          if (preset) {
+            setSelectedPreset(preset[0])
+          } else {
+            setSelectedPreset('custom')
+          }
+        }
+
+        // 如果是 sanqian 模式，尝试获取 sanqian 配置
+        if (configResult.source === 'sanqian') {
+          fetchSanqianConfig()
         }
       } catch (error) {
         console.error('Failed to load knowledge base config:', error)
@@ -149,6 +172,29 @@ export function KnowledgeBaseSettings() {
       }
     }
     loadData()
+  }, [])
+
+  // 获取 Sanqian 配置
+  const fetchSanqianConfig = useCallback(async () => {
+    setFetchingSanqian(true)
+    setSanqianError(null)
+    try {
+      const result = await window.electron.knowledgeBase.fetchFromSanqian()
+      if (result.success && result.config.available) {
+        setSanqianConfig(result.config)
+        setSanqianError(null)
+      } else {
+        setSanqianConfig({ available: false })
+        // 区分超时（版本过低）和未配置
+        setSanqianError(result.error || 'not_configured')
+      }
+    } catch (error) {
+      console.error('Failed to fetch sanqian config:', error)
+      setSanqianConfig({ available: false })
+      setSanqianError('timeout')
+    } finally {
+      setFetchingSanqian(false)
+    }
   }, [])
 
   // 监听索引进度
@@ -250,31 +296,7 @@ export function KnowledgeBaseSettings() {
     }
   }, [config, t])
 
-  // 保存配置
-  const handleSave = useCallback(async () => {
-    if (!config) return
-    setSaving(true)
-
-    try {
-      const result = await window.electron.knowledgeBase.setConfig(config)
-      // 刷新统计
-      const statsResult = await window.electron.knowledgeBase.getStats()
-      setStats(statsResult)
-      // 如果维度变更导致索引被清空，提示用户
-      if (result.indexCleared) {
-        setTestResult({
-          success: true,
-          message: t.settings.knowledgeBase.dimensionsChangedWarning
-        })
-      }
-    } catch (error) {
-      console.error('Failed to save config:', error)
-    } finally {
-      setSaving(false)
-    }
-  }, [config, t])
-
-  // 重建索引
+  // 重建索引（定义在 handleSave 之前，因为 handleSave 依赖它）
   const handleRebuild = useCallback(async () => {
     try {
       // 清理之前的 timer
@@ -313,6 +335,63 @@ export function KnowledgeBaseSettings() {
       setRebuildProgress(null)
     }
   }, [])
+
+  // 保存配置
+  const handleSave = useCallback(async () => {
+    if (!config) return
+    setSaving(true)
+
+    try {
+      // 如果是 sanqian 模式，使用 sanqian 的配置（包括 apiKey）
+      let configToSave = config
+      if (config.source === 'sanqian' && sanqianConfig?.available) {
+        configToSave = {
+          ...config,
+          apiUrl: sanqianConfig.apiUrl || '',
+          apiKey: sanqianConfig.apiKey || '', // 保存从 sanqian 获取的 apiKey
+          modelName: sanqianConfig.modelName || '',
+          dimensions: sanqianConfig.dimensions || 1536
+        }
+      }
+
+      const result = await window.electron.knowledgeBase.setConfig(configToSave)
+      setConfig(configToSave)
+      // 刷新统计
+      const statsResult = await window.electron.knowledgeBase.getStats()
+      setStats(statsResult)
+
+      // 如果模型变更，自动触发 rebuild
+      if (result.modelChanged && !result.indexCleared) {
+        setTestResult({
+          success: true,
+          message: t.settings.knowledgeBase.modelChangedRebuild
+        })
+        // 自动触发 rebuild
+        handleRebuild()
+      } else if (result.indexCleared) {
+        setTestResult({
+          success: true,
+          message: t.settings.knowledgeBase.dimensionsChangedWarning
+        })
+      }
+    } catch (error) {
+      console.error('Failed to save config:', error)
+    } finally {
+      setSaving(false)
+    }
+  }, [config, sanqianConfig, t, handleRebuild])
+
+  // 切换来源
+  const handleSourceChange = useCallback((newSource: 'sanqian' | 'custom') => {
+    if (!config) return
+
+    setConfig({ ...config, source: newSource })
+    setTestResult(null)
+
+    if (newSource === 'sanqian') {
+      fetchSanqianConfig()
+    }
+  }, [config, fetchSanqianConfig])
 
   // 清空索引
   const handleClearIndex = useCallback(async () => {
@@ -364,7 +443,110 @@ export function KnowledgeBaseSettings() {
 
       {config.enabled && (
         <>
-          {/* 模型选择 */}
+          {/* 来源选择 */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+              {t.settings.knowledgeBase.source}
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleSourceChange('sanqian')}
+                className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  config.source === 'sanqian'
+                    ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
+                    : 'bg-black/5 dark:bg-white/5 text-[var(--color-text)] border-black/10 dark:border-white/10 hover:bg-black/10 dark:hover:bg-white/10'
+                }`}
+              >
+                {t.settings.knowledgeBase.sourceSanqian}
+              </button>
+              <button
+                onClick={() => handleSourceChange('custom')}
+                className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  config.source === 'custom'
+                    ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
+                    : 'bg-black/5 dark:bg-white/5 text-[var(--color-text)] border-black/10 dark:border-white/10 hover:bg-black/10 dark:hover:bg-white/10'
+                }`}
+              >
+                {t.settings.knowledgeBase.sourceCustom}
+              </button>
+            </div>
+          </div>
+
+          {/* Sanqian 模式 */}
+          {config.source === 'sanqian' && (
+            <div className="p-4 rounded-xl bg-black/5 dark:bg-white/5">
+              {fetchingSanqian ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="w-5 h-5 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
+                  <span className="ml-2 text-sm text-[var(--color-muted)]">
+                    {t.settings.knowledgeBase.fetchingSanqian}
+                  </span>
+                </div>
+              ) : sanqianConfig?.available ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-sm text-[var(--color-text)]">
+                      {t.settings.knowledgeBase.sanqianConnected}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-[var(--color-muted)]">{t.settings.knowledgeBase.modelName}:</span>
+                      <span className="ml-2 text-[var(--color-text)]">{sanqianConfig.modelName || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[var(--color-muted)]">{t.settings.knowledgeBase.dimensions}:</span>
+                      <span className="ml-2 text-[var(--color-text)]">{sanqianConfig.dimensions || '-'}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={fetchSanqianConfig}
+                    className="text-xs text-[var(--color-accent)] hover:underline"
+                  >
+                    {t.settings.knowledgeBase.refreshSanqian}
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <div className="flex items-center justify-center gap-2 text-amber-500 mb-2">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span className="text-sm font-medium">
+                      {sanqianError === 'timeout'
+                        ? t.settings.knowledgeBase.sanqianVersionTooOld
+                        : t.settings.knowledgeBase.sanqianNotConfigured}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--color-muted)]">
+                    {sanqianError === 'timeout'
+                      ? t.settings.knowledgeBase.sanqianVersionTooOldHint
+                      : t.settings.knowledgeBase.sanqianNotConfiguredHint}
+                  </p>
+                  {sanqianError === 'timeout' && (
+                    <a
+                      href="https://sanqian.io"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-block text-xs text-[var(--color-accent)] hover:underline"
+                    >
+                      Sanqian.io ↗
+                    </a>
+                  )}
+                  <button
+                    onClick={fetchSanqianConfig}
+                    className="mt-3 ml-3 text-xs text-[var(--color-accent)] hover:underline"
+                  >
+                    {t.settings.knowledgeBase.retryFetch}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 自定义模式 - 模型选择 */}
+          {config.source === 'custom' && (
           <div>
             <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
               {t.settings.knowledgeBase.provider}
@@ -381,8 +563,10 @@ export function KnowledgeBaseSettings() {
               ))}
             </select>
           </div>
+          )}
 
-          {/* API Key */}
+          {/* API Key - 仅自定义模式 */}
+          {config.source === 'custom' && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-[var(--color-text)]">
@@ -407,9 +591,10 @@ export function KnowledgeBaseSettings() {
               className="w-full px-3 py-2 text-sm bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/50"
             />
           </div>
+          )}
 
-          {/* 自定义配置 */}
-          {selectedPreset === 'custom' && (
+          {/* 自定义配置 - 仅自定义模式且选择 custom 预设 */}
+          {config.source === 'custom' && selectedPreset === 'custom' && (
             <>
               <div>
                 <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
@@ -454,16 +639,19 @@ export function KnowledgeBaseSettings() {
 
           {/* 测试连接 & 保存 */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleTest}
-              disabled={testing || !config.apiKey}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-black/5 dark:bg-white/5 text-[var(--color-text)] hover:bg-black/10 dark:hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {testing ? t.settings.knowledgeBase.testing : t.settings.knowledgeBase.testConnection}
-            </button>
+            {/* 自定义模式显示测试按钮 */}
+            {config.source === 'custom' && (
+              <button
+                onClick={handleTest}
+                disabled={testing || !config.apiKey}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-black/5 dark:bg-white/5 text-[var(--color-text)] hover:bg-black/10 dark:hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testing ? t.settings.knowledgeBase.testing : t.settings.knowledgeBase.testConnection}
+              </button>
+            )}
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || (config.source === 'sanqian' && !sanqianConfig?.available)}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors disabled:opacity-50"
             >
               {saving ? t.settings.aiActions.saving : t.actions.save}

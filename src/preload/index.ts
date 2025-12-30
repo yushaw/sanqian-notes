@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('electron', {
   knowledgeBase: {
     getConfig: () => ipcRenderer.invoke('knowledgeBase:getConfig'),
     setConfig: (config: unknown) => ipcRenderer.invoke('knowledgeBase:setConfig', config),
+    fetchFromSanqian: () => ipcRenderer.invoke('knowledgeBase:fetchFromSanqian'),
     testAPI: (config?: unknown) => ipcRenderer.invoke('knowledgeBase:testAPI', config),
     getStats: () => ipcRenderer.invoke('knowledgeBase:getStats'),
     clearIndex: () => ipcRenderer.invoke('knowledgeBase:clearIndex'),

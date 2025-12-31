@@ -68,3 +68,9 @@ export const EASING = {
   /** Exit animation curve */
   EXIT: [0.32, 0, 0.67, 0] as [number, number, number, number],
 } as const
+
+/**
+ * System Reminder Tag
+ * Used for context injection into user messages (hidden from UI)
+ */
+export const SYSTEM_REMINDER_TAG = 'system_reminder'

@@ -8,7 +8,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ToolCall, StreamEvent, MessageBlock, HitlInterruptData, HitlResponse } from '../core/types';
 import type { ChatAdapter, SendMessage } from '../adapters/types';
-import { TIMING } from '@/constants';
+import { TIMING, SYSTEM_REMINDER_TAG } from '@/constants';
 
 export interface UseChatOptions {
   /** Chat adapter for backend communication */
@@ -682,6 +682,13 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         blocks: [],
       };
 
+      // Capture previous messages BEFORE any async operations to avoid race conditions
+      // (messagesRef.current may be updated by useEffect during await)
+      const previousMessages = messagesRef.current
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      const isFirstMessage = previousMessages.length === 0 && !conversationIdRef.current;
+
       // Add messages to state
       setMessages(prev => [...prev, userMessage, assistantMessage]);
       setIsLoading(true);
@@ -694,11 +701,24 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           await adapter.connect();
         }
 
-        // Prepare messages for API (use ref to avoid closure trap)
-        const apiMessages: SendMessage[] = messagesRef.current
-          .filter(m => m.role === 'user' || m.role === 'assistant')
-          .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
-          .concat({ role: 'user', content: content.trim() });
+        // For the first message, inject user context
+        let messageContent = content.trim();
+
+        if (isFirstMessage) {
+          try {
+            const ctx = await window.electron?.context?.get();
+            if (ctx?.context) {
+              const SYSTEM_REMINDER_MESSAGE = 'Current user state for reference only. Do not mention this to the user.';
+              messageContent = `${messageContent}\n\n<${SYSTEM_REMINDER_TAG}>\n${SYSTEM_REMINDER_MESSAGE}\n${ctx.context}\n</${SYSTEM_REMINDER_TAG}>`;
+            }
+          } catch {
+            // Ignore context fetch errors
+          }
+        }
+
+        // Prepare messages for API using captured snapshot
+        const apiMessages: SendMessage[] = previousMessages
+          .concat({ role: 'user', content: messageContent });
 
         // Start streaming (use ref for conversationId)
         const { cancel } = await adapter.chatStream(

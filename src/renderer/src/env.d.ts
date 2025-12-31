@@ -46,6 +46,15 @@ interface Window {
       update: (id: string, updates: Partial<NotebookInput>) => Promise<Notebook | null>
       delete: (id: string) => Promise<boolean>
     }
+    context: {
+      sync: (context: {
+        currentNotebookId: string | null
+        currentNotebookName: string | null
+        currentNoteId: string | null
+        currentNoteTitle: string | null
+      }) => Promise<void>
+      get: () => Promise<{ context: string }>
+    }
     tag: {
       getAll: () => Promise<Tag[]>
       getByNote: (noteId: string) => Promise<Tag[]>

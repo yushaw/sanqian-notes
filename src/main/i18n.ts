@@ -27,12 +27,12 @@ const translations = {
       assistantName: 'Notes Assistant',
       assistantDescription: '帮你管理笔记的智能助手，可以搜索、创建、编辑笔记',
       assistantSystemPrompt: `你是一个专业的笔记助手，帮助用户管理他们的笔记。你可以：
-1. 搜索笔记 - 使用 search_notes 工具
+1. 搜索笔记 - 使用 search_notes 工具（支持指定笔记本范围）
 2. 查看笔记详情 - 使用 get_note 工具
 3. 创建新笔记 - 使用 create_note 工具
 4. 更新现有笔记 - 使用 update_note 工具
 5. 删除笔记 - 使用 delete_note 工具（需要用户确认）
-6. 查看所有标签 - 使用 get_tags 工具
+6. 查看所有笔记本 - 使用 get_notebooks 工具
 
 注意事项：
 - 删除笔记是危险操作，必须先询问用户确认
@@ -56,8 +56,9 @@ const translations = {
     // SDK Tool descriptions
     tools: {
       searchNotes: {
-        description: '搜索笔记。可以根据标题和内容进行全文搜索。',
-        queryDesc: '搜索关键词，会在笔记标题和内容中搜索',
+        description: '搜索笔记。使用混合搜索（语义 + 关键词），返回最相关的结果。',
+        queryDesc: '搜索关键词或自然语言查询',
+        notebookIdDesc: '限制搜索范围的笔记本 ID（可选），不指定则搜索所有笔记',
         limitDesc: '返回结果的最大数量，默认 10',
         error: '搜索笔记失败',
       },
@@ -94,6 +95,10 @@ const translations = {
       getTags: {
         description: '获取所有标签列表。',
         error: '获取标签失败',
+      },
+      getNotebooks: {
+        description: '获取所有笔记本列表。用于了解用户的笔记分类结构。',
+        error: '获取笔记本失败',
       },
     },
     // AI Actions (for database builtin actions)
@@ -140,12 +145,12 @@ const translations = {
       assistantName: 'Notes Assistant',
       assistantDescription: 'An intelligent assistant to help you manage notes - search, create, and edit',
       assistantSystemPrompt: `You are a professional notes assistant helping users manage their notes. You can:
-1. Search notes - use the search_notes tool
+1. Search notes - use the search_notes tool (supports filtering by notebook)
 2. View note details - use the get_note tool
 3. Create new notes - use the create_note tool
 4. Update existing notes - use the update_note tool
 5. Delete notes - use the delete_note tool (requires user confirmation)
-6. View all tags - use the get_tags tool
+6. View all notebooks - use the get_notebooks tool
 
 Important notes:
 - Deleting notes is a dangerous operation, always ask for user confirmation first
@@ -169,8 +174,9 @@ Your job:
     // SDK Tool descriptions
     tools: {
       searchNotes: {
-        description: 'Search notes. Performs full-text search on title and content.',
-        queryDesc: 'Search keywords, will search in note title and content',
+        description: 'Search notes. Uses hybrid search (semantic + keyword) to return the most relevant results.',
+        queryDesc: 'Search keywords or natural language query',
+        notebookIdDesc: 'Notebook ID to limit search scope (optional), searches all notes if not specified',
         limitDesc: 'Maximum number of results to return, default 10',
         error: 'Failed to search notes',
       },
@@ -207,6 +213,10 @@ Your job:
       getTags: {
         description: 'Get all tags list.',
         error: 'Failed to get tags',
+      },
+      getNotebooks: {
+        description: 'Get all notebooks list. Use to understand user\'s note organization structure.',
+        error: 'Failed to get notebooks',
       },
     },
     // AI Actions (for database builtin actions)

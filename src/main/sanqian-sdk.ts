@@ -8,14 +8,14 @@
 import { SanqianSDK, type SDKConfig, type ToolDefinition, type AgentConfig } from '@yushaw/sanqian-sdk'
 import { app } from 'electron'
 import {
-  searchNotes,
   getNoteById,
   addNote,
   updateNote,
   deleteNote,
-  getTags,
+  getNotebooks,
   type NoteInput
 } from './database'
+import { hybridSearch } from './embedding/semantic-search'
 import { t } from './i18n'
 
 /**
@@ -93,7 +93,7 @@ function buildAgentConfigs(): AgentConfig[] {
         'create_note',
         'update_note',
         'delete_note',
-        'get_tags'
+        'get_notebooks'
       ]
     },
     {
@@ -123,6 +123,10 @@ function buildTools(): ToolDefinition[] {
             type: 'string',
             description: tools.searchNotes.queryDesc
           },
+          notebook_id: {
+            type: 'string',
+            description: tools.searchNotes.notebookIdDesc
+          },
           limit: {
             type: 'number',
             description: tools.searchNotes.limitDesc
@@ -130,17 +134,33 @@ function buildTools(): ToolDefinition[] {
         },
         required: ['query']
       },
-      handler: async (args: { query: string; limit?: number }) => {
+      handler: async (args: { query: string; notebook_id?: string; limit?: number }) => {
         try {
           const limit = args.limit || 10
-          const results = searchNotes(args.query, limit)
-          return results.map(note => ({
-            id: note.id,
-            title: note.title,
-            preview: note.content ? truncateText(note.content, 200) : '',
-            updated_at: note.updated_at,
-            notebook_id: note.notebook_id
-          }))
+          const results = await hybridSearch(args.query, {
+            limit,
+            notebookId: args.notebook_id
+          })
+
+          // Get note details for each result, filter out deleted/soft-deleted notes
+          const notesWithDetails = results
+            .map(result => {
+              const note = getNoteById(result.noteId)
+              if (!note || note.deleted_at) return null // Skip deleted/soft-deleted notes
+              return {
+                id: result.noteId,
+                title: note.title,
+                preview: result.matchedChunks[0]?.chunkText
+                  ? truncateText(result.matchedChunks[0].chunkText, 200)
+                  : '',
+                score: result.score,
+                updated_at: note.updated_at,
+                notebook_id: result.notebookId
+              }
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== null)
+
+          return notesWithDetails
         } catch (error) {
           throw new Error(`${tools.searchNotes.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
@@ -289,21 +309,21 @@ function buildTools(): ToolDefinition[] {
       }
     },
     {
-      name: 'get_tags',
-      description: tools.getTags.description,
+      name: 'get_notebooks',
+      description: tools.getNotebooks.description,
       parameters: {
         type: 'object',
         properties: {}
       },
       handler: async () => {
         try {
-          const tags = getTags()
-          return tags.map(tag => ({
-            id: tag.id,
-            name: tag.name
+          const notebooks = getNotebooks()
+          return notebooks.map(notebook => ({
+            id: notebook.id,
+            name: notebook.name
           }))
         } catch (error) {
-          throw new Error(`${tools.getTags.error}: ${error instanceof Error ? error.message : common.unknownError}`)
+          throw new Error(`${tools.getNotebooks.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     }

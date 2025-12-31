@@ -46,6 +46,15 @@ contextBridge.exposeInMainWorld('electron', {
     update: (id: string, updates: unknown) => ipcRenderer.invoke('notebook:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('notebook:delete', id),
   },
+  context: {
+    sync: (context: {
+      currentNotebookId: string | null
+      currentNotebookName: string | null
+      currentNoteId: string | null
+      currentNoteTitle: string | null
+    }) => ipcRenderer.invoke('context:sync', context),
+    get: () => ipcRenderer.invoke('context:get') as Promise<{ context: string }>,
+  },
   tag: {
     getAll: () => ipcRenderer.invoke('tag:getAll'),
     getByNote: (noteId: string) => ipcRenderer.invoke('tag:getByNote', noteId),

@@ -114,6 +114,48 @@ let updateVersion: string | null = null
 let updateProgress = 0
 let updateError: string | null = null
 
+// ============ User Context for Agent ============
+interface UserContext {
+  currentNotebookId: string | null
+  currentNotebookName: string | null
+  currentNoteId: string | null
+  currentNoteTitle: string | null
+}
+
+let userContext: UserContext = {
+  currentNotebookId: null,
+  currentNotebookName: null,
+  currentNoteId: null,
+  currentNoteTitle: null,
+}
+
+/**
+ * Get user context formatted for LLM (always in English, concise but with IDs)
+ */
+function getUserContext(): { context: string } {
+  const { currentNotebookId, currentNotebookName, currentNoteId, currentNoteTitle } = userContext
+  const parts: string[] = []
+
+  if (currentNotebookId && currentNotebookName) {
+    parts.push(`In notebook "${currentNotebookName}" (ID: ${currentNotebookId})`)
+  } else {
+    parts.push('Viewing all notes')
+  }
+
+  if (currentNoteId && currentNoteTitle) {
+    parts.push(`editing "${currentNoteTitle}" (ID: ${currentNoteId})`)
+  }
+
+  return { context: parts.join(', ') + '.' }
+}
+
+/**
+ * Set user context from renderer
+ */
+function setUserContext(context: Partial<UserContext>): void {
+  userContext = { ...userContext, ...context }
+}
+
 function sendUpdateStatus(): void {
   mainWindow?.webContents.send('updater:status', {
     status: updateStatus,
@@ -780,6 +822,12 @@ app.whenReady().then(() => {
   ipcMain.handle('notebook:add', (_, notebook) => addNotebook(notebook))
   ipcMain.handle('notebook:update', (_, id, updates) => updateNotebook(id, updates))
   ipcMain.handle('notebook:delete', (_, id) => deleteNotebook(id))
+
+  // IPC handlers for user context (for agent tools)
+  ipcMain.handle('context:sync', (_, context: Partial<UserContext>) => {
+    setUserContext(context)
+  })
+  ipcMain.handle('context:get', () => getUserContext())
 
   // IPC handlers for tag operations
   ipcMain.handle('tag:getAll', () => getTags())

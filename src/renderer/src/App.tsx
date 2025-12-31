@@ -204,6 +204,27 @@ function AppContent() {
     } catch { /* ignore storage errors */ }
   }, [selectedNoteId])
 
+  // Derive current notebook/note for context sync
+  const contextNotebook = useMemo(
+    () => (selectedNotebookId ? notebooks.find(nb => nb.id === selectedNotebookId) : null),
+    [selectedNotebookId, notebooks]
+  )
+  const contextNote = useMemo(
+    () => (selectedNoteId ? notes.find(n => n.id === selectedNoteId) : null),
+    [selectedNoteId, notes]
+  )
+
+  // Sync user context to main process (for agent tools)
+  // Depends on derived values to capture both selection changes and renames
+  useEffect(() => {
+    window.electron.context.sync({
+      currentNotebookId: contextNotebook?.id || null,
+      currentNotebookName: contextNotebook?.name || null,
+      currentNoteId: contextNote?.id || null,
+      currentNoteTitle: contextNote?.title || null,
+    })
+  }, [contextNotebook, contextNote])
+
   // Listen for data changes from SDK tool calls
   useEffect(() => {
     const cleanup = window.electron.note.onDataChanged(async () => {

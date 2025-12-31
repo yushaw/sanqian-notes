@@ -25,6 +25,7 @@ import { HistoryList } from './HistoryList';
 import { HitlCard } from './HitlCard';
 import type { ChatAdapter } from '../adapters/types';
 import type { ChatMessage, ToolCall } from '../core/types';
+import { SYSTEM_REMINDER_TAG } from '@/constants';
 
 /** Alert configuration for displaying warnings/errors above input */
 export interface AlertConfig {
@@ -353,8 +354,8 @@ export const CompactChat = memo(function CompactChat({
               className="text-sm leading-relaxed"
               renderContent={(content, streaming) =>
                 isUser ? (
-                  // User messages: plain text
-                  <span className="whitespace-pre-wrap">{content}</span>
+                  // User messages: plain text (strip injected system reminders)
+                  <span className="whitespace-pre-wrap">{stripSystemReminder(content)}</span>
                 ) : (
                   // Assistant messages: markdown with streaming support
                   <MarkdownRenderer content={content} isStreaming={streaming} className="text-sm" />
@@ -572,4 +573,10 @@ export const CompactChat = memo(function CompactChat({
 function formatTime(timestamp: string): string {
   const date = new Date(timestamp);
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Helper to strip system reminder tags from message content
+function stripSystemReminder(content: string): string {
+  const pattern = new RegExp(`<${SYSTEM_REMINDER_TAG}>[\\s\\S]*?</${SYSTEM_REMINDER_TAG}>`, 'gi');
+  return content.replace(pattern, '').trim();
 }

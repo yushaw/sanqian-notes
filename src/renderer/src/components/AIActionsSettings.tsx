@@ -596,7 +596,7 @@ export function AIActionsSettings() {
                     ? 'text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10'
                     : 'text-[var(--color-muted)] hover:bg-black/5 dark:hover:bg-white/10'
                 }`}
-                title={action.enabled ? 'Disable' : 'Enable'}
+                title={action.enabled ? t.actions.disable : t.actions.enable}
               >
                 {action.enabled ? (
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -613,7 +613,7 @@ export function AIActionsSettings() {
               <button
                 onClick={() => handleEdit(action)}
                 className="p-1.5 rounded-lg text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                title="Edit"
+                title={t.actions.edit}
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -626,7 +626,7 @@ export function AIActionsSettings() {
                 <button
                   onClick={() => handleDelete(action.id)}
                   className="p-1.5 rounded-lg text-[var(--color-muted)] hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                  title="Delete"
+                  title={t.actions.delete}
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>

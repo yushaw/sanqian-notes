@@ -52,6 +52,7 @@
     "frimousse": "^0.3.0",
     "katex": "^0.16.27",
     "lowlight": "^3.3.0",
+    "lucide-react": "^0.562.0",
     "marked": "^17.0.1",
     "mermaid": "^11.12.2",
     "rehype-harden": "^1.1.6",

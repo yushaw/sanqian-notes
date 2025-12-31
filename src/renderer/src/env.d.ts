@@ -71,7 +71,7 @@ interface Window {
     }
     theme: {
       get: () => Promise<'light' | 'dark'>
-      onChange?: (callback: (theme: 'light' | 'dark') => void) => void
+      onChange?: (callback: (theme: 'light' | 'dark') => void) => () => void
     }
     window: {
       setTitleBarOverlay?: (options: { color: string; symbolColor: string }) => void
@@ -83,6 +83,25 @@ interface Window {
     }
     attachment: AttachmentAPI
     chat: ChatAPI
+    popup: {
+      open: (popupId: string, options?: {
+        x?: number
+        y?: number
+        width?: number
+        height?: number
+        prompt?: string
+        context?: { targetText: string; documentTitle?: string }
+      }) => Promise<void>
+      close: (popupId: string) => Promise<void>
+      focus: (popupId: string) => Promise<void>
+      updateContent: (popupId: string, content: string) => Promise<void>
+      exists: (popupId: string) => Promise<boolean>
+      onClosed: (callback: (popupId: string) => void) => () => void
+      onContentRequest: (callback: (popupId: string) => void) => () => void
+      onContentUpdate: (callback: (content: string) => void) => () => void
+      continueInChat: (selectedText: string, explanation: string) => Promise<void>
+      onContinueInChat: (callback: (selectedText: string, explanation: string) => void) => () => void
+    }
     knowledgeBase: {
       getConfig: () => Promise<{
         enabled: boolean

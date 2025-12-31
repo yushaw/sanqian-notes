@@ -2829,3 +2829,34 @@ npm run test:coverage # 覆盖率报告
 **indexing-service.ts - rebuildAllNotes 并发锁**
 - `indexNoteFull` 调用前后添加 `indexingLocks` 保护
 - 防止用户在 rebuild 过程中切换笔记触发并发索引
+
+
+### 2025-12-31 AI Popup 独立窗口重构
+
+**核心变更：将 AI Popup 从内嵌浮层改为 Electron 独立子窗口**
+
+**新增文件：**
+- `src/renderer/src/utils/popupStorage.ts` - Popup 数据存储层（localStorage）
+- `src/renderer/popup.html` - Popup 窗口 HTML 入口
+- `src/renderer/src/popup/main.tsx` - Popup React 入口
+- `src/renderer/src/popup/PopupWindow.tsx` - Popup 主组件（Streamdown 渲染）
+- `src/renderer/src/components/extensions/AIPopupMark.ts` - TipTap inline atom 节点
+- `src/renderer/src/components/AIPopupMarkView.tsx` - Sparkles 图标视图组件
+
+**修改文件：**
+- `src/main/index.ts` - 添加 popup 窗口管理器和 IPC 处理
+- `src/preload/index.ts` - 添加 popup API
+- `src/preload/index.d.ts` - 添加 popup 类型定义
+- `src/renderer/src/env.d.ts` - 添加 popup 类型定义
+- `src/renderer/src/components/Editor.tsx` - 注册 AIPopupMark 扩展
+- `src/renderer/src/components/EditorContextMenu.tsx` - 整合 popup 流程
+- `electron.vite.config.ts` - 添加 popup 多入口构建
+
+**功能特性：**
+- 每次 AI popup 操作创建独立 BrowserWindow（支持多窗口）
+- 在触发位置插入 Sparkles 图标（TipTap inline atom 节点）
+- 点击图标重新打开/聚焦窗口，显示缓存内容
+- 关闭窗口 = 隐藏窗口，保留图标和内容
+- 删除图标 = 关闭窗口 + 清除存储
+- Popup 窗口支持拖拽标题栏、ESC 关闭
+- 流式内容更新通过 IPC 推送

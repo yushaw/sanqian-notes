@@ -107,6 +107,68 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
+// ============ Popup Window Management (单实例模式) ============
+interface PopupWindowInfo {
+  window: BrowserWindow
+  popupId: string
+}
+// 单实例：一次只有一个 popup 窗口
+let currentPopup: PopupWindowInfo | null = null
+
+// 记住弹窗位置（百分比 + 屏幕 ID）
+interface PopupPosition {
+  // 相对于屏幕的百分比位置
+  xPercent: number  // 0-1
+  yPercent: number  // 0-1
+  width: number
+  height: number
+  displayId: number  // 屏幕 ID
+}
+let savedPopupPosition: PopupPosition | null = null
+
+// 保存 popup 窗口位置
+function savePopupPosition(win: BrowserWindow): void {
+  const bounds = win.getBounds()
+  const display = screen.getDisplayMatching(bounds)
+  const workArea = display.workArea
+
+  savedPopupPosition = {
+    xPercent: (bounds.x - workArea.x) / workArea.width,
+    yPercent: (bounds.y - workArea.y) / workArea.height,
+    width: bounds.width,
+    height: bounds.height,
+    displayId: display.id
+  }
+}
+
+// 获取恢复的 popup 窗口位置
+function getRestoredPopupPosition(): { x: number; y: number; width: number; height: number } | null {
+  if (!savedPopupPosition) return null
+
+  // 查找保存的屏幕
+  const displays = screen.getAllDisplays()
+  let targetDisplay = displays.find(d => d.id === savedPopupPosition!.displayId)
+
+  // 如果找不到原来的屏幕，使用主屏幕
+  if (!targetDisplay) {
+    targetDisplay = screen.getPrimaryDisplay()
+  }
+
+  const workArea = targetDisplay.workArea
+
+  // 根据百分比计算绝对位置
+  const x = Math.round(workArea.x + savedPopupPosition.xPercent * workArea.width)
+  const y = Math.round(workArea.y + savedPopupPosition.yPercent * workArea.height)
+
+  // 确保窗口在屏幕内
+  const width = Math.min(savedPopupPosition.width, workArea.width)
+  const height = Math.min(savedPopupPosition.height, workArea.height)
+  const clampedX = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - width))
+  const clampedY = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - height))
+
+  return { x: clampedX, y: clampedY, width, height }
+}
+
 // ============ Auto Updater State ============
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
 let updateStatus: UpdateStatus = 'idle'
@@ -648,6 +710,141 @@ function createWindow(): void {
 
   // Set mainWindow for indexing service (must be after mainWindow is created)
   indexingService.setMainWindow(mainWindow)
+}
+
+// ============ Popup Window ============
+
+interface PopupWindowOptions {
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  prompt?: string
+  context?: { targetText: string; documentTitle?: string }
+}
+
+function createPopupWindow(popupId: string, options: PopupWindowOptions = {}): BrowserWindow {
+  // 单实例模式：关闭已存在的 popup 窗口
+  if (currentPopup) {
+    // 如果是同一个 popupId，只需要 focus
+    if (currentPopup.popupId === popupId) {
+      currentPopup.window.show()
+      currentPopup.window.focus()
+      return currentPopup.window
+    }
+    // 保存旧窗口位置后销毁
+    savePopupPosition(currentPopup.window)
+    currentPopup.window.destroy()
+    currentPopup = null
+  }
+
+  const isDarkMode = nativeTheme.shouldUseDarkColors
+  const bgColor = isDarkMode ? '#1F1F1F' : '#FFFFFF'
+
+  // 优先使用保存的位置，否则使用传入的位置
+  const restoredPos = getRestoredPopupPosition()
+
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
+    width: restoredPos?.width || options.width || 400,
+    height: restoredPos?.height || options.height || 320,
+    minWidth: 280,
+    minHeight: 200,
+    x: restoredPos?.x ?? options.x,
+    y: restoredPos?.y ?? options.y,
+    // 不设置 parent，让窗口完全独立，不跟随主窗口移动
+    modal: false,
+    show: false,
+    backgroundColor: bgColor,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  }
+
+  // Platform specific styling
+  if (process.platform === 'darwin') {
+    Object.assign(windowOptions, {
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 12, y: 12 },
+      vibrancy: 'window',
+      transparent: true
+    })
+  } else if (process.platform === 'win32') {
+    Object.assign(windowOptions, {
+      frame: true,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: {
+        color: bgColor,
+        symbolColor: isDarkMode ? '#ffffff' : '#1D1D1F',
+        height: 32
+      }
+    })
+  } else {
+    Object.assign(windowOptions, {
+      frame: true
+    })
+  }
+
+  const popupWindow = new BrowserWindow(windowOptions)
+
+  // Store window reference (单实例)
+  currentPopup = { window: popupWindow, popupId }
+
+  // Load popup page with popupId as query parameter
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    popupWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/popup.html?popupId=${popupId}`)
+  } else {
+    popupWindow.loadFile(join(__dirname, '../renderer/popup.html'), {
+      query: { popupId }
+    })
+  }
+
+  popupWindow.once('ready-to-show', () => {
+    popupWindow.show()
+  })
+
+  // 保存位置：移动、调整大小、隐藏时
+  popupWindow.on('moved', () => {
+    savePopupPosition(popupWindow)
+  })
+  popupWindow.on('resized', () => {
+    savePopupPosition(popupWindow)
+  })
+
+  // Handle close - hide instead of destroy
+  popupWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault()
+      savePopupPosition(popupWindow)
+      popupWindow.hide()
+      // Notify main renderer that popup was closed (hidden)
+      mainWindow?.webContents.send('popup:closed', popupId)
+    }
+  })
+
+  // Clean up on destroy
+  popupWindow.on('closed', () => {
+    if (currentPopup?.popupId === popupId) {
+      currentPopup = null
+    }
+  })
+
+  return popupWindow
+}
+
+function closePopupWindow(popupId: string): void {
+  if (currentPopup?.popupId === popupId) {
+    savePopupPosition(currentPopup.window)
+    currentPopup.window.hide()
+    mainWindow?.webContents.send('popup:closed', popupId)
+  }
+}
+
+function destroyCurrentPopup(): void {
+  if (currentPopup) {
+    currentPopup.window.destroy()
+    currentPopup = null
+  }
 }
 
 // ============ Embedding Config Sync ============
@@ -1238,6 +1435,41 @@ app.whenReady().then(() => {
     }
   })
 
+  // ============ Popup Window IPC ============
+  ipcMain.handle('popup:open', (_, popupId: string, options?: PopupWindowOptions) => {
+    createPopupWindow(popupId, options || {})
+  })
+
+  ipcMain.handle('popup:close', (_, popupId: string) => {
+    closePopupWindow(popupId)
+  })
+
+  ipcMain.handle('popup:focus', (_, popupId: string) => {
+    if (currentPopup?.popupId === popupId) {
+      currentPopup.window.show()
+      currentPopup.window.focus()
+    }
+  })
+
+  ipcMain.handle('popup:updateContent', (_, popupId: string, content: string) => {
+    if (currentPopup?.popupId === popupId) {
+      currentPopup.window.webContents.send('popup:contentUpdate', content)
+    }
+  })
+
+  ipcMain.handle('popup:exists', (_, popupId: string) => {
+    return currentPopup?.popupId === popupId
+  })
+
+  // 接着对话 - popup 窗口调用，转发给主窗口
+  ipcMain.handle('popup:continueInChat', (_, selectedText: string, explanation: string) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('popup:openChatWithContext', selectedText, explanation)
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+
   // App version
   ipcMain.handle('app:getVersion', () => {
     return app.getVersion()
@@ -1324,6 +1556,8 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  // Destroy popup window before quitting
+  destroyCurrentPopup()
 })
 
 app.on('window-all-closed', () => {

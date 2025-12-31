@@ -63,6 +63,7 @@ export interface Translations {
     heading1: string
     heading2: string
     heading3: string
+    heading4: string
     bulletList: string
     numberedList: string
     checklist: string
@@ -216,6 +217,8 @@ export interface Translations {
     delete: string
     edit: string
     rename: string
+    enable: string
+    disable: string
   }
   date: {
     today: string
@@ -474,6 +477,8 @@ export interface Translations {
     dragToMove: string
     clickToReset: string
     processing: string
+    noPopupId: string
+    noContent: string
   }
   language: {
     chinese: string
@@ -544,6 +549,7 @@ const zh: Translations = {
     heading1: '标题 1',
     heading2: '标题 2',
     heading3: '标题 3',
+    heading4: '标题 4',
     bulletList: '无序列表',
     numberedList: '有序列表',
     checklist: '任务列表',
@@ -696,7 +702,9 @@ const zh: Translations = {
     save: '保存',
     delete: '删除',
     edit: '编辑',
-    rename: '重命名'
+    rename: '重命名',
+    enable: '启用',
+    disable: '禁用'
   },
   date: {
     today: '今天',
@@ -951,7 +959,9 @@ const zh: Translations = {
   ui: {
     dragToMove: '拖动移动',
     clickToReset: '点击复位',
-    processing: '处理中...'
+    processing: '处理中...',
+    noPopupId: '缺少弹窗 ID',
+    noContent: '暂无内容'
   },
   language: {
     chinese: '中文',
@@ -1022,6 +1032,7 @@ const en: Translations = {
     heading1: 'Heading 1',
     heading2: 'Heading 2',
     heading3: 'Heading 3',
+    heading4: 'Heading 4',
     bulletList: 'Bullet List',
     numberedList: 'Numbered List',
     checklist: 'Checklist',
@@ -1174,7 +1185,9 @@ const en: Translations = {
     save: 'Save',
     delete: 'Delete',
     edit: 'Edit',
-    rename: 'Rename'
+    rename: 'Rename',
+    enable: 'Enable',
+    disable: 'Disable'
   },
   date: {
     today: 'Today',
@@ -1429,7 +1442,9 @@ const en: Translations = {
   ui: {
     dragToMove: 'Drag to move',
     clickToReset: 'Click to reset',
-    processing: 'Processing...'
+    processing: 'Processing...',
+    noPopupId: 'No popup ID provided',
+    noContent: 'No content'
   },
   language: {
     chinese: '中文',

@@ -7,7 +7,7 @@ import { Editor, type EditorHandle } from './components/Editor'
 import { Settings } from './components/Settings'
 import { NotebookModal } from './components/NotebookModal'
 import { TypewriterMode } from './components/TypewriterMode'
-import { AIChatDialog } from './components/AIChatDialog'
+import { AIChatDialog, openChatWithContext } from './components/AIChatDialog'
 import { ThemeProvider } from './theme'
 import { I18nProvider, useTranslations } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from './utils/cursor'
@@ -240,6 +240,14 @@ function AppContent() {
       } catch (error) {
         console.error('[App] Failed to reload data:', error)
       }
+    })
+    return cleanup
+  }, [])
+
+  // Listen for "continue in chat" from popup window
+  useEffect(() => {
+    const cleanup = window.electron.popup.onContinueInChat((selectedText, explanation) => {
+      openChatWithContext({ selectedText, explanation })
     })
     return cleanup
   }, [])

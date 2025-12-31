@@ -31,6 +31,7 @@ export const SLASH_AI_ACTION_EVENT = 'slash-ai-action'
 
 export interface SlashAIActionDetail {
   actionId: string
+  actionName: string
   prompt: string
   mode: 'replace' | 'insert' | 'popup'
   selectedText: string
@@ -75,6 +76,7 @@ async function fetchAIActions(): Promise<SlashCommandItem[]> {
           // Trigger AI action via event
           triggerSlashAIAction({
             actionId: action.id,
+            actionName: action.name,
             prompt: action.prompt,
             mode: action.mode,
             selectedText

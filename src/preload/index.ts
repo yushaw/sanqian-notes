@@ -91,7 +91,9 @@ contextBridge.exposeInMainWorld('electron', {
   theme: {
     get: () => ipcRenderer.invoke('theme:get'),
     onChange: (callback: (theme: 'light' | 'dark') => void) => {
-      ipcRenderer.on('theme:changed', (_, theme) => callback(theme))
+      const handler = (_: Electron.IpcRendererEvent, theme: 'light' | 'dark') => callback(theme)
+      ipcRenderer.on('theme:changed', handler)
+      return () => ipcRenderer.removeListener('theme:changed', handler)
     },
   },
   platform: {
@@ -117,6 +119,46 @@ contextBridge.exposeInMainWorld('electron', {
     exists: (relativePath: string) => ipcRenderer.invoke('attachment:exists', relativePath),
     getAll: () => ipcRenderer.invoke('attachment:getAll'),
     cleanup: () => ipcRenderer.invoke('attachment:cleanup'),
+  },
+  popup: {
+    open: (popupId: string, options?: {
+      x?: number
+      y?: number
+      width?: number
+      height?: number
+      prompt?: string
+      context?: { targetText: string; documentTitle?: string }
+    }) => ipcRenderer.invoke('popup:open', popupId, options),
+    close: (popupId: string) => ipcRenderer.invoke('popup:close', popupId),
+    focus: (popupId: string) => ipcRenderer.invoke('popup:focus', popupId),
+    updateContent: (popupId: string, content: string) => ipcRenderer.invoke('popup:updateContent', popupId, content),
+    exists: (popupId: string) => ipcRenderer.invoke('popup:exists', popupId),
+    onClosed: (callback: (popupId: string) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, popupId: string) => callback(popupId)
+      ipcRenderer.on('popup:closed', handler)
+      return () => ipcRenderer.removeListener('popup:closed', handler)
+    },
+    onContentRequest: (callback: (popupId: string) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, popupId: string) => callback(popupId)
+      ipcRenderer.on('popup:contentRequest', handler)
+      return () => ipcRenderer.removeListener('popup:contentRequest', handler)
+    },
+    // 用于 popup 窗口接收内容更新
+    onContentUpdate: (callback: (content: string) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, content: string) => callback(content)
+      ipcRenderer.on('popup:contentUpdate', handler)
+      return () => ipcRenderer.removeListener('popup:contentUpdate', handler)
+    },
+    // 接着对话 - 在主窗口打开聊天
+    continueInChat: (selectedText: string, explanation: string) =>
+      ipcRenderer.invoke('popup:continueInChat', selectedText, explanation),
+    // 监听接着对话事件（主窗口使用）
+    onContinueInChat: (callback: (selectedText: string, explanation: string) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, selectedText: string, explanation: string) =>
+        callback(selectedText, explanation)
+      ipcRenderer.on('popup:openChatWithContext', handler)
+      return () => ipcRenderer.removeListener('popup:openChatWithContext', handler)
+    },
   },
   chat: {
     // Connection management

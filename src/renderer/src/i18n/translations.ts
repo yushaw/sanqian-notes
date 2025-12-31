@@ -140,6 +140,7 @@ export interface Translations {
       save: string
       saving: string
       cancel: string
+      done: string
       builtin: string
       empty: string
       resetToDefaults: string
@@ -626,6 +627,7 @@ const zh: Translations = {
       save: '保存',
       saving: '保存中...',
       cancel: '取消',
+      done: '完成',
       builtin: '内置',
       empty: '暂无 AI 操作',
       resetToDefaults: '恢复默认',
@@ -1109,6 +1111,7 @@ const en: Translations = {
       save: 'Save',
       saving: 'Saving...',
       cancel: 'Cancel',
+      done: 'Done',
       builtin: 'Builtin',
       empty: 'No AI actions configured',
       resetToDefaults: 'Reset to defaults',

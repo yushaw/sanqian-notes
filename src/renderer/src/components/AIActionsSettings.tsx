@@ -67,6 +67,16 @@ export function AIActionsSettings() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showEmojiPicker])
 
+  // Save a single field immediately for existing actions
+  // Takes actionId as parameter to avoid stale closure issues
+  const saveFieldImmediately = useCallback(async (actionId: string, field: string, value: any) => {
+    try {
+      await updateAction(actionId, { [field]: value })
+    } catch (error) {
+      console.error(`Failed to save ${field}:`, error)
+    }
+  }, [updateAction])
+
   // Start editing an action
   const handleEdit = useCallback((action: AIAction) => {
     setShortcutConflict(null)
@@ -145,9 +155,13 @@ export function AIActionsSettings() {
   const handleEmojiSelect = useCallback((emoji: string) => {
     if (editingAction) {
       setEditingAction({ ...editingAction, icon: emoji })
+      // Save immediately for existing actions
+      if (editingAction.id) {
+        saveFieldImmediately(editingAction.id, 'icon', emoji)
+      }
     }
     setShowEmojiPicker(false)
-  }, [editingAction])
+  }, [editingAction, saveFieldImmediately])
 
   // Check for shortcut key conflicts with other actions
   const [shortcutConflict, setShortcutConflict] = useState<string | null>(null)
@@ -184,6 +198,10 @@ export function AIActionsSettings() {
       setEditingAction({ ...editingAction, shortcutKey: '' })
       setShortcutConflict(null)
       setIsRecordingShortcut(false)
+      // Save immediately for existing actions
+      if (editingAction.id) {
+        saveFieldImmediately(editingAction.id, 'shortcutKey', '')
+      }
       return
     }
     parts.push(key)
@@ -193,7 +211,11 @@ export function AIActionsSettings() {
     setShortcutConflict(conflict)
     setEditingAction({ ...editingAction, shortcutKey: newShortcut })
     setIsRecordingShortcut(false)
-  }, [isRecordingShortcut, editingAction, checkShortcutConflict])
+    // Save immediately for existing actions (only if no conflict)
+    if (editingAction.id && !conflict) {
+      saveFieldImmediately(editingAction.id, 'shortcutKey', newShortcut)
+    }
+  }, [isRecordingShortcut, editingAction, checkShortcutConflict, saveFieldImmediately])
 
   // Toggle enabled
   const handleToggleEnabled = useCallback(async (action: AIAction) => {
@@ -379,6 +401,7 @@ export function AIActionsSettings() {
             type="text"
             value={editingAction.name}
             onChange={(e) => setEditingAction({ ...editingAction, name: e.target.value })}
+            onBlur={(e) => editingAction.id && e.target.value.trim() && saveFieldImmediately(editingAction.id, 'name', e.target.value)}
             placeholder={t.settings.aiActions?.namePlaceholder || 'Action name'}
             className="w-full px-3 py-2 text-sm rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-[var(--color-accent)] outline-none transition-colors"
           />
@@ -390,6 +413,7 @@ export function AIActionsSettings() {
           <textarea
             value={editingAction.prompt}
             onChange={(e) => setEditingAction({ ...editingAction, prompt: e.target.value })}
+            onBlur={(e) => editingAction.id && e.target.value.trim() && saveFieldImmediately(editingAction.id, 'prompt', e.target.value)}
             placeholder={t.settings.aiActions?.promptPlaceholder || 'Instructions for AI...'}
             rows={5}
             className="w-full px-3 py-2 text-sm rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-[var(--color-accent)] outline-none transition-colors resize-none"
@@ -403,7 +427,10 @@ export function AIActionsSettings() {
             {(['replace', 'insert', 'popup'] as const).map((mode) => (
               <button
                 key={mode}
-                onClick={() => setEditingAction({ ...editingAction, mode })}
+                onClick={() => {
+                  setEditingAction({ ...editingAction, mode })
+                  if (editingAction.id) saveFieldImmediately(editingAction.id, 'mode', mode)
+                }}
                 className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all
                   ${editingAction.mode === mode
                     ? 'bg-white dark:bg-white/15 text-[var(--color-text)] shadow-sm'
@@ -426,7 +453,10 @@ export function AIActionsSettings() {
             <input
               type="checkbox"
               checked={editingAction.showInContextMenu}
-              onChange={(e) => setEditingAction({ ...editingAction, showInContextMenu: e.target.checked })}
+              onChange={(e) => {
+                setEditingAction({ ...editingAction, showInContextMenu: e.target.checked })
+                if (editingAction.id) saveFieldImmediately(editingAction.id, 'showInContextMenu', e.target.checked)
+              }}
               className="w-4 h-4 rounded accent-[var(--color-accent)]"
             />
             <span className="text-sm text-[var(--color-text)]">{t.settings.aiActions?.contextMenu || 'Context menu'}</span>
@@ -435,7 +465,10 @@ export function AIActionsSettings() {
             <input
               type="checkbox"
               checked={editingAction.showInSlashCommand}
-              onChange={(e) => setEditingAction({ ...editingAction, showInSlashCommand: e.target.checked })}
+              onChange={(e) => {
+                setEditingAction({ ...editingAction, showInSlashCommand: e.target.checked })
+                if (editingAction.id) saveFieldImmediately(editingAction.id, 'showInSlashCommand', e.target.checked)
+              }}
               className="w-4 h-4 rounded accent-[var(--color-accent)]"
             />
             <span className="text-sm text-[var(--color-text)]">{t.settings.aiActions?.slashCommand || 'Slash command'}</span>
@@ -444,7 +477,10 @@ export function AIActionsSettings() {
             <input
               type="checkbox"
               checked={editingAction.showInShortcut}
-              onChange={(e) => setEditingAction({ ...editingAction, showInShortcut: e.target.checked })}
+              onChange={(e) => {
+                setEditingAction({ ...editingAction, showInShortcut: e.target.checked })
+                if (editingAction.id) saveFieldImmediately(editingAction.id, 'showInShortcut', e.target.checked)
+              }}
               className="w-4 h-4 rounded accent-[var(--color-accent)]"
             />
             <span className="text-sm text-[var(--color-text)]">{t.settings.aiActions?.shortcut || 'Shortcut panel'}</span>
@@ -481,6 +517,7 @@ export function AIActionsSettings() {
                 onClick={() => {
                   setEditingAction({ ...editingAction, shortcutKey: '' })
                   setShortcutConflict(null)
+                  if (editingAction.id) saveFieldImmediately(editingAction.id, 'shortcutKey', '')
                 }}
                 className="p-2 rounded-lg text-[var(--color-muted)] hover:text-red-500 hover:bg-red-500/10 transition-colors"
               >
@@ -497,21 +534,34 @@ export function AIActionsSettings() {
           )}
         </div>
 
-        {/* Save button */}
+        {/* Action buttons */}
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            onClick={handleCancel}
-            className="px-3 py-1.5 text-sm rounded-lg text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-          >
-            {t.settings.aiActions?.cancel || 'Cancel'}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!editingAction.name.trim() || !editingAction.prompt.trim() || saving}
-            className="px-4 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? (t.settings.aiActions?.saving || 'Saving...') : (t.settings.aiActions?.save || 'Save')}
-          </button>
+          {editingAction.id ? (
+            // For existing actions, just show Done button (changes are saved automatically)
+            <button
+              onClick={handleCancel}
+              className="px-4 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors"
+            >
+              {t.settings.aiActions?.done || 'Done'}
+            </button>
+          ) : (
+            // For new actions, show Cancel and Save buttons
+            <>
+              <button
+                onClick={handleCancel}
+                className="px-3 py-1.5 text-sm rounded-lg text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+              >
+                {t.settings.aiActions?.cancel || 'Cancel'}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!editingAction.name.trim() || !editingAction.prompt.trim() || saving}
+                className="px-4 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? (t.settings.aiActions?.saving || 'Saving...') : (t.settings.aiActions?.save || 'Save')}
+              </button>
+            </>
+          )}
         </div>
       </div>
     )

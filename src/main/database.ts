@@ -1502,7 +1502,7 @@ function getDefaultAIActions() {
       description: actions.summarize.description,
       icon: '📋',
       prompt: actions.summarize.prompt,
-      mode: 'insert' as const
+      mode: 'popup' as const
     },
     {
       id: 'builtin-explain',

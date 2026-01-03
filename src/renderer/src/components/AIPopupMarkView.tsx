@@ -63,7 +63,7 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
 
     const rect = buttonRef.current.getBoundingClientRect()
     const popupWidth = 256  // w-64 = 16rem = 256px
-    const popupHeight = 250 // 大约高度（header + max-h-48 + padding）
+    const popupHeight = 180 // 估算高度（实际高度由内容决定，取较小值避免距离过远）
     const padding = 8       // 距离屏幕边缘的最小间距
 
     // 计算初始位置

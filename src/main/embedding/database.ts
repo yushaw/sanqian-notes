@@ -163,6 +163,12 @@ function migrateDatabase(database: Database.Database): void {
  * 创建向量虚拟表（如果维度变更需要重建）
  */
 function createVectorTable(database: Database.Database, dimensions: number): void {
+  // 维度无效时跳过创建（用户尚未配置 embedding）
+  if (dimensions <= 0) {
+    console.log('[Embedding] Skipping vector table creation: dimensions not configured')
+    return
+  }
+
   // 检查是否已存在向量表
   const tableExists = database
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='note_embeddings'")
@@ -296,12 +302,19 @@ export function setEmbeddingConfig(config: EmbeddingConfig): {
     .run('config', JSON.stringify(configToStore))
 
   // 检测模型变化（dimensions 或 modelName 变化）
-  // 注意：首次设置（oldConfig 为空）时不触发变更，因为没有旧索引需要 rebuild
+  const isFirstSetup = oldConfig.dimensions === 0 && config.dimensions > 0
   const dimensionsChanged = oldConfig.dimensions !== config.dimensions && oldConfig.dimensions > 0
   const modelChanged =
     oldConfig.modelName !== config.modelName &&
     oldConfig.modelName !== '' && // 旧配置为空时不触发（首次设置）
     config.modelName !== '' // 新配置为空时不触发（清空配置）
+
+  // 首次配置：创建向量表（无需清空索引）
+  if (isFirstSetup) {
+    console.log('[Embedding] First setup, creating vector table')
+    createVectorTable(database, config.dimensions)
+    return { indexCleared: false, modelChanged: false }
+  }
 
   // 如果维度变更，需要重建向量表
   if (dimensionsChanged) {

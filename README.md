@@ -2979,3 +2979,42 @@ const client = new SanqianAppClient({
 - Embedding: getEmbeddingConfig
 
 **验证通过：** 连接、注册、Agent 同步均正常工作
+
+---
+
+### 2026-01-03 AI 摘要功能
+
+**功能概述：为笔记自动生成 AI 摘要，提升搜索效率和内容预览体验**
+
+**触发条件：**
+- 与知识库索引集成，由知识库开关控制
+- 笔记内容 > 500 字
+- 索引完成后，基于 Chunk 变化率判断：新笔记或 Chunk 变化 > 30% 触发摘要更新
+
+**摘要特性：**
+- 动态长度（15-25%），上限 500 字
+- 超长内容（> 3000 字）提取大纲 + 截取
+- 使用 Sanqian SDK `chat()` 非流式 API，超时 2 分钟
+- 段落式摘要 + 关键词提取
+
+**关键词存储：复用 Tag 系统**
+- `note_tags` 表添加 `source` 字段（'user' | 'ai'）
+- AI 关键词作为 Tag 存储，可通过 Tag 筛选
+- 用户标签优先：AI 不会覆盖用户已有的同名标签
+- 摘要更新时自动清理旧 AI Tag，添加新 Tag
+
+**UI 展示：**
+- 笔记列表 hover 1.5 秒显示预览弹窗（摘要 + 标签）
+- 用户标签灰色，AI 标签主题色
+
+**搜索扩展：**
+- `searchNotes` 函数增加 `ai_summary` 字段搜索
+
+**文件变更：**
+- `src/main/database.ts` - 数据库迁移 + searchNotes 修改 + AI Tag 函数
+- `src/main/summary-service.ts` - 摘要生成服务
+- `src/main/embedding/indexing-service.ts` - 集成摘要触发（基于 Chunk 变化率）
+- `src/renderer/src/types/note.ts` - Note 类型添加 ai_summary 字段
+- `src/renderer/src/components/NoteList.tsx` - Hover 预览功能
+- `src/renderer/src/components/NotePreviewPopover.tsx` - 预览弹窗组件
+- `doc/ai-summary-design.md` - 详细设计文档

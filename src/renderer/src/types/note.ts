@@ -10,6 +10,7 @@ export interface Note {
   created_at: string
   updated_at: string
   deleted_at: string | null // Soft delete timestamp (trash)
+  ai_summary: string | null // AI-generated summary
 }
 
 export interface NoteInput {
@@ -38,6 +39,10 @@ export interface NotebookInput {
 export interface Tag {
   id: string
   name: string
+}
+
+export interface TagWithSource extends Tag {
+  source: 'user' | 'ai'
 }
 
 export interface NoteTag {

@@ -30,6 +30,10 @@ import { chunkNote } from './chunking'
 import { getEmbeddings } from './api'
 import { computeContentHash } from './utils'
 import type { NoteChunk, NoteIndexStatus } from './types'
+import { generateSummary } from '../summary-service'
+
+// 摘要触发阈值：Chunk 变化率超过 30% 时重新生成摘要
+const SUMMARY_CHANGE_THRESHOLD = 0.3
 
 // 配置常量
 const MIN_CONTENT_LENGTH = 100 // 最小内容长度
@@ -250,7 +254,14 @@ class IndexingService {
         `[IndexingService] Note ${noteId}: +${result.toAdd.length} -${result.toDelete.length} =${result.unchanged.length}`
       )
 
-      // 4. 如果没有变化，跳过
+      // 4. 计算变化率，用于判断是否需要更新摘要
+      const totalOldChunks = oldChunks.length
+      const totalNewChunks = newChunks.length
+      const changedChunks = result.toAdd.length + result.toDelete.length
+      // 变化率 = 变化的 chunks 数 / max(新旧 chunks 总数)
+      const changeRatio = changedChunks / Math.max(totalOldChunks, totalNewChunks, 1)
+
+      // 5. 如果没有变化，跳过
       if (result.toAdd.length === 0 && result.toDelete.length === 0) {
         console.log(`[IndexingService] Note ${noteId} no chunk changes, skipping`)
         return true
@@ -300,6 +311,19 @@ class IndexingService {
       updateNoteIndexStatus(status)
 
       console.log(`[IndexingService] Note ${noteId} indexed successfully`)
+
+      // 10. 检查是否需要更新摘要（新笔记或变化率 > 30%）
+      const isNewNote = totalOldChunks === 0
+      if (isNewNote || changeRatio > SUMMARY_CHANGE_THRESHOLD) {
+        console.log(
+          `[IndexingService] Note ${noteId} triggering summary (` +
+            `${isNewNote ? 'new note' : `change: ${(changeRatio * 100).toFixed(0)}%`})`
+        )
+        // 异步生成摘要，不阻塞索引流程
+        generateSummary(noteId).catch((err) => {
+          console.error(`[IndexingService] Summary generation failed for ${noteId}:`, err)
+        })
+      }
 
       // 发送进度通知
       this.sendProgress({

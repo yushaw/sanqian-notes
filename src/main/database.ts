@@ -234,6 +234,26 @@ function runMigrations(): void {
     console.log('Migration completed: description column added.')
   }
 
+  // Migration: Add AI summary columns to notes table
+  const hasAiSummary = noteColumns.some(col => col.name === 'ai_summary')
+
+  if (!hasAiSummary) {
+    console.log('Adding AI summary columns to notes table...')
+    db.exec('ALTER TABLE notes ADD COLUMN ai_summary TEXT DEFAULT NULL')
+    db.exec('ALTER TABLE notes ADD COLUMN summary_content_hash TEXT DEFAULT NULL')
+    console.log('Migration completed: AI summary columns added.')
+  }
+
+  // Migration: Add source column to note_tags table (for AI-generated tags)
+  const noteTagColumns = db.prepare("PRAGMA table_info(note_tags)").all() as { name: string }[]
+  const hasSource = noteTagColumns.some(col => col.name === 'source')
+
+  if (!hasSource) {
+    console.log('Adding source column to note_tags table...')
+    db.exec("ALTER TABLE note_tags ADD COLUMN source TEXT DEFAULT 'user'")
+    console.log('Migration completed: source column added to note_tags.')
+  }
+
   // Always update builtin actions with latest descriptions (ensures updates after code changes)
   const aiActions = t().aiActions
   const builtinDescriptions: Record<string, string> = {
@@ -1077,11 +1097,12 @@ export interface Note {
   created_at: string
   updated_at: string
   deleted_at: string | null
+  ai_summary: string | null
 }
 
 export function getNotes(limit = 1000): Note[] {
   const stmt = db.prepare(`
-    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at, ai_summary
     FROM notes
     WHERE deleted_at IS NULL
     ORDER BY is_pinned DESC, updated_at DESC
@@ -1100,7 +1121,7 @@ export function getNotes(limit = 1000): Note[] {
 
 export function getNoteById(id: string): Note | null {
   const stmt = db.prepare(`
-    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at, ai_summary
     FROM notes
     WHERE id = ?
   `)
@@ -1120,7 +1141,7 @@ export function getNotesByIds(ids: string[]): Note[] {
   // 使用 IN 查询批量获取，保持传入顺序
   const placeholders = ids.map(() => '?').join(',')
   const stmt = db.prepare(`
-    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at, ai_summary
     FROM notes
     WHERE id IN (${placeholders})
   `)
@@ -1203,7 +1224,7 @@ export function deleteNote(id: string): boolean {
 // Get all notes in trash
 export function getTrashNotes(): Note[] {
   const stmt = db.prepare(`
-    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at, ai_summary
     FROM notes
     WHERE deleted_at IS NOT NULL
     ORDER BY deleted_at DESC
@@ -1262,14 +1283,18 @@ export function searchNotes(query: string, limit = 100): Note[] {
   const actualLimit = Math.min(limit, 100)
 
   const stmt = db.prepare(`
-    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at
+    SELECT id, title, content, notebook_id, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at, deleted_at, ai_summary
     FROM notes
-    WHERE deleted_at IS NULL AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
+    WHERE deleted_at IS NULL AND (
+      title LIKE ? ESCAPE '\\'
+      OR content LIKE ? ESCAPE '\\'
+      OR ai_summary LIKE ? ESCAPE '\\'
+    )
     ORDER BY is_pinned DESC, updated_at DESC
     LIMIT ?
   `)
 
-  return stmt.all(likeQuery, likeQuery, actualLimit).map(row => {
+  return stmt.all(likeQuery, likeQuery, likeQuery, actualLimit).map(row => {
     const r = row as Record<string, unknown>
     return {
       ...r,
@@ -1359,19 +1384,24 @@ export interface Tag {
   name: string
 }
 
+export interface TagWithSource extends Tag {
+  source: 'user' | 'ai'
+}
+
 export function getTags(): Tag[] {
   const stmt = db.prepare('SELECT * FROM tags ORDER BY name')
   return stmt.all() as Tag[]
 }
 
-export function getTagsByNote(noteId: string): Tag[] {
+export function getTagsByNote(noteId: string): TagWithSource[] {
   const stmt = db.prepare(`
-    SELECT t.* FROM tags t
+    SELECT t.id, t.name, COALESCE(nt.source, 'user') as source
+    FROM tags t
     JOIN note_tags nt ON nt.tag_id = t.id
     WHERE nt.note_id = ?
-    ORDER BY t.name
+    ORDER BY nt.source DESC, t.name
   `)
-  return stmt.all(noteId) as Tag[]
+  return stmt.all(noteId) as TagWithSource[]
 }
 
 export function addTagToNote(noteId: string, tagName: string): Tag {
@@ -1392,6 +1422,91 @@ export function addTagToNote(noteId: string, tagName: string): Tag {
 
 export function removeTagFromNote(noteId: string, tagId: string): void {
   db.prepare('DELETE FROM note_tags WHERE note_id = ? AND tag_id = ?').run(noteId, tagId)
+}
+
+/**
+ * Add AI-generated tag to note
+ * Creates tag if not exists, links with source='ai'
+ */
+export function addAITagToNote(noteId: string, tagName: string): Tag | null {
+  // Get or create tag
+  let tag = db.prepare('SELECT * FROM tags WHERE name = ?').get(tagName) as Tag | undefined
+
+  if (!tag) {
+    const id = uuidv4()
+    db.prepare('INSERT INTO tags (id, name) VALUES (?, ?)').run(id, tagName)
+    tag = { id, name: tagName }
+  }
+
+  // Check if user already has this tag (don't override user tags)
+  const existing = db.prepare(
+    'SELECT source FROM note_tags WHERE note_id = ? AND tag_id = ?'
+  ).get(noteId, tag.id) as { source: string } | undefined
+
+  if (existing?.source === 'user') {
+    // User tag takes precedence, skip AI tag
+    return null
+  }
+
+  // Link tag to note with source='ai'
+  db.prepare("INSERT OR REPLACE INTO note_tags (note_id, tag_id, source) VALUES (?, ?, 'ai')").run(noteId, tag.id)
+
+  return tag
+}
+
+/**
+ * Remove all AI-generated tags from a note
+ * Called before regenerating AI tags
+ */
+export function removeAITagsFromNote(noteId: string): void {
+  db.prepare("DELETE FROM note_tags WHERE note_id = ? AND source = 'ai'").run(noteId)
+}
+
+/**
+ * Update AI tags for a note (removes old AI tags, adds new ones)
+ */
+export function updateAITags(noteId: string, tagNames: string[]): void {
+  db.transaction(() => {
+    removeAITagsFromNote(noteId)
+    for (const name of tagNames) {
+      if (name.trim()) {
+        addAITagToNote(noteId, name.trim())
+      }
+    }
+  })()
+}
+
+// ============ AI Summary ============
+
+export interface NoteSummaryInfo {
+  ai_summary: string | null
+  summary_content_hash: string | null
+}
+
+/**
+ * Get note summary info (for checking if regeneration needed)
+ */
+export function getNoteSummaryInfo(noteId: string): NoteSummaryInfo | null {
+  const stmt = db.prepare('SELECT ai_summary, summary_content_hash FROM notes WHERE id = ?')
+  const row = stmt.get(noteId) as NoteSummaryInfo | undefined
+  return row || null
+}
+
+/**
+ * Update note AI summary
+ */
+export function updateNoteSummary(
+  noteId: string,
+  summary: string,
+  contentHash: string
+): boolean {
+  const stmt = db.prepare(`
+    UPDATE notes
+    SET ai_summary = ?, summary_content_hash = ?
+    WHERE id = ?
+  `)
+  const result = stmt.run(summary, contentHash, noteId)
+  return result.changes > 0
 }
 
 // ============ Note Links (Backlinks) ============

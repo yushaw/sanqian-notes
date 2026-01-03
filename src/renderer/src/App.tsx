@@ -118,7 +118,7 @@ function AppContent() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Cleanup index check timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (indexCheckTimerRef.current) {
@@ -245,6 +245,22 @@ function AppContent() {
     return cleanup
   }, [])
 
+  // Listen for summary updates (real-time update when AI generates summary)
+  useEffect(() => {
+    const cleanup = window.electron.note.onSummaryUpdated(async (noteId: string) => {
+      console.log('[App] Summary updated for note:', noteId)
+      try {
+        const updatedNote = await window.electron.note.getById(noteId)
+        if (updatedNote) {
+          setNotes(prev => prev.map(n => n.id === noteId ? updatedNote : n))
+        }
+      } catch (error) {
+        console.error('[App] Failed to update note summary:', error)
+      }
+    })
+    return cleanup
+  }, [])
+
   // Listen for "continue in chat" from popup window
   useEffect(() => {
     const cleanup = window.electron.popup.onContinueInChat((selectedText, explanation) => {
@@ -340,6 +356,7 @@ function AppContent() {
     if (noteId === selectedNoteId) return
 
     // Trigger incremental index check for the note being left
+    // (AI summary is triggered by indexing service when change ratio > 30%)
     triggerIndexCheck(selectedNoteId)
 
     // Delete empty note if switching away from it

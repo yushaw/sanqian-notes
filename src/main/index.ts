@@ -991,6 +991,7 @@ app.whenReady().then(() => {
     if (!getEmbeddingConfig().enabled) return false
     return indexingService.checkAndIndex(noteId, notebookId, content)
   })
+
   ipcMain.handle('note:delete', (_, id) => {
     const result = deleteNote(id)
     // Clean up index data

@@ -161,6 +161,24 @@ body {
   width: 6px;
 }
 
+/* Thin scrollbar for compact UI elements (popover, preview) */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
 /* ============================================
    Selection
    ============================================ */

@@ -42,7 +42,9 @@ declare global {
         delete: (id: string) => Promise<boolean>
         search: (query: string) => Promise<unknown[]>
         createDemo: () => Promise<void>
+        checkIndex: (noteId: string, notebookId: string, content: string) => Promise<boolean>
         onDataChanged: (callback: () => void) => () => void
+        onSummaryUpdated: (callback: (noteId: string) => void) => () => void
       }
       trash: {
         getAll: () => Promise<unknown[]>

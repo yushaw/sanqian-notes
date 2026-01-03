@@ -41,9 +41,10 @@ interface Window {
       update: (id: string, updates: Partial<NoteInput>) => Promise<Note | null>
       delete: (id: string) => Promise<boolean>
       search: (query: string) => Promise<Note[]>
-      // 笔记失焦时触发增量索引检查
+      // 笔记失焦时触发增量索引检查（摘要由 indexing-service 根据 chunk 变化率自动触发）
       checkIndex: (noteId: string, notebookId: string, content: string) => Promise<boolean>
       onDataChanged: (callback: () => void) => () => void
+      onSummaryUpdated: (callback: (noteId: string) => void) => () => void
     }
     trash: {
       getAll: () => Promise<Note[]>
@@ -69,7 +70,7 @@ interface Window {
     }
     tag: {
       getAll: () => Promise<Tag[]>
-      getByNote: (noteId: string) => Promise<Tag[]>
+      getByNote: (noteId: string) => Promise<TagWithSource[]>
     }
     aiAction: {
       getAll: () => Promise<AIAction[]>
@@ -245,6 +246,7 @@ interface Note {
   created_at: string
   updated_at: string
   deleted_at: string | null
+  ai_summary: string | null
 }
 
 interface NoteInput {
@@ -273,6 +275,10 @@ interface NotebookInput {
 interface Tag {
   id: string
   name: string
+}
+
+interface TagWithSource extends Tag {
+  source: 'user' | 'ai'
 }
 
 // AIAction and AIActionInput types are imported from shared/types

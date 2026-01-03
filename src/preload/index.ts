@@ -25,12 +25,17 @@ contextBridge.exposeInMainWorld('electron', {
     delete: (id: string) => ipcRenderer.invoke('note:delete', id),
     search: (query: string) => ipcRenderer.invoke('note:search', query),
     createDemo: () => ipcRenderer.invoke('note:createDemo'),
-    // 笔记失焦时触发增量索引检查
+    // 笔记失焦时触发增量索引检查（摘要由 indexing-service 根据 chunk 变化率自动触发）
     checkIndex: (noteId: string, notebookId: string, content: string) =>
       ipcRenderer.invoke('note:checkIndex', noteId, notebookId, content),
     onDataChanged: (callback: () => void) => {
       ipcRenderer.on('data:changed', callback)
       return () => ipcRenderer.removeListener('data:changed', callback)
+    },
+    onSummaryUpdated: (callback: (noteId: string) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, noteId: string) => callback(noteId)
+      ipcRenderer.on('summary:updated', handler)
+      return () => ipcRenderer.removeListener('summary:updated', handler)
     },
   },
   trash: {

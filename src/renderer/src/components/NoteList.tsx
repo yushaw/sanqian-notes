@@ -6,6 +6,7 @@ import { isMacOS } from '../utils/platform'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { getPreview } from '../utils/notePreview'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { NotePreviewPopover } from './NotePreviewPopover'
 
 // 检测是否为 macOS
 const isMac = isMacOS()
@@ -65,6 +66,20 @@ export function NoteList({
     isPinned: false,
     isFavorite: false,
   })
+
+  // Hover preview state
+  const [hoveredNote, setHoveredNote] = useState<Note | null>(null)
+  const [previewAnchor, setPreviewAnchor] = useState<HTMLElement | null>(null)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup hover timers on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    }
+  }, [])
 
   // 实时搜索
   const performSearch = useCallback(async (query: string) => {
@@ -131,6 +146,54 @@ export function NoteList({
   const closeContextMenu = () => {
     setContextMenu(prev => ({ ...prev, visible: false }))
   }
+
+  // Hover preview handlers
+  const handleNoteMouseEnter = useCallback((note: Note, element: HTMLElement) => {
+    // Clear any existing timers
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current)
+    }
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+    }
+
+    // Only show preview if note has AI summary
+    if (!note.ai_summary) {
+      return
+    }
+
+    // Set timer for 1.5 seconds
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredNote(note)
+      setPreviewAnchor(element)
+    }, 1500)
+  }, [])
+
+  const handleNoteMouseLeave = useCallback(() => {
+    // Clear hover timer
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+    // Set close timer with small delay to allow moving to popover
+    closeTimerRef.current = setTimeout(() => {
+      setHoveredNote(null)
+      setPreviewAnchor(null)
+    }, 100)
+  }, [])
+
+  const handlePopoverMouseEnter = useCallback(() => {
+    // Cancel close timer when entering popover
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
+
+  const closePreview = useCallback(() => {
+    setHoveredNote(null)
+    setPreviewAnchor(null)
+  }, [])
 
   // Build context menu items
   const getContextMenuItems = useCallback((): ContextMenuItem[] => {
@@ -298,6 +361,8 @@ export function NoteList({
                   draggable
                   onClick={() => onSelectNote(note.id)}
                   onContextMenu={(e) => handleContextMenu(e, note)}
+                  onMouseEnter={(e) => handleNoteMouseEnter(note, e.currentTarget)}
+                  onMouseLeave={handleNoteMouseLeave}
                   onDragStart={(e) => {
                     setDraggingNoteId(note.id)
                     e.dataTransfer.effectAllowed = 'move'
@@ -353,6 +418,16 @@ export function NoteList({
         items={getContextMenuItems()}
         onClose={closeContextMenu}
       />
+
+      {/* Note Preview Popover */}
+      {hoveredNote && previewAnchor && (
+        <NotePreviewPopover
+          note={hoveredNote}
+          anchorEl={previewAnchor}
+          onClose={closePreview}
+          onMouseEnter={handlePopoverMouseEnter}
+        />
+      )}
     </div>
   )
 }

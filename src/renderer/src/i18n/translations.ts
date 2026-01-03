@@ -288,6 +288,9 @@ export interface Translations {
     previewAccept: string
     previewReject: string
     previewRegenerate: string
+    // Popup actions
+    copied: string
+    copyFailed: string
   }
   tray: {
     show: string
@@ -775,6 +778,9 @@ const zh: Translations = {
     previewAccept: '接受',
     previewReject: '拒绝',
     previewRegenerate: '重试',
+    // Popup actions
+    copied: '已复制',
+    copyFailed: '复制失败',
   },
   tray: {
     show: '显示窗口',
@@ -1259,6 +1265,9 @@ const en: Translations = {
     previewAccept: 'Accept',
     previewReject: 'Reject',
     previewRegenerate: 'Retry',
+    // Popup actions
+    copied: 'Copied',
+    copyFailed: 'Copy failed',
   },
   tray: {
     show: 'Show Window',

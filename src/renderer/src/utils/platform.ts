@@ -24,6 +24,10 @@ export async function getPlatform(): Promise<NodeJS.Platform> {
   cachePromise = window.electron.platform.get().then(platform => {
     cachedPlatform = platform
     return platform
+  }).catch(err => {
+    // Clear cachePromise on error so subsequent calls can retry
+    cachePromise = null
+    throw err
   })
 
   return cachePromise

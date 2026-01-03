@@ -13,6 +13,16 @@ const CONTEXT_LENGTH = 200 // Characters before and after
 /**
  * Convert Tiptap marks to Markdown wrapper
  * Returns [prefix, suffix] for wrapping text
+ *
+ * Supported marks:
+ * - bold → **text**
+ * - italic → *text*
+ * - strike → ~~text~~
+ * - code → `text`
+ * - highlight → ==text==
+ * - underline → ++text++
+ * - link → [text](url)
+ * - noteLink → [[text|noteId]] (preserves noteId for restoration)
  */
 function marksToMarkdown(marks: readonly Mark[]): [string, string] {
   let prefix = ''
@@ -36,7 +46,34 @@ function marksToMarkdown(marks: readonly Mark[]): [string, string] {
         prefix = '`' + prefix
         suffix = suffix + '`'
         break
-      // Links and other marks are kept as-is (text only)
+      case 'highlight':
+        prefix = '==' + prefix
+        suffix = suffix + '=='
+        break
+      case 'underline':
+        prefix = '++' + prefix
+        suffix = suffix + '++'
+        break
+      case 'link': {
+        // Standard markdown link: [text](url)
+        const href = mark.attrs.href || ''
+        prefix = '[' + prefix
+        suffix = suffix + `](${href})`
+        break
+      }
+      case 'noteLink': {
+        // Internal note link: [[text|noteId:targetType:targetValue]]
+        // This format preserves all link metadata for restoration
+        const noteId = mark.attrs.noteId || ''
+        const targetType = mark.attrs.targetType || 'note'
+        const targetValue = mark.attrs.targetValue || ''
+        const linkMeta = targetValue
+          ? `${noteId}:${targetType}:${targetValue}`
+          : noteId
+        prefix = '[[' + prefix
+        suffix = suffix + `|${linkMeta}]]`
+        break
+      }
     }
   }
 
@@ -350,7 +387,11 @@ ${instruction}
 <rules>
 - 处理每个 <block> 中的内容
 - 保持 <block id="N">...</block> 格式输出
-- 保持 Markdown 格式（**加粗**、*斜体*、~~删除线~~、\`代码\`）
+- 保持所有格式标记不变：
+  - **加粗**、*斜体*、~~删除线~~、\`代码\`
+  - ==高亮==、++下划线++
+  - [链接文字](URL)
+  - [[文档链接|noteId]] - 保持整个结构不变
 - 直接输出结果，禁止任何额外内容
 - 禁止输出：解释、说明、前言、总结
 </rules>`)
@@ -388,7 +429,11 @@ ${instruction}
 
 <rules>
 - 只处理 <target> 中的内容
-- 保持 Markdown 格式（**加粗**、*斜体*、~~删除线~~、\`代码\`）
+- 保持所有格式标记不变：
+  - **加粗**、*斜体*、~~删除线~~、\`代码\`
+  - ==高亮==、++下划线++
+  - [链接文字](URL)
+  - [[文档链接|noteId]] - 保持整个结构不变
 - 直接输出结果，禁止任何额外内容
 - 禁止输出：解释、说明、前言、总结、标签、代码块标记
 </rules>`)

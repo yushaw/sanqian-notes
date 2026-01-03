@@ -157,6 +157,40 @@ export interface AIActionAPI {
   reset: () => Promise<void>
 }
 
+/**
+ * AI Popup 相关类型定义
+ */
+
+/** AI Popup 数据 */
+export interface PopupData {
+  id: string
+  content: string
+  prompt: string
+  actionName: string
+  targetText: string
+  documentTitle: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** AI Popup 创建输入 */
+export interface PopupInput {
+  id: string
+  prompt: string
+  actionName?: string
+  targetText: string
+  documentTitle?: string
+}
+
+/** AI Popup API 接口 */
+export interface PopupAPI {
+  get: (id: string) => Promise<PopupData | null>
+  create: (input: PopupInput) => Promise<PopupData>
+  updateContent: (id: string, content: string) => Promise<boolean>
+  delete: (id: string) => Promise<boolean>
+  cleanup: (maxAgeDays?: number) => Promise<number>
+}
+
 /** Chat API 接口 */
 export interface ChatAPI {
   /** 连接到 Chat 服务 */

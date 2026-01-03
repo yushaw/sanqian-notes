@@ -107,12 +107,71 @@ function createToolbar(data: AIPreviewData, labels: AIPreviewOptions['labels']):
   return toolbar
 }
 
+/**
+ * Convert Markdown to HTML for preview (same logic as useAIWriting)
+ */
+function markdownToHtml(text: string): string {
+  return text
+    // Note links: [[text|noteId]] or [[text|noteId:targetType:targetValue]]
+    .replace(/\[\[(.+?)\|([^\]]+)\]\]/g, (_match, linkText) => {
+      // Render as styled span without actual link functionality
+      return `<span class="note-link ai-preview-link-disabled">${linkText}</span>`
+    })
+    // Standard links: [text](url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<span class="ai-preview-link-disabled" style="text-decoration: underline; color: var(--color-primary);">$1</span>')
+    // Bold: **text** or __text__
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    // Italic: *text* or _text_
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+    .replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>')
+    // Strikethrough: ~~text~~
+    .replace(/~~(.+?)~~/g, '<s>$1</s>')
+    // Highlight: ==text==
+    .replace(/==(.+?)==/g, '<mark>$1</mark>')
+    // Underline: ++text++
+    .replace(/\+\+(.+?)\+\+/g, '<u>$1</u>')
+    // Inline code: `text`
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+}
+
+/**
+ * Check if text contains any Markdown formatting
+ */
+function hasMarkdownFormatting(text: string): boolean {
+  const patterns = [
+    /\*\*.+?\*\*/,
+    /__.+?__/,
+    /(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*)/,
+    /(?<!_)_(?!_).+?(?<!_)_(?!_)/,
+    /~~.+?~~/,
+    /`.+?`/,
+    /==.+?==/,
+    /\+\+.+?\+\+/,
+    /\[.+?\]\(.+?\)/,
+    /\[\[.+?\|.+?\]\]/
+  ]
+  return patterns.some(pattern => pattern.test(text))
+}
+
 // 创建新文本预览 DOM
 function createNewTextSpan(newText: string): HTMLElement {
   const span = document.createElement('span')
   span.className = 'ai-preview-new'
-  span.textContent = newText
   span.contentEditable = 'false'
+
+  // Render Markdown formatting but disable interactions
+  if (hasMarkdownFormatting(newText)) {
+    span.innerHTML = markdownToHtml(newText)
+    // Disable all link clicks within preview
+    span.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }, true)
+  } else {
+    span.textContent = newText
+  }
+
   return span
 }
 

@@ -19,6 +19,27 @@ function getSystemLanguage(): 'zh' | 'en' {
 let db: Database.Database
 
 
+/**
+ * Close database connection gracefully
+ * Should be called on app quit to ensure WAL checkpoint and prevent data loss
+ */
+export function closeDatabase(): void {
+  if (db) {
+    try {
+      // Ensure WAL is checkpointed before close
+      db.pragma('wal_checkpoint(TRUNCATE)')
+    } catch (e) {
+      console.warn('[Database] WAL checkpoint failed:', e)
+    }
+    try {
+      db.close()
+      console.log('[Database] Closed successfully')
+    } catch (e) {
+      console.error('[Database] Close failed:', e)
+    }
+  }
+}
+
 export function initDatabase(): void {
   const dbPath = join(app.getPath('userData'), 'notes.db')
   db = new Database(dbPath)
@@ -101,6 +122,18 @@ export function initDatabase(): void {
       updated_at TEXT NOT NULL
     );
 
+    -- AI Popups table (stores AI-generated popup content, separate from notes)
+    CREATE TABLE IF NOT EXISTS ai_popups (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL DEFAULT '',
+      prompt TEXT NOT NULL,
+      action_name TEXT NOT NULL DEFAULT '',
+      target_text TEXT NOT NULL,
+      document_title TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_notes_notebook_id ON notes(notebook_id);
     CREATE INDEX IF NOT EXISTS idx_notes_is_daily ON notes(is_daily);
@@ -115,6 +148,7 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_note_id);
     CREATE INDEX IF NOT EXISTS idx_ai_actions_order ON ai_actions(order_index);
     CREATE INDEX IF NOT EXISTS idx_ai_actions_enabled ON ai_actions(enabled);
+    CREATE INDEX IF NOT EXISTS idx_ai_popups_created_at ON ai_popups(created_at);
   `)
 
   // Create demo note for new databases
@@ -1736,4 +1770,107 @@ export function reorderAIActions(orderedIds: string[]): void {
 export function resetAIActionsToDefaults(): void {
   db.prepare('DELETE FROM ai_actions').run()
   initDefaultAIActions()
+}
+
+// ============================================================================
+// AI Popup CRUD Operations
+// ============================================================================
+
+export interface PopupData {
+  id: string
+  content: string
+  prompt: string
+  actionName: string
+  targetText: string
+  documentTitle: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PopupInput {
+  id: string
+  prompt: string
+  actionName?: string
+  targetText: string
+  documentTitle?: string
+}
+
+/**
+ * Get a popup by ID
+ */
+export function getPopup(id: string): PopupData | null {
+  const row = db.prepare('SELECT * FROM ai_popups WHERE id = ?').get(id) as {
+    id: string
+    content: string
+    prompt: string
+    action_name: string
+    target_text: string
+    document_title: string
+    created_at: string
+    updated_at: string
+  } | undefined
+
+  if (!row) return null
+
+  return {
+    id: row.id,
+    content: row.content,
+    prompt: row.prompt,
+    actionName: row.action_name,
+    targetText: row.target_text,
+    documentTitle: row.document_title,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+/**
+ * Create a new popup
+ */
+export function createPopup(input: PopupInput): PopupData {
+  const now = new Date().toISOString()
+
+  db.prepare(`
+    INSERT INTO ai_popups (id, content, prompt, action_name, target_text, document_title, created_at, updated_at)
+    VALUES (?, '', ?, ?, ?, ?, ?, ?)
+  `).run(
+    input.id,
+    input.prompt,
+    input.actionName || '',
+    input.targetText,
+    input.documentTitle || '',
+    now,
+    now
+  )
+
+  return getPopup(input.id)!
+}
+
+/**
+ * Update popup content (used during streaming)
+ */
+export function updatePopupContent(id: string, content: string): boolean {
+  const now = new Date().toISOString()
+  const result = db.prepare('UPDATE ai_popups SET content = ?, updated_at = ? WHERE id = ?').run(content, now, id)
+  return result.changes > 0
+}
+
+/**
+ * Delete a popup
+ */
+export function deletePopup(id: string): boolean {
+  const result = db.prepare('DELETE FROM ai_popups WHERE id = ?').run(id)
+  return result.changes > 0
+}
+
+/**
+ * Cleanup old popups (default: 30 days)
+ */
+export function cleanupPopups(maxAgeDays = 30): number {
+  const cutoffDate = new Date()
+  cutoffDate.setDate(cutoffDate.getDate() - maxAgeDays)
+  const cutoffStr = cutoffDate.toISOString()
+
+  const result = db.prepare('DELETE FROM ai_popups WHERE created_at < ?').run(cutoffStr)
+  return result.changes
 }

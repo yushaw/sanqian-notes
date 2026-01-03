@@ -1,11 +1,20 @@
 /**
  * Sanqian SDK Integration
  *
- * Connects to Sanqian via SDK and registers Notes tools.
+ * Connects to Sanqian via SanqianAppClient (Facade) and registers Notes tools.
  * Also creates private agents for the Notes chat panel.
+ *
+ * Uses @yushaw/sanqian-chat/main which provides:
+ * - SanqianAppClient: Stable facade for SDK
+ * - AppToolDefinition, AppAgentConfig: Application-facing types
  */
 
-import { SanqianSDK, type SDKConfig, type ToolDefinition, type AgentConfig } from '@yushaw/sanqian-sdk'
+import {
+  SanqianAppClient,
+  type AppConfig,
+  type AppToolDefinition,
+  type AppAgentConfig
+} from '@yushaw/sanqian-chat/main'
 import { app } from 'electron'
 import {
   getNoteById,
@@ -58,7 +67,7 @@ function getLaunchCommand(): string | undefined {
   return `"${exePath}" --silent`
 }
 
-let sdk: SanqianSDK | null = null
+let client: SanqianAppClient | null = null
 let assistantAgentId: string | null = null // notes:assistant
 let writingAgentId: string | null = null // notes:writing
 let syncingPromise: Promise<void> | null = null
@@ -79,14 +88,14 @@ function notifyDataChange(): void {
 /**
  * Build Agent configs for Notes
  */
-function buildAgentConfigs(): AgentConfig[] {
+function buildAgentConfigs(): AppAgentConfig[] {
   const sdk = t().sdk
   return [
     {
-      agent_id: 'assistant',
+      agentId: 'assistant',
       name: sdk.assistantName,
       description: sdk.assistantDescription,
-      system_prompt: sdk.assistantSystemPrompt,
+      systemPrompt: sdk.assistantSystemPrompt,
       tools: [
         'search_notes',
         'get_note',
@@ -97,10 +106,10 @@ function buildAgentConfigs(): AgentConfig[] {
       ]
     },
     {
-      agent_id: 'writing',
+      agentId: 'writing',
       name: sdk.writingName,
       description: sdk.writingDescription,
-      system_prompt: sdk.writingSystemPrompt,
+      systemPrompt: sdk.writingSystemPrompt,
       tools: []
     }
   ]
@@ -109,7 +118,7 @@ function buildAgentConfigs(): AgentConfig[] {
 /**
  * Build tool definitions for Notes
  */
-function buildTools(): ToolDefinition[] {
+function buildTools(): AppToolDefinition[] {
   const tools = t().tools
   const common = t().common
   return [
@@ -134,12 +143,14 @@ function buildTools(): ToolDefinition[] {
         },
         required: ['query']
       },
-      handler: async (args: { query: string; notebook_id?: string; limit?: number }) => {
+      handler: async (args: Record<string, unknown>) => {
         try {
-          const limit = args.limit || 10
-          const results = await hybridSearch(args.query, {
+          const query = args.query as string
+          const notebook_id = args.notebook_id as string | undefined
+          const limit = (args.limit as number) || 10
+          const results = await hybridSearch(query, {
             limit,
-            notebookId: args.notebook_id
+            notebookId: notebook_id
           })
 
           // Get note details for each result, filter out deleted/soft-deleted notes
@@ -179,11 +190,12 @@ function buildTools(): ToolDefinition[] {
         },
         required: ['id']
       },
-      handler: async (args: { id: string }) => {
+      handler: async (args: Record<string, unknown>) => {
         try {
-          const note = getNoteById(args.id)
+          const id = args.id as string
+          const note = getNoteById(id)
           if (!note) {
-            throw new Error(`${tools.getNote.notFound}: ${args.id}`)
+            throw new Error(`${tools.getNote.notFound}: ${id}`)
           }
           return {
             id: note.id,
@@ -219,12 +231,15 @@ function buildTools(): ToolDefinition[] {
         },
         required: ['title']
       },
-      handler: async (args: { title: string; content?: string; notebook_id?: string }) => {
+      handler: async (args: Record<string, unknown>) => {
         try {
+          const title = args.title as string
+          const content = args.content as string | undefined
+          const notebook_id = args.notebook_id as string | undefined
           const input: NoteInput = {
-            title: args.title,
-            content: args.content || '',
-            notebook_id: args.notebook_id || null
+            title,
+            content: content || '',
+            notebook_id: notebook_id || null
           }
           const note = addNote(input)
           notifyDataChange()
@@ -259,15 +274,18 @@ function buildTools(): ToolDefinition[] {
         },
         required: ['id']
       },
-      handler: async (args: { id: string; title?: string; content?: string }) => {
+      handler: async (args: Record<string, unknown>) => {
         try {
+          const id = args.id as string
+          const title = args.title as string | undefined
+          const content = args.content as string | undefined
           const updates: Partial<NoteInput> = {}
-          if (args.title !== undefined) updates.title = args.title
-          if (args.content !== undefined) updates.content = args.content
+          if (title !== undefined) updates.title = title
+          if (content !== undefined) updates.content = content
 
-          const note = updateNote(args.id, updates)
+          const note = updateNote(id, updates)
           if (!note) {
-            throw new Error(`${tools.updateNote.notFound}: ${args.id}`)
+            throw new Error(`${tools.updateNote.notFound}: ${id}`)
           }
           notifyDataChange()
           return {
@@ -293,11 +311,12 @@ function buildTools(): ToolDefinition[] {
         },
         required: ['id']
       },
-      handler: async (args: { id: string }) => {
+      handler: async (args: Record<string, unknown>) => {
         try {
-          const success = deleteNote(args.id)
+          const id = args.id as string
+          const success = deleteNote(id)
           if (!success) {
-            throw new Error(`${tools.deleteNote.notFound}: ${args.id}`)
+            throw new Error(`${tools.deleteNote.notFound}: ${id}`)
           }
           notifyDataChange()
           return {
@@ -335,8 +354,8 @@ function buildTools(): ToolDefinition[] {
  * This registers our agents and gets their full IDs (app_name:agent_id)
  */
 async function syncPrivateAgents(): Promise<void> {
-  if (!sdk) {
-    throw new Error('SDK not initialized')
+  if (!client) {
+    throw new Error('Client not initialized')
   }
 
   // Avoid concurrent syncing
@@ -348,18 +367,18 @@ async function syncPrivateAgents(): Promise<void> {
   syncingPromise = (async () => {
     try {
       const agents = buildAgentConfigs()
-      console.log('[Notes SDK] Syncing agents:', agents.map(a => a.agent_id))
+      console.log('[Notes SDK] Syncing agents:', agents.map(a => a.agentId))
 
       // Sync assistant agent (with tools)
       const assistantAgent = agents[0]
-      const assistantInfo = await sdk!.createAgent(assistantAgent)
-      assistantAgentId = assistantInfo.agent_id
+      const assistantInfo = await client!.createAgent(assistantAgent)
+      assistantAgentId = assistantInfo.agentId
       console.log('[Notes SDK] Assistant agent synced:', assistantAgentId)
 
       // Sync writing agent (without tools)
       const writingAgent = agents[1]
-      const writingInfo = await sdk!.createAgent(writingAgent)
-      writingAgentId = writingInfo.agent_id
+      const writingInfo = await client!.createAgent(writingAgent)
+      writingAgentId = writingInfo.agentId
       console.log('[Notes SDK] Writing agent synced:', writingAgentId)
     } catch (e) {
       console.error('[Notes SDK] Failed to sync agents:', e)
@@ -387,7 +406,7 @@ async function syncPrivateAgents(): Promise<void> {
  * - autoLaunchSanqian: Defaults to true in SDK - will auto-launch Sanqian when needed
  */
 export async function initializeSanqianSDK(): Promise<void> {
-  if (sdk) {
+  if (client) {
     console.log('[Notes SDK] Already initialized')
     return
   }
@@ -399,7 +418,7 @@ export async function initializeSanqianSDK(): Promise<void> {
   }
   console.log('[Notes SDK] Initializing...')
 
-  const config: SDKConfig = {
+  const config: AppConfig = {
     appName: 'sanqian-notes',
     appVersion: app.getVersion(),
     displayName: 'Flow',
@@ -408,31 +427,31 @@ export async function initializeSanqianSDK(): Promise<void> {
     // autoLaunchSanqian defaults to true in SDK - will auto-launch Sanqian when needed
   }
 
-  sdk = new SanqianSDK(config)
+  client = new SanqianAppClient(config)
 
-  // Listen to SDK events
-  sdk.on('connected', () => {
+  // Listen to client events
+  client.on('connected', () => {
     console.log('[Notes SDK] Connected to Sanqian')
   })
 
-  sdk.on('registered', async () => {
+  client.on('registered', async () => {
     console.log('[Notes SDK] Registered with Sanqian')
     // Sync agents after registration (not on connected)
     await syncPrivateAgents()
   })
 
-  sdk.on('disconnected', () => {
+  client.on('disconnected', () => {
     console.log('[Notes SDK] Disconnected from Sanqian')
     // Reset agent IDs - they will be re-synced on next connection
     assistantAgentId = null
     writingAgentId = null
   })
 
-  sdk.on('error', (error) => {
+  client.on('error', (error) => {
     console.error('[Notes SDK] Error:', error)
   })
 
-  sdk.on('tool_call', ({ name, arguments: args }) => {
+  client.on('tool_call', ({ name, arguments: args }) => {
     console.log(`[Notes SDK] Tool call: ${name}`, args)
   })
 
@@ -443,7 +462,7 @@ export async function initializeSanqianSDK(): Promise<void> {
   // No auto-reconnect is enabled (refCount=0), so if disconnected later it won't reconnect
   // ChatPanel will call acquireReconnect() when activated to enable auto-reconnect
   try {
-    await sdk.connect()
+    await client.connect()
     console.log('[Notes SDK] Initial connection successful')
   } catch (err) {
     // Connection failed - Sanqian might not be running, that's OK
@@ -456,12 +475,12 @@ export async function initializeSanqianSDK(): Promise<void> {
  * Cleans up event listeners to prevent memory leaks
  */
 export async function stopSanqianSDK(): Promise<void> {
-  if (sdk) {
+  if (client) {
     // Clean up event listeners
-    sdk.removeAllListeners?.()
+    client.removeAllListeners()
 
-    await sdk.disconnect()
-    // Don't set sdk to null - keep instance for reconnection
+    await client.disconnect()
+    // Don't set client to null - keep instance for reconnection
     // Reset agent IDs so they will be re-synced on next connection
     assistantAgentId = null
     writingAgentId = null
@@ -473,7 +492,7 @@ export async function stopSanqianSDK(): Promise<void> {
  * Check if connected to Sanqian
  */
 export function isSanqianConnected(): boolean {
-  return sdk?.isConnected() ?? false
+  return client?.isConnected() ?? false
 }
 
 /**
@@ -486,7 +505,7 @@ export function isSanqianConnected(): boolean {
  * - When refCount > 0, SDK will auto-reconnect if disconnected
  */
 export function acquireReconnect(): void {
-  sdk?.acquireReconnect()
+  client?.acquireReconnect()
 }
 
 /**
@@ -499,7 +518,7 @@ export function acquireReconnect(): void {
  * - Connection may be closed if no other components need it
  */
 export function releaseReconnect(): void {
-  sdk?.releaseReconnect()
+  client?.releaseReconnect()
 }
 
 /**
@@ -517,35 +536,35 @@ export function getWritingAgentId(): string | null {
 }
 
 /**
- * Get SDK instance for advanced operations
+ * Get client instance for advanced operations
  */
-export function getSdk(): SanqianSDK | null {
-  return sdk
+export function getClient(): SanqianAppClient | null {
+  return client
 }
 
 /**
- * Ensure SDK is connected and agents are ready.
+ * Ensure client is connected and agents are ready.
  * This handles auto-reconnection and agent sync.
  *
  * @param agentType - Which agent to ensure ('assistant' or 'writing'), defaults to 'assistant'
- * @throws Error if SDK not initialized, connection fails, or agent sync fails
+ * @throws Error if client not initialized, connection fails, or agent sync fails
  */
 export async function ensureAgentReady(
   agentType: 'assistant' | 'writing' = 'assistant'
-): Promise<{ sdk: SanqianSDK; agentId: string }> {
-  if (!sdk) {
-    throw new Error('SDK not initialized')
+): Promise<{ client: SanqianAppClient; agentId: string }> {
+  if (!client) {
+    throw new Error('Client not initialized')
   }
 
-  // Ensure SDK is connected (handles auto-launch and reconnection)
-  await sdk.ensureReady()
+  // Ensure client is connected (handles auto-launch and reconnection)
+  await client.ensureReady()
 
   // Get the appropriate agent ID
   const agentId = agentType === 'assistant' ? assistantAgentId : writingAgentId
 
   // If agent is already registered, return immediately
   if (agentId) {
-    return { sdk, agentId }
+    return { client, agentId }
   }
 
   // Agent not registered yet (happens after reconnection)
@@ -558,7 +577,7 @@ export async function ensureAgentReady(
     throw new Error(`Failed to sync ${agentType} agent`)
   }
 
-  return { sdk, agentId: finalAgentId }
+  return { client, agentId: finalAgentId }
 }
 
 /**
@@ -574,19 +593,19 @@ export async function fetchEmbeddingConfigFromSanqian(): Promise<{
   modelName?: string
   dimensions?: number
 } | null> {
-  if (!sdk) {
-    console.log('[Notes SDK] SDK not initialized, cannot fetch embedding config')
+  if (!client) {
+    console.log('[Notes SDK] Client not initialized, cannot fetch embedding config')
     return null
   }
 
   try {
     // Try to connect if not connected
-    await sdk.ensureReady()
+    await client.ensureReady()
 
     // Get embedding config from Sanqian
-    const config = await sdk.getEmbeddingConfig()
+    const config = await client.getEmbeddingConfig()
 
-    if (config.available) {
+    if (config?.available) {
       console.log(
         `[Notes SDK] Got embedding config from Sanqian: model=${config.modelName}, apiUrl=${config.apiUrl}`
       )

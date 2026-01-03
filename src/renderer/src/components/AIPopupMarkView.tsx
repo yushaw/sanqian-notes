@@ -1,18 +1,21 @@
 /**
  * AIPopupMarkView - React component for AI popup mark node
  *
- * Renders a Sparkles icon with hover preview after 300ms.
+ * Renders a Sparkles icon with hover preview.
+ * Auto-shows preview when streaming completes, stays until mouse enters then leaves.
  */
 
 import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react'
 import { createPortal } from 'react-dom'
-import { Sparkles, MessageSquare } from 'lucide-react'
+import { Sparkles, MessageSquare, Copy, RefreshCw, Trash2 } from 'lucide-react'
 import { useCallback, useState, useRef, useEffect } from 'react'
 import { Streamdown } from 'streamdown'
 import remarkGfm from 'remark-gfm'
-import { getPopup, deletePopup } from '../utils/popupStorage'
+import { getPopup, deletePopup, updatePopupContent, updatePopupStreaming, preloadPopup } from '../utils/popupStorage'
 import { AI_POPUP_PREVIEW_PROSE } from '../utils/proseStyles'
 import { useTranslations } from '../i18n'
+import { toast } from '../utils/toast'
+import { formatAIPrompt, type AIContext } from '../utils/aiContext'
 
 const REMARK_PLUGINS = [remarkGfm]
 
@@ -21,32 +24,120 @@ const HOVER_DELAY_MS = 300
 const HIDE_DELAY_MS = 100
 const STREAMING_CHECK_INTERVAL_MS = 500
 
+// 单实例管理：当前显示预览的 popupId
+let currentPreviewPopupId: string | null = null
+
 export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
   const { popupId } = node.attrs
   const [showPreview, setShowPreview] = useState(false)
   const [previewContent, setPreviewContent] = useState('')
   const [actionName, setActionName] = useState('')
   const [targetText, setTargetText] = useState('')
+  const [storedPrompt, setStoredPrompt] = useState('')
+  const [storedDocTitle, setStoredDocTitle] = useState<string | undefined>()
   const [isStreaming, setIsStreaming] = useState(false)
   const [showContinueTooltip, setShowContinueTooltip] = useState(false)
   const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 })
+  const [hasMouseEntered, setHasMouseEntered] = useState(false) // 鼠标是否进入过预览
   const hoverTimerRef = useRef<NodeJS.Timeout | null>(null)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
   const streamingCheckRef = useRef<NodeJS.Timeout | null>(null)
+  const wasStreamingRef = useRef(false) // 跟踪之前是否在 streaming
   const buttonRef = useRef<HTMLSpanElement>(null)
+  const retryCleanupRef = useRef<(() => void) | null>(null)
   const t = useTranslations()
 
-  // 检查 streaming 状态（仅在 streaming 时轮询，结束后停止）
+  // 显示预览的通用函数
+  const showPreviewPopup = useCallback(() => {
+    if (!popupId || !buttonRef.current) return
+
+    const popupData = getPopup(popupId)
+    if (!popupData?.content) return
+
+    // 单实例：关闭其他预览
+    if (currentPreviewPopupId && currentPreviewPopupId !== popupId) {
+      // 触发其他组件关闭（通过自定义事件）
+      window.dispatchEvent(new CustomEvent('ai-popup-close', { detail: currentPreviewPopupId }))
+    }
+    currentPreviewPopupId = popupId
+
+    const rect = buttonRef.current.getBoundingClientRect()
+    const popupWidth = 256  // w-64 = 16rem = 256px
+    const popupHeight = 250 // 大约高度（header + max-h-48 + padding）
+    const padding = 8       // 距离屏幕边缘的最小间距
+
+    // 计算初始位置
+    let top = rect.bottom + 4
+    let left = rect.left
+
+    // 检查右边界
+    if (left + popupWidth > window.innerWidth - padding) {
+      left = window.innerWidth - popupWidth - padding
+    }
+    // 检查左边界
+    if (left < padding) {
+      left = padding
+    }
+
+    // 检查下边界：如果下方空间不够，显示在上方
+    if (top + popupHeight > window.innerHeight - padding) {
+      top = rect.top - popupHeight - 4
+      // 如果上方也不够，就显示在下方但允许滚动
+      if (top < padding) {
+        top = rect.bottom + 4
+      }
+    }
+
+    setPopupPosition({ top, left })
+    setPreviewContent(popupData.content)
+    setActionName(popupData.actionName || '')
+    setTargetText(popupData.targetText || '')
+    setStoredPrompt(popupData.prompt || '')
+    setStoredDocTitle(popupData.documentTitle)
+    setShowPreview(true)
+  }, [popupId])
+
+  // 预加载 popup 数据到缓存
+  useEffect(() => {
+    if (popupId) {
+      preloadPopup(popupId)
+    }
+  }, [popupId])
+
+  // 监听其他组件的关闭事件
+  useEffect(() => {
+    const handleClose = (e: Event) => {
+      const closePopupId = (e as CustomEvent).detail
+      if (closePopupId === popupId) {
+        setShowPreview(false)
+        setHasMouseEntered(false)
+      }
+    }
+    window.addEventListener('ai-popup-close', handleClose)
+    return () => window.removeEventListener('ai-popup-close', handleClose)
+  }, [popupId])
+
+  // 检查 streaming 状态，streaming 结束后自动显示预览
   useEffect(() => {
     if (!popupId) return
 
     const checkStreaming = () => {
       const popupData = getPopup(popupId)
       const streaming = popupData?.isStreaming ?? false
+      const hasContent = !!popupData?.content
+
+      // 检测 streaming 从 true 变为 false（完成）
+      if (wasStreamingRef.current && !streaming && hasContent) {
+        // streaming 完成，自动显示预览
+        setHasMouseEntered(false) // 重置鼠标状态
+        showPreviewPopup()
+      }
+
+      wasStreamingRef.current = streaming
       setIsStreaming(streaming)
 
-      // streaming 结束后停止轮询
-      if (!streaming && streamingCheckRef.current) {
+      // 有内容且 streaming 结束后停止轮询
+      if (hasContent && !streaming && streamingCheckRef.current) {
         clearInterval(streamingCheckRef.current)
         streamingCheckRef.current = null
       }
@@ -54,22 +145,20 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
 
     // 初始检查
     const popupData = getPopup(popupId)
-    const initialStreaming = popupData?.isStreaming ?? false
-    setIsStreaming(initialStreaming)
+    wasStreamingRef.current = popupData?.isStreaming ?? false
+    setIsStreaming(wasStreamingRef.current)
 
-    // 仅在 streaming 时启动定期检查
-    if (initialStreaming) {
-      streamingCheckRef.current = setInterval(checkStreaming, STREAMING_CHECK_INTERVAL_MS)
-    }
+    // 启动定期检查（会在 streaming 完成后自动停止）
+    streamingCheckRef.current = setInterval(checkStreaming, STREAMING_CHECK_INTERVAL_MS)
 
     return () => {
       if (streamingCheckRef.current) {
         clearInterval(streamingCheckRef.current)
       }
     }
-  }, [popupId])
+  }, [popupId, showPreviewPopup])
 
-  // Cleanup timers on unmount
+  // Cleanup timers and listeners on unmount
   useEffect(() => {
     return () => {
       if (hoverTimerRef.current) {
@@ -78,8 +167,18 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
       if (hideTimerRef.current) {
         clearTimeout(hideTimerRef.current)
       }
+      // Clean up retry stream listener
+      if (retryCleanupRef.current) {
+        retryCleanupRef.current()
+        retryCleanupRef.current = null
+        window.electron.chat.releaseReconnect()
+      }
+      // 清理单实例状态
+      if (currentPreviewPopupId === popupId) {
+        currentPreviewPopupId = null
+      }
     }
-  }, [])
+  }, [popupId])
 
   const handleMouseEnter = useCallback(() => {
     // Cancel any pending hide
@@ -90,42 +189,42 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
 
     if (!popupId) return
 
-    // If already showing, don't restart timer
-    if (showPreview) return
+    // 如果预览已显示，标记鼠标已进入
+    if (showPreview) {
+      setHasMouseEntered(true)
+      return
+    }
 
+    // hover 延迟显示
     hoverTimerRef.current = setTimeout(() => {
-      const popupData = getPopup(popupId)
-      if (popupData?.content && buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect()
-        setPopupPosition({
-          top: rect.bottom + 4,
-          left: rect.left
-        })
-        setPreviewContent(popupData.content)
-        setActionName(popupData.actionName || '')
-        setTargetText(popupData.context?.targetText || '')
-        setShowPreview(true)
-      }
+      setHasMouseEntered(true)
+      showPreviewPopup()
     }, HOVER_DELAY_MS)
-  }, [popupId, showPreview])
+  }, [popupId, showPreview, showPreviewPopup])
 
   const handleMouseLeave = useCallback(() => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current)
       hoverTimerRef.current = null
     }
+
+    // 只有鼠标进入过才会在离开时隐藏
+    if (!hasMouseEntered) return
+
     // Delay hide to allow mouse to move to preview
     hideTimerRef.current = setTimeout(() => {
       setShowPreview(false)
+      setHasMouseEntered(false)
+      if (currentPreviewPopupId === popupId) {
+        currentPreviewPopupId = null
+      }
     }, HIDE_DELAY_MS)
-  }, [])
+  }, [hasMouseEntered, popupId])
 
   const handleDelete = useCallback(() => {
     if (popupId) {
       // Delete popup data from storage
       deletePopup(popupId)
-      // Close popup window if open
-      window.electron.popup.close(popupId)
     }
     // Delete the node
     deleteNode()
@@ -137,6 +236,100 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
       setShowPreview(false)
     }
   }, [targetText, previewContent])
+
+  // 复制内容
+  const handleCopy = useCallback(async () => {
+    if (!previewContent) return
+    try {
+      await navigator.clipboard.writeText(previewContent)
+      toast(t.ai.copied, { type: 'success' })
+    } catch {
+      toast(t.ai.copyFailed, { type: 'error' })
+    }
+  }, [previewContent, t])
+
+  // 重试：重新生成内容
+  const handleRetry = useCallback(async () => {
+    if (!popupId || !storedPrompt || !targetText || isStreaming) return
+
+    // Clean up any existing retry stream
+    if (retryCleanupRef.current) {
+      retryCleanupRef.current()
+      retryCleanupRef.current = null
+    }
+
+    // 清空当前内容，开始 streaming
+    setPreviewContent('')
+    setIsStreaming(true)
+    updatePopupContent(popupId, '')
+    updatePopupStreaming(popupId, true)
+
+    const streamId = popupId
+    let accumulated = ''
+
+    try {
+      await window.electron.chat.acquireReconnect()
+
+      const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
+        if (sid !== streamId) return
+        const event = rawEvent as { type: string; content?: string }
+
+        if (event.type === 'text' && event.content) {
+          accumulated += event.content
+          setPreviewContent(accumulated)
+          updatePopupContent(popupId, accumulated)
+        }
+
+        if (event.type === 'done' || event.type === 'error') {
+          setIsStreaming(false)
+          updatePopupStreaming(popupId, false) // This will also flush content to database
+          retryCleanupRef.current = null
+          cleanup()
+          window.electron.chat.releaseReconnect()
+        }
+      })
+
+      // Store cleanup ref for unmount handling
+      retryCleanupRef.current = cleanup
+
+      // 构建 AI 上下文
+      const context: AIContext = {
+        target: targetText,
+        targetMarkdown: targetText,
+        targetFrom: 0,
+        targetTo: 0,
+        before: '',
+        after: '',
+        documentTitle: storedDocTitle,
+        hasSelection: true,
+        isCrossBlock: false,
+        blocks: []
+      }
+
+      const { prompt: fullPrompt } = formatAIPrompt(context, storedPrompt)
+      await window.electron.chat.stream({
+        streamId,
+        agentId: 'writing',
+        messages: [{ role: 'user', content: fullPrompt }]
+      })
+    } catch {
+      setIsStreaming(false)
+      updatePopupStreaming(popupId, false)
+      retryCleanupRef.current = null
+      window.electron.chat.releaseReconnect()
+      toast(t.ai.connectionFailed, { type: 'error' })
+    }
+  }, [popupId, storedPrompt, targetText, storedDocTitle, isStreaming, t])
+
+  // 删除 popup 及图标
+  const handleDeletePopup = useCallback(() => {
+    setShowPreview(false)
+    setHasMouseEntered(false)
+    if (currentPreviewPopupId === popupId) {
+      currentPreviewPopupId = null
+    }
+    handleDelete()
+  }, [popupId, handleDelete])
 
   return (
     <NodeViewWrapper
@@ -154,7 +347,7 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
             handleDelete()
           }
         }}
-        className={`inline-flex items-center justify-center w-3 h-3 text-[var(--color-accent)] align-middle mx-1 ${isStreaming ? 'animate-pulse' : ''}`}
+        className={`inline-flex items-center justify-center w-4 h-4 p-0.5 text-[var(--color-accent)] align-middle mx-0.5 rounded transition-all ${isStreaming ? 'animate-pulse' : ''} ${showPreview ? 'bg-blue-500/20' : ''}`}
         contentEditable={false}
       >
         <Sparkles size={10} strokeWidth={1.5} />
@@ -168,16 +361,40 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
-          {/* Action name header */}
-          {actionName && (
-            <div className="px-3 pt-2 pb-1 text-xs font-medium text-[var(--color-muted)] border-b border-[var(--color-border)]">
-              {actionName}
+          {/* Header with action name and buttons */}
+          <div className="flex items-center justify-between px-3 pt-2 pb-1 border-b border-[var(--color-border)]">
+            <span className="text-xs font-medium text-[var(--color-muted)] truncate">
+              {actionName || t.ai.result}
+            </span>
+            <div className="flex items-center gap-0.5 ml-2">
+              <button
+                onClick={handleCopy}
+                className="p-1.5 rounded text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] transition-colors"
+                title={t.contextMenu.copy}
+              >
+                <Copy size={12} />
+              </button>
+              <button
+                onClick={handleRetry}
+                disabled={isStreaming}
+                className={`p-1.5 rounded text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] transition-colors ${isStreaming ? 'opacity-50 cursor-not-allowed animate-spin' : ''}`}
+                title={t.ai.retry}
+              >
+                <RefreshCw size={12} />
+              </button>
+              <button
+                onClick={handleDeletePopup}
+                className="p-1.5 rounded text-[var(--color-muted)] hover:text-red-500 hover:bg-[var(--color-hover)] transition-colors"
+                title={t.ai.delete}
+              >
+                <Trash2 size={12} />
+              </button>
             </div>
-          )}
+          </div>
 
           {/* Scrollable content area */}
           <div
-            className={`max-h-48 overflow-y-auto overflow-x-hidden ${actionName ? 'pt-2' : 'pt-3'} pb-3 pl-3 pr-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-[var(--color-border)] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent`}
+            className="max-h-48 overflow-y-auto overflow-x-hidden pt-2 pb-3 pl-3 pr-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-[var(--color-border)] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
           >
             <div className={`ai-popup-preview ${AI_POPUP_PREVIEW_PROSE}`}>
               <Streamdown remarkPlugins={REMARK_PLUGINS}>

@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, ReactNode } from 'react'
-import { Language, Translations, getTranslations } from './translations'
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { Language, Translations, getTranslations, getSystemLanguage } from './translations'
+import { useTheme, themes } from '../theme'
 
 interface I18nContextType {
   language: Language
@@ -12,6 +13,8 @@ const I18nContext = createContext<I18nContextType | null>(null)
 const STORAGE_KEY = 'sanqian-notes-language'
 
 export function I18nProvider({ children }: { children: ReactNode }) {
+  const { resolvedColorMode, themeColor, fontSize } = useTheme()
+
   const [language, setLanguageState] = useState<Language>(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'zh' || stored === 'en' || stored === 'system') {
@@ -20,10 +23,22 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return 'system'
   })
 
-  const setLanguage = (lang: Language) => {
+  const setLanguage = useCallback((lang: Language) => {
     setLanguageState(lang)
     localStorage.setItem(STORAGE_KEY, lang)
-  }
+
+    // Sync locale to main process (for chat window)
+    // Use theme values from useTheme() - consistent with ThemeProvider's sync
+    const resolvedLocale: 'en' | 'zh' = lang === 'system' ? getSystemLanguage() : lang
+    const accentColor = themes[themeColor]?.accent || '#2563EB'
+
+    window.electron?.theme?.sync?.({
+      colorMode: resolvedColorMode,
+      accentColor,
+      locale: resolvedLocale,
+      fontSize
+    })
+  }, [resolvedColorMode, themeColor, fontSize])
 
   const t = getTranslations(language)
 

@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { TrashList } from './components/TrashList'
 import { Editor, type EditorHandle } from './components/Editor'
+import { EditorErrorBoundary } from './components/ErrorBoundary'
 import { Settings } from './components/Settings'
 import { NotebookModal } from './components/NotebookModal'
 import { TypewriterMode } from './components/TypewriterMode'
@@ -881,6 +882,7 @@ function AppContent() {
           onMoveToNotebook={handleMoveToNotebook}
           notebooks={notebooks}
           isSidebarCollapsed={isSidebarCollapsed}
+          showCreateButton={selectedSmartView !== 'favorites'}
         />
       )}
 
@@ -889,30 +891,34 @@ function AppContent() {
         // Empty placeholder for trash view (same background as editor)
         <div className="flex-1 bg-[var(--color-card-solid)]" />
       ) : !isTypewriterMode ? (
-        <Editor
-          ref={editorRef}
-          note={selectedNote}
-          notes={notes}
-          onUpdate={handleUpdateNote}
-          onNoteClick={handleNoteClick}
-          onCreateNote={handleCreateNoteFromLink}
-          scrollTarget={scrollTarget}
-          onScrollComplete={handleScrollComplete}
-          onTypewriterModeToggle={handleToggleTypewriter}
-        />
+        <EditorErrorBoundary key={selectedNote?.id}>
+          <Editor
+            ref={editorRef}
+            note={selectedNote}
+            notes={notes}
+            onUpdate={handleUpdateNote}
+            onNoteClick={handleNoteClick}
+            onCreateNote={handleCreateNoteFromLink}
+            scrollTarget={scrollTarget}
+            onScrollComplete={handleScrollComplete}
+            onTypewriterModeToggle={handleToggleTypewriter}
+          />
+        </EditorErrorBoundary>
       ) : null}
 
       {/* Typewriter Mode - 全屏覆盖层 */}
       {isTypewriterMode && selectedNote && (
-        <TypewriterMode
-          note={selectedNote}
-          notes={notes}
-          onUpdate={handleUpdateNote}
-          onNoteClick={handleNoteClick}
-          onCreateNote={handleCreateNoteFromLink}
-          onExit={handleExitTypewriter}
-          initialCursorInfo={typewriterCursorInfo}
-        />
+        <EditorErrorBoundary key={`typewriter-${selectedNote.id}`}>
+          <TypewriterMode
+            note={selectedNote}
+            notes={notes}
+            onUpdate={handleUpdateNote}
+            onNoteClick={handleNoteClick}
+            onCreateNote={handleCreateNoteFromLink}
+            onExit={handleExitTypewriter}
+            initialCursorInfo={typewriterCursorInfo}
+          />
+        </EditorErrorBoundary>
       )}
 
       {/* Settings Modal */}

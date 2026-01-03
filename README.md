@@ -2860,3 +2860,122 @@ npm run test:coverage # 覆盖率报告
 - 删除图标 = 关闭窗口 + 清除存储
 - Popup 窗口支持拖拽标题栏、ESC 关闭
 - 流式内容更新通过 IPC 推送
+
+
+### 2025-12-31 Chat UI 组件迁移至 @yushaw/sanqian-chat
+
+**核心变更：将本地 chat-ui 库迁移到 @yushaw/sanqian-chat 包**
+
+**Phase 1 - sanqian-chat 包增强：**
+- 添加 peer dependencies: streamdown, remark-gfm, rehype-harden
+- 创建 CSS 变量文件 (`src/renderer/styles/variables.css`)
+- 迁移组件: AlertBanner, ToolArgumentsDisplay, MarkdownRenderer
+- 迁移 hooks: useConnection, useConversations  
+- 迁移核心组件: IntermediateSteps, StreamingTimeline, ThinkingSection, HitlCard, HistoryList
+- 创建 CompactChat 集成组件
+- 更新导出 (index.ts) 统一暴露所有组件和 hooks
+
+**Phase 2 - notes 项目切换：**
+- 添加 `@yushaw/sanqian-chat` 依赖 (`file:../sanqian/packages/chat`)
+- 修改 `AIChatDialog.tsx` 使用 `@yushaw/sanqian-chat/renderer` 的 CompactChat
+- 保留本地 electron adapter (notes 特定的 IPC 桥接)
+- 保留本地 CSS variables.css (包含 prose 覆盖等实用类)
+- 删除本地冗余目录: components, hooks, primitives, renderers, core
+
+**文件变更：**
+- `package.json` - 添加 @yushaw/sanqian-chat 依赖
+- `src/renderer/src/components/AIChatDialog.tsx` - 导入改为 sanqian-chat
+- `src/renderer/src/lib/chat-ui/adapters/*.ts` - 类型导入改为 sanqian-chat
+- 删除 `src/renderer/src/lib/chat-ui/{components,hooks,primitives,renderers,core,index.ts}`
+
+### 2025-12-31 独立聊天窗口与样式修复
+
+**核心变更：创建独立浮动聊天窗口，修复样式覆盖问题**
+
+**问题修复：**
+1. `destroyCurrentPopup is not defined` 错误 - 改用正确的 `destroyChatWindow()` 函数
+2. 输入框/消息气泡样式被 `!important` 覆盖 - 删除旧的 `lib/chat-ui` 目录，统一使用 SDK 样式
+3. WebSocket 连接超时 - 增加重试次数至 10 次，使用指数退避 (1.5s base, 5s max)
+
+**消息气泡样式同步（SDK 与 sanqian 一致）：**
+- 用户消息: `rounded-2xl shadow-sm bg-[var(--chat-accent)] text-white px-4 py-3`
+- AI 消息: 无背景色，`text-[var(--chat-text)]`，内容包裹 `prose prose-chat dark:prose-invert max-w-none px-3`
+
+**文件变更：**
+- `src/main/index.ts` - 修复 destroyCurrentPopup -> destroyChatWindow
+- `src/main/chat-window.ts` - 新增独立聊天窗口管理
+- `src/preload/chat.ts` - 新增聊天窗口 preload API
+- `src/renderer/chat.html` - 新增聊天窗口入口
+- `src/renderer/src/chat/ChatWindow.tsx` - 独立聊天窗口组件，带重试逻辑
+- `src/renderer/src/main.tsx` - 导入 SDK 样式 `@yushaw/sanqian-chat/renderer/styles/variables.css`
+- 删除 `src/renderer/src/lib/chat-ui/` - 移除旧的本地 chat-ui 库
+
+### 2026-01-02 AI Popup 数据持久化改用 SQLite
+
+**核心变更：AI Popup 内容从 localStorage 迁移到 SQLite 数据库**
+
+**问题：**
+- 之前 popup 内容存储在 localStorage，重启应用后可能丢失
+- localStorage 不够可靠，可能被用户清理或在开发环境切换时重置
+
+**解决方案：**
+- 新增 `ai_popups` 表存储 popup 数据
+- 数据独立于笔记内容，不影响搜索索引
+- Streaming 状态保持在内存中（临时 UI 状态）
+- 内容在 streaming 结束时自动刷新到数据库
+
+**新增文件/改动：**
+- `src/main/database.ts` - 新增 ai_popups 表和 CRUD 函数
+- `src/main/index.ts` - 新增 popup IPC handlers
+- `src/preload/index.ts` - 暴露 popup API
+- `src/shared/types.ts` - 新增 PopupData/PopupInput 类型
+- `src/renderer/src/utils/popupStorage.ts` - 重写为 IPC 调用 + 内存缓存
+- `src/renderer/src/env.d.ts` - 更新 popup 类型定义
+- `src/renderer/src/components/AIPopupMarkView.tsx` - 适配新 API
+
+---
+
+### 2026-01-01 SDK Facade 层重构
+
+**核心变更：sanqian-chat 实现 Facade 模式封装 SDK，Notes 只依赖 sanqian-chat**
+
+**架构优化：**
+- 新增 `SanqianAppClient` 类作为 SDK Facade，提供稳定的应用层 API
+- sanqian-chat 将 sanqian-sdk 作为内部依赖（非 peerDependency）
+- Notes 移除对 @yushaw/sanqian-sdk 的直接依赖
+- 解决了 SDK 重导出导致的类型冲突（ChatMessage, ToolCall 等）
+
+**新增 Facade API：**
+```typescript
+import { SanqianAppClient, type AppConfig } from '@yushaw/sanqian-chat/main'
+
+const client = new SanqianAppClient({
+  appName: 'my-app',
+  appVersion: '1.0.0',
+  tools: [...]
+})
+```
+
+**sanqian-chat 文件变更：**
+- `src/core/index.ts` - 移除 SDK 重导出
+- `src/main/types.ts` - 新增 AppConfig, AppToolDefinition 等 Facade 类型
+- `src/main/client.ts` - 新增 SanqianAppClient 实现
+- `src/main/index.ts` - 导出 Facade 类和类型
+- `src/main/FloatingWindow.ts` - 支持 getClient 选项
+
+**Notes 文件变更：**
+- `package.json` - 移除 @yushaw/sanqian-sdk 依赖
+- `src/main/sanqian-sdk.ts` - 改用 SanqianAppClient，类型改为 App* 前缀
+- `src/main/index.ts` - IPC handlers 直接使用 Facade 方法 (chatStream, listConversations 等)
+- `.npmrc` - 添加 `shamefully-hoist=true` 解决 pnpm 依赖提升问题
+
+**SanqianAppClient 完整 API：**
+- 连接管理: connect, disconnect, isConnected, ensureReady
+- 重连控制: acquireReconnect, releaseReconnect
+- Agent: createAgent
+- Chat: chatStream, sendHitlResponse
+- 会话: listConversations, getConversation, deleteConversation
+- 事件: on, removeAllListeners
+- Embedding: getEmbeddingConfig
+
+**验证通过：** 连接、注册、Agent 同步均正常工作

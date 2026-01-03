@@ -6,6 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import {
   initDatabase,
+  closeDatabase,
   getNotes,
   getNoteById,
   getNotesByIds,
@@ -38,6 +39,13 @@ import {
   reorderAIActions,
   resetAIActionsToDefaults,
   type AIActionInput,
+  // AI Popups
+  getPopup,
+  createPopup,
+  updatePopupContent,
+  deletePopup,
+  cleanupPopups,
+  type PopupInput,
 } from './database'
 import {
   saveAttachment,
@@ -60,6 +68,8 @@ import {
   releaseReconnect,
   setOnSdkDataChange,
   stopSanqianSDK,
+  getClient,
+  getAssistantAgentId,
 } from './sanqian-sdk'
 import {
   getSanqianApiUrl,
@@ -87,6 +97,7 @@ import {
   type ResolvedLanguage,
   translations
 } from '../renderer/src/i18n/translations'
+import { FloatingWindow } from '@yushaw/sanqian-chat/main'
 
 // ============ Custom Protocol ============
 
@@ -106,68 +117,6 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
-
-// ============ Popup Window Management (单实例模式) ============
-interface PopupWindowInfo {
-  window: BrowserWindow
-  popupId: string
-}
-// 单实例：一次只有一个 popup 窗口
-let currentPopup: PopupWindowInfo | null = null
-
-// 记住弹窗位置（百分比 + 屏幕 ID）
-interface PopupPosition {
-  // 相对于屏幕的百分比位置
-  xPercent: number  // 0-1
-  yPercent: number  // 0-1
-  width: number
-  height: number
-  displayId: number  // 屏幕 ID
-}
-let savedPopupPosition: PopupPosition | null = null
-
-// 保存 popup 窗口位置
-function savePopupPosition(win: BrowserWindow): void {
-  const bounds = win.getBounds()
-  const display = screen.getDisplayMatching(bounds)
-  const workArea = display.workArea
-
-  savedPopupPosition = {
-    xPercent: (bounds.x - workArea.x) / workArea.width,
-    yPercent: (bounds.y - workArea.y) / workArea.height,
-    width: bounds.width,
-    height: bounds.height,
-    displayId: display.id
-  }
-}
-
-// 获取恢复的 popup 窗口位置
-function getRestoredPopupPosition(): { x: number; y: number; width: number; height: number } | null {
-  if (!savedPopupPosition) return null
-
-  // 查找保存的屏幕
-  const displays = screen.getAllDisplays()
-  let targetDisplay = displays.find(d => d.id === savedPopupPosition!.displayId)
-
-  // 如果找不到原来的屏幕，使用主屏幕
-  if (!targetDisplay) {
-    targetDisplay = screen.getPrimaryDisplay()
-  }
-
-  const workArea = targetDisplay.workArea
-
-  // 根据百分比计算绝对位置
-  const x = Math.round(workArea.x + savedPopupPosition.xPercent * workArea.width)
-  const y = Math.round(workArea.y + savedPopupPosition.yPercent * workArea.height)
-
-  // 确保窗口在屏幕内
-  const width = Math.min(savedPopupPosition.width, workArea.width)
-  const height = Math.min(savedPopupPosition.height, workArea.height)
-  const clampedX = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - width))
-  const clampedY = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - height))
-
-  return { x: clampedX, y: clampedY, width, height }
-}
 
 // ============ Auto Updater State ============
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
@@ -219,12 +168,19 @@ function setUserContext(context: Partial<UserContext>): void {
 }
 
 function sendUpdateStatus(): void {
-  mainWindow?.webContents.send('updater:status', {
-    status: updateStatus,
-    version: updateVersion,
-    progress: updateProgress,
-    error: updateError
-  })
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.webContents.send('updater:status', {
+        status: updateStatus,
+        version: updateVersion,
+        progress: updateProgress,
+        error: updateError
+      })
+    } catch (err) {
+      // Window may be closing, ignore send errors
+      console.warn('[Updater] Failed to send status:', err)
+    }
+  }
 }
 
 function setupAutoUpdater(): void {
@@ -292,13 +248,21 @@ function setupAutoUpdater(): void {
   })
 }
 
-// ============ Active Streams Management ============
-// Track active chat streams for cancellation support
-interface ActiveStream {
-  abortController: AbortController
-  webContents: Electron.WebContents
+// ============ FloatingWindow for Chat ============
+let floatingChatWindow: FloatingWindow | null = null
+
+// ============ Theme Settings (synced from main window) ============
+let currentThemeSettings: {
+  colorMode: 'light' | 'dark'
+  accentColor: string
+  locale: 'en' | 'zh'
+  fontSize?: 'small' | 'normal' | 'large' | 'extra-large'
+} = {
+  colorMode: 'light',
+  accentColor: '#2563EB', // default cobalt
+  locale: 'en',
+  fontSize: 'normal'
 }
-const activeStreams = new Map<string, ActiveStream>()
 
 // ============ Language Settings ============
 let currentLanguage: Language = 'system'
@@ -612,21 +576,8 @@ function createWindow(): void {
   const initialBgColor = isDarkMode ? '#1F1F1F' : '#FFFFFF'
   const initialTextColor = isDarkMode ? '#ffffff' : '#1D1D1F'
 
-  // Listen for theme changes to update titlebar overlay
-  nativeTheme.on('updated', () => {
-    if (mainWindow && process.platform === 'win32') {
-      const dark = nativeTheme.shouldUseDarkColors
-      try {
-        mainWindow.setTitleBarOverlay({
-          color: dark ? '#1F1F1F' : '#FFFFFF',
-          symbolColor: dark ? '#ffffff' : '#1D1D1F',
-          height: 40
-        })
-      } catch (err) {
-        console.error('Failed to update title bar overlay on theme change:', err)
-      }
-    }
-  })
+  // Note: nativeTheme listener is registered at app level to avoid duplicates
+  // See the consolidated listener near ipcMain.handle('theme:get')
 
   // macOS specific options
   if (process.platform === 'darwin') {
@@ -679,6 +630,11 @@ function createWindow(): void {
     }
   })
 
+  // Clear mainWindow reference when actually destroyed
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
   mainWindow.on('resize', () => {
     if (mainWindow && !mainWindow.isMaximized()) {
       saveWindowState(mainWindow)
@@ -710,141 +666,6 @@ function createWindow(): void {
 
   // Set mainWindow for indexing service (must be after mainWindow is created)
   indexingService.setMainWindow(mainWindow)
-}
-
-// ============ Popup Window ============
-
-interface PopupWindowOptions {
-  x?: number
-  y?: number
-  width?: number
-  height?: number
-  prompt?: string
-  context?: { targetText: string; documentTitle?: string }
-}
-
-function createPopupWindow(popupId: string, options: PopupWindowOptions = {}): BrowserWindow {
-  // 单实例模式：关闭已存在的 popup 窗口
-  if (currentPopup) {
-    // 如果是同一个 popupId，只需要 focus
-    if (currentPopup.popupId === popupId) {
-      currentPopup.window.show()
-      currentPopup.window.focus()
-      return currentPopup.window
-    }
-    // 保存旧窗口位置后销毁
-    savePopupPosition(currentPopup.window)
-    currentPopup.window.destroy()
-    currentPopup = null
-  }
-
-  const isDarkMode = nativeTheme.shouldUseDarkColors
-  const bgColor = isDarkMode ? '#1F1F1F' : '#FFFFFF'
-
-  // 优先使用保存的位置，否则使用传入的位置
-  const restoredPos = getRestoredPopupPosition()
-
-  const windowOptions: Electron.BrowserWindowConstructorOptions = {
-    width: restoredPos?.width || options.width || 400,
-    height: restoredPos?.height || options.height || 320,
-    minWidth: 280,
-    minHeight: 200,
-    x: restoredPos?.x ?? options.x,
-    y: restoredPos?.y ?? options.y,
-    // 不设置 parent，让窗口完全独立，不跟随主窗口移动
-    modal: false,
-    show: false,
-    backgroundColor: bgColor,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  }
-
-  // Platform specific styling
-  if (process.platform === 'darwin') {
-    Object.assign(windowOptions, {
-      titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 12, y: 12 },
-      vibrancy: 'window',
-      transparent: true
-    })
-  } else if (process.platform === 'win32') {
-    Object.assign(windowOptions, {
-      frame: true,
-      titleBarStyle: 'hidden',
-      titleBarOverlay: {
-        color: bgColor,
-        symbolColor: isDarkMode ? '#ffffff' : '#1D1D1F',
-        height: 32
-      }
-    })
-  } else {
-    Object.assign(windowOptions, {
-      frame: true
-    })
-  }
-
-  const popupWindow = new BrowserWindow(windowOptions)
-
-  // Store window reference (单实例)
-  currentPopup = { window: popupWindow, popupId }
-
-  // Load popup page with popupId as query parameter
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    popupWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/popup.html?popupId=${popupId}`)
-  } else {
-    popupWindow.loadFile(join(__dirname, '../renderer/popup.html'), {
-      query: { popupId }
-    })
-  }
-
-  popupWindow.once('ready-to-show', () => {
-    popupWindow.show()
-  })
-
-  // 保存位置：移动、调整大小、隐藏时
-  popupWindow.on('moved', () => {
-    savePopupPosition(popupWindow)
-  })
-  popupWindow.on('resized', () => {
-    savePopupPosition(popupWindow)
-  })
-
-  // Handle close - hide instead of destroy
-  popupWindow.on('close', (event) => {
-    if (!isQuitting) {
-      event.preventDefault()
-      savePopupPosition(popupWindow)
-      popupWindow.hide()
-      // Notify main renderer that popup was closed (hidden)
-      mainWindow?.webContents.send('popup:closed', popupId)
-    }
-  })
-
-  // Clean up on destroy
-  popupWindow.on('closed', () => {
-    if (currentPopup?.popupId === popupId) {
-      currentPopup = null
-    }
-  })
-
-  return popupWindow
-}
-
-function closePopupWindow(popupId: string): void {
-  if (currentPopup?.popupId === popupId) {
-    savePopupPosition(currentPopup.window)
-    currentPopup.window.hide()
-    mainWindow?.webContents.send('popup:closed', popupId)
-  }
-}
-
-function destroyCurrentPopup(): void {
-  if (currentPopup) {
-    currentPopup.window.destroy()
-    currentPopup = null
-  }
 }
 
 // ============ Embedding Config Sync ============
@@ -966,6 +787,180 @@ app.whenReady().then(() => {
   // Start indexing service (mainWindow is set in createWindow)
   indexingService.start()
 
+  // Setup FloatingWindow for chat (using sanqian-chat package)
+  // Note: FloatingWindow provides its own IPC handlers (sanqian-chat:*)
+  const chatPreloadPath = join(__dirname, '../preload/chat.js')  // Chat-specific preload with sanqian-chat API
+  const chatRendererPath = is.dev && process.env['ELECTRON_RENDERER_URL']
+    ? `${process.env['ELECTRON_RENDERER_URL']}/chat.html`
+    : join(__dirname, '../renderer/chat.html')
+
+  const chatDevMode = is.dev && !!process.env['ELECTRON_RENDERER_URL']
+  floatingChatWindow = new FloatingWindow({
+    alwaysOnTop: true,
+    showInTaskbar: false,
+    position: 'remember',
+    getClient: () => getClient(),
+    getAgentId: () => getAssistantAgentId(),
+    preloadPath: chatPreloadPath,
+    rendererPath: chatRendererPath,
+    devMode: chatDevMode,
+  })
+
+  // Setup chatWindow IPC handlers (for main window to control chat window)
+  ipcMain.handle('chatWindow:show', () => {
+    floatingChatWindow?.show()
+    return { success: true }
+  })
+
+  ipcMain.handle('chatWindow:showWithContext', (_, context: string) => {
+    try {
+      floatingChatWindow?.show()
+      // Send context after window is ready
+      const win = floatingChatWindow?.getWindow()
+      if (!win || win.isDestroyed()) {
+        return { success: false, error: 'Chat window not available' }
+      }
+
+      if (win.webContents.isLoading()) {
+        // Window is still loading, wait for it to finish
+        win.webContents.once('did-finish-load', () => {
+          if (!win.isDestroyed()) {
+            try {
+              win.webContents.send('chatWindow:setContext', context)
+            } catch {
+              // Window may have been destroyed during load
+            }
+          }
+        })
+      } else {
+        // Window is already loaded, send immediately
+        win.webContents.send('chatWindow:setContext', context)
+      }
+      return { success: true }
+    } catch (err) {
+      console.error('[ChatWindow] showWithContext failed:', err)
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    }
+  })
+
+  ipcMain.handle('chatWindow:hide', () => {
+    floatingChatWindow?.hide()
+    return { success: true }
+  })
+
+  ipcMain.handle('chatWindow:toggle', () => {
+    floatingChatWindow?.toggle()
+    return { success: true }
+  })
+
+  ipcMain.handle('chatWindow:isVisible', () => {
+    return floatingChatWindow?.isVisible() ?? false
+  })
+
+  // Theme sync: main window notifies theme changes, chat window retrieves settings
+  ipcMain.handle('theme:sync', (_, settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => {
+    currentThemeSettings = settings
+    // Notify chat window if open
+    const chatWin = floatingChatWindow?.getWindow()
+    if (chatWin && !chatWin.isDestroyed()) {
+      chatWin.webContents.send('theme:updated', settings)
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle('theme:getSettings', () => {
+    return currentThemeSettings
+  })
+
+  // Note: sanqian-chat:setAlwaysOnTop and sanqian-chat:getAlwaysOnTop
+  // are registered by FloatingWindow class internally
+
+  // ============ Chat API for AI actions (main window inline streaming) ============
+  // These handlers use SanqianAppClient directly for AI actions like popup explanations
+  const activeStreams = new Map<string, { cancel: () => void }>()
+
+  ipcMain.handle('chat:acquireReconnect', () => {
+    acquireReconnect()
+  })
+
+  ipcMain.handle('chat:releaseReconnect', () => {
+    releaseReconnect()
+  })
+
+  ipcMain.handle('chat:stream', async (event, params: {
+    streamId: string
+    messages: Array<{ role: string; content: string }>
+    conversationId?: string
+    agentId?: string
+  }) => {
+    const client = getClient()
+    if (!client) {
+      return { success: false, error: 'Client not initialized' }
+    }
+
+    try {
+      // Ensure agent is ready (handles connection and agent sync)
+      const agentType = params.agentId === 'writing' ? 'writing' : 'assistant'
+      const { agentId } = await ensureAgentReady(agentType)
+
+      // Track if cancelled
+      let cancelled = false
+      activeStreams.set(params.streamId, {
+        cancel: () => { cancelled = true }
+      })
+
+      // Start streaming (AsyncGenerator)
+      // Only pass options if conversationId is provided (stateful mode)
+      // For stateless mode (AI actions), don't pass options at all
+      const stream = params.conversationId
+        ? client.chatStream(agentId, params.messages as Array<{ role: 'user' | 'assistant'; content: string }>, {
+            conversationId: params.conversationId
+          })
+        : client.chatStream(agentId, params.messages as Array<{ role: 'user' | 'assistant'; content: string }>)
+
+      // Process stream events in background
+      ;(async () => {
+        try {
+          for await (const streamEvent of stream) {
+            if (cancelled) break
+            // Check if webContents is still valid before sending
+            if (event.sender.isDestroyed()) {
+              break
+            }
+            // Forward event to renderer
+            event.sender.send('chat:streamEvent', { streamId: params.streamId, event: streamEvent })
+          }
+        } catch (err) {
+          if (!cancelled && !event.sender.isDestroyed()) {
+            event.sender.send('chat:streamEvent', {
+              streamId: params.streamId,
+              event: { type: 'error', error: err instanceof Error ? err.message : 'Stream error' }
+            })
+          }
+        } finally {
+          // Always clean up stream entry
+          activeStreams.delete(params.streamId)
+        }
+      })()
+
+      return { success: true }
+    } catch (error) {
+      // Clean up activeStreams if stream creation failed
+      activeStreams.delete(params.streamId)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  ipcMain.handle('chat:cancelStream', (_, params: { streamId: string }) => {
+    const stream = activeStreams.get(params.streamId)
+    if (stream) {
+      stream.cancel()
+      activeStreams.delete(params.streamId)
+      return { success: true }
+    }
+    return { success: false }
+  })
+
   // Initialize Sanqian SDK
   initializeSanqianSDK()
     .then(async () => {
@@ -1041,6 +1036,13 @@ app.whenReady().then(() => {
   ipcMain.handle('aiAction:delete', (_, id: string) => deleteAIAction(id))
   ipcMain.handle('aiAction:reorder', (_, orderedIds: string[]) => reorderAIActions(orderedIds))
   ipcMain.handle('aiAction:reset', () => resetAIActionsToDefaults())
+
+  // IPC handlers for AI popups
+  ipcMain.handle('popup:get', (_, id: string) => getPopup(id))
+  ipcMain.handle('popup:create', (_, input: PopupInput) => createPopup(input))
+  ipcMain.handle('popup:updateContent', (_, id: string, content: string) => updatePopupContent(id, content))
+  ipcMain.handle('popup:delete', (_, id: string) => deletePopup(id))
+  ipcMain.handle('popup:cleanup', (_, maxAgeDays?: number) => cleanupPopups(maxAgeDays))
 
   // IPC handlers for knowledge base (embedding)
   ipcMain.handle('knowledgeBase:getConfig', () => getEmbeddingConfig())
@@ -1119,286 +1121,25 @@ app.whenReady().then(() => {
     return cleanupOrphanAttachments(usedPaths)
   })
 
-  // ============ Chat IPC Handlers ============
-  //
-  // Connection management follows TodoList's pattern:
-  // - connect/disconnect: control actual SDK connection
-  // - acquireReconnect/releaseReconnect: control auto-reconnect behavior (reference counted)
-  //
-  // Usage pattern:
-  // 1. When chat dialog opens: acquireReconnect() → connect()
-  // 2. When chat dialog closes: releaseReconnect() (connection stays alive)
-  // 3. Multiple components can acquire reconnect, SDK only disables auto-reconnect when all release
-
-  // Connect to Sanqian SDK and ensure agent is ready
-  ipcMain.handle('chat:connect', async () => {
-    try {
-      await ensureAgentReady('assistant')
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to connect'
-      }
-    }
-  })
-
-  // Disconnect from Sanqian SDK (no-op by design)
-  // Connection management is handled via acquireReconnect/releaseReconnect reference counting
-  // This handler exists for API completeness and future extensibility
-  ipcMain.handle('chat:disconnect', async () => {
-    try {
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to disconnect'
-      }
-    }
-  })
-
-  // Enable auto-reconnect (increments reference count)
-  ipcMain.handle('chat:acquireReconnect', () => {
-    try {
-      acquireReconnect()
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to acquire reconnect'
-      }
-    }
-  })
-
-  // Disable auto-reconnect (decrements reference count)
-  ipcMain.handle('chat:releaseReconnect', () => {
-    try {
-      releaseReconnect()
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to release reconnect'
-      }
-    }
-  })
-
-  // Chat: Stream
-  ipcMain.handle('chat:stream', async (event, params: {
-    streamId: string
-    messages: Array<{ role: string; content: string }>
-    conversationId?: string
-    agentId?: string
-  }) => {
-    const webContents = event.sender
-    const { streamId, messages, conversationId } = params
-    console.log(`[Chat] Stream request received:`, streamId)
-
-    // Cancel any existing stream with the same ID
-    const existingStream = activeStreams.get(streamId)
-    if (existingStream) {
-      console.log(`[Chat] Cancelling existing stream ${streamId}`)
-      existingStream.abortController.abort()
-      activeStreams.delete(streamId)
-    }
-
-    // Create abort controller for this stream
-    const abortController = new AbortController()
-    activeStreams.set(streamId, { abortController, webContents })
-
-    try {
-      // Determine which agent to use (default to assistant)
-      const agentType = params.agentId?.includes('writing') ? 'writing' : 'assistant'
-      console.log(`[Chat] Getting agent:`, agentType)
-      const { sdk, agentId } = await ensureAgentReady(agentType)
-      console.log(`[Chat] Agent ready:`, agentId)
-
-      // Start streaming
-      // Note: SDK's chatStream doesn't support AbortSignal, so we check manually in the loop
-      console.log(`[Chat] Starting chatStream for:`, streamId)
-      const stream = sdk.chatStream(
-        agentId,
-        messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-        conversationId ? { conversationId } : undefined
-      )
-      console.log(`[Chat] Stream created, entering event loop`)
-
-      // Forward events to renderer
-      let eventCount = 0
-      for await (const streamEvent of stream) {
-        eventCount++
-        if (eventCount % 10 === 1) {
-          console.log(`[Chat] Stream event #${eventCount}:`, streamEvent.type)
-        }
-        // Check if stream was cancelled
-        if (abortController.signal.aborted) {
-          console.log(`[Chat] Stream ${streamId} cancelled by user`)
-          // Send cancellation event to renderer
-          if (!webContents.isDestroyed()) {
-            webContents.send('chat:streamEvent', streamId, {
-              type: 'done',
-              reason: 'cancelled'
-            })
-          }
-          break
-        }
-
-        // Check if webContents is still valid before sending
-        if (!webContents.isDestroyed()) {
-          // Convert SDK format to standard StreamEvent format
-          // SDK sends: { type: "chat_stream", event: "thinking", content: "..." }
-          // We need: { type: "thinking", content: "..." }
-          const sdkEvent = streamEvent as any
-          let convertedEvent: any
-
-          if (sdkEvent.type === 'chat_stream' && sdkEvent.event) {
-            // Extract event type from SDK format
-            convertedEvent = { ...sdkEvent, type: sdkEvent.event }
-            delete convertedEvent.event
-            delete convertedEvent.id // Remove SDK message id
-          } else {
-            // Already in standard format (done, error, etc.)
-            convertedEvent = streamEvent
-          }
-
-          webContents.send('chat:streamEvent', streamId, convertedEvent)
-          if (eventCount % 20 === 1) {
-            console.log(`[Chat] Sent event to renderer:`, streamId, convertedEvent.type)
-          }
-        } else {
-          console.log('[Chat] WebContents destroyed, aborting stream')
-          // Actively abort the stream to stop iteration and free resources
-          abortController.abort()
-          activeStreams.delete(streamId)
-          break
-        }
-      }
-
-      // Clean up after stream completes
-      activeStreams.delete(streamId)
-      console.log(`[Chat] Stream ${streamId} completed successfully`)
-      return { success: true }
-    } catch (error) {
-      // Clean up on error
-      activeStreams.delete(streamId)
-
-      // Build detailed error info
-      const errorInfo = {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        code: (error as any).code,
-        stack: is.dev ? (error instanceof Error ? error.stack : undefined) : undefined,
-        name: error instanceof Error ? error.name : undefined,
-      }
-      console.error(`[Chat] Stream ${streamId} error:`, errorInfo)
-
-      // Send error event to renderer (check if webContents is still valid)
-      if (!webContents.isDestroyed()) {
-        webContents.send('chat:streamEvent', streamId, {
-          type: 'error',
-          error: errorInfo.message,
-          errorCode: errorInfo.code,
-          errorName: errorInfo.name,
-        })
-      }
-
-      return {
-        success: false,
-        error: errorInfo.message,
-        errorCode: errorInfo.code,
-        errorName: errorInfo.name,
-        // Only include stack in development mode
-        ...(is.dev && errorInfo.stack ? { stack: errorInfo.stack } : {}),
-      }
-    }
-  })
-
-  // Chat: Cancel Stream
-  ipcMain.handle('chat:cancelStream', async (_, params: { streamId: string }) => {
-    const stream = activeStreams.get(params.streamId)
-    if (stream) {
-      console.log(`[Chat] Cancelling stream ${params.streamId}`)
-      stream.abortController.abort()
-      activeStreams.delete(params.streamId)
-      return { success: true }
-    }
-    // Stream not found or already completed
-    return { success: true, message: 'Stream not found or already completed' }
-  })
-
-  // Chat: List Conversations
-  ipcMain.handle('chat:listConversations', async (_, params: {
-    limit?: number
-    offset?: number
-    agentId?: string
-  }) => {
-    try {
-      const agentType = params.agentId?.includes('writing') ? 'writing' : 'assistant'
-      const { sdk, agentId } = await ensureAgentReady(agentType)
-
-      const result = await sdk.listConversations({
-        agentId: agentId,
-        limit: params.limit,
-        offset: params.offset
-      })
-
-      return { success: true, data: result }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to list conversations'
-      }
-    }
-  })
-
-  // Chat: Get Conversation
-  ipcMain.handle('chat:getConversation', async (_, params: {
-    conversationId: string
-    messageLimit?: number
-  }) => {
-    try {
-      // Always use assistant agent for conversation history
-      const { sdk } = await ensureAgentReady('assistant')
-
-      const result = await sdk.getConversation(params.conversationId, {
-        messageLimit: params.messageLimit
-      })
-
-      return { success: true, data: result }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get conversation'
-      }
-    }
-  })
-
-  // Chat: Delete Conversation
-  ipcMain.handle('chat:deleteConversation', async (_, params: { conversationId: string }) => {
-    try {
-      // Always use assistant agent for conversation deletion
-      const { sdk } = await ensureAgentReady('assistant')
-
-      await sdk.deleteConversation(params.conversationId)
-
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete conversation'
-      }
-    }
-  })
-
-  // Chat: Send HITL Response
-  ipcMain.on('chat:hitlResponse', (_) => {
-    // HITL response is handled by SDK automatically via the stream
-    // This handler exists for future extensibility
-  })
-
   // Theme
   ipcMain.handle('theme:get', () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+  // Consolidated theme change listener (handles both renderer notification and Windows titlebar)
   nativeTheme.on('updated', () => {
-    mainWindow?.webContents.send('theme:changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+    const dark = nativeTheme.shouldUseDarkColors
+    // Notify renderer
+    mainWindow?.webContents.send('theme:changed', dark ? 'dark' : 'light')
+    // Update Windows titlebar overlay
+    if (mainWindow && !mainWindow.isDestroyed() && process.platform === 'win32') {
+      try {
+        mainWindow.setTitleBarOverlay({
+          color: dark ? '#1F1F1F' : '#FFFFFF',
+          symbolColor: dark ? '#ffffff' : '#1D1D1F',
+          height: 40
+        })
+      } catch (err) {
+        console.error('Failed to update title bar overlay on theme change:', err)
+      }
+    }
   })
 
   // Platform info
@@ -1435,33 +1176,7 @@ app.whenReady().then(() => {
     }
   })
 
-  // ============ Popup Window IPC ============
-  ipcMain.handle('popup:open', (_, popupId: string, options?: PopupWindowOptions) => {
-    createPopupWindow(popupId, options || {})
-  })
-
-  ipcMain.handle('popup:close', (_, popupId: string) => {
-    closePopupWindow(popupId)
-  })
-
-  ipcMain.handle('popup:focus', (_, popupId: string) => {
-    if (currentPopup?.popupId === popupId) {
-      currentPopup.window.show()
-      currentPopup.window.focus()
-    }
-  })
-
-  ipcMain.handle('popup:updateContent', (_, popupId: string, content: string) => {
-    if (currentPopup?.popupId === popupId) {
-      currentPopup.window.webContents.send('popup:contentUpdate', content)
-    }
-  })
-
-  ipcMain.handle('popup:exists', (_, popupId: string) => {
-    return currentPopup?.popupId === popupId
-  })
-
-  // 接着对话 - popup 窗口调用，转发给主窗口
+  // 接着对话 - popup 预览调用，转发给主窗口
   ipcMain.handle('popup:continueInChat', (_, selectedText: string, explanation: string) => {
     if (mainWindow) {
       mainWindow.webContents.send('popup:openChatWithContext', selectedText, explanation)
@@ -1556,8 +1271,9 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true
-  // Destroy popup window before quitting
-  destroyCurrentPopup()
+  // Destroy chat window before quitting
+  floatingChatWindow?.destroy()
+  floatingChatWindow = null
 })
 
 app.on('window-all-closed', () => {
@@ -1571,6 +1287,8 @@ app.on('will-quit', () => {
   indexingService.stop()
   // Close vector database
   closeVectorDatabase()
+  // Close main database (ensures WAL checkpoint)
+  closeDatabase()
   // Clean up SDK resources (fire and forget)
   stopSanqianSDK().catch((err) => {
     console.error('[Main] Failed to stop SDK:', err)

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Pin } from 'lucide-react'
 import type { Note, Notebook } from '../types/note'
 import { useTranslations } from '../i18n'
 import { isMacOS } from '../utils/platform'
@@ -22,6 +23,7 @@ interface NoteListProps {
   onMoveToNotebook: (noteId: string, notebookId: string | null) => void
   notebooks: Notebook[]
   isSidebarCollapsed?: boolean
+  showCreateButton?: boolean
 }
 
 interface ContextMenuState {
@@ -46,6 +48,7 @@ export function NoteList({
   onMoveToNotebook,
   notebooks,
   isSidebarCollapsed = false,
+  showCreateButton = true,
 }: NoteListProps) {
   // macOS 且侧栏收起时隐藏标题（为红绿灯按钮留空间）
   const shouldHideTitle = isMac && isSidebarCollapsed
@@ -137,11 +140,7 @@ export function NoteList({
       // Pin/Unpin
       {
         label: contextMenu.isPinned ? t.noteList.unpin : t.noteList.pin,
-        icon: (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-          </svg>
-        ),
+        icon: <Pin className="w-4 h-4" />,
         onClick: () => onTogglePinned(contextMenu.noteId!)
       },
       // Favorite/Unfavorite
@@ -243,15 +242,17 @@ export function NoteList({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </button>
-              <button
-                onClick={onCreateNote}
-                className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-all duration-150"
-                title={t.noteList.newNote}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+              {showCreateButton && (
+                <button
+                  onClick={onCreateNote}
+                  className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-all duration-150"
+                  title={t.noteList.newNote}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              )}
             </div>
           </>
         )}
@@ -273,12 +274,14 @@ export function NoteList({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <p className="text-[0.867rem] text-center mb-2 select-none">{t.noteList.empty}</p>
-            <button
-              onClick={onCreateNote}
-              className="text-[0.867rem] text-[var(--color-accent)] hover:underline select-none"
-            >
-              {t.noteList.newNote}
-            </button>
+            {showCreateButton && (
+              <button
+                onClick={onCreateNote}
+                className="text-[0.867rem] text-[var(--color-accent)] hover:underline select-none"
+              >
+                {t.noteList.newNote}
+              </button>
+            )}
           </div>
         ) : (
           <div className="py-1">
@@ -311,9 +314,7 @@ export function NoteList({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 flex-1 min-w-0">
                       {note.is_pinned && (
-                        <svg className="w-3.5 h-3.5 flex-shrink-0 text-[var(--color-accent)]" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                        </svg>
+                        <Pin className="w-3.5 h-3.5 flex-shrink-0 text-[var(--color-text-muted)] opacity-50" />
                       )}
                       <h3 className="text-[0.933rem] font-medium truncate leading-tight text-[var(--color-text)]">
                         {note.title || t.noteList.untitled}

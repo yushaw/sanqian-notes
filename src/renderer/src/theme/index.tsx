@@ -141,7 +141,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       color: palette.card,
       symbolColor: palette.text
     })
-  }, [resolvedColorMode, themeColor])
+
+    // Sync theme settings to main process (for chat window)
+    // Read language setting from localStorage (same key as I18nProvider)
+    const langSetting = localStorage.getItem('sanqian-notes-language') || 'system'
+    const resolvedLocale: 'en' | 'zh' = langSetting === 'system'
+      ? (navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en')
+      : (langSetting === 'zh' ? 'zh' : 'en')
+    window.electron?.theme?.sync?.({
+      colorMode: resolvedColorMode,
+      accentColor: accent,
+      locale: resolvedLocale,
+      fontSize
+    })
+  }, [resolvedColorMode, themeColor, fontSize])
 
   // Listen for system theme changes from electron
   useEffect(() => {

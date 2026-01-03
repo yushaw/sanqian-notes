@@ -607,11 +607,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
         // Get cursor position for popup
         const coords = editor.view.coordsAtPos(from)
-        setLinkPopupPosition({
-          top: coords.bottom + 8,
-          left: coords.left,
-        })
-        setShowLinkPopup(true)
+        if (coords) {
+          setLinkPopupPosition({
+            top: coords.bottom + 8,
+            left: coords.left,
+          })
+          setShowLinkPopup(true)
+        }
       } else {
         setShowLinkPopup(false)
         setLinkQuery('')
@@ -1395,6 +1397,15 @@ function EditorToolbar({
     aiMenuTimeoutRef.current = window.setTimeout(() => {
       setShowAIMenu(false)
     }, 200)
+  }, [])
+
+  // Cleanup aiMenuTimeoutRef on unmount
+  useEffect(() => {
+    return () => {
+      if (aiMenuTimeoutRef.current) {
+        clearTimeout(aiMenuTimeoutRef.current)
+      }
+    }
   }, [])
 
   // 监听容器宽度变化

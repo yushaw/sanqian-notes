@@ -123,7 +123,6 @@ export const AIPopupMark = Node.create<AIPopupMarkOptions>({
           import('../../utils/popupStorage').then(({ deletePopup }) => {
             deletePopup(popupId)
           })
-          window.electron.popup.close(popupId)
         }
         return true
       }

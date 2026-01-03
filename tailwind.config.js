@@ -1,7 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
-  content: ['./src/renderer/index.html', './src/renderer/src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './src/renderer/*.html',
+    './src/renderer/src/**/*.{js,ts,jsx,tsx}',
+    './node_modules/@yushaw/sanqian-chat/dist/**/*.{js,mjs}',
+  ],
   theme: {
     extend: {
       colors: {
@@ -16,10 +20,22 @@ export default {
         'app-accent-soft': 'var(--color-accent-soft)',
         'app-text': 'var(--color-text)',
         'app-muted': 'var(--color-muted)',
+        // Chat UI colors
+        'chat-bg': 'var(--chat-bg)',
+        'chat-surface': 'var(--chat-surface)',
+        'chat-card': 'var(--chat-card)',
+        'chat-border': 'var(--chat-border)',
+        'chat-divider': 'var(--chat-divider)',
+        'chat-text': 'var(--chat-text)',
+        'chat-muted': 'var(--chat-muted)',
+        'chat-accent': 'var(--chat-accent)',
+        'chat-code': 'var(--chat-code-bg)',
       },
       boxShadow: {
         'app-soft': 'var(--shadow-soft)',
         'app-elevated': 'var(--shadow-elevated)',
+        'chat-soft': 'var(--chat-shadow-soft)',
+        'chat-elevated': 'var(--chat-shadow-elevated)',
       },
       keyframes: {
         fadeIn: {
@@ -35,6 +51,186 @@ export default {
         fadeIn: 'fadeIn 0.2s ease-out',
         slideUp: 'slideUp 0.2s ease-out',
       },
+      // Typography styles for chat markdown
+      typography: () => ({
+        DEFAULT: {
+          css: {
+            '--tw-prose-body': 'var(--color-text)',
+            '--tw-prose-headings': 'var(--color-text)',
+            '--tw-prose-links': 'var(--color-accent)',
+            '--tw-prose-bold': 'var(--color-text)',
+            '--tw-prose-bullets': 'var(--color-muted)',
+            '--tw-prose-hr': 'var(--color-divider)',
+            '--tw-prose-quotes': 'var(--color-muted)',
+            '--tw-prose-code': 'var(--color-accent)',
+            '--tw-prose-th-borders': 'var(--color-divider)',
+            '--tw-prose-td-borders': 'var(--color-divider)',
+          },
+        },
+        invert: {
+          css: {
+            '--tw-prose-body': 'var(--color-text)',
+            '--tw-prose-headings': 'var(--color-text)',
+            '--tw-prose-links': 'var(--color-accent)',
+            '--tw-prose-bold': 'var(--color-text)',
+            '--tw-prose-bullets': 'var(--color-muted)',
+            '--tw-prose-hr': 'var(--color-divider)',
+            '--tw-prose-quotes': 'var(--color-muted)',
+            '--tw-prose-code': 'var(--color-accent)',
+            '--tw-prose-th-borders': 'var(--color-divider)',
+            '--tw-prose-td-borders': 'var(--color-divider)',
+          },
+        },
+        // Chat message markdown styles (prose-chat)
+        chat: {
+          css: {
+            'p': {
+              marginTop: '0 !important',
+              marginBottom: '0.5rem !important',
+              lineHeight: '1.5',
+              overflowWrap: 'break-word',
+            },
+            'ul, ol': {
+              marginTop: '0 !important',
+              marginBottom: '0.75rem !important',
+              paddingLeft: '1.5rem',
+            },
+            'li': {
+              marginTop: '0.125rem !important',
+              marginBottom: '0 !important',
+              lineHeight: '1.5',
+            },
+            'li > p': {
+              marginBottom: '0.125rem !important',
+            },
+            'ul ul, ol ol, ul ol, ol ul': {
+              marginTop: '0 !important',
+              marginBottom: '0 !important',
+            },
+            'strong': {
+              fontWeight: '600',
+              color: 'var(--color-text)',
+            },
+            'em': {
+              fontStyle: 'italic',
+              color: 'var(--color-text)',
+            },
+            'code': {
+              padding: '0.125rem 0.25rem',
+              backgroundColor: 'var(--color-surface)',
+              borderRadius: '0.25rem',
+              fontSize: '0.85rem',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              color: 'var(--color-text)',
+            },
+            'code::before': { content: 'none' },
+            'code::after': { content: 'none' },
+            'pre': {
+              marginTop: '0.75rem !important',
+              marginBottom: '0.75rem !important',
+              backgroundColor: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '0.375rem',
+              padding: '0.75rem',
+              fontSize: '0.85rem',
+              lineHeight: '1.45',
+            },
+            'pre code': {
+              padding: '0',
+              backgroundColor: 'transparent',
+              borderRadius: '0',
+              fontSize: 'inherit',
+            },
+            'blockquote': {
+              marginTop: '0.75rem !important',
+              marginBottom: '0.75rem !important',
+              borderLeftWidth: '0.25rem',
+              borderLeftColor: 'var(--color-divider)',
+              padding: '0 0.75rem',
+              fontStyle: 'italic',
+              color: 'var(--color-muted)',
+            },
+            'a': {
+              color: 'var(--color-accent)',
+              textDecoration: 'underline',
+              '&:hover': {
+                color: 'color-mix(in srgb, var(--color-accent) 80%, transparent)',
+              },
+            },
+            'hr': {
+              marginTop: '1rem !important',
+              marginBottom: '1rem !important',
+              borderColor: 'var(--color-divider)',
+              height: '0.125rem',
+            },
+            'table': {
+              marginTop: '0 !important',
+              marginBottom: '0.75rem !important',
+              borderCollapse: 'collapse',
+            },
+            'th': {
+              border: '1px solid var(--color-divider)',
+              backgroundColor: 'var(--color-card)',
+              padding: '0.25rem 0.5rem',
+              fontWeight: '600',
+            },
+            'td': {
+              border: '1px solid var(--color-divider)',
+              padding: '0.25rem 0.5rem',
+            },
+            'img': {
+              borderRadius: '0.5rem',
+              boxShadow: 'var(--shadow-soft)',
+              maxWidth: '100%',
+            },
+            'h1': {
+              fontSize: '1.75rem',
+              fontWeight: '600',
+              borderBottom: '1px solid var(--color-divider)',
+              paddingBottom: '0.25rem',
+              lineHeight: '1.3',
+              marginTop: '1rem !important',
+              marginBottom: '0.75rem !important',
+            },
+            'h2': {
+              fontSize: '1.35rem',
+              fontWeight: '600',
+              lineHeight: '1.3',
+              marginTop: '1rem !important',
+              marginBottom: '0.75rem !important',
+            },
+            'h3': {
+              fontSize: '1.15rem',
+              fontWeight: '600',
+              lineHeight: '1.3',
+              marginTop: '1rem !important',
+              marginBottom: '0.5rem !important',
+            },
+            'h4': {
+              fontSize: '1rem',
+              fontWeight: '600',
+              lineHeight: '1.3',
+              marginTop: '0.75rem !important',
+              marginBottom: '0.5rem !important',
+            },
+            'h5': {
+              fontSize: '0.9rem',
+              fontWeight: '600',
+              lineHeight: '1.3',
+              marginTop: '0.75rem !important',
+              marginBottom: '0.5rem !important',
+            },
+            'h6': {
+              fontSize: '0.85rem',
+              fontWeight: '600',
+              lineHeight: '1.3',
+              marginTop: '0.75rem !important',
+              marginBottom: '0.5rem !important',
+              color: 'var(--color-muted)',
+            },
+          },
+        },
+      }),
     },
   },
   plugins: [require('@tailwindcss/typography')],

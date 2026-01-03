@@ -7,7 +7,7 @@
  * For 'replace' mode, shows a preview with accept/reject/regenerate options.
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { Editor } from '@tiptap/react'
 import { DOMParser as ProseMirrorDOMParser, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
@@ -19,11 +19,38 @@ import { aiPreviewPluginKey, type AIPreviewBlock } from '../components/extension
 export type { AIErrorCode as AIWritingErrorCode }
 
 /**
- * Convert simple Markdown to HTML for Tiptap insertContent
- * Supports: **bold**, *italic*, ~~strike~~, `code`
+ * Convert extended Markdown to HTML for Tiptap insertContent
+ * Supports:
+ * - **bold**, __bold__
+ * - *italic*, _italic_
+ * - ~~strike~~
+ * - `code`
+ * - ==highlight==
+ * - ++underline++
+ * - [text](url) → standard link
+ * - [[text|noteId]] or [[text|noteId:targetType:targetValue]] → note link
  */
 function markdownToHtml(text: string): string {
   return text
+    // Note links: [[text|noteId]] or [[text|noteId:targetType:targetValue]]
+    // Must be processed before standard links to avoid conflicts
+    .replace(/\[\[(.+?)\|([^\]]+)\]\]/g, (_match, linkText, meta) => {
+      const parts = meta.split(':')
+      const noteId = parts[0] || ''
+      const targetType = parts[1] || 'note'
+      const targetValue = parts[2] || ''
+
+      let attrs = `data-note-link data-note-id="${noteId}" data-note-title="${linkText}"`
+      if (targetType !== 'note') {
+        attrs += ` data-target-type="${targetType}"`
+      }
+      if (targetValue) {
+        attrs += ` data-target-value="${targetValue}"`
+      }
+      return `<span class="note-link" ${attrs}>${linkText}</span>`
+    })
+    // Standard links: [text](url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
     // Bold: **text** or __text__
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/__(.+?)__/g, '<strong>$1</strong>')
@@ -32,6 +59,10 @@ function markdownToHtml(text: string): string {
     .replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>')
     // Strikethrough: ~~text~~
     .replace(/~~(.+?)~~/g, '<s>$1</s>')
+    // Highlight: ==text==
+    .replace(/==(.+?)==/g, '<mark>$1</mark>')
+    // Underline: ++text++
+    .replace(/\+\+(.+?)\+\+/g, '<u>$1</u>')
     // Inline code: `text`
     .replace(/`([^`]+)`/g, '<code>$1</code>')
 }
@@ -40,7 +71,20 @@ function markdownToHtml(text: string): string {
  * Check if text contains any Markdown formatting
  */
 function hasMarkdownFormatting(text: string): boolean {
-  return /\*\*.+?\*\*|__.+?__|(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*)|(?<!_)_(?!_).+?(?<!_)_(?!_)|~~.+?~~|`.+?`/.test(text)
+  // Check for any supported Markdown syntax
+  const patterns = [
+    /\*\*.+?\*\*/,           // bold **
+    /__.+?__/,               // bold __
+    /(?<!\*)\*(?!\*).+?(?<!\*)\*(?!\*)/,  // italic *
+    /(?<!_)_(?!_).+?(?<!_)_(?!_)/,        // italic _
+    /~~.+?~~/,               // strikethrough
+    /`.+?`/,                 // code
+    /==.+?==/,               // highlight
+    /\+\+.+?\+\+/,           // underline
+    /\[.+?\]\(.+?\)/,        // standard link
+    /\[\[.+?\|.+?\]\]/       // note link
+  ]
+  return patterns.some(pattern => pattern.test(text))
 }
 
 /**
@@ -192,6 +236,8 @@ export function useAIWriting(options: UseAIWritingOptions) {
   const [isProcessing, setIsProcessing] = useState(false)
   const cleanupRef = useRef<(() => void) | null>(null)
   const abortedRef = useRef(false)
+  // Synchronous processing lock to prevent race conditions (checked before async operations)
+  const processingLockRef = useRef(false)
 
   /**
    * Cancel the current AI operation
@@ -202,6 +248,7 @@ export function useAIWriting(options: UseAIWritingOptions) {
       cleanupRef.current()
       cleanupRef.current = null
     }
+    processingLockRef.current = false
     setIsProcessing(false)
   }, [])
 
@@ -220,7 +267,13 @@ export function useAIWriting(options: UseAIWritingOptions) {
       return
     }
 
-    // Cancel any existing operation
+    // Prevent concurrent operations - synchronous check before any async work
+    if (processingLockRef.current) {
+      return
+    }
+    processingLockRef.current = true
+
+    // Cancel any existing operation (cleanup listener)
     if (cleanupRef.current) {
       cleanupRef.current()
       cleanupRef.current = null
@@ -271,8 +324,8 @@ export function useAIWriting(options: UseAIWritingOptions) {
       await window.electron.chat.acquireReconnect()
 
       // Register stream event listener
-      // Note: onStreamEvent actually returns a cleanup function despite type saying void
-      const cleanup = window.electron.chat.onStreamEvent((sid: string, event: StreamEvent) => {
+      const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
+        const event = rawEvent as StreamEvent
         if (sid !== streamId || abortedRef.current) return
 
         if (event.type === 'text' && event.content) {
@@ -364,6 +417,8 @@ export function useAIWriting(options: UseAIWritingOptions) {
                 newText: '',
                 blocks: previewBlocks,
                 onAccept: () => {
+                  // Defensive null check for editor (callback may be called after unmount)
+                  if (!editor) return
                   // Accept: execute actual replacement (reverse order for correct position mapping)
                   const sortedBlocks = [...previewBlocks].sort((a, b) => b.from - a.from)
                   const tr = editor.state.tr
@@ -380,11 +435,13 @@ export function useAIWriting(options: UseAIWritingOptions) {
                   editor.commands.focus()
                 },
                 onReject: () => {
+                  if (!editor) return
                   // Reject: just hide preview, keep original text
                   editor.commands.hideAIPreview()
                   editor.commands.focus()
                 },
                 onRegenerate: () => {
+                  if (!editor) return
                   // Regenerate: hide preview and re-execute
                   editor.commands.hideAIPreview()
                   // Use setTimeout to ensure preview is hidden before re-executing
@@ -409,6 +466,8 @@ export function useAIWriting(options: UseAIWritingOptions) {
                 oldText,
                 newText: finalContent,
                 onAccept: () => {
+                  // Defensive null check for editor (callback may be called after unmount)
+                  if (!editor) return
                   // Accept: execute actual replacement
                   // Use mapped positions from plugin state to handle document changes
                   const pluginState = aiPreviewPluginKey.getState(editor.state)
@@ -422,11 +481,13 @@ export function useAIWriting(options: UseAIWritingOptions) {
                   editor.commands.focus()
                 },
                 onReject: () => {
+                  if (!editor) return
                   // Reject: just hide preview
                   editor.commands.hideAIPreview()
                   editor.commands.focus()
                 },
                 onRegenerate: () => {
+                  if (!editor) return
                   // Regenerate: hide preview and re-execute
                   editor.commands.hideAIPreview()
                   setTimeout(() => {
@@ -459,6 +520,7 @@ export function useAIWriting(options: UseAIWritingOptions) {
 
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
+          processingLockRef.current = false
           setIsProcessing(false)
           onComplete?.()
           window.electron.chat.releaseReconnect()
@@ -467,6 +529,7 @@ export function useAIWriting(options: UseAIWritingOptions) {
         if (event.type === 'error') {
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
+          processingLockRef.current = false
           setIsProcessing(false)
           onError?.(getAIErrorCode(event.error))
           window.electron.chat.releaseReconnect()
@@ -484,11 +547,30 @@ export function useAIWriting(options: UseAIWritingOptions) {
         messages
       })
     } catch (error) {
+      processingLockRef.current = false
       setIsProcessing(false)
       onError?.(getAIErrorCode(error))
       window.electron.chat.releaseReconnect()
     }
   }, [editor, onStart, onComplete, onError])
+
+  // Cleanup on unmount - use ref to capture latest isProcessing state
+  const isProcessingRef = useRef(isProcessing)
+  isProcessingRef.current = isProcessing
+
+  useEffect(() => {
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current()
+        cleanupRef.current = null
+      }
+      // Release reconnect if component unmounts during streaming
+      if (isProcessingRef.current) {
+        window.electron.chat.releaseReconnect()
+      }
+      processingLockRef.current = false
+    }
+  }, [])
 
   return {
     isProcessing,

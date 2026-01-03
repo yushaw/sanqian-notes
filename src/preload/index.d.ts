@@ -64,6 +64,7 @@ declare global {
       theme: {
         get: () => Promise<'light' | 'dark'>
         onChange?: (callback: (theme: 'light' | 'dark') => void) => void
+        sync?: (settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => Promise<{ success: boolean }>
       }
       window: {
         setTitleBarOverlay: (options: { color: string; symbolColor: string }) => Promise<void>

@@ -43,7 +43,7 @@
     "@tiptap/react": "^3.13.0",
     "@tiptap/starter-kit": "^3.13.0",
     "@tiptap/suggestion": "^3.13.0",
-    "@yushaw/sanqian-sdk": "^0.2.16",
+    "@yushaw/sanqian-chat": "^0.2.1",
     "better-sqlite3": "^12.5.0",
     "clsx": "^2.1.1",
     "dompurify": "^3.3.1",

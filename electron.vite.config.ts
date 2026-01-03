@@ -7,7 +7,15 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          chat: resolve('src/preload/chat.ts')
+        }
+      }
+    }
   },
   renderer: {
     resolve: {
@@ -20,7 +28,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/renderer/index.html'),
-          popup: resolve('src/renderer/popup.html')
+          chat: resolve('src/renderer/chat.html')
         }
       }
     }

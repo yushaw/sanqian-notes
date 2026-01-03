@@ -278,8 +278,9 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
       try {
         await window.electron.chat.acquireReconnect()
 
-        const cleanup = window.electron.chat.onStreamEvent((sid: string, event: StreamEvent) => {
+        const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
           if (sid !== streamId) return
+          const event = rawEvent as StreamEvent
 
           if (event.type === 'text' && event.content) {
             accumulated += event.content
@@ -288,7 +289,7 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
 
           if (event.type === 'done') {
             setIsLoading(false)
-            if (typeof cleanup === 'function') cleanup()
+            cleanup()
             cleanupRef.current = null
             window.electron.chat.releaseReconnect()
           }
@@ -296,11 +297,11 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
           if (event.type === 'error') {
             setIsLoading(false)
             setError(getErrorMessage(event.error))
-            if (typeof cleanup === 'function') cleanup()
+            cleanup()
             cleanupRef.current = null
             window.electron.chat.releaseReconnect()
           }
-        }) as (() => void) | void
+        })
 
         if (typeof cleanup === 'function') {
           cleanupRef.current = cleanup

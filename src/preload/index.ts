@@ -95,6 +95,9 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('theme:changed', handler)
       return () => ipcRenderer.removeListener('theme:changed', handler)
     },
+    // Sync theme settings to main process (for chat window)
+    sync: (settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) =>
+      ipcRenderer.invoke('theme:sync', settings),
   },
   platform: {
     get: () => ipcRenderer.invoke('platform:get'),
@@ -121,35 +124,7 @@ contextBridge.exposeInMainWorld('electron', {
     cleanup: () => ipcRenderer.invoke('attachment:cleanup'),
   },
   popup: {
-    open: (popupId: string, options?: {
-      x?: number
-      y?: number
-      width?: number
-      height?: number
-      prompt?: string
-      context?: { targetText: string; documentTitle?: string }
-    }) => ipcRenderer.invoke('popup:open', popupId, options),
-    close: (popupId: string) => ipcRenderer.invoke('popup:close', popupId),
-    focus: (popupId: string) => ipcRenderer.invoke('popup:focus', popupId),
-    updateContent: (popupId: string, content: string) => ipcRenderer.invoke('popup:updateContent', popupId, content),
-    exists: (popupId: string) => ipcRenderer.invoke('popup:exists', popupId),
-    onClosed: (callback: (popupId: string) => void) => {
-      const handler = (_: Electron.IpcRendererEvent, popupId: string) => callback(popupId)
-      ipcRenderer.on('popup:closed', handler)
-      return () => ipcRenderer.removeListener('popup:closed', handler)
-    },
-    onContentRequest: (callback: (popupId: string) => void) => {
-      const handler = (_: Electron.IpcRendererEvent, popupId: string) => callback(popupId)
-      ipcRenderer.on('popup:contentRequest', handler)
-      return () => ipcRenderer.removeListener('popup:contentRequest', handler)
-    },
-    // 用于 popup 窗口接收内容更新
-    onContentUpdate: (callback: (content: string) => void) => {
-      const handler = (_: Electron.IpcRendererEvent, content: string) => callback(content)
-      ipcRenderer.on('popup:contentUpdate', handler)
-      return () => ipcRenderer.removeListener('popup:contentUpdate', handler)
-    },
-    // 接着对话 - 在主窗口打开聊天
+    // 接着对话 - 在主窗口打开聊天 (用于 hover 预览中的继续对话按钮)
     continueInChat: (selectedText: string, explanation: string) =>
       ipcRenderer.invoke('popup:continueInChat', selectedText, explanation),
     // 监听接着对话事件（主窗口使用）
@@ -159,34 +134,32 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('popup:openChatWithContext', handler)
       return () => ipcRenderer.removeListener('popup:openChatWithContext', handler)
     },
+    // Popup data storage (database)
+    get: (id: string) => ipcRenderer.invoke('popup:get', id),
+    create: (input: { id: string; prompt: string; actionName?: string; targetText: string; documentTitle?: string }) =>
+      ipcRenderer.invoke('popup:create', input),
+    updateContent: (id: string, content: string) => ipcRenderer.invoke('popup:updateContent', id, content),
+    delete: (id: string) => ipcRenderer.invoke('popup:delete', id),
+    cleanup: (maxAgeDays?: number) => ipcRenderer.invoke('popup:cleanup', maxAgeDays),
   },
+  chatWindow: {
+    show: () => ipcRenderer.invoke('chatWindow:show'),
+    showWithContext: (context: string) => ipcRenderer.invoke('chatWindow:showWithContext', context),
+    hide: () => ipcRenderer.invoke('chatWindow:hide'),
+    toggle: () => ipcRenderer.invoke('chatWindow:toggle'),
+    isVisible: () => ipcRenderer.invoke('chatWindow:isVisible'),
+  },
+  // Chat API for AI actions (inline streaming in main window)
+  // Only includes what AI actions need - FloatingWindow uses separate sanqian-chat:* handlers
   chat: {
-    // Connection management
-    connect: () => ipcRenderer.invoke('chat:connect'),
-    disconnect: () => ipcRenderer.invoke('chat:disconnect'),
-    // Auto-reconnect control (reference counted)
     acquireReconnect: () => ipcRenderer.invoke('chat:acquireReconnect'),
     releaseReconnect: () => ipcRenderer.invoke('chat:releaseReconnect'),
-    // Chat streaming
-    stream: (params: unknown) => ipcRenderer.invoke('chat:stream', params),
-    cancelStream: (params: unknown) => ipcRenderer.invoke('chat:cancelStream', params),
-    // Conversation management
-    listConversations: (params: unknown) => ipcRenderer.invoke('chat:listConversations', params),
-    getConversation: (params: unknown) => ipcRenderer.invoke('chat:getConversation', params),
-    deleteConversation: (params: unknown) => ipcRenderer.invoke('chat:deleteConversation', params),
-    // Human-in-the-loop
-    sendHitlResponse: (params: unknown) => ipcRenderer.send('chat:hitlResponse', params),
-    // Event listeners
-    onStatusChange: (callback: (...args: unknown[]) => void) => {
-      const handler = (_event: unknown, ...args: unknown[]) => callback(...args)
-      ipcRenderer.on('chat:statusChange', handler)
-      return () => ipcRenderer.removeListener('chat:statusChange', handler)
-    },
-    onStreamEvent: (callback: (...args: unknown[]) => void) => {
-      const handler = (_event: unknown, ...args: unknown[]) => {
-        console.log('[Preload] Received streamEvent, args:', args.length, 'first arg:', args[0])
-        callback(...args)
-      }
+    stream: (params: { streamId: string; messages: unknown[]; conversationId?: string; agentId?: string }) =>
+      ipcRenderer.invoke('chat:stream', params),
+    cancelStream: (params: { streamId: string }) => ipcRenderer.invoke('chat:cancelStream', params),
+    onStreamEvent: (callback: (streamId: string, event: unknown) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: { streamId: string; event: unknown }) =>
+        callback(data.streamId, data.event)
       ipcRenderer.on('chat:streamEvent', handler)
       return () => ipcRenderer.removeListener('chat:streamEvent', handler)
     },

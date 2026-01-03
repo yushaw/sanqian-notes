@@ -2454,9 +2454,15 @@
 .code-block-wrapper {
   margin: 16px 0;
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
   background: var(--color-code-bg, #f8f9fa);
   position: relative;
+}
+
+/* 代码内容区域保持 overflow hidden 以支持圆角 */
+.code-block-wrapper pre {
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 /* Header - 极简风格，悬浮显示，右对齐 */
@@ -3055,4 +3061,25 @@
 .ai-preview-regenerate:hover {
   background: var(--color-surface);
   color: var(--color-text-secondary);
+}
+
+/* Disabled links in AI preview - styled but not interactive */
+.ai-preview-new .ai-preview-link-disabled {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Preserve formatting styles within preview */
+.ai-preview-new mark {
+  background: var(--color-highlight);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.ai-preview-new code {
+  background: var(--color-code-bg);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }

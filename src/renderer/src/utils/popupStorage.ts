@@ -1,231 +1,195 @@
 /**
  * Popup 内容存储层
- * 使用 localStorage 持久化 popup 数据
+ * 使用数据库持久化 popup 数据（通过 IPC）
+ * Streaming 状态仅在内存中维护
  */
 
 export interface PopupData {
+  id: string
+  content: string
+  prompt: string
+  actionName: string
+  targetText: string
+  documentTitle: string
+  createdAt: string
+  updatedAt: string
+  // Transient UI state (not persisted)
+  isStreaming?: boolean
+}
+
+export interface PopupCreateParams {
   popupId: string
-  content: string // Markdown 内容
-  prompt: string // 原始 prompt
-  actionName?: string // AI 操作名称
-  isStreaming?: boolean // 是否正在流式生成
+  prompt: string
+  actionName?: string
   context: {
     targetText: string
     documentTitle?: string
   }
-  windowState?: {
-    x: number
-    y: number
-    width: number
-    height: number
-  }
-  createdAt: number
-  updatedAt: number
 }
 
-const STORAGE_PREFIX = 'popup:'
-const POPUP_INDEX_KEY = 'popup:_index'
+// Cache configuration
+const MAX_CACHE_SIZE = 50
 
-// 清理策略常量
-const MAX_POPUP_COUNT = 50 // 最大存储数量
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 天过期
-
-/**
- * 获取所有 popup ID 列表
- */
-function getPopupIndex(): string[] {
-  try {
-    const index = localStorage.getItem(POPUP_INDEX_KEY)
-    return index ? JSON.parse(index) : []
-  } catch {
-    return []
-  }
-}
+// In-memory cache for streaming updates and state
+const streamingCache = new Map<string, string>()
+const streamingState = new Map<string, boolean>()
+const popupCache = new Map<string, PopupData>()
+const loadingSet = new Set<string>() // Track in-flight async loads
 
 /**
- * 更新 popup ID 索引
+ * Enforce cache size limit (simple LRU by removing oldest entries)
  */
-function updatePopupIndex(ids: string[]): void {
-  try {
-    localStorage.setItem(POPUP_INDEX_KEY, JSON.stringify(ids))
-  } catch {
-    // ignore
-  }
-}
-
-/**
- * 清理过期和超量的 popup 数据
- * 策略：删除超过 7 天的数据，保留最多 50 条
- */
-export function cleanupPopups(): void {
-  try {
-    const index = getPopupIndex()
-    const now = Date.now()
-    const popupsWithTime: Array<{ id: string; createdAt: number }> = []
-
-    // 收集所有 popup 的创建时间
-    for (const id of index) {
-      const data = getPopup(id)
-      if (data) {
-        // 删除过期数据
-        if (now - data.createdAt > MAX_AGE_MS) {
-          localStorage.removeItem(STORAGE_PREFIX + id)
-        } else {
-          popupsWithTime.push({ id, createdAt: data.createdAt })
-        }
-      } else {
-        // 数据不存在，从索引中移除
-        localStorage.removeItem(STORAGE_PREFIX + id)
-      }
+function enforcePopupCacheLimit(): void {
+  if (popupCache.size > MAX_CACHE_SIZE) {
+    // Remove oldest entries (first inserted)
+    const keysToRemove = Array.from(popupCache.keys()).slice(0, popupCache.size - MAX_CACHE_SIZE)
+    for (const key of keysToRemove) {
+      popupCache.delete(key)
     }
-
-    // 按创建时间降序排序（最新的在前）
-    popupsWithTime.sort((a, b) => b.createdAt - a.createdAt)
-
-    // 保留最多 MAX_POPUP_COUNT 条
-    const toKeep = popupsWithTime.slice(0, MAX_POPUP_COUNT)
-    const toRemove = popupsWithTime.slice(MAX_POPUP_COUNT)
-
-    // 删除超量数据
-    for (const { id } of toRemove) {
-      localStorage.removeItem(STORAGE_PREFIX + id)
-    }
-
-    // 更新索引
-    updatePopupIndex(toKeep.map((p) => p.id))
-  } catch {
-    // 静默失败
   }
 }
 
 /**
- * 保存 popup 数据
+ * 获取 popup 数据（异步，从数据库）
  */
-export function savePopup(data: PopupData): void {
-  try {
-    const key = STORAGE_PREFIX + data.popupId
-    localStorage.setItem(key, JSON.stringify(data))
+export async function getPopupAsync(popupId: string): Promise<PopupData | null> {
+  const dbData = await window.electron.popup.get(popupId)
+  if (!dbData) return null
 
-    // 更新索引
-    const index = getPopupIndex()
-    if (!index.includes(data.popupId)) {
-      index.push(data.popupId)
-      updatePopupIndex(index)
+  // Merge with in-memory state
+  const cachedContent = streamingCache.get(popupId)
+  const isStreaming = streamingState.get(popupId) ?? false
 
-      // 新增 popup 时触发清理检查
-      if (index.length > MAX_POPUP_COUNT) {
-        cleanupPopups()
-      }
-    }
-  } catch {
-    console.error('Failed to save popup data')
+  const data: PopupData = {
+    ...dbData,
+    content: cachedContent ?? dbData.content,
+    isStreaming
   }
+
+  popupCache.set(popupId, data)
+  enforcePopupCacheLimit()
+  return data
 }
 
 /**
- * 获取 popup 数据
+ * 获取 popup 数据（同步，从缓存）
+ * 用于需要同步访问的场景（如 React 组件中的轮询检查）
  */
 export function getPopup(popupId: string): PopupData | null {
-  try {
-    const key = STORAGE_PREFIX + popupId
-    const data = localStorage.getItem(key)
-    return data ? JSON.parse(data) : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * 更新 popup 内容（增量更新，用于流式写入）
- */
-export function updatePopupContent(popupId: string, content: string): void {
-  const data = getPopup(popupId)
-  if (data) {
-    data.content = content
-    data.updatedAt = Date.now()
-    savePopup(data)
-  }
-}
-
-/**
- * 更新 popup streaming 状态
- */
-export function updatePopupStreaming(popupId: string, isStreaming: boolean): void {
-  const data = getPopup(popupId)
-  if (data) {
-    data.isStreaming = isStreaming
-    data.updatedAt = Date.now()
-    savePopup(data)
-  }
-}
-
-/**
- * 更新 popup 窗口状态
- */
-export function updatePopupWindowState(
-  popupId: string,
-  windowState: PopupData['windowState']
-): void {
-  const data = getPopup(popupId)
-  if (data) {
-    data.windowState = windowState
-    data.updatedAt = Date.now()
-    savePopup(data)
-  }
-}
-
-/**
- * 删除 popup 数据
- */
-export function deletePopup(popupId: string): void {
-  try {
-    const key = STORAGE_PREFIX + popupId
-    localStorage.removeItem(key)
-
-    // 更新索引
-    const index = getPopupIndex()
-    const newIndex = index.filter((id) => id !== popupId)
-    updatePopupIndex(newIndex)
-  } catch {
-    console.error('Failed to delete popup data')
-  }
-}
-
-/**
- * 获取所有 popup 数据
- */
-export function getAllPopups(): PopupData[] {
-  const index = getPopupIndex()
-  const popups: PopupData[] = []
-
-  for (const id of index) {
-    const data = getPopup(id)
-    if (data) {
-      popups.push(data)
+  const cached = popupCache.get(popupId)
+  if (cached) {
+    // Update with latest streaming cache
+    const cachedContent = streamingCache.get(popupId)
+    const isStreaming = streamingState.get(popupId) ?? false
+    return {
+      ...cached,
+      content: cachedContent ?? cached.content,
+      isStreaming
     }
   }
 
-  return popups.sort((a, b) => b.createdAt - a.createdAt)
+  // Trigger async load for next time (avoid duplicate requests)
+  if (!loadingSet.has(popupId)) {
+    loadingSet.add(popupId)
+    getPopupAsync(popupId).finally(() => {
+      loadingSet.delete(popupId)
+    })
+  }
+  return null
+}
+
+/**
+ * 预加载 popup 数据到缓存
+ */
+export async function preloadPopup(popupId: string): Promise<PopupData | null> {
+  // Skip if already loading
+  if (loadingSet.has(popupId)) {
+    return popupCache.get(popupId) ?? null
+  }
+  return getPopupAsync(popupId)
 }
 
 /**
  * 创建新的 popup 数据
  */
-export function createPopup(params: {
-  popupId: string
-  prompt: string
-  actionName?: string
-  context: PopupData['context']
-}): PopupData {
-  const data: PopupData = {
-    popupId: params.popupId,
-    content: '',
+export async function createPopup(params: PopupCreateParams): Promise<PopupData> {
+  const dbData = await window.electron.popup.create({
+    id: params.popupId,
     prompt: params.prompt,
     actionName: params.actionName,
-    context: params.context,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    targetText: params.context.targetText,
+    documentTitle: params.context.documentTitle
+  })
+
+  const data: PopupData = {
+    ...dbData,
+    isStreaming: false
   }
-  savePopup(data)
+
+  popupCache.set(params.popupId, data)
+  enforcePopupCacheLimit()
   return data
+}
+
+/**
+ * 更新 popup 内容（增量更新，用于流式写入）
+ * 使用内存缓存减少 IPC 调用
+ */
+export function updatePopupContent(popupId: string, content: string): void {
+  streamingCache.set(popupId, content)
+  // Update local cache
+  const cached = popupCache.get(popupId)
+  if (cached) {
+    cached.content = content
+    cached.updatedAt = new Date().toISOString()
+  }
+}
+
+/**
+ * 更新 popup streaming 状态（仅内存）
+ */
+export function updatePopupStreaming(popupId: string, isStreaming: boolean): void {
+  streamingState.set(popupId, isStreaming)
+  const cached = popupCache.get(popupId)
+  if (cached) {
+    cached.isStreaming = isStreaming
+  }
+
+  // When streaming ends, flush content to database
+  if (!isStreaming) {
+    flushPopupContent(popupId).catch((err) => {
+      console.error('[popupStorage] Failed to flush popup content:', err)
+    })
+  }
+}
+
+/**
+ * 刷新 streaming 缓存到数据库
+ */
+export async function flushPopupContent(popupId: string): Promise<boolean> {
+  const content = streamingCache.get(popupId)
+  if (content !== undefined) {
+    streamingCache.delete(popupId)
+    streamingState.delete(popupId)
+    return window.electron.popup.updateContent(popupId, content)
+  }
+  return false
+}
+
+/**
+ * 删除 popup 数据
+ */
+export async function deletePopup(popupId: string): Promise<boolean> {
+  streamingCache.delete(popupId)
+  streamingState.delete(popupId)
+  popupCache.delete(popupId)
+  loadingSet.delete(popupId)
+  return window.electron.popup.delete(popupId)
+}
+
+/**
+ * 清理过期 popup 数据
+ */
+export async function cleanupPopups(maxAgeDays = 30): Promise<number> {
+  return window.electron.popup.cleanup(maxAgeDays)
 }

@@ -7,6 +7,7 @@ import { useAIActions } from '../hooks/useAIActions'
 import { SLASH_AI_ACTION_EVENT, type SlashAIActionDetail } from './extensions/SlashCommand'
 import { getAIContext, type AIContext, formatAIPrompt } from '../utils/aiContext'
 import { createPopup, updatePopupContent, updatePopupStreaming, deletePopup } from '../utils/popupStorage'
+import { toast } from '../utils/toast'
 import { v4 as uuidv4 } from 'uuid'
 
 // 时间常量
@@ -196,11 +197,12 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
   const [aiSubmenuPosition, setAISubmenuPosition] = useState({ top: 0, left: 0 })
   const [aiContext, setAIContext] = useState<AIContext | null>(null)
   const closeTimeoutRef = useRef<number | null>(null)
-  const tempPopupIdRef = useRef<string | null>(null)
+  // Track current temp popup ID for cleanup (race condition prevented by useAIWriting's processingLockRef)
+  const currentTempPopupIdRef = useRef<string | null>(null)
 
-  // 清理临时图标的函数
+  // 清理当前临时图标的函数
   const cleanupTempIcon = useCallback(() => {
-    const tempPopupId = tempPopupIdRef.current
+    const tempPopupId = currentTempPopupIdRef.current
     if (!tempPopupId || !editor) return
 
     // 查找并删除临时图标
@@ -214,7 +216,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
     // 清理存储
     deletePopup(tempPopupId)
-    tempPopupIdRef.current = null
+    currentTempPopupIdRef.current = null
   }, [editor])
 
   // AI Writing hook
@@ -352,23 +354,23 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     try {
       await window.electron.chat.acquireReconnect()
 
-      const cleanup = window.electron.chat.onStreamEvent((sid: string, event: { type: string; content?: string }) => {
+      const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
         if (sid !== streamId) return
+        const event = rawEvent as { type: string; content?: string }
 
         if (event.type === 'text' && event.content) {
           accumulated += event.content
-          // 更新存储和 popup 窗口
+          // 更新存储 (hover 预览会从 popupStorage 读取)
           updatePopupContent(popupId, accumulated)
-          window.electron.popup.updateContent(popupId, accumulated)
         }
 
         if (event.type === 'done' || event.type === 'error') {
           // 标记结束 streaming
           updatePopupStreaming(popupId, false)
-          if (typeof cleanup === 'function') cleanup()
+          cleanup()
           window.electron.chat.releaseReconnect()
         }
-      }) as (() => void) | void
+      })
 
       const { prompt: fullPrompt } = formatAIPrompt(context, prompt)
       await window.electron.chat.stream({
@@ -378,18 +380,16 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       })
     } catch (err) {
       console.error('[Popup] Stream error:', err)
-      // 标记结束 streaming
+      // 连接失败：删除 sparkles icon 和 popup 数据，显示 toast
       updatePopupStreaming(popupId, false)
-      // 更新 popup 内容显示错误
-      if (!accumulated) {
-        // 如果还没有内容，显示错误信息
-        const errorMsg = t.contextMenu.aiError
-        updatePopupContent(popupId, errorMsg)
-        window.electron.popup.updateContent(popupId, errorMsg)
-      }
+      deletePopup(popupId)
+      // 删除编辑器中的 AIPopupMark 节点
+      editor?.commands.deleteAIPopupMark(popupId)
+      // 显示错误提示
+      toast(t.ai.connectionFailed, { type: 'error' })
       window.electron.chat.releaseReconnect()
     }
-  }, [t.contextMenu.aiError])
+  }, [editor, t.ai.connectionFailed])
 
   // 处理 popup 模式的 AI 操作
   const handlePopupAction = useCallback((prompt: string, actionName: string, context: AIContext) => {
@@ -398,7 +398,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     // 1. 生成 popupId
     const popupId = uuidv4()
 
-    // 2. 创建 popup 数据
+    // 2. 创建 popup 数据并标记为 streaming
     createPopup({
       popupId,
       prompt,
@@ -408,6 +408,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
         documentTitle: context.documentTitle
       }
     })
+    updatePopupStreaming(popupId, true) // 立即标记为 streaming，让 sparkles 图标显示动画
 
     // 3. 在选区结束位置插入 AIPopupMark 节点（先将光标移到选区末尾，避免覆盖选中内容）
     editor.chain()
@@ -416,21 +417,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       .insertAIPopupMark({ popupId })
       .run()
 
-    // 4. 获取窗口位置（使用选区位置）
-    const coords = editor.view.coordsAtPos(context.targetTo)
-
-    // 5. 打开 popup 窗口
-    window.electron.popup.open(popupId, {
-      x: Math.round(coords.left),
-      y: Math.round(coords.bottom + 10),
-      prompt,
-      context: {
-        targetText: context.target,
-        documentTitle: context.documentTitle
-      }
-    })
-
-    // 6. 开始流式请求
+    // 4. 开始流式请求 (不再打开独立 popup 窗口，只用 hover 预览)
     startPopupStream(popupId, prompt, context)
   }, [editor, startPopupStream])
 
@@ -449,7 +436,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
       // 1. 生成临时 popupId
       const tempPopupId = uuidv4()
-      tempPopupIdRef.current = tempPopupId
+      currentTempPopupIdRef.current = tempPopupId
 
       // 2. 创建临时 popup 数据（用于 streaming 状态）
       createPopup({

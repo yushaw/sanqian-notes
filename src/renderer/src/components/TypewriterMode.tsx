@@ -49,6 +49,7 @@ import { MarkdownPaste } from './extensions/MarkdownPaste'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { SlashCommand } from './extensions/SlashCommand'
 import { slashCommandSuggestion } from './extensions/slashCommandSuggestion'
+import { AIPopupMark } from './extensions/AIPopupMark'
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
 import { TypewriterToolbar } from './TypewriterToolbar'
@@ -135,6 +136,8 @@ export function TypewriterMode({
   const scrollAnimationFrom = useRef<number>(0)
   const scrollAnimationTo = useRef<number>(0)
   const scrollDebounceTimer = useRef<NodeJS.Timeout | null>(null)
+  // Track init timers for proper cleanup
+  const initTimersRef = useRef<NodeJS.Timeout[]>([])
 
   // ==================== State ====================
   const [title, setTitle] = useState(note.title)
@@ -413,6 +416,7 @@ export function TypewriterMode({
       SlashCommand.configure({
         suggestion: slashCommandSuggestion,
       }),
+      AIPopupMark,
       TypewriterSoundExtension,
       FileHandler.configure({
         onPaste: async (currentEditor, files) => {
@@ -633,30 +637,44 @@ export function TypewriterMode({
 
     const hasInitialCursor = initialCursorInfo?.blockId && initialCursorInfo.blockId !== ''
 
+    // Clear any previous init timers
+    initTimersRef.current.forEach(t => clearTimeout(t))
+    initTimersRef.current = []
+
+    // Helper to track timers
+    const scheduleTimer = (fn: () => void, delay: number) => {
+      const timer = setTimeout(fn, delay)
+      initTimersRef.current.push(timer)
+      return timer
+    }
+
     setIsTransitioning(true)
-    const timer = setTimeout(() => {
+    scheduleTimer(() => {
       setIsTransitioning(false)
 
       if (!hasInitialCursor) {
         editor.commands.focus('end')
-        setTimeout(() => {
+        scheduleTimer(() => {
           scrollToCursor()
           updateBlockOpacity()
-          setTimeout(() => { isInitializing.current = false }, 300)
+          scheduleTimer(() => { isInitializing.current = false }, 300)
         }, 50)
       } else {
         const success = setCursorByBlockId(editor, initialCursorInfo)
         if (!success) editor.commands.focus('end')
 
-        setTimeout(() => {
+        scheduleTimer(() => {
           updateBlockOpacity()
           scrollToCursor()
-          setTimeout(() => { isInitializing.current = false }, 300)
+          scheduleTimer(() => { isInitializing.current = false }, 300)
         }, 150)
       }
     }, 150)
 
-    return () => clearTimeout(timer)
+    return () => {
+      initTimersRef.current.forEach(t => clearTimeout(t))
+      initTimersRef.current = []
+    }
   }, [editor, scrollToCursor, updateBlockOpacity, initialCursorInfo])
 
   /** 窗口大小变化 → 重新计算透明度 */

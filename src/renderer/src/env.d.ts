@@ -4,7 +4,19 @@
 type AttachmentResult = import('../../shared/types').AttachmentResult
 type AttachmentSelectOptions = import('../../shared/types').AttachmentSelectOptions
 type AttachmentAPI = import('../../shared/types').AttachmentAPI
-type ChatAPI = import('../../shared/types').ChatAPI
+// Simplified ChatAPI for AI actions only (FloatingWindow uses separate sanqian-chat:* handlers)
+interface ChatAPI {
+  acquireReconnect: () => Promise<void>
+  releaseReconnect: () => Promise<void>
+  stream: (params: {
+    streamId: string
+    messages: Array<{ role: string; content: string }>
+    conversationId?: string
+    agentId?: string
+  }) => Promise<{ success: boolean; error?: string }>
+  cancelStream: (params: { streamId: string }) => Promise<{ success: boolean }>
+  onStreamEvent: (callback: (streamId: string, event: unknown) => void) => () => void
+}
 type AIAction = import('../../shared/types').AIAction
 type AIActionInput = import('../../shared/types').AIActionInput
 type AIActionAPI = import('../../shared/types').AIActionAPI
@@ -72,6 +84,7 @@ interface Window {
     theme: {
       get: () => Promise<'light' | 'dark'>
       onChange?: (callback: (theme: 'light' | 'dark') => void) => () => void
+      sync?: (settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => Promise<{ success: boolean }>
     }
     window: {
       setTitleBarOverlay?: (options: { color: string; symbolColor: string }) => void
@@ -83,24 +96,47 @@ interface Window {
     }
     attachment: AttachmentAPI
     chat: ChatAPI
+    chatWindow: {
+      show: () => Promise<{ success: boolean }>
+      showWithContext: (context: string) => Promise<{ success: boolean }>
+      hide: () => Promise<{ success: boolean }>
+      toggle: () => Promise<{ success: boolean }>
+      isVisible: () => Promise<boolean>
+    }
     popup: {
-      open: (popupId: string, options?: {
-        x?: number
-        y?: number
-        width?: number
-        height?: number
-        prompt?: string
-        context?: { targetText: string; documentTitle?: string }
-      }) => Promise<void>
-      close: (popupId: string) => Promise<void>
-      focus: (popupId: string) => Promise<void>
-      updateContent: (popupId: string, content: string) => Promise<void>
-      exists: (popupId: string) => Promise<boolean>
-      onClosed: (callback: (popupId: string) => void) => () => void
-      onContentRequest: (callback: (popupId: string) => void) => () => void
-      onContentUpdate: (callback: (content: string) => void) => () => void
+      // 继续对话 (用于 hover 预览中的继续对话按钮)
       continueInChat: (selectedText: string, explanation: string) => Promise<void>
       onContinueInChat: (callback: (selectedText: string, explanation: string) => void) => () => void
+      // Popup data storage (database)
+      get: (id: string) => Promise<{
+        id: string
+        content: string
+        prompt: string
+        actionName: string
+        targetText: string
+        documentTitle: string
+        createdAt: string
+        updatedAt: string
+      } | null>
+      create: (input: {
+        id: string
+        prompt: string
+        actionName?: string
+        targetText: string
+        documentTitle?: string
+      }) => Promise<{
+        id: string
+        content: string
+        prompt: string
+        actionName: string
+        targetText: string
+        documentTitle: string
+        createdAt: string
+        updatedAt: string
+      }>
+      updateContent: (id: string, content: string) => Promise<boolean>
+      delete: (id: string) => Promise<boolean>
+      cleanup: (maxAgeDays?: number) => Promise<number>
     }
     knowledgeBase: {
       getConfig: () => Promise<{

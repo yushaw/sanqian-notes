@@ -48,6 +48,7 @@ export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
   const [copied, setCopied] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const t = useTranslations()
 
   // Get all registered languages from lowlight
@@ -113,11 +114,41 @@ export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
     }
   }, [filteredLanguages, handleLanguageSelect])
 
+  // 鼠标移出时延迟关闭下拉菜单
+  const handleMouseLeave = useCallback(() => {
+    closeTimeoutRef.current = setTimeout(() => {
+      setShowDropdown(false)
+      setSearchQuery('')
+    }, 300)
+  }, [])
+
+  // 鼠标移入时取消关闭
+  const handleMouseEnter = useCallback(() => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current)
+      closeTimeoutRef.current = null
+    }
+  }, [])
+
+  // 清理 timeout
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current) {
+        clearTimeout(closeTimeoutRef.current)
+      }
+    }
+  }, [])
+
   return (
     <NodeViewWrapper className="code-block-wrapper">
       <div className="code-block-header">
         {/* Language Selector - 放在 Copy 按钮左边 */}
-        <div className="code-block-language" ref={dropdownRef}>
+        <div
+          className="code-block-language"
+          ref={dropdownRef}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
           <button
             className="code-block-language-btn"
             onClick={() => setShowDropdown(!showDropdown)}

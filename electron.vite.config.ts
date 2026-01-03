@@ -29,7 +29,8 @@ export default defineConfig({
         input: {
           index: resolve('src/renderer/index.html'),
           chat: resolve('src/renderer/chat.html')
-        }
+        },
+        external: ['@yushaw/sanqian-sdk']
       }
     }
   }

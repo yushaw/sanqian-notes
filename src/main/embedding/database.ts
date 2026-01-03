@@ -9,6 +9,16 @@ import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { app } from 'electron'
 import { join } from 'path'
+
+/**
+ * 获取 sqlite-vec 扩展的实际路径
+ * 在 Electron 打包后，需要将 asar 路径替换为 asar.unpacked 路径
+ */
+function getVecExtensionPath(): string {
+  const originalPath = sqliteVec.getLoadablePath()
+  // 在打包环境中，将 app.asar 替换为 app.asar.unpacked
+  return originalPath.replace(/app\.asar([\/\\])/, 'app.asar.unpacked$1')
+}
 import type { EmbeddingConfig, NoteChunk, NoteIndexStatus, VectorSearchResult } from './types'
 import { DEFAULT_CONFIG } from './types'
 import { normalizeCjkAscii } from './utils'
@@ -32,8 +42,9 @@ export function initVectorDatabase(): void {
   const dbPath = getDbPath()
   db = new Database(dbPath)
 
-  // 加载 sqlite-vec 扩展
-  sqliteVec.load(db)
+  // 加载 sqlite-vec 扩展（使用修正后的路径以支持 asar 打包）
+  const vecPath = getVecExtensionPath()
+  db.loadExtension(vecPath)
 
   // 启用 WAL 模式
   db.pragma('journal_mode = WAL')

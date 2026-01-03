@@ -9,6 +9,7 @@ import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react'
 import { createPortal } from 'react-dom'
 import { Sparkles, MessageSquare, Copy, RefreshCw, Trash2 } from 'lucide-react'
 import { useCallback, useState, useRef, useEffect } from 'react'
+import { useFloating, flip, offset, shift, autoUpdate } from '@floating-ui/react'
 import { Streamdown } from 'streamdown'
 import remarkGfm from 'remark-gfm'
 import { getPopup, deletePopup, updatePopupContent, updatePopupStreaming, preloadPopup } from '../utils/popupStorage'
@@ -37,19 +38,29 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
   const [storedDocTitle, setStoredDocTitle] = useState<string | undefined>()
   const [isStreaming, setIsStreaming] = useState(false)
   const [showContinueTooltip, setShowContinueTooltip] = useState(false)
-  const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 })
   const [hasMouseEntered, setHasMouseEntered] = useState(false) // 鼠标是否进入过预览
   const hoverTimerRef = useRef<NodeJS.Timeout | null>(null)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
   const streamingCheckRef = useRef<NodeJS.Timeout | null>(null)
   const wasStreamingRef = useRef(false) // 跟踪之前是否在 streaming
-  const buttonRef = useRef<HTMLSpanElement>(null)
   const retryCleanupRef = useRef<(() => void) | null>(null)
   const t = useTranslations()
 
+  // Floating UI for popup positioning
+  const { refs, floatingStyles } = useFloating({
+    open: showPreview,
+    placement: 'bottom-start',
+    middleware: [
+      offset(4),
+      flip({ fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
+      shift({ padding: 8 })
+    ],
+    whileElementsMounted: autoUpdate
+  })
+
   // 显示预览的通用函数
   const showPreviewPopup = useCallback(() => {
-    if (!popupId || !buttonRef.current) return
+    if (!popupId) return
 
     const popupData = getPopup(popupId)
     if (!popupData?.content) return
@@ -61,34 +72,7 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
     }
     currentPreviewPopupId = popupId
 
-    const rect = buttonRef.current.getBoundingClientRect()
-    const popupWidth = 256  // w-64 = 16rem = 256px
-    const popupHeight = 180 // 估算高度（实际高度由内容决定，取较小值避免距离过远）
-    const padding = 8       // 距离屏幕边缘的最小间距
-
-    // 计算初始位置
-    let top = rect.bottom + 4
-    let left = rect.left
-
-    // 检查右边界
-    if (left + popupWidth > window.innerWidth - padding) {
-      left = window.innerWidth - popupWidth - padding
-    }
-    // 检查左边界
-    if (left < padding) {
-      left = padding
-    }
-
-    // 检查下边界：如果下方空间不够，显示在上方
-    if (top + popupHeight > window.innerHeight - padding) {
-      top = rect.top - popupHeight - 4
-      // 如果上方也不够，就显示在下方但允许滚动
-      if (top < padding) {
-        top = rect.bottom + 4
-      }
-    }
-
-    setPopupPosition({ top, left })
+    // 位置由 Floating UI 自动处理
     setPreviewContent(popupData.content)
     setActionName(popupData.actionName || '')
     setTargetText(popupData.targetText || '')
@@ -337,7 +321,7 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
       className="ai-popup-mark-wrapper inline-flex items-center relative"
     >
       <span
-        ref={buttonRef}
+        ref={refs.setReference}
         tabIndex={0}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -356,8 +340,9 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
       {/* Hover preview popup - rendered via portal to escape TipTap's event handling */}
       {showPreview && previewContent && createPortal(
         <div
-          className="fixed z-[9999] w-64 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg text-sm"
-          style={{ top: popupPosition.top, left: popupPosition.left }}
+          ref={refs.setFloating}
+          className="z-[9999] w-64 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg text-sm"
+          style={floatingStyles}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >

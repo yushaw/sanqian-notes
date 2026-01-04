@@ -1451,8 +1451,8 @@ function EditorToolbar({
       if (toolbarRef.current) {
         const parent = toolbarRef.current.parentElement
         if (parent) {
-          // 当编辑器宽度小于 680px 时切换到紧凑模式
-          setIsCompact(parent.clientWidth < 680)
+          // 当编辑器宽度小于 760px 时切换到紧凑模式
+          setIsCompact(parent.clientWidth < 760)
         }
       }
     }

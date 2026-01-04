@@ -54,6 +54,9 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
   useEffect(() => {
     if (!enabled) return
 
+    // 用于取消异步操作的标志
+    let isActive = true
+
     // 创建 AudioContext（兼容 Safari）
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioContextClass) {
@@ -61,7 +64,8 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
       return
     }
 
-    audioContextRef.current = new AudioContextClass()
+    const context = new AudioContextClass()
+    audioContextRef.current = context
 
     // 加载所有音频文件
     const loadAllAudio = async () => {
@@ -75,14 +79,20 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
         const loadSound = async (key: string, path: string) => {
           try {
             const response = await fetch(path)
+            if (!isActive) return // 已取消，提前退出
             if (!response.ok) {
               throw new Error(`Failed to load ${path}: ${response.statusText}`)
             }
             const arrayBuffer = await response.arrayBuffer()
-            const audioBuffer = await audioContextRef.current!.decodeAudioData(arrayBuffer)
+            if (!isActive) return // 已取消，提前退出
+            const audioBuffer = await context.decodeAudioData(arrayBuffer)
+            if (!isActive) return // 已取消，提前退出
             audioBuffersRef.current.set(key, audioBuffer)
           } catch (error) {
-            console.error(`[TypewriterSound] Failed to load ${key}:`, error)
+            // 忽略已取消的操作产生的错误
+            if (isActive) {
+              console.error(`[TypewriterSound] Failed to load ${key}:`, error)
+            }
           }
         }
 
@@ -96,9 +106,13 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
         })
 
         await Promise.all(loadTasks)
-        console.log('[TypewriterSound] All audio files loaded successfully')
+        if (isActive) {
+          console.log('[TypewriterSound] All audio files loaded successfully')
+        }
       } catch (error) {
-        console.error('[TypewriterSound] Failed to load audio files:', error)
+        if (isActive) {
+          console.error('[TypewriterSound] Failed to load audio files:', error)
+        }
       } finally {
         isLoadingRef.current = false
       }
@@ -108,6 +122,8 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
 
     // 清理
     return () => {
+      isActive = false // 取消正在进行的异步操作
+
       sourceNodesRef.current.forEach(node => {
         try {
           node.stop()

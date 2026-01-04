@@ -115,7 +115,7 @@ export function TrashList({
   }
 
   return (
-    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col drag-region">
+    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col drag-region">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
         {!shouldHideTitle && (

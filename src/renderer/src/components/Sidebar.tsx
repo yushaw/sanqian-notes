@@ -309,7 +309,7 @@ export function Sidebar({
   }
 
   return (
-    <div className="w-44 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-border)] flex flex-col relative select-none">
+    <div className="w-44 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col relative select-none">
       {/* Drag region - top 50px area for window dragging */}
       <div className="h-[50px] flex-shrink-0 drag-region" />
 

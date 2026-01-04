@@ -8,7 +8,7 @@
  * 4. 右侧大纲（宽屏时显示）
  */
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
@@ -161,6 +161,10 @@ export function TypewriterMode({
     playbackRate: 1.0,
   })
 
+  // 使用 ref 保存最新的 playTypewriterSound 函数，解决 Extension 闭包捕获问题
+  const playTypewriterSoundRef = useRef(playTypewriterSound)
+  playTypewriterSoundRef.current = playTypewriterSound
+
   // 主题配置（跟随系统深色/浅色）
   const isDark = resolvedColorMode === 'dark'
   const resolvedTheme: TypewriterTheme = {
@@ -302,26 +306,27 @@ export function TypewriterMode({
 
   // 创建按键音效扩展（参考 Tickeys 实现）
   // 使用 transaction 监听文档变化，支持 IME 输入法
-  const TypewriterSoundExtension = Extension.create({
+  // 使用 useMemo 缓存 Extension，避免每次渲染都重新创建
+  const TypewriterSoundExtension = useMemo(() => Extension.create({
     name: 'typewriterSound',
 
     addKeyboardShortcuts() {
       return {
         // 监听特殊按键（这些不会产生文档变化或需要特殊音效）
         'Backspace': () => {
-          playTypewriterSound('backspace')
+          playTypewriterSoundRef.current('backspace')
           return false
         },
         'Delete': () => {
-          playTypewriterSound('delete')
+          playTypewriterSoundRef.current('delete')
           return false
         },
         'Enter': () => {
-          playTypewriterSound('enter')
+          playTypewriterSoundRef.current('enter')
           return false
         },
         'Space': () => {
-          playTypewriterSound('space')
+          playTypewriterSoundRef.current('space')
           return false
         },
       }
@@ -354,7 +359,7 @@ export function TypewriterMode({
 
                 if (hasInsert) {
                   // 播放普通按键音效
-                  playTypewriterSound('normal')
+                  playTypewriterSoundRef.current('normal')
                   return null // 只播放一次
                 }
               }
@@ -365,7 +370,7 @@ export function TypewriterMode({
         }),
       ]
     },
-  })
+  }), []) // 空依赖：Extension 通过 ref.current 访问最新函数，无需重建
 
   const editor = useEditor({
     extensions: [

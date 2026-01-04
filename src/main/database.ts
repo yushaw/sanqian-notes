@@ -1104,7 +1104,7 @@ function parseTags(tagsJson: string | null): TagWithSource[] {
     return tags.filter(t => t.id !== null).map(t => ({
       id: t.id,
       name: t.name,
-      source: t.source as 'user' | 'ai'
+      source: t.source === 'ai' ? 'ai' : 'user' // fallback to 'user' for invalid values
     }))
   } catch {
     return []
@@ -1207,7 +1207,9 @@ export function addNote(input: NoteInput): Note {
     now
   )
 
-  return getNoteById(id)!
+  const note = getNoteById(id)
+  if (!note) throw new Error(`Failed to create note with id ${id}`)
+  return note
 }
 
 export function updateNote(id: string, updates: Partial<NoteInput>): Note | null {

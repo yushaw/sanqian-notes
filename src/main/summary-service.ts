@@ -32,7 +32,7 @@ const processingNotes = new Set<string>()
 const EXCERPT_LENGTH = 2000
 
 /** Maximum summary length */
-const MAX_SUMMARY_LENGTH = 500
+const MAX_SUMMARY_LENGTH = 300
 
 /** AI request timeout in ms (2 minutes for long content) */
 const AI_TIMEOUT = 120000
@@ -167,16 +167,16 @@ function getBlockText(block: Record<string, unknown>): string {
  */
 function getTargetSummaryLength(contentLength: number): number {
   if (contentLength <= 800) {
-    return Math.round(contentLength * 0.25) // 25%
-  }
-  if (contentLength <= 2000) {
-    return Math.round(contentLength * 0.20) // 20%
-  }
-  if (contentLength <= 5000) {
     return Math.round(contentLength * 0.15) // 15%
   }
-  // Long content: 10%, max 500
-  return Math.min(Math.round(contentLength * 0.10), MAX_SUMMARY_LENGTH)
+  if (contentLength <= 2000) {
+    return Math.round(contentLength * 0.12) // 12%
+  }
+  if (contentLength <= 5000) {
+    return Math.round(contentLength * 0.08) // 8%
+  }
+  // Long content: 5%, max 300
+  return Math.min(Math.round(contentLength * 0.05), MAX_SUMMARY_LENGTH)
 }
 
 // ============ Summary Generation ============
@@ -218,7 +218,7 @@ function buildPrompt(
     return `请根据以下笔记的大纲和开头部分生成摘要和关键词。
 
 要求：
-1. 摘要约 ${targetLength} 字，用一段话概括主要内容
+1. 摘要严格控制在 ${targetLength} 字以内，言简意赅，只保留核心信息，去除所有冗余表述
 2. 提取 3-5 个关键词，用逗号分隔
 
 格式：
@@ -235,7 +235,7 @@ ${plainText.slice(0, EXCERPT_LENGTH)}`
   return `请为以下笔记生成摘要和关键词。
 
 要求：
-1. 摘要约 ${targetLength} 字，用一段话概括主要内容
+1. 摘要严格控制在 ${targetLength} 字以内，言简意赅，只保留核心信息，去除所有冗余表述
 2. 提取 3-5 个关键词，用逗号分隔
 
 格式：

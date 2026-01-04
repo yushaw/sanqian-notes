@@ -116,32 +116,120 @@ interface IndexingProgress {
 }
 
 /**
- * 从 Tiptap JSON 提取纯文本
+ * 从 Tiptap JSON 提取纯文本（带 Markdown 格式）
+ *
+ * 支持的节点类型：
+ * - text: 纯文本
+ * - paragraph: 段落
+ * - heading: 标题（# ## ###）
+ * - bulletList/orderedList: 列表（• 1. 2.）
+ * - codeBlock: 代码块（```）
+ * - blockquote: 引用（>）
+ * - hardBreak: 换行
  */
-function extractTextFromTiptap(jsonContent: string): string {
+export function extractTextFromTiptap(jsonContent: string): string {
+  if (!jsonContent) return ''
+
   try {
     const doc = JSON.parse(jsonContent)
-    return extractTextFromNode(doc)
+    if (!doc || !doc.content) return jsonContent
+
+    return extractTextFromNodes(doc.content)
   } catch {
     // 如果不是 JSON，直接返回
     return jsonContent
   }
 }
 
-function extractTextFromNode(node: unknown): string {
-  if (!node || typeof node !== 'object') return ''
+/**
+ * 递归提取节点文本
+ */
+function extractTextFromNodes(nodes: unknown[]): string {
+  const parts: string[] = []
 
-  const n = node as { type?: string; text?: string; content?: unknown[] }
+  for (const node of nodes) {
+    if (!node || typeof node !== 'object') continue
 
-  if (n.type === 'text' && typeof n.text === 'string') {
-    return n.text
+    const n = node as {
+      type?: string
+      content?: unknown[]
+      text?: string
+      attrs?: { level?: number }
+    }
+
+    switch (n.type) {
+      case 'text':
+        if (n.text) parts.push(n.text)
+        break
+
+      case 'paragraph':
+        if (n.content) {
+          parts.push(extractTextFromNodes(n.content))
+        }
+        parts.push('\n')
+        break
+
+      case 'heading': {
+        const level = n.attrs?.level || 1
+        const prefix = '#'.repeat(level) + ' '
+        if (n.content) {
+          parts.push(prefix + extractTextFromNodes(n.content))
+        }
+        parts.push('\n')
+        break
+      }
+
+      case 'bulletList':
+      case 'orderedList':
+        if (n.content) {
+          const items = n.content as unknown[]
+          items.forEach((item, idx) => {
+            const itemNode = item as { type?: string; content?: unknown[] }
+            if (itemNode.type === 'listItem' && itemNode.content) {
+              const prefix = n.type === 'orderedList' ? `${idx + 1}. ` : '• '
+              const text = extractTextFromNodes(itemNode.content).trim()
+              parts.push(prefix + text + '\n')
+            }
+          })
+        }
+        break
+
+      case 'listItem':
+        if (n.content) {
+          parts.push(extractTextFromNodes(n.content))
+        }
+        break
+
+      case 'codeBlock':
+        parts.push('```\n')
+        if (n.content) {
+          parts.push(extractTextFromNodes(n.content))
+        }
+        parts.push('\n```\n')
+        break
+
+      case 'blockquote':
+        if (n.content) {
+          const lines = extractTextFromNodes(n.content).split('\n')
+          for (const line of lines) {
+            if (line.trim()) parts.push('> ' + line + '\n')
+          }
+        }
+        break
+
+      case 'hardBreak':
+        parts.push('\n')
+        break
+
+      default:
+        // 未知类型，尝试递归提取内容
+        if (n.content) {
+          parts.push(extractTextFromNodes(n.content))
+        }
+    }
   }
 
-  if (Array.isArray(n.content)) {
-    return n.content.map(extractTextFromNode).join('\n')
-  }
-
-  return ''
+  return parts.join('').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 class IndexingService {

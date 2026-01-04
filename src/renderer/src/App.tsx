@@ -72,6 +72,10 @@ function AppContent() {
   // AI chat dialog state
   const [isAIChatOpen, setIsAIChatOpen] = useState(false)
 
+  // Editor selection state (for context provider sync)
+  const [currentBlockId, setCurrentBlockId] = useState<string | null>(null)
+  const [selectedText, setSelectedText] = useState<string | null>(null)
+
   // Editor ref for cursor position sync
   const editorRef = useRef<EditorHandle>(null)
 
@@ -215,16 +219,26 @@ function AppContent() {
     [selectedNoteId, notes]
   )
 
+  // Handler for editor selection changes (for context provider)
+  const handleSelectionChange = useCallback((blockId: string | null, text: string | null) => {
+    setCurrentBlockId(blockId)
+    setSelectedText(text)
+  }, [])
+
   // Sync user context to main process (for agent tools)
   // Depends on derived values to capture both selection changes and renames
+  // Note: blockId and selectedText are only meaningful when we have valid note context
   useEffect(() => {
     window.electron.context.sync({
       currentNotebookId: contextNotebook?.id || null,
       currentNotebookName: contextNotebook?.name || null,
       currentNoteId: contextNote?.id || null,
       currentNoteTitle: contextNote?.title || null,
+      // Only include cursor info if we have valid note context
+      currentBlockId: contextNote ? currentBlockId : null,
+      selectedText: contextNote ? selectedText : null,
     })
-  }, [contextNotebook, contextNote])
+  }, [contextNotebook, contextNote, currentBlockId, selectedText])
 
   // Listen for data changes from SDK tool calls
   useEffect(() => {
@@ -919,6 +933,7 @@ function AppContent() {
             scrollTarget={scrollTarget}
             onScrollComplete={handleScrollComplete}
             onTypewriterModeToggle={handleToggleTypewriter}
+            onSelectionChange={handleSelectionChange}
           />
         </EditorErrorBoundary>
       ) : null}

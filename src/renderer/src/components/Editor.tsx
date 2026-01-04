@@ -215,6 +215,7 @@ interface EditorProps {
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
   onScrollComplete?: () => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
+  onSelectionChange?: (blockId: string | null, selectedText: string | null) => void
 }
 
 // 暴露给外部的 Editor 实例接口
@@ -232,6 +233,7 @@ interface ZenEditorProps {
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
   onScrollComplete?: () => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
+  onSelectionChange?: (blockId: string | null, selectedText: string | null) => void
 }
 
 const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
@@ -243,6 +245,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   scrollTarget,
   onScrollComplete,
   onTypewriterModeToggle,
+  onSelectionChange,
 }, ref) {
   const [title, setTitle] = useState(note.title)
   const [isFocusMode, setIsFocusMode] = useState(false)
@@ -990,6 +993,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
   // 持续追踪最后的光标位置（即使焦点离开编辑器也能记住）
   const lastCursorInfo = useRef<CursorInfo | null>(null)
+  // Track last synced selection to avoid redundant callbacks
+  const lastSyncedSelection = useRef<{ blockId: string | null; selectedText: string | null }>({
+    blockId: null,
+    selectedText: null,
+  })
+  // Debounce timer for selection sync
+  const selectionSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 监听编辑器选区变化，持续更新 lastCursorInfo 和选中字数
   useEffect(() => {
@@ -1003,6 +1013,29 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       }
       // 更新选中字数
       setSelectedWordCount(countSelectedWords(editor))
+
+      // Debounced sync of selection to parent (for context provider)
+      if (onSelectionChange) {
+        if (selectionSyncTimer.current) {
+          clearTimeout(selectionSyncTimer.current)
+        }
+        selectionSyncTimer.current = setTimeout(() => {
+          // Re-fetch current state inside timeout to avoid stale closure
+          const currentInfo = getCursorInfo(editor)
+          const { from, to } = editor.state.selection
+          const selectedText = from !== to ? editor.state.doc.textBetween(from, to, ' ') : null
+          const blockId = currentInfo?.blockId || null
+
+          // Only call if something changed
+          if (
+            blockId !== lastSyncedSelection.current.blockId ||
+            selectedText !== lastSyncedSelection.current.selectedText
+          ) {
+            lastSyncedSelection.current = { blockId, selectedText }
+            onSelectionChange(blockId, selectedText)
+          }
+        }, 300)
+      }
     }
 
     // 初始化
@@ -1012,8 +1045,11 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     editor.on('selectionUpdate', updateSelection)
     return () => {
       editor.off('selectionUpdate', updateSelection)
+      if (selectionSyncTimer.current) {
+        clearTimeout(selectionSyncTimer.current)
+      }
     }
-  }, [editor])
+  }, [editor, onSelectionChange])
 
   // Toggle typewriter mode
   const toggleTypewriterMode = useCallback(() => {
@@ -1308,7 +1344,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 })
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
-  { note, notes, onUpdate, onNoteClick, onCreateNote, scrollTarget, onScrollComplete, onTypewriterModeToggle },
+  { note, notes, onUpdate, onNoteClick, onCreateNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange },
   ref
 ) {
   const t = useTranslations()
@@ -1344,6 +1380,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           scrollTarget={scrollTarget}
           onScrollComplete={onScrollComplete}
           onTypewriterModeToggle={onTypewriterModeToggle}
+          onSelectionChange={onSelectionChange}
         />
       )}
     </div>

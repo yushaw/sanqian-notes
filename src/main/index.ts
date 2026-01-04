@@ -131,6 +131,10 @@ interface UserContext {
   currentNotebookName: string | null
   currentNoteId: string | null
   currentNoteTitle: string | null
+  /** Block ID where cursor is located */
+  currentBlockId: string | null
+  /** Selected text (if any) */
+  selectedText: string | null
 }
 
 let userContext: UserContext = {
@@ -138,6 +142,8 @@ let userContext: UserContext = {
   currentNotebookName: null,
   currentNoteId: null,
   currentNoteTitle: null,
+  currentBlockId: null,
+  selectedText: null,
 }
 
 /**
@@ -165,6 +171,13 @@ function getUserContext(): { context: string } {
  */
 function setUserContext(context: Partial<UserContext>): void {
   userContext = { ...userContext, ...context }
+}
+
+/**
+ * Get raw user context (for context provider)
+ */
+export function getRawUserContext(): UserContext {
+  return { ...userContext }
 }
 
 function sendUpdateStatus(): void {

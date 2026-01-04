@@ -63,9 +63,11 @@ const translations = {
         error: '搜索笔记失败',
       },
       getNote: {
-        description: '获取笔记的完整内容。用于查看笔记详情或在编辑前读取笔记。',
+        description: '获取笔记的完整内容。用于查看笔记详情或在编辑前读取笔记。可以指定 block_id 只获取特定块的内容。',
         idDesc: '笔记 ID',
+        blockIdDesc: '块 ID（可选），如果指定则只返回该块的内容',
         notFound: '笔记不存在',
+        blockNotFound: '块不存在',
         error: '获取笔记失败',
       },
       createNote: {
@@ -181,9 +183,11 @@ Your job:
         error: 'Failed to search notes',
       },
       getNote: {
-        description: 'Get the full content of a note. Used to view details or read before editing.',
+        description: 'Get the full content of a note. Used to view details or read before editing. Can specify block_id to get only a specific block content.',
         idDesc: 'Note ID',
+        blockIdDesc: 'Block ID (optional), if specified returns only that block content',
         notFound: 'Note not found',
+        blockNotFound: 'Block not found',
         error: 'Failed to get note',
       },
       createNote: {

@@ -3018,3 +3018,37 @@ const client = new SanqianAppClient({
 - `src/renderer/src/components/NoteList.tsx` - Hover 预览功能
 - `src/renderer/src/components/NotePreviewPopover.tsx` - 预览弹窗组件
 - `doc/ai-summary-design.md` - 详细设计文档
+
+---
+
+### 2026-01-04 Context Provider 竞态条件修复
+
+**问题：** Context Provider 在某些情况下会注入不完整的 context（只有 blockId 没有笔记信息）
+
+**根本原因：** 竞态条件
+- `currentBlockId` 来自 Editor 的 `onSelectionChange` 回调
+- `contextNote` 依赖于 `notes.find(n => n.id === selectedNoteId)`
+- 当 `notes` 数组被重新加载时（如 `onDataChanged` 触发），可能有短暂窗口期 `contextNote` 是 undefined
+- 但 `currentBlockId` 仍保留之前的值，导致 `context.sync` 发送不完整数据
+
+**修复方案：**
+
+1. **App.tsx context.sync**：只有当 `contextNote` 存在时才发送 `currentBlockId` 和 `selectedText`
+```typescript
+currentBlockId: contextNote ? currentBlockId : null,
+selectedText: contextNote ? selectedText : null,
+```
+
+2. **sanqian-sdk.ts getCurrent**：如果没有 noteId/noteTitle 直接返回 null
+```typescript
+if (!ctx.currentNoteId || !ctx.currentNoteTitle) {
+  return null
+}
+```
+
+**关联修复（同日）：**
+- 修复 context_versions 在 session 恢复时未从 checkpoint 恢复的问题（导致 context 重复注入）
+- 修复 Editor 选择变化检测中的闭包陷阱（debounce timeout 内重新获取 cursorInfo）
+- selectedText 截断长度改为 300 字符
+- 将 notebook 信息合并到 note info 行
+- 过滤掉 fallback position ID（如 `__pos__230`），只注入真实的 block ID

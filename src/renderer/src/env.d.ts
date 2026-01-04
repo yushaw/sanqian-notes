@@ -65,6 +65,8 @@ interface Window {
         currentNotebookName: string | null
         currentNoteId: string | null
         currentNoteTitle: string | null
+        currentBlockId?: string | null
+        selectedText?: string | null
       }) => Promise<void>
       get: () => Promise<{ context: string }>
     }

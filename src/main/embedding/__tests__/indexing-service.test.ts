@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NoteChunk } from '../types'
 import { computeContentHash } from '../utils'
-import { diffChunks } from '../indexing-service'
+import { diffChunks, extractTextFromTiptap } from '../indexing-service'
 
 // 辅助函数：创建测试用的 NoteChunk
 function createChunk(
@@ -370,33 +370,7 @@ describe('diffChunks - Chunk 级增量更新核心算法', () => {
 })
 
 describe('extractTextFromTiptap', () => {
-  // 模拟 extractTextFromTiptap 函数
-  function extractTextFromNode(node: unknown): string {
-    if (!node || typeof node !== 'object') return ''
-
-    const n = node as { type?: string; text?: string; content?: unknown[] }
-
-    if (n.type === 'text' && typeof n.text === 'string') {
-      return n.text
-    }
-
-    if (Array.isArray(n.content)) {
-      return n.content.map(extractTextFromNode).join('\n')
-    }
-
-    return ''
-  }
-
-  function extractTextFromTiptap(jsonContent: string): string {
-    try {
-      const doc = JSON.parse(jsonContent)
-      return extractTextFromNode(doc)
-    } catch {
-      return jsonContent
-    }
-  }
-
-  it('正确提取 Tiptap JSON 中的文本', () => {
+  it('正确提取 Tiptap JSON 中的段落文本', () => {
     const tiptapJson = JSON.stringify({
       type: 'doc',
       content: [
@@ -415,6 +389,111 @@ describe('extractTextFromTiptap', () => {
     expect(text).toContain('World')
   })
 
+  it('正确提取标题并添加 Markdown 前缀', () => {
+    const tiptapJson = JSON.stringify({
+      type: 'doc',
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 1 },
+          content: [{ type: 'text', text: '一级标题' }]
+        },
+        {
+          type: 'heading',
+          attrs: { level: 2 },
+          content: [{ type: 'text', text: '二级标题' }]
+        }
+      ]
+    })
+
+    const text = extractTextFromTiptap(tiptapJson)
+    expect(text).toContain('# 一级标题')
+    expect(text).toContain('## 二级标题')
+  })
+
+  it('正确提取无序列表', () => {
+    const tiptapJson = JSON.stringify({
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: '项目一' }] }]
+            },
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: '项目二' }] }]
+            }
+          ]
+        }
+      ]
+    })
+
+    const text = extractTextFromTiptap(tiptapJson)
+    expect(text).toContain('• 项目一')
+    expect(text).toContain('• 项目二')
+  })
+
+  it('正确提取有序列表', () => {
+    const tiptapJson = JSON.stringify({
+      type: 'doc',
+      content: [
+        {
+          type: 'orderedList',
+          content: [
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: '第一步' }] }]
+            },
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: '第二步' }] }]
+            }
+          ]
+        }
+      ]
+    })
+
+    const text = extractTextFromTiptap(tiptapJson)
+    expect(text).toContain('1. 第一步')
+    expect(text).toContain('2. 第二步')
+  })
+
+  it('正确提取代码块', () => {
+    const tiptapJson = JSON.stringify({
+      type: 'doc',
+      content: [
+        {
+          type: 'codeBlock',
+          content: [{ type: 'text', text: 'const x = 1' }]
+        }
+      ]
+    })
+
+    const text = extractTextFromTiptap(tiptapJson)
+    expect(text).toContain('```')
+    expect(text).toContain('const x = 1')
+  })
+
+  it('正确提取引用块', () => {
+    const tiptapJson = JSON.stringify({
+      type: 'doc',
+      content: [
+        {
+          type: 'blockquote',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: '这是引用' }] }
+          ]
+        }
+      ]
+    })
+
+    const text = extractTextFromTiptap(tiptapJson)
+    expect(text).toContain('> 这是引用')
+  })
+
   it('非 JSON 内容直接返回原文', () => {
     const plainText = '这是普通文本'
     const text = extractTextFromTiptap(plainText)
@@ -425,6 +504,10 @@ describe('extractTextFromTiptap', () => {
     const emptyDoc = JSON.stringify({ type: 'doc', content: [] })
     const text = extractTextFromTiptap(emptyDoc)
     expect(text).toBe('')
+  })
+
+  it('空字符串返回空字符串', () => {
+    expect(extractTextFromTiptap('')).toBe('')
   })
 })
 

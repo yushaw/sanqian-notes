@@ -13,7 +13,8 @@ import {
   SanqianAppClient,
   type AppConfig,
   type AppToolDefinition,
-  type AppAgentConfig
+  type AppAgentConfig,
+  type AppContextProvider
 } from '@yushaw/sanqian-chat/main'
 import { app } from 'electron'
 import {
@@ -50,6 +51,59 @@ function truncateText(text: string, maxLength: number): string {
   }
 
   return truncated
+}
+
+/**
+ * Extract block content by block ID from note content
+ *
+ * Notes use TipTap editor with block IDs stored in node attrs.
+ * Content format: Tiptap JSON with { type: "paragraph", attrs: { blockId: "xxx" }, content: [...] }
+ *
+ * @param content - The full note content (Tiptap JSON)
+ * @param blockId - The block ID to find
+ * @returns Block text content or null if not found
+ */
+function extractBlockById(content: string, blockId: string): string | null {
+  try {
+    const doc = JSON.parse(content)
+    if (!doc || !doc.content) return null
+
+    // Recursively search for the block with matching blockId
+    function findBlock(nodes: unknown[]): unknown | null {
+      for (const node of nodes) {
+        if (!node || typeof node !== 'object') continue
+        const n = node as { attrs?: { blockId?: string }; content?: unknown[] }
+
+        if (n.attrs?.blockId === blockId) {
+          return node
+        }
+
+        if (n.content) {
+          const found = findBlock(n.content)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    const block = findBlock(doc.content)
+    if (!block) return null
+
+    // Extract text from the found block
+    function extractText(node: unknown): string {
+      if (!node || typeof node !== 'object') return ''
+      const n = node as { type?: string; text?: string; content?: unknown[] }
+
+      if (n.type === 'text' && n.text) return n.text
+      if (n.content) return n.content.map(extractText).join('')
+      return ''
+    }
+
+    return extractText(block).trim() || null
+  } catch {
+    // Not valid JSON, return null
+    return null
+  }
 }
 
 /**
@@ -103,7 +157,9 @@ function buildAgentConfigs(): AppAgentConfig[] {
         'update_note',
         'delete_note',
         'get_notebooks'
-      ]
+      ],
+      // Automatically attach editor-state context to know current note/cursor position
+      attachedContexts: ['editor-state']
     },
     {
       agentId: 'writing',
@@ -186,6 +242,10 @@ function buildTools(): AppToolDefinition[] {
           id: {
             type: 'string',
             description: tools.getNote.idDesc
+          },
+          block_id: {
+            type: 'string',
+            description: tools.getNote.blockIdDesc
           }
         },
         required: ['id']
@@ -193,17 +253,31 @@ function buildTools(): AppToolDefinition[] {
       handler: async (args: Record<string, unknown>) => {
         try {
           const id = args.id as string
+          const blockId = args.block_id as string | undefined
           const note = getNoteById(id)
           if (!note) {
             throw new Error(`${tools.getNote.notFound}: ${id}`)
           }
+
+          let content = note.content || ''
+
+          // If block_id is specified, extract only that block
+          if (blockId && content) {
+            const blockContent = extractBlockById(content, blockId)
+            if (blockContent === null) {
+              throw new Error(`${tools.getNote.blockNotFound}: ${blockId}`)
+            }
+            content = blockContent
+          }
+
           return {
             id: note.id,
             title: note.title,
-            content: note.content || '',
+            content,
             created_at: note.created_at,
             updated_at: note.updated_at,
-            notebook_id: note.notebook_id
+            notebook_id: note.notebook_id,
+            ...(blockId && { block_id: blockId })
           }
         } catch (error) {
           throw new Error(`${tools.getNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
@@ -350,6 +424,72 @@ function buildTools(): AppToolDefinition[] {
 }
 
 /**
+ * Build context providers for Notes
+ *
+ * Provides editor-state context that includes:
+ * - Current notebook and note info
+ * - Current block (where cursor is)
+ * - Selected text (if any)
+ */
+function buildContextProviders(): AppContextProvider[] {
+  // Import lazily to avoid circular dependency
+  const { getRawUserContext } = require('./index')
+
+  return [
+    {
+      id: 'editor-state',
+      name: 'Editor State',
+      description: 'Current note, cursor position, and selection',
+      getCurrent: async () => {
+        const ctx = getRawUserContext()
+
+        // Must have note info for context to be meaningful
+        if (!ctx.currentNoteId || !ctx.currentNoteTitle) {
+          return null
+        }
+
+        // Build lightweight context - essential info only
+        const parts: string[] = []
+
+        // Current note info (with notebook if applicable)
+        const note = getNoteById(ctx.currentNoteId)
+        let noteInfo = `Current note: "${ctx.currentNoteTitle}" (ID: ${ctx.currentNoteId})`
+        // Add notebook info if note belongs to one
+        if (ctx.currentNotebookName) {
+          noteInfo += ` in notebook "${ctx.currentNotebookName}"`
+        }
+        parts.push(noteInfo)
+
+        // Include AI summary if available (better than full content)
+        if (note?.ai_summary) {
+          parts.push(`Summary: ${note.ai_summary}`)
+        }
+
+        // Selected text (most important for context-aware actions)
+        if (ctx.selectedText) {
+          const truncated = ctx.selectedText.length > 300
+            ? ctx.selectedText.slice(0, 300) + '...'
+            : ctx.selectedText
+          parts.push(`Selected text:\n"${truncated}"`)
+        }
+
+        // Cursor position for insertion context (only meaningful with note info)
+        // Skip fallback position IDs (like __pos__230) - they're not real block IDs
+        if (ctx.currentBlockId && !ctx.currentBlockId.startsWith('__pos__')) {
+          parts.push(`Cursor at block ID: ${ctx.currentBlockId}`)
+        }
+
+        return {
+          content: parts.join('\n')
+          // No version field - backend will auto-compute hash from content
+          // This way, injection only happens when actual content changes
+        }
+      }
+    }
+  ]
+}
+
+/**
  * Sync private agents with Sanqian
  * This registers our agents and gets their full IDs (app_name:agent_id)
  */
@@ -423,7 +563,8 @@ export async function initializeSanqianSDK(): Promise<void> {
     appVersion: app.getVersion(),
     displayName: 'Flow',
     launchCommand,
-    tools: buildTools()
+    tools: buildTools(),
+    contexts: buildContextProviders()
     // autoLaunchSanqian defaults to true in SDK - will auto-launch Sanqian when needed
   }
 

@@ -149,25 +149,41 @@ export function NoteList({
 
   // Hover preview handlers
   const handleNoteMouseEnter = useCallback((note: Note, element: HTMLElement) => {
-    // Clear any existing timers
+    // Clear hover timer (prevents old hover from triggering)
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
     }
+    // Clear close timer
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
     }
+
+    // Check if popover is currently showing
+    const isPopoverVisible = hoveredNote !== null
 
     // Only show preview if note has AI summary
     if (!note.ai_summary) {
+      // Hide popover immediately if it's showing
+      if (isPopoverVisible) {
+        setHoveredNote(null)
+        setPreviewAnchor(null)
+      }
       return
     }
 
-    // Set timer for 1.5 seconds
-    hoverTimerRef.current = setTimeout(() => {
+    // If popover is already showing, switch immediately; otherwise wait 1.5s
+    if (isPopoverVisible) {
       setHoveredNote(note)
       setPreviewAnchor(element)
-    }, 1500)
-  }, [])
+    } else {
+      hoverTimerRef.current = setTimeout(() => {
+        setHoveredNote(note)
+        setPreviewAnchor(element)
+      }, 1500)
+    }
+  }, [hoveredNote])
 
   const handleNoteMouseLeave = useCallback(() => {
     // Clear hover timer

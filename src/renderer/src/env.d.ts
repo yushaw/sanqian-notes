@@ -247,6 +247,7 @@ interface Note {
   updated_at: string
   deleted_at: string | null
   ai_summary: string | null
+  tags: TagWithSource[]
 }
 
 interface NoteInput {

@@ -11,6 +11,7 @@ export interface Note {
   updated_at: string
   deleted_at: string | null // Soft delete timestamp (trash)
   ai_summary: string | null // AI-generated summary
+  tags: TagWithSource[] // Tags with source (user/ai)
 }
 
 export interface NoteInput {

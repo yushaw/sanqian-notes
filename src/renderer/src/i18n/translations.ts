@@ -99,6 +99,7 @@ export interface Translations {
     checkUpdate: string
     feedback: string
     github: string
+    discord: string
     copyright: string
     updating: {
       checking: string
@@ -589,6 +590,7 @@ const zh: Translations = {
     checkUpdate: '检查更新',
     feedback: '反馈建议',
     github: 'GitHub',
+    discord: 'Discord',
     copyright: '© 2026 心流. All rights reserved.',
     updating: {
       checking: '正在检查更新...',
@@ -1076,6 +1078,7 @@ const en: Translations = {
     checkUpdate: 'Check for Updates',
     feedback: 'Feedback',
     github: 'GitHub',
+    discord: 'Discord',
     copyright: '© 2026 Flow. All rights reserved.',
     updating: {
       checking: 'Checking for updates...',

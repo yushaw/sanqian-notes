@@ -496,6 +496,14 @@ export function Settings({ onClose }: SettingsProps) {
                   >
                     {t.settings.github}
                   </a>
+                  <a
+                    href="http://sanqian.io/discord"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-[var(--color-accent)] hover:underline"
+                  >
+                    {t.settings.discord}
+                  </a>
                 </div>
 
                 <p className="text-xs text-[var(--color-muted)] text-center pt-4 border-t border-black/5 dark:border-white/10">

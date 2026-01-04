@@ -234,52 +234,10 @@ interface Window {
   }
 }
 
-interface Note {
-  id: string
-  title: string
-  content: string
-  notebook_id: string | null
-  is_daily: boolean
-  daily_date: string | null
-  is_favorite: boolean
-  is_pinned: boolean
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
-  ai_summary: string | null
-  tags: TagWithSource[]
-}
-
-interface NoteInput {
-  title: string
-  content: string
-  notebook_id?: string | null
-  is_daily?: boolean
-  daily_date?: string | null
-  is_favorite?: boolean
-  is_pinned?: boolean
-}
-
-interface Notebook {
-  id: string
-  name: string
-  icon?: string
-  order_index: number
-  created_at: string
-}
-
-interface NotebookInput {
-  name: string
-  icon?: string
-}
-
-interface Tag {
-  id: string
-  name: string
-}
-
-interface TagWithSource extends Tag {
-  source: 'user' | 'ai'
-}
-
-// AIAction and AIActionInput types are imported from shared/types
+// Note types are imported from shared/types
+type Note = import('../../shared/types').Note
+type NoteInput = import('../../shared/types').NoteInput
+type Notebook = import('../../shared/types').Notebook
+type NotebookInput = import('../../shared/types').NotebookInput
+type Tag = import('../../shared/types').Tag
+type TagWithSource = import('../../shared/types').TagWithSource

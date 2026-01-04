@@ -3,10 +3,30 @@ import { app } from 'electron'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import { t, getSystemLang } from './i18n'
-import type { AIAction, AIActionInput, AIActionMode } from '../shared/types'
+import type {
+  AIAction,
+  AIActionInput,
+  AIActionMode,
+  Note,
+  NoteInput,
+  Tag,
+  TagWithSource,
+  Notebook,
+  NotebookInput
+} from '../shared/types'
 
 // Re-export for backward compatibility
-export type { AIAction, AIActionInput, AIActionMode }
+export type {
+  AIAction,
+  AIActionInput,
+  AIActionMode,
+  Note,
+  NoteInput,
+  Tag,
+  TagWithSource,
+  Notebook,
+  NotebookInput
+}
 
 // Constants
 export const TRASH_RETENTION_DAYS = 30
@@ -1075,32 +1095,6 @@ export function createDemoNote(): void {
 
 // ============ Notes ============
 
-export interface NoteInput {
-  title: string
-  content: string
-  notebook_id?: string | null
-  is_daily?: boolean
-  daily_date?: string | null
-  is_favorite?: boolean
-  is_pinned?: boolean
-}
-
-export interface Note {
-  id: string
-  title: string
-  content: string
-  notebook_id: string | null
-  is_daily: boolean
-  daily_date: string | null
-  is_favorite: boolean
-  is_pinned: boolean
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
-  ai_summary: string | null
-  tags: TagWithSource[]
-}
-
 /** Parse tags JSON string from SQL query */
 function parseTags(tagsJson: string | null): TagWithSource[] {
   if (!tagsJson) return []
@@ -1117,73 +1111,58 @@ function parseTags(tagsJson: string | null): TagWithSource[] {
   }
 }
 
+/** SQL subquery for aggregating tags as JSON */
+const TAGS_SUBQUERY = `(
+  SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
+  FROM note_tags nt
+  JOIN tags t ON t.id = nt.tag_id
+  WHERE nt.note_id = n.id
+) as tags_json`
+
+/** Common SELECT columns for Note queries */
+const NOTE_SELECT_COLUMNS = `n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
+  n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
+  ${TAGS_SUBQUERY}`
+
+/** Convert database row to Note object */
+function rowToNote(row: Record<string, unknown>): Note {
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    content: row.content as string,
+    notebook_id: row.notebook_id as string | null,
+    is_daily: Boolean(row.is_daily),
+    daily_date: row.daily_date as string | null,
+    is_favorite: Boolean(row.is_favorite),
+    is_pinned: Boolean(row.is_pinned),
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+    deleted_at: row.deleted_at as string | null,
+    ai_summary: row.ai_summary as string | null,
+    tags: parseTags(row.tags_json as string | null),
+  }
+}
+
 export function getNotes(limit = 1000): Note[] {
   const stmt = db.prepare(`
-    SELECT
-      n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-      n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
-      (
-        SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id
-      ) as tags_json
+    SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     WHERE n.deleted_at IS NULL
     ORDER BY n.is_pinned DESC, n.updated_at DESC
     LIMIT ?
   `)
-  return stmt.all(limit).map(row => {
-    const r = row as Record<string, unknown>
-    return {
-      id: r.id,
-      title: r.title,
-      content: r.content,
-      notebook_id: r.notebook_id,
-      is_daily: Boolean(r.is_daily),
-      daily_date: r.daily_date,
-      is_favorite: Boolean(r.is_favorite),
-      is_pinned: Boolean(r.is_pinned),
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-      deleted_at: r.deleted_at,
-      ai_summary: r.ai_summary,
-      tags: parseTags(r.tags_json as string | null),
-    } as Note
-  })
+  return stmt.all(limit).map(row => rowToNote(row as Record<string, unknown>))
 }
 
 export function getNoteById(id: string): Note | null {
   const stmt = db.prepare(`
-    SELECT
-      n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-      n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
-      (
-        SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id
-      ) as tags_json
+    SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     WHERE n.id = ?
   `)
   const row = stmt.get(id) as Record<string, unknown> | undefined
   if (!row) return null
-  return {
-    id: row.id,
-    title: row.title,
-    content: row.content,
-    notebook_id: row.notebook_id,
-    is_daily: Boolean(row.is_daily),
-    daily_date: row.daily_date,
-    is_favorite: Boolean(row.is_favorite),
-    is_pinned: Boolean(row.is_pinned),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    deleted_at: row.deleted_at,
-    ai_summary: row.ai_summary,
-    tags: parseTags(row.tags_json as string | null),
-  } as Note
+  return rowToNote(row)
 }
 
 export function getNotesByIds(ids: string[]): Note[] {
@@ -1192,15 +1171,7 @@ export function getNotesByIds(ids: string[]): Note[] {
   // 使用 IN 查询批量获取，保持传入顺序
   const placeholders = ids.map(() => '?').join(',')
   const stmt = db.prepare(`
-    SELECT
-      n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-      n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
-      (
-        SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id
-      ) as tags_json
+    SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     WHERE n.id IN (${placeholders})
   `)
@@ -1211,21 +1182,7 @@ export function getNotesByIds(ids: string[]): Note[] {
   return ids
     .map(id => noteMap.get(id))
     .filter((row): row is Record<string, unknown> => row !== undefined)
-    .map(row => ({
-      id: row.id,
-      title: row.title,
-      content: row.content,
-      notebook_id: row.notebook_id,
-      is_daily: Boolean(row.is_daily),
-      daily_date: row.daily_date,
-      is_favorite: Boolean(row.is_favorite),
-      is_pinned: Boolean(row.is_pinned),
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      deleted_at: row.deleted_at,
-      ai_summary: row.ai_summary,
-      tags: parseTags(row.tags_json as string | null),
-    } as Note))
+    .map(rowToNote)
 }
 
 export function addNote(input: NoteInput): Note {
@@ -1292,37 +1249,12 @@ export function deleteNote(id: string): boolean {
 // Get all notes in trash
 export function getTrashNotes(): Note[] {
   const stmt = db.prepare(`
-    SELECT
-      n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-      n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
-      (
-        SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id
-      ) as tags_json
+    SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     WHERE n.deleted_at IS NOT NULL
     ORDER BY n.deleted_at DESC
   `)
-  return stmt.all().map(row => {
-    const r = row as Record<string, unknown>
-    return {
-      id: r.id,
-      title: r.title,
-      content: r.content,
-      notebook_id: r.notebook_id,
-      is_daily: Boolean(r.is_daily),
-      daily_date: r.daily_date,
-      is_favorite: Boolean(r.is_favorite),
-      is_pinned: Boolean(r.is_pinned),
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-      deleted_at: r.deleted_at,
-      ai_summary: r.ai_summary,
-      tags: parseTags(r.tags_json as string | null),
-    } as Note
-  })
+  return stmt.all().map(row => rowToNote(row as Record<string, unknown>))
 }
 
 // Restore note from trash
@@ -1368,15 +1300,7 @@ export function searchNotes(query: string, limit = 100): Note[] {
   const actualLimit = Math.min(limit, 100)
 
   const stmt = db.prepare(`
-    SELECT
-      n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-      n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
-      (
-        SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id
-      ) as tags_json
+    SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     WHERE n.deleted_at IS NULL AND (
       n.title LIKE ? ESCAPE '\\'
@@ -1387,40 +1311,12 @@ export function searchNotes(query: string, limit = 100): Note[] {
     LIMIT ?
   `)
 
-  return stmt.all(likeQuery, likeQuery, likeQuery, actualLimit).map(row => {
-    const r = row as Record<string, unknown>
-    return {
-      id: r.id,
-      title: r.title,
-      content: r.content,
-      notebook_id: r.notebook_id,
-      is_daily: Boolean(r.is_daily),
-      daily_date: r.daily_date,
-      is_favorite: Boolean(r.is_favorite),
-      is_pinned: Boolean(r.is_pinned),
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-      deleted_at: r.deleted_at,
-      ai_summary: r.ai_summary,
-      tags: parseTags(r.tags_json as string | null),
-    } as Note
-  })
+  return stmt.all(likeQuery, likeQuery, likeQuery, actualLimit).map(row =>
+    rowToNote(row as Record<string, unknown>)
+  )
 }
 
 // ============ Notebooks ============
-
-export interface NotebookInput {
-  name: string
-  icon?: string
-}
-
-export interface Notebook {
-  id: string
-  name: string
-  icon?: string
-  order_index: number
-  created_at: string
-}
 
 export function getNotebooks(): Notebook[] {
   const stmt = db.prepare('SELECT * FROM notebooks ORDER BY order_index')
@@ -1480,15 +1376,6 @@ export function deleteNotebook(id: string): boolean {
 }
 
 // ============ Tags ============
-
-export interface Tag {
-  id: string
-  name: string
-}
-
-export interface TagWithSource extends Tag {
-  source: 'user' | 'ai'
-}
 
 export function getTags(): Tag[] {
   const stmt = db.prepare('SELECT * FROM tags ORDER BY name')
@@ -1625,74 +1512,24 @@ export function removeNoteLink(sourceNoteId: string, targetNoteId: string): void
 
 export function getBacklinks(noteId: string): Note[] {
   const stmt = db.prepare(`
-    SELECT
-      n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-      n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
-      (
-        SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id
-      ) as tags_json
+    SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     JOIN note_links nl ON nl.source_note_id = n.id
     WHERE nl.target_note_id = ? AND n.deleted_at IS NULL
     ORDER BY n.updated_at DESC
   `)
-  return stmt.all(noteId).map(row => {
-    const r = row as Record<string, unknown>
-    return {
-      id: r.id,
-      title: r.title,
-      content: r.content,
-      notebook_id: r.notebook_id,
-      is_daily: Boolean(r.is_daily),
-      daily_date: r.daily_date,
-      is_favorite: Boolean(r.is_favorite),
-      is_pinned: Boolean(r.is_pinned),
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-      deleted_at: r.deleted_at,
-      ai_summary: r.ai_summary,
-      tags: parseTags(r.tags_json as string | null),
-    } as Note
-  })
+  return stmt.all(noteId).map(row => rowToNote(row as Record<string, unknown>))
 }
 
 export function getOutgoingLinks(noteId: string): Note[] {
   const stmt = db.prepare(`
-    SELECT
-      n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-      n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
-      (
-        SELECT JSON_GROUP_ARRAY(JSON_OBJECT('id', t.id, 'name', t.name, 'source', COALESCE(nt.source, 'user')))
-        FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id
-      ) as tags_json
+    SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     JOIN note_links nl ON nl.target_note_id = n.id
     WHERE nl.source_note_id = ? AND n.deleted_at IS NULL
     ORDER BY n.updated_at DESC
   `)
-  return stmt.all(noteId).map(row => {
-    const r = row as Record<string, unknown>
-    return {
-      id: r.id,
-      title: r.title,
-      content: r.content,
-      notebook_id: r.notebook_id,
-      is_daily: Boolean(r.is_daily),
-      daily_date: r.daily_date,
-      is_favorite: Boolean(r.is_favorite),
-      is_pinned: Boolean(r.is_pinned),
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-      deleted_at: r.deleted_at,
-      ai_summary: r.ai_summary,
-      tags: parseTags(r.tags_json as string | null),
-    } as Note
-  })
+  return stmt.all(noteId).map(row => rowToNote(row as Record<string, unknown>))
 }
 
 // Update all links for a note (called when note content changes)

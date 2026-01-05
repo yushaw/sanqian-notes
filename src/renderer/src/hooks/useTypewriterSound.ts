@@ -48,82 +48,80 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
   const sourceNodesRef = useRef<AudioBufferSourceNode[]>([])
   const lastPlayTimeRef = useRef<number>(0)
   const normalKeyIndexRef = useRef<number>(0) // 用于轮流播放普通按键音效
-  const isLoadingRef = useRef<boolean>(false)
+  const isInitializedRef = useRef<boolean>(false)
+  const pendingInitRef = useRef<boolean>(false)
 
-  // 初始化 AudioContext 并加载所有音效文件
-  useEffect(() => {
-    if (!enabled) return
-
-    // 用于取消异步操作的标志
-    let isActive = true
+  // 懒加载初始化函数 - 在第一次用户交互时调用
+  const ensureInitialized = useCallback(async () => {
+    if (isInitializedRef.current || pendingInitRef.current || !enabled) return
+    pendingInitRef.current = true
 
     // 创建 AudioContext（兼容 Safari）
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioContextClass) {
       console.warn('[TypewriterSound] Web Audio API not supported')
+      pendingInitRef.current = false
       return
     }
 
-    const context = new AudioContextClass()
-    audioContextRef.current = context
+    // 创建 AudioContext（在用户交互时创建，避免 autoplay policy 问题）
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextClass()
+    }
 
-    // 加载所有音频文件
-    const loadAllAudio = async () => {
-      if (isLoadingRef.current) return
-      isLoadingRef.current = true
+    const context = audioContextRef.current
 
+    // 确保 context 处于运行状态
+    if (context.state === 'suspended') {
       try {
-        const loadTasks: Promise<void>[] = []
-
-        // 加载特殊按键音效
-        const loadSound = async (key: string, path: string) => {
-          try {
-            const response = await fetch(path)
-            if (!isActive) return // 已取消，提前退出
-            if (!response.ok) {
-              throw new Error(`Failed to load ${path}: ${response.statusText}`)
-            }
-            const arrayBuffer = await response.arrayBuffer()
-            if (!isActive) return // 已取消，提前退出
-            const audioBuffer = await context.decodeAudioData(arrayBuffer)
-            if (!isActive) return // 已取消，提前退出
-            audioBuffersRef.current.set(key, audioBuffer)
-          } catch (error) {
-            // 忽略已取消的操作产生的错误
-            if (isActive) {
-              console.error(`[TypewriterSound] Failed to load ${key}:`, error)
-            }
-          }
-        }
-
-        loadTasks.push(loadSound('backspace', SOUND_FILES.backspace))
-        loadTasks.push(loadSound('enter', SOUND_FILES.enter))
-        loadTasks.push(loadSound('space', SOUND_FILES.space))
-
-        // 加载普通按键音效
-        SOUND_FILES.normal.forEach((path, index) => {
-          loadTasks.push(loadSound(`normal-${index}`, path))
-        })
-
-        await Promise.all(loadTasks)
-        if (isActive) {
-          console.log('[TypewriterSound] All audio files loaded successfully')
-        }
-      } catch (error) {
-        if (isActive) {
-          console.error('[TypewriterSound] Failed to load audio files:', error)
-        }
-      } finally {
-        isLoadingRef.current = false
+        await context.resume()
+      } catch (e) {
+        console.warn('[TypewriterSound] Failed to resume AudioContext:', e)
       }
     }
 
-    loadAllAudio()
+    // 如果已经加载过，直接返回
+    if (audioBuffersRef.current.size > 0) {
+      isInitializedRef.current = true
+      pendingInitRef.current = false
+      return
+    }
 
-    // 清理
+    // 加载所有音频文件
+    try {
+      const loadSound = async (key: string, path: string) => {
+        try {
+          const response = await fetch(path)
+          if (!response.ok) {
+            throw new Error(`Failed to load ${path}: ${response.statusText}`)
+          }
+          const arrayBuffer = await response.arrayBuffer()
+          const audioBuffer = await context.decodeAudioData(arrayBuffer)
+          audioBuffersRef.current.set(key, audioBuffer)
+        } catch (error) {
+          console.error(`[TypewriterSound] Failed to load ${key}:`, error)
+        }
+      }
+
+      await Promise.all([
+        loadSound('backspace', SOUND_FILES.backspace),
+        loadSound('enter', SOUND_FILES.enter),
+        loadSound('space', SOUND_FILES.space),
+        ...SOUND_FILES.normal.map((path, index) => loadSound(`normal-${index}`, path))
+      ])
+
+      isInitializedRef.current = true
+      console.log('[TypewriterSound] All audio files loaded successfully')
+    } catch (error) {
+      console.error('[TypewriterSound] Failed to load audio files:', error)
+    } finally {
+      pendingInitRef.current = false
+    }
+  }, [enabled])
+
+  // 清理
+  useEffect(() => {
     return () => {
-      isActive = false // 取消正在进行的异步操作
-
       sourceNodesRef.current.forEach(node => {
         try {
           node.stop()
@@ -140,12 +138,47 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
       }
 
       audioBuffersRef.current.clear()
+      isInitializedRef.current = false
+      pendingInitRef.current = false
+    }
+  }, [])
+
+  // 当 enabled 变为 false 时重置状态
+  useEffect(() => {
+    if (!enabled) {
+      sourceNodesRef.current.forEach(node => {
+        try {
+          node.stop()
+          node.disconnect()
+        } catch (e) {
+          // 忽略
+        }
+      })
+      sourceNodesRef.current = []
+
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+        audioContextRef.current = null
+      }
+
+      audioBuffersRef.current.clear()
+      isInitializedRef.current = false
+      pendingInitRef.current = false
     }
   }, [enabled])
 
   // 播放音效
   const play = useCallback((keyType: KeyType = 'normal') => {
-    if (!enabled || !audioContextRef.current || audioBuffersRef.current.size === 0) {
+    if (!enabled) return
+
+    // 懒加载初始化（第一次调用时触发）
+    if (!isInitializedRef.current && !pendingInitRef.current) {
+      ensureInitialized()
+      return // 第一次调用时跳过播放，等待初始化完成
+    }
+
+    // 如果还在初始化中或没有音频数据，跳过
+    if (!audioContextRef.current || audioBuffersRef.current.size === 0) {
       return
     }
 
@@ -242,7 +275,7 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
     } catch (error) {
       console.error('[TypewriterSound] Failed to play audio:', error)
     }
-  }, [enabled, volume, playbackRate, maxConcurrent])
+  }, [enabled, volume, playbackRate, maxConcurrent, ensureInitialized])
 
   return { play }
 }

@@ -174,12 +174,26 @@ export function KnowledgeBaseSettings() {
     loadData()
   }, [])
 
-  // 获取 Sanqian 配置
+  // 获取 Sanqian 配置（带超时，防止无限 loading）
   const fetchSanqianConfig = useCallback(async () => {
     setFetchingSanqian(true)
     setSanqianError(null)
+
+    // 5 秒超时
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    const timeoutPromise = new Promise<{ success: false; config: { available: false }; error: 'timeout' }>((resolve) => {
+      timeoutId = setTimeout(() => resolve({ success: false, config: { available: false }, error: 'timeout' }), 5000)
+    })
+
     try {
-      const result = await window.electron.knowledgeBase.fetchFromSanqian()
+      const result = await Promise.race([
+        window.electron.knowledgeBase.fetchFromSanqian(),
+        timeoutPromise
+      ])
+
+      // 清理超时定时器
+      if (timeoutId) clearTimeout(timeoutId)
+
       if (result.success && result.config.available) {
         setSanqianConfig(result.config)
         setSanqianError(null)
@@ -189,8 +203,12 @@ export function KnowledgeBaseSettings() {
         setSanqianError(result.error || 'not_configured')
       }
     } catch (error) {
+      // 清理超时定时器
+      if (timeoutId) clearTimeout(timeoutId)
+
       console.error('Failed to fetch sanqian config:', error)
       setSanqianConfig({ available: false })
+      // 网络错误等异常也当作连接失败处理，显示"版本过低"提示
       setSanqianError('timeout')
     } finally {
       setFetchingSanqian(false)

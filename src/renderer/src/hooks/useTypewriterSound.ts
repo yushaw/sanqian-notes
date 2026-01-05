@@ -203,6 +203,11 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
     try {
       const context = audioContextRef.current
 
+      // 确保 AudioContext 处于运行状态（某些浏览器需要用户交互后 resume）
+      if (context.state === 'suspended') {
+        context.resume()
+      }
+
       // 创建音源节点
       const source = context.createBufferSource()
       source.buffer = audioBuffer

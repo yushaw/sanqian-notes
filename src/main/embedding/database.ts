@@ -13,11 +13,45 @@ import { join } from 'path'
 /**
  * 获取 sqlite-vec 扩展的实际路径
  * 在 Electron 打包后，需要将 asar 路径替换为 asar.unpacked 路径
+ * 同时处理 npm 包嵌套的情况（sqlite-vec-darwin-arm64 可能在 sqlite-vec/node_modules/ 下）
  */
 function getVecExtensionPath(): string {
-  const originalPath = sqliteVec.getLoadablePath()
-  // 在打包环境中，将 app.asar 替换为 app.asar.unpacked
-  return originalPath.replace(/app\.asar([\/\\])/, 'app.asar.unpacked$1')
+  const platform = process.platform
+  const arch = process.arch
+
+  // 构建平台特定包名
+  const os = platform === 'win32' ? 'windows' : platform
+  const packageName = `sqlite-vec-${os}-${arch}`
+  const ext = platform === 'win32' ? 'dll' : platform === 'darwin' ? 'dylib' : 'so'
+
+  // 获取 sqlite-vec 模块的目录
+  const sqliteVecDir = require.resolve('sqlite-vec').replace(/[/\\]index\.(cjs|mjs|js)$/, '')
+
+  // 尝试多个可能的路径
+  const possiblePaths = [
+    // 嵌套在 sqlite-vec/node_modules/ 下
+    join(sqliteVecDir, 'node_modules', packageName, `vec0.${ext}`),
+    // 与 sqlite-vec 同级（npm 扁平安装）
+    join(sqliteVecDir, '..', packageName, `vec0.${ext}`),
+  ]
+
+  for (const p of possiblePaths) {
+    // 在打包环境中，将 app.asar 替换为 app.asar.unpacked
+    const unpackedPath = p.replace(/app\.asar([/\\])/, 'app.asar.unpacked$1')
+    try {
+      require('fs').statSync(unpackedPath)
+      return unpackedPath
+    } catch {
+      // 继续尝试下一个路径
+    }
+  }
+
+  // 如果都找不到，fallback 到原来的方法（可能在开发环境下工作）
+  try {
+    return sqliteVec.getLoadablePath()
+  } catch {
+    throw new Error(`sqlite-vec extension not found. Tried paths: ${possiblePaths.join(', ')}`)
+  }
 }
 import type { EmbeddingConfig, NoteChunk, NoteIndexStatus, VectorSearchResult } from './types'
 import { DEFAULT_CONFIG } from './types'

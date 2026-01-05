@@ -678,7 +678,8 @@ export function searchEmbeddings(
   const queryVector = new Float32Array(queryEmbedding)
 
   // 使用 vec0 的 MATCH 语法进行 KNN 搜索
-  // 注意：sqlite-vec 不使用 k 参数，用 LIMIT 控制返回数量
+  // 注意：sqlite-vec 需要在 WHERE 子句中使用 k = ? 约束，不能依赖外层 LIMIT
+  // 当使用 JOIN 时，必须用子查询先做 KNN 搜索
   const rows = database
     .prepare(
       `
@@ -688,11 +689,13 @@ export function searchEmbeddings(
         e.notebook_id,
         e.distance,
         c.chunk_text
-      FROM note_embeddings e
+      FROM (
+        SELECT chunk_id, note_id, notebook_id, distance
+        FROM note_embeddings
+        WHERE embedding MATCH ? AND k = ?
+      ) e
       JOIN note_chunks c ON e.chunk_id = c.chunk_id
-      WHERE e.embedding MATCH ?
       ORDER BY e.distance
-      LIMIT ?
     `
     )
     .all(queryVector, limit * 2) as Array<{
@@ -739,7 +742,8 @@ export function searchEmbeddingsInNotebook(
   const queryVector = new Float32Array(queryEmbedding)
 
   // 先做向量搜索，再过滤笔记本
-  // 注意：sqlite-vec 的 WHERE 子句限制，需要在外层过滤
+  // 注意：sqlite-vec 需要在 WHERE 子句中使用 k = ? 约束
+  // 使用子查询先做 KNN 搜索，再在外层过滤 notebook_id
   const rows = database
     .prepare(
       `
@@ -749,11 +753,13 @@ export function searchEmbeddingsInNotebook(
         e.notebook_id,
         e.distance,
         c.chunk_text
-      FROM note_embeddings e
+      FROM (
+        SELECT chunk_id, note_id, notebook_id, distance
+        FROM note_embeddings
+        WHERE embedding MATCH ? AND k = ?
+      ) e
       JOIN note_chunks c ON e.chunk_id = c.chunk_id
-      WHERE e.embedding MATCH ?
       ORDER BY e.distance
-      LIMIT ?
     `
     )
     .all(queryVector, limit * 5) as Array<{
@@ -831,7 +837,7 @@ export function searchKeyword(
   for (const word of words) {
     // 转义 LIKE 特殊字符
     const escapedWord = word.replace(/[%_\\]/g, '\\$&')
-    conditions.push("chunk_text LIKE ? ESCAPE '\\\\'")
+    conditions.push("chunk_text LIKE ? ESCAPE '\\'")
     params.push(`%${escapedWord}%`)
   }
 

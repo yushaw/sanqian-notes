@@ -3188,3 +3188,120 @@ if (!ctx.currentNoteId || !ctx.currentNoteTitle) {
 
 **文件变更：**
 - `src/main/i18n.ts` - 更新中英文 assistantSystemPrompt
+
+---
+
+### 2026-01-05 导入导出功能 (Phase 1)
+
+**功能概述：支持 Markdown 格式的笔记导入和导出**
+
+**导入功能：**
+- 支持导入 Markdown 文件夹（含多层目录结构）
+- 解析 YAML Front Matter（title, tags, created, updated）
+- 文件夹策略：first-level / flatten-path / single-notebook
+- 标签策略：keep-nested / flatten-all / first-level
+- 冲突处理：skip / rename / overwrite
+- 附件导入：复制图片到 attachments 目录
+- Wiki 链接收集：解析 `[[link]]` 格式
+
+**导出功能：**
+- 导出为 Markdown 文件
+- 可选生成 Front Matter 元数据
+- 可选按笔记本分组到子文件夹
+- 可选导出附件
+- 可选打包为 ZIP（自动创建临时目录，打包后清理）
+
+**UI 入口：**
+- Settings → Data 标签页
+- Import/Export 对话框，支持预览和进度显示
+
+**安全修复：**
+- 路径遍历防护（`startsWith(basePath)` 检查）
+- 命令注入防护（使用 `execFile` 替代 `exec`）
+
+**文件结构：**
+```
+src/main/import-export/
+├── types.ts                 # 类型定义
+├── base-importer.ts         # 导入器基类
+├── base-exporter.ts         # 导出器基类
+├── index.ts                 # 主入口 + API
+├── importers/
+│   └── markdown-importer.ts # Markdown 导入器
+├── exporters/
+│   └── markdown-exporter.ts # Markdown 导出器
+├── utils/
+│   ├── front-matter.ts      # YAML 解析
+│   └── attachment-handler.ts # 附件处理
+└── __tests__/               # 63 个单元测试
+```
+
+**测试：** 63 个导入导出测试全部通过
+
+---
+
+### 2026-01-05 导入导出功能 (Phase 2 - Obsidian 支持)
+
+**功能概述：完整支持 Obsidian Vault 导入**
+
+**新增 ObsidianImporter：**
+- 自动检测 Obsidian Vault（通过 `.obsidian` 文件夹识别）
+- 优先级高于通用 Markdown 导入器
+
+**Callout 语法支持：**
+- `> [!note]` / `> [!tip]` / `> [!warning]` 等自动转换为 TipTap callout
+- 由 markdown-to-tiptap 模块原生支持
+
+**内部链接解析（两遍扫描）：**
+- 第一遍：创建所有笔记，建立 title → noteId 映射
+- 第二遍：解析 `[[title]]` 和 `[[title|alias]]` 链接，转换为 `sanqian://note/{id}` 格式
+- 未找到的链接标记为 `sanqian://note-not-found/{title}`
+- 大小写不敏感匹配
+
+**嵌入笔记处理：**
+- `![[note]]` 转换为 `*[Embedded: note]*` 引用文本
+- `![[note|alias]]` 使用别名显示
+
+**附件处理增强：**
+- 支持 `![[image.png]]` Obsidian 图片语法
+- Vault 范围搜索：当前目录 → 根目录 → 常见附件目录 → 递归搜索
+- 同时支持标准 Markdown `![](path)` 图片语法
+
+**内联标签提取：**
+- 识别 `#tag` 和 `#nested/tag` 格式
+- 排除 `##` 标题和代码块中的内容
+
+**新增文件：**
+```
+src/main/import-export/
+├── importers/
+│   └── obsidian-importer.ts  # Obsidian Vault 导入器
+└── utils/
+    └── link-resolver.ts      # Wiki 链接解析器
+```
+
+**测试：** 84 个导入导出测试全部通过（新增 21 个 Obsidian 相关测试）
+
+---
+
+### 2026-01-05 导入导出功能优化
+
+**Bug 修复：**
+- 内联标签正则支持连字符（`#my-tag`、`#kebab-case-tag`）
+
+**性能优化：**
+- 链接解析阶段避免循环内重复查询数据库，改为一次性加载 + Map 查找 O(1)
+
+**新增功能：**
+- 进度回调机制：`ImportOptions.onProgress` 和 `ExportOptions.onProgress`
+- 支持的进度事件类型：
+  - 导入：`scanning` → `parsing` → `creating` → `copying` → `done` / `error`
+  - 导出：`exporting` → `zipping` → `done` / `error`
+
+**安全加固：**
+- PowerShell 命令注入防护：使用 ScriptBlock 参数化传递路径
+- 符号链接路径穿越防护：使用 `realpathSync` 解析真实路径
+- 文件大小限制：单个 Markdown 文件 50MB，附件 100MB
+- YAML 递归深度限制：最大 10 层嵌套，防止栈溢出
+
+**测试：** 93 个导入导出测试全部通过（新增 9 个边界测试）

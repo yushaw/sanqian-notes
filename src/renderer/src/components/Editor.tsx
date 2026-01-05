@@ -662,11 +662,16 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
   // 跟踪编辑器自身的内容版本，用于区分外部更新和内部更新
   const editorContentRef = useRef<string | null>(null)
+  // 用于取消过时的 queueMicrotask（防止快速切换笔记时竞态条件）
+  const syncVersionRef = useRef(0)
 
   // 同步外部内容变化到编辑器（长期主义方案：避免重建编辑器）
   // 场景：从打字机模式退出后，note.content 已更新，需要同步到编辑器
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
+
+    // 递增版本号，使之前的 microtask 失效
+    const version = ++syncVersionRef.current
 
     // 获取当前编辑器内容的 JSON 字符串
     const currentContent = JSON.stringify(editor.getJSON())
@@ -703,13 +708,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     // 如果是 Markdown，使用 insertContent 转换
     if (externalContent === null) {
       const html = markdownToHtml(note.content)
-      editor.commands.setContent('', { emitUpdate: false }) // 先清空
-      editor.commands.insertContent(html, {
-        parseOptions: {
-          preserveWhitespace: false,
-        },
+      // 使用 queueMicrotask 避免 flushSync 警告
+      queueMicrotask(() => {
+        // 版本检查：如果已有新的同步请求，跳过此次（防止快速切换笔记时竞态）
+        if (syncVersionRef.current !== version || editor.isDestroyed) return
+        editor.commands.setContent('', { emitUpdate: false }) // 先清空
+        editor.commands.insertContent(html, {
+          parseOptions: {
+            preserveWhitespace: false,
+          },
+        })
+        editorContentRef.current = JSON.stringify(editor.getJSON())
       })
-      editorContentRef.current = JSON.stringify(editor.getJSON())
       return
     }
 
@@ -717,9 +727,15 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
     // 只有当外部内容真正不同时才同步
     if (currentContent !== externalContentStr) {
-      // 使用 setContent 同步，emitUpdate: false 避免触发 onUpdate 回调造成循环
-      editor.commands.setContent(externalContent, { emitUpdate: false })
-      editorContentRef.current = note.content
+      const contentToSync = note.content
+      // 使用 queueMicrotask 避免 flushSync 警告
+      queueMicrotask(() => {
+        // 版本检查：如果已有新的同步请求，跳过此次（防止快速切换笔记时竞态）
+        if (syncVersionRef.current !== version || editor.isDestroyed) return
+        // 使用 setContent 同步，emitUpdate: false 避免触发 onUpdate 回调造成循环
+        editor.commands.setContent(externalContent, { emitUpdate: false })
+        editorContentRef.current = contentToSync
+      })
     }
   }, [editor, note.content])
 

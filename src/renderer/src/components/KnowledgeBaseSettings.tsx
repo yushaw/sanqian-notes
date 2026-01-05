@@ -267,6 +267,32 @@ export function KnowledgeBaseSettings() {
     }
   }, [config])
 
+  // 切换开关（立即保存 enabled 状态）
+  const handleToggleEnabled = useCallback(async () => {
+    if (!config) return
+    const newEnabled = !config.enabled
+    setConfig({ ...config, enabled: newEnabled })
+
+    try {
+      // 如果是 sanqian 模式且开启，需要带上 sanqian 的配置
+      let configToSave = { ...config, enabled: newEnabled }
+      if (newEnabled && config.source === 'sanqian' && sanqianConfig?.available) {
+        configToSave = {
+          ...configToSave,
+          apiUrl: sanqianConfig.apiUrl || '',
+          apiKey: sanqianConfig.apiKey || '',
+          modelName: sanqianConfig.modelName || '',
+          dimensions: sanqianConfig.dimensions || 1536
+        }
+      }
+      await window.electron.knowledgeBase.setConfig(configToSave)
+    } catch (error) {
+      console.error('Failed to save enabled state:', error)
+      // 回滚
+      setConfig({ ...config, enabled: !newEnabled })
+    }
+  }, [config, sanqianConfig])
+
   // 测试连接
   const handleTest = useCallback(async () => {
     if (!config) return
@@ -425,7 +451,7 @@ export function KnowledgeBaseSettings() {
         </div>
         {/* 开关 */}
         <button
-          onClick={() => updateConfig({ enabled: !config.enabled })}
+          onClick={handleToggleEnabled}
           className={`
             relative w-11 h-6 flex-shrink-0 rounded-full transition-colors
             ${config.enabled ? 'bg-[var(--color-accent)]' : 'bg-black/20 dark:bg-white/20'}
@@ -500,12 +526,26 @@ export function KnowledgeBaseSettings() {
                       <span className="ml-2 text-[var(--color-text)]">{sanqianConfig.dimensions || '-'}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={fetchSanqianConfig}
-                    className="text-xs text-[var(--color-accent)] hover:underline"
-                  >
-                    {t.settings.knowledgeBase.refreshSanqian}
-                  </button>
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors disabled:opacity-50"
+                    >
+                      {saving ? t.settings.aiActions.saving : t.actions.save}
+                    </button>
+                    <button
+                      onClick={fetchSanqianConfig}
+                      className="text-xs text-[var(--color-accent)] hover:underline"
+                    >
+                      {t.settings.knowledgeBase.refreshSanqian}
+                    </button>
+                    {testResult && (
+                      <span className={`text-sm ${testResult.success ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+                        {testResult.message}
+                      </span>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-4">

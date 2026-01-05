@@ -586,9 +586,9 @@ describe('往返转换一致性', () => {
     const markdown = tiptapToMarkdown(originalDoc)
     const backToTiptap = markdownToTiptap(markdown)
 
-    expect(backToTiptap.content[0].type).toBe('toggle')
-    expect(backToTiptap.content[0].attrs.summary).toBe('点击展开')
-    expect(backToTiptap.content[0].content[0].content[0].text).toBe('隐藏的内容')
+    expect(backToTiptap.content![0]!.type).toBe('toggle')
+    expect(backToTiptap.content![0]!.attrs!.summary).toBe('点击展开')
+    expect(backToTiptap.content![0]!.content![0]!.content![0]!.text).toBe('隐藏的内容')
   })
 
   it('Toggle 复杂内容往返转换', () => {
@@ -613,8 +613,8 @@ describe('往返转换一致性', () => {
     const markdown = tiptapToMarkdown(originalDoc)
     const backToTiptap = markdownToTiptap(markdown)
 
-    expect(backToTiptap.content[0].type).toBe('toggle')
-    expect(backToTiptap.content[0].attrs.summary).toBe('代码示例')
-    expect(backToTiptap.content[0].content.length).toBeGreaterThanOrEqual(2)
+    expect(backToTiptap.content![0]!.type).toBe('toggle')
+    expect(backToTiptap.content![0]!.attrs!.summary).toBe('代码示例')
+    expect(backToTiptap.content![0]!.content!.length).toBeGreaterThanOrEqual(2)
   })
 })

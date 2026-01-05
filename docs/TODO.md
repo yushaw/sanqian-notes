@@ -40,28 +40,6 @@
 
 ---
 
-## sanqian-chat 配置接口
-
-让宿主应用（Notes）通过统一接口配置 chat 的外观和行为，实现内部自洽。
-
-### 配置项
-
-- [ ] `logo` - 应用 logo（图片 URL 或 ReactNode）
-- [ ] `theme` - 主题模式（light / dark / auto）
-- [ ] `accentColor` - 主题色
-- [ ] `locale` / `strings` - 语言/文案配置
-- [ ] `onClose` - 关闭窗口回调
-- [ ] `onPin` / `alwaysOnTop` - 置顶控制
-- [ ] `windowControls` - 是否显示窗口控制按钮（pin/close）
-
-### 实现方式
-
-- [ ] CompactChat 新增 `config` prop 统一配置
-- [ ] 内部处理 logo 样式（尺寸、暗色模式 invert 等）
-- [ ] 内部处理主题色 CSS 变量覆盖
-
----
-
 ## 其他待办
 
 <!-- 后续补充 -->

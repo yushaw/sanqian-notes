@@ -3150,14 +3150,41 @@ if (!ctx.currentNoteId || !ctx.currentNoteTitle) {
    - 修复：在预处理中添加下划线处理，在 parseInlineTokens 中解析
    - 修复索引问题：split 后需要在 filter 之前记录原始索引
 
-**已知限制：**
-- `<details>` HTML 往返转换：折叠块转换为 HTML 后，再转回会变成普通段落
-  - 这是设计权衡，因为 marked 不原生支持 details 解析
-  - 如需完整支持，需要自定义 HTML 解析器
-
 **文件变更：**
 - `src/main/i18n.ts` - 添加 notebookNotFound 翻译
 - `src/main/sanqian-sdk.ts` - 细分 move_note 错误类型
 - `src/main/markdown/markdown-to-tiptap.ts` - 添加下划线解析，修复索引问题
 
 **测试：** 132 个测试全部通过
+
+---
+
+### 2026-01-05 修复 Toggle/Details 往返转换
+
+**问题：** Toggle 节点转换为 `<details>` HTML 后，再转回时丢失结构变成普通段落。
+
+**原因：** marked 库将 `<details>` 拆分成多个独立 token（html + paragraph + html），之前的代码将 HTML token 作为纯文本处理。
+
+**修复方案：**
+- 在 `markdownToTiptap` 主循环中检测 `<details>` 开始标签
+- 新增 `parseDetailsTokens` 函数，收集 tokens 直到 `</details>` 结束
+- 解析 `<summary>` 作为 toggle 的 summary 属性
+
+**文件变更：**
+- `src/main/markdown/markdown-to-tiptap.ts` - 新增 `parseDetailsTokens` 函数
+- `src/main/markdown/__tests__/*.test.ts` - 新增 5 个 Toggle 和往返转换测试
+
+**测试：** 137 个测试全部通过（+5）
+
+---
+
+### 2026-01-05 优化 Assistant Agent System Prompt
+
+**优化内容：**
+1. 工具按能力分组（查询类/编辑类），替代原来的 1-7 编号列举
+2. 新增「上下文」章节，说明 editor-state 提供的信息及如何利用
+3. 新增意图推断示例（3 个典型场景）
+4. 精简原则，保留核心 3 条
+
+**文件变更：**
+- `src/main/i18n.ts` - 更新中英文 assistantSystemPrompt

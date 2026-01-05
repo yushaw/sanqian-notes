@@ -208,6 +208,21 @@ describe('markdownToTiptap', () => {
       expect(result.content[0].attrs.type).toBe('note')
       expect(result.content[0].attrs.title).toBe('注意')
     })
+
+    it('Toggle/Details', () => {
+      const result = markdownToTiptap('<details>\n<summary>点击展开</summary>\n\n隐藏的内容\n</details>') as AnyNode
+      expect(result.content[0].type).toBe('toggle')
+      expect(result.content[0].attrs.summary).toBe('点击展开')
+      expect(result.content[0].content[0].type).toBe('paragraph')
+      expect(result.content[0].content[0].content[0].text).toBe('隐藏的内容')
+    })
+
+    it('Toggle 空内容', () => {
+      const result = markdownToTiptap('<details>\n<summary>标题</summary>\n</details>') as AnyNode
+      expect(result.content[0].type).toBe('toggle')
+      expect(result.content[0].attrs.summary).toBe('标题')
+      expect(result.content[0].content).toHaveLength(1) // 空段落
+    })
   })
 
   describe('边界情况', () => {

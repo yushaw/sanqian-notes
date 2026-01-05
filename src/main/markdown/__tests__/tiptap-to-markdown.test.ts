@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { tiptapToMarkdown } from '../tiptap-to-markdown'
+import { markdownToTiptap } from '../markdown-to-tiptap'
 
 describe('tiptapToMarkdown', () => {
   describe('基础文本', () => {
@@ -470,6 +471,22 @@ describe('tiptapToMarkdown', () => {
       }
       expect(tiptapToMarkdown(doc)).toBe('> [!note] 注意\n> 这是一个提示')
     })
+
+    it('Toggle', () => {
+      const doc = {
+        type: 'doc',
+        content: [
+          {
+            type: 'toggle',
+            attrs: { open: true, summary: '点击展开' },
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: '隐藏的内容' }] }
+            ]
+          }
+        ]
+      }
+      expect(tiptapToMarkdown(doc)).toBe('<details>\n<summary>点击展开</summary>\n\n隐藏的内容\n</details>')
+    })
   })
 
   describe('章节提取', () => {
@@ -545,5 +562,59 @@ describe('tiptapToMarkdown', () => {
       }
       expect(tiptapToMarkdown(doc)).toBe('Hello')
     })
+  })
+})
+
+// 往返转换测试
+describe('往返转换一致性', () => {
+
+  it('Toggle 往返转换', () => {
+    const originalDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'toggle',
+          attrs: { open: true, summary: '点击展开' },
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: '隐藏的内容' }] }
+          ]
+        }
+      ]
+    }
+
+    // TipTap → Markdown → TipTap
+    const markdown = tiptapToMarkdown(originalDoc)
+    const backToTiptap = markdownToTiptap(markdown)
+
+    expect(backToTiptap.content[0].type).toBe('toggle')
+    expect(backToTiptap.content[0].attrs.summary).toBe('点击展开')
+    expect(backToTiptap.content[0].content[0].content[0].text).toBe('隐藏的内容')
+  })
+
+  it('Toggle 复杂内容往返转换', () => {
+    const originalDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'toggle',
+          attrs: { open: true, summary: '代码示例' },
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: '下面是代码：' }] },
+            {
+              type: 'codeBlock',
+              attrs: { language: 'javascript' },
+              content: [{ type: 'text', text: 'console.log("hello")' }]
+            }
+          ]
+        }
+      ]
+    }
+
+    const markdown = tiptapToMarkdown(originalDoc)
+    const backToTiptap = markdownToTiptap(markdown)
+
+    expect(backToTiptap.content[0].type).toBe('toggle')
+    expect(backToTiptap.content[0].attrs.summary).toBe('代码示例')
+    expect(backToTiptap.content[0].content.length).toBeGreaterThanOrEqual(2)
   })
 })

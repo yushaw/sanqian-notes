@@ -426,6 +426,66 @@ function parseToken(token: Token): TiptapNode[] {
 }
 
 /**
+ * 解析 <details> 标签序列
+ *
+ * marked 会把 <details> 拆分成多个 token：
+ * 1. html: <details><summary>...</summary>
+ * 2. paragraph/其他: 内容
+ * 3. html: </details>
+ *
+ * 此函数收集这些 tokens 并转换为 toggle 节点
+ */
+function parseDetailsTokens(
+  tokens: Token[],
+  startIndex: number
+): { node: TiptapNode; endIndex: number } | null {
+  const startToken = tokens[startIndex]
+  if (startToken.type !== 'html') return null
+
+  const startHtml = startToken.raw
+
+  // 提取 summary
+  const summaryMatch = startHtml.match(/<summary>([^<]*)<\/summary>/)
+  const summary = summaryMatch ? summaryMatch[1].trim() : ''
+
+  // 收集内容 tokens 直到 </details>
+  const contentTokens: Token[] = []
+  let endIndex = startIndex
+
+  for (let i = startIndex + 1; i < tokens.length; i++) {
+    const token = tokens[i]
+
+    if (token.type === 'html' && token.raw.trim() === '</details>') {
+      endIndex = i
+      break
+    }
+
+    contentTokens.push(token)
+    endIndex = i
+  }
+
+  // 解析内容
+  const content: TiptapNode[] = []
+  for (const token of contentTokens) {
+    content.push(...parseToken(token))
+  }
+
+  // 如果没有内容，添加一个空段落
+  if (content.length === 0) {
+    content.push({ type: 'paragraph', content: [] })
+  }
+
+  return {
+    node: {
+      type: 'toggle',
+      attrs: { open: true, summary: summary || '点击展开' },
+      content
+    },
+    endIndex
+  }
+}
+
+/**
  * 解析列表项内容
  */
 function parseListItemContent(item: Tokens.ListItem): TiptapNode[] {
@@ -531,7 +591,20 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
   // 转换为 TipTap 节点
   const content: TiptapNode[] = []
 
-  for (const token of tokens) {
+  // 处理 tokens，需要特殊处理 <details> 标签（marked 会拆分成多个 token）
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+
+    // 检测 <details> 开始标签
+    if (token.type === 'html' && token.raw.trim().startsWith('<details')) {
+      const result = parseDetailsTokens(tokens, i)
+      if (result) {
+        content.push(result.node)
+        i = result.endIndex // 跳过已处理的 tokens
+        continue
+      }
+    }
+
     content.push(...parseToken(token))
   }
 

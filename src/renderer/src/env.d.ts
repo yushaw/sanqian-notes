@@ -98,6 +98,9 @@ interface Window {
       setFullScreen: (isFullScreen: boolean) => Promise<boolean>
       isFullScreen: () => Promise<boolean>
     }
+    shell: {
+      openExternal: (url: string) => Promise<boolean>
+    }
     platform: {
       get: () => Promise<NodeJS.Platform>
     }

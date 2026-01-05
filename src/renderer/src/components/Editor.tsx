@@ -561,6 +561,20 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
         return lines.join('\n')
       },
+      // 处理外部链接点击
+      handleClick: (_view, _pos, event) => {
+        const target = event.target as HTMLElement
+        const link = target.closest('a.zen-link')
+        if (link) {
+          const href = link.getAttribute('href')
+          if (href) {
+            event.preventDefault()
+            window.electron.shell.openExternal(href)
+            return true
+          }
+        }
+        return false
+      },
     },
     onUpdate: ({ editor }) => {
       const json = editor.getJSON()
@@ -1815,12 +1829,15 @@ function extractBlocksFromJSON(doc: { type: string; content?: unknown[] }): Bloc
         return
       }
 
-      blocks.push({
-        id: n.attrs?.blockId || generateBlockId(),
-        type: n.type,
-        text: text.slice(0, 100),
-        pos,
-      })
+      // 只显示有 blockId 的 block，避免生成临时 ID 导致链接无法跳转
+      if (n.attrs?.blockId) {
+        blocks.push({
+          id: n.attrs.blockId,
+          type: n.type,
+          text: text.slice(0, 100),
+          pos,
+        })
+      }
     }
 
     if (n.content && Array.isArray(n.content)) {

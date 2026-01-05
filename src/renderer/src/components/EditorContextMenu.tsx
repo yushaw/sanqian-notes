@@ -174,6 +174,7 @@ const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
   { id: 'divider', label: t.contextMenu.divider, icon: '—', insert: (editor: Editor) => editor.chain().focus().setHorizontalRule().run() },
   { id: 'table', label: t.contextMenu.table, icon: '▦', insert: (editor: Editor) => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
   { id: 'callout', label: t.contextMenu.callout, icon: 'ℹ', insert: (editor: Editor) => editor.chain().focus().setCallout({ type: 'note' }).run() },
+  { id: 'footnote', label: t.contextMenu.footnote, icon: '¹', insert: (editor: Editor) => editor.chain().focus().setFootnote().run() },
 ]
 
 // AI 操作项配置现在从数据库动态加载

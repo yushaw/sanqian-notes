@@ -1353,6 +1353,26 @@ app.whenReady().then(() => {
     }
   })
 
+  // Shell - open external URLs in default browser
+  ipcMain.handle('shell:openExternal', async (_, url: string) => {
+    // 安全检查：只允许 http/https/mailto 协议
+    const allowedProtocols = ['http:', 'https:', 'mailto:']
+    try {
+      const urlObj = new URL(url)
+      if (allowedProtocols.includes(urlObj.protocol)) {
+        await shell.openExternal(url)
+        return true
+      }
+    } catch {
+      // 如果解析失败，可能是不带协议的域名，添加 https://
+      if (/^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z0-9][-a-zA-Z0-9]*)+$/.test(url)) {
+        await shell.openExternal(`https://${url}`)
+        return true
+      }
+    }
+    return false
+  })
+
   // 接着对话 - popup 预览调用，转发给主窗口
   ipcMain.handle('popup:continueInChat', (_, selectedText: string, explanation: string) => {
     if (mainWindow && mainView) {

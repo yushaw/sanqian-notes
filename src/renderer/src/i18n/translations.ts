@@ -447,6 +447,7 @@ export interface Translations {
     divider: string
     table: string
     callout: string
+    footnote: string
     // Table operations
     tableOperations: string
     addRowBefore: string
@@ -1017,6 +1018,7 @@ const zh: Translations = {
     divider: '分割线',
     table: '表格',
     callout: '提示块',
+    footnote: '脚注',
     tableOperations: '表格操作',
     addRowBefore: '在上方插入行',
     addRowAfter: '在下方插入行',
@@ -1585,6 +1587,7 @@ const en: Translations = {
     divider: 'Divider',
     table: 'Table',
     callout: 'Callout',
+    footnote: 'Footnote',
     tableOperations: 'Table',
     addRowBefore: 'Insert Row Above',
     addRowAfter: 'Insert Row Below',

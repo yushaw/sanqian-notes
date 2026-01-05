@@ -36,6 +36,9 @@ const AlignRightIcon = () => (
   </svg>
 )
 
+// 全局事件名，用于触发 lightbox
+export const IMAGE_LIGHTBOX_EVENT = 'image-lightbox-open'
+
 export function ResizableImageView({ node, updateAttributes, selected }: NodeViewProps) {
   const attrs = node.attrs as ImageAttrs
   const containerRef = useRef<HTMLDivElement>(null)
@@ -44,6 +47,17 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
   const [aspectRatio, setAspectRatio] = useState<number | null>(null)
   const [imageError, setImageError] = useState(false)
   const t = useTranslations()
+
+  // 双击打开 lightbox（通过全局事件）
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!imageError && attrs.src) {
+      window.dispatchEvent(new CustomEvent(IMAGE_LIGHTBOX_EVENT, {
+        detail: { src: attrs.src, alt: attrs.alt }
+      }))
+    }
+  }, [imageError, attrs.src, attrs.alt])
 
   // 存储事件处理器引用以便清理
   const handlersRef = useRef<{
@@ -181,6 +195,8 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
             draggable={false}
             onLoad={handleImageLoad}
             onError={handleImageError}
+            onDoubleClick={handleDoubleClick}
+            style={{ cursor: 'zoom-in' }}
           />
         )}
 

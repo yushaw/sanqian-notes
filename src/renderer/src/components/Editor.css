@@ -618,6 +618,15 @@
   position: relative;
 }
 
+/* 确保选中单元格内容显示在选中层之上 */
+.zen-editor th.selectedCell > *,
+.zen-editor td.selectedCell > *,
+.zen-editor th.selectedCell > p,
+.zen-editor td.selectedCell > p {
+  position: relative;
+  z-index: 3;
+}
+
 /* Column resize handle */
 .zen-editor .column-resize-handle {
   position: absolute;
@@ -1327,45 +1336,54 @@
 }
 
 /* ============================================
-   Callout 提示块样式
+   Callout 提示块样式 - Zen Minimal
    ============================================ */
 
 .callout {
-  margin: 16px 0;
+  margin: 12px 0;
   padding: 0;
-  border-radius: 8px;
-  border-left: 4px solid var(--callout-color, #3b82f6);
-  background: color-mix(in srgb, var(--callout-color, #3b82f6) 10%, transparent);
+  border-radius: 0;
+  border-left: 2px solid var(--callout-color, var(--color-muted));
+  background: transparent;
 }
 
 .callout-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 6px;
+  padding: 4px 0 4px 10px;
   cursor: pointer;
   user-select: none;
+  border-radius: 0 4px 4px 0;
+  transition: background var(--transition-fast);
 }
 
 .callout-header:hover {
-  background: color-mix(in srgb, var(--callout-color, #3b82f6) 5%, transparent);
+  background: var(--color-surface);
 }
 
 .callout-icon {
-  font-size: 16px;
+  font-size: 14px;
   flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .callout-title {
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 0.9375rem;
   color: var(--color-text);
   flex: 1;
 }
 
 .callout-collapse-icon {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--color-muted);
   transition: transform var(--transition-fast);
+  opacity: 0;
+}
+
+.callout-header:hover .callout-collapse-icon {
+  opacity: 1;
 }
 
 .callout-collapse-icon.collapsed {
@@ -1373,53 +1391,58 @@
 }
 
 .callout-content {
-  padding: 0 16px 12px 16px;
-  border-top: 1px solid color-mix(in srgb, var(--callout-color, #3b82f6) 20%, transparent);
+  padding: 2px 0 8px 10px;
+  border-top: none;
 }
 
 .callout-content.hidden {
   display: none;
 }
 
-/* Callout types */
-.callout-note { --callout-color: #3b82f6; }
-.callout-tip { --callout-color: #10b981; }
-.callout-warning { --callout-color: #f59e0b; }
-.callout-danger { --callout-color: #ef4444; }
-.callout-info { --callout-color: #6366f1; }
-.callout-quote { --callout-color: #8b5cf6; }
+/* Callout types - 柔和的颜色 */
+.callout-note { --callout-color: #64748b; }
+.callout-tip { --callout-color: #059669; }
+.callout-warning { --callout-color: #d97706; }
+.callout-danger { --callout-color: #dc2626; }
+.callout-info { --callout-color: #4f46e5; }
+.callout-quote { --callout-color: var(--color-muted); }
 
 /* ============================================
-   Toggle 折叠块样式
+   Toggle 折叠块样式 - Zen Minimal
    ============================================ */
 
 .toggle-block {
-  margin: 8px 0;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  overflow: hidden;
+  margin: 4px 0;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .toggle-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--color-surface);
+  gap: 4px;
+  padding: 2px 4px 2px 0;
+  background: transparent;
   cursor: pointer;
   user-select: none;
-  transition: background var(--transition-fast);
+  transition: color var(--transition-fast);
+  border-radius: 4px;
 }
 
 .toggle-header:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-surface);
 }
 
 .toggle-icon {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--color-muted);
   transition: transform var(--transition-fast);
   flex-shrink: 0;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .toggle-icon.open {
@@ -1434,24 +1457,26 @@
 
 .toggle-summary-input {
   flex: 1;
-  background: var(--color-card);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  padding: 2px 4px;
   color: var(--color-text);
   font-size: inherit;
   font-weight: 500;
   outline: none;
+  transition: border-color var(--transition-fast);
 }
 
 .toggle-summary-input:focus {
-  border-color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
 }
 
 .toggle-content {
   display: none;
-  padding: 12px;
-  border-top: 1px solid var(--color-border);
+  padding: 4px 0 4px 20px;
+  border-top: none;
 }
 
 .toggle-content.open {
@@ -1578,6 +1603,144 @@
   border-radius: 4px;
   color: var(--color-muted);
   font-size: 13px;
+}
+
+/* ============================================
+   Image Lightbox - Zen Style
+   ============================================ */
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: lightboxFadeIn 0.2s ease;
+  cursor: zoom-out;
+}
+
+@keyframes lightboxFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lightbox-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 90vw;
+  max-height: 90vh;
+  cursor: default;
+}
+
+.lightbox-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: lightboxZoomIn 0.25s ease;
+}
+
+@keyframes lightboxZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  transform: scale(1.05);
+}
+
+.lightbox-close:active {
+  transform: scale(0.95);
+}
+
+/* Lightbox 缩放控制栏 */
+.lightbox-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.lightbox-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lightbox-control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.lightbox-control-btn:active {
+  transform: scale(0.95);
+}
+
+.lightbox-scale {
+  min-width: 48px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 图片缩放过渡 */
+.lightbox-image {
+  transition: transform 0.15s ease, opacity 0.2s ease;
 }
 
 /* 图片对齐浮动工具栏 */

@@ -34,7 +34,7 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import type { Note } from '../types/note'
 import { useTranslations } from '../i18n'
 import { useTheme } from '../theme'
-import { BlockId } from './extensions/BlockId'
+import { BlockId, generateBlockId } from './extensions/BlockId'
 import { NoteLink } from './extensions/NoteLink'
 import { CustomHighlight } from './extensions/Highlight'
 import { CustomUnderline } from './extensions/Underline'
@@ -50,10 +50,14 @@ import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { SlashCommand } from './extensions/SlashCommand'
 import { slashCommandSuggestion } from './extensions/slashCommandSuggestion'
 import { AIPopupMark } from './extensions/AIPopupMark'
+import { AIPreview } from './extensions/AIPreview'
+import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
+import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
 import { TypewriterToolbar } from './TypewriterToolbar'
 import { TypewriterToc } from './TypewriterToc'
+import { EditorContextMenu } from './EditorContextMenu'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
 import { useTypewriterSound } from '../hooks/useTypewriterSound'
@@ -113,10 +117,10 @@ const FONT_WENKAI = [
 
 export function TypewriterMode({
   note,
-  notes: _notes,
+  notes,
   onUpdate,
   onNoteClick,
-  onCreateNote: _onCreateNote,
+  onCreateNote,
   onExit,
   initialCursorInfo,
 }: TypewriterModeProps) {
@@ -145,6 +149,20 @@ export function TypewriterMode({
   const [selectedWordCount, setSelectedWordCount] = useState<number | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // 右键菜单状态
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
+  const [contextMenuHasSelection, setContextMenuHasSelection] = useState(false)
+
+  // Note link popup 状态
+  const [showLinkPopup, setShowLinkPopup] = useState(false)
+  const [linkQuery, setLinkQuery] = useState('')
+  const [linkPopupPosition, setLinkPopupPosition] = useState({ top: 0, left: 0 })
+  const [linkStartPos, setLinkStartPos] = useState<number | null>(null)
+  const [searchMode, setSearchMode] = useState<SearchMode>('note')
+  const [selectedLinkNote, setSelectedLinkNote] = useState<Note | null>(null)
+  const [targetHeadings, setTargetHeadings] = useState<HeadingInfo[]>([])
+  const [targetBlocks, setTargetBlocks] = useState<BlockInfo[]>([])
 
   // ==================== Hooks ====================
   const { resolvedColorMode } = useTheme()
@@ -422,6 +440,14 @@ export function TypewriterMode({
         suggestion: slashCommandSuggestion,
       }),
       AIPopupMark,
+      CustomKeyboardShortcuts,
+      AIPreview.configure({
+        labels: {
+          accept: t.ai.previewAccept,
+          reject: t.ai.previewReject,
+          regenerate: t.ai.previewRegenerate
+        }
+      }),
       TypewriterSoundExtension,
       FileHandler.configure({
         onPaste: async (currentEditor, files) => {
@@ -439,7 +465,74 @@ export function TypewriterMode({
     content: getInitialContent(),
     editorProps: {
       attributes: { class: 'typewriter-editor' },
-      handleClick: (_view, _pos, _event) => {
+      // 自定义剪贴板纯文本序列化，正确处理列表格式
+      clipboardTextSerializer: (slice) => {
+        const lines: string[] = []
+
+        const serializeNode = (node: any, indent: number = 0, listType?: 'bullet' | 'ordered' | 'task', listIndex?: number) => {
+          const indentStr = '  '.repeat(indent)
+
+          if (node.type.name === 'bulletList') {
+            node.content.forEach((child: any) => {
+              serializeNode(child, indent, 'bullet')
+            })
+          } else if (node.type.name === 'orderedList') {
+            let idx = 1
+            node.content.forEach((child: any) => {
+              serializeNode(child, indent, 'ordered', idx++)
+            })
+          } else if (node.type.name === 'taskList') {
+            node.content.forEach((child: any) => {
+              serializeNode(child, indent, 'task')
+            })
+          } else if (node.type.name === 'listItem') {
+            const prefix = listType === 'ordered' ? `${listIndex}. ` : '• '
+            const text = node.textContent || ''
+            lines.push(indentStr + prefix + text)
+            node.content.forEach((child: any) => {
+              if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
+                serializeNode(child, indent + 1)
+              }
+            })
+          } else if (node.type.name === 'taskItem') {
+            const checked = node.attrs?.checked ? '☑' : '☐'
+            const text = node.textContent || ''
+            lines.push(indentStr + checked + ' ' + text)
+            node.content.forEach((child: any) => {
+              if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
+                serializeNode(child, indent + 1)
+              }
+            })
+          } else if (node.isBlock) {
+            const text = node.textContent
+            if (text) {
+              lines.push(text)
+            } else if (node.type.name === 'paragraph' && lines.length > 0) {
+              lines.push('')
+            }
+          }
+        }
+
+        slice.content.forEach((node: any) => {
+          serializeNode(node)
+        })
+
+        return lines.join('\n')
+      },
+      handleClick: (_view, _pos, event) => {
+        // 处理外部链接点击
+        const target = event.target as HTMLElement
+        const link = target.closest('a.zen-link')
+        if (link) {
+          const href = link.getAttribute('href')
+          if (href) {
+            event.preventDefault()
+            window.electron.shell.openExternal(href)
+            return true
+          }
+        }
+
+        // 打字机模式的滚动处理
         setTimeout(() => {
           if (contentRef.current && !isProgrammaticScroll.current) {
             contentRef.current.dispatchEvent(new CustomEvent('typewriter-click'))
@@ -452,6 +545,50 @@ export function TypewriterMode({
       const json = editor.getJSON()
       onUpdate(note.id, { content: JSON.stringify(json) })
       setWordCount(countWordsFromEditor(editor))
+
+      // 检测 [[ 链接弹窗
+      const { state } = editor
+      const { from } = state.selection
+      const textBefore = state.doc.textBetween(Math.max(0, from - 100), from, '')
+
+      const lastOpenBracket = textBefore.lastIndexOf('[[')
+      const lastCloseBracket = textBefore.lastIndexOf(']]')
+
+      if (lastOpenBracket > lastCloseBracket) {
+        const query = textBefore.slice(lastOpenBracket + 2)
+
+        // 检测搜索模式
+        const hashIndex = query.indexOf('#')
+        const caretIndex = query.indexOf('^')
+
+        if (hashIndex !== -1 && caretIndex !== -1 && caretIndex > hashIndex) {
+          handleBlockSearch(query.slice(0, hashIndex), query.slice(caretIndex + 1), from, lastOpenBracket, query)
+        } else if (caretIndex !== -1) {
+          handleBlockSearch(query.slice(0, caretIndex), query.slice(caretIndex + 1), from, lastOpenBracket, query)
+        } else if (hashIndex !== -1) {
+          handleHeadingSearch(query.slice(0, hashIndex), query.slice(hashIndex + 1), from, lastOpenBracket, query)
+        } else {
+          setSearchMode('note')
+          setSelectedLinkNote(null)
+          setLinkQuery(query)
+          setLinkStartPos(from - query.length - 2)
+        }
+
+        const coords = editor.view.coordsAtPos(from)
+        if (coords) {
+          setLinkPopupPosition({
+            top: coords.bottom + 8,
+            left: coords.left,
+          })
+          setShowLinkPopup(true)
+        }
+      } else {
+        setShowLinkPopup(false)
+        setLinkQuery('')
+        setLinkStartPos(null)
+        setSearchMode('note')
+        setSelectedLinkNote(null)
+      }
     },
   })
 
@@ -541,6 +678,176 @@ export function TypewriterMode({
     }
     containerEl.style.setProperty('--tw-opacity-far', minOpacity.toFixed(2))
   }, [editor])
+
+  // ==================== Note Link Popup 处理 ====================
+
+  // 处理标题搜索
+  const handleHeadingSearch = useCallback((
+    noteName: string,
+    headingQuery: string,
+    from: number,
+    _lastOpenBracket: number,
+    fullQuery: string
+  ) => {
+    const matchedNote = notes.find(n =>
+      n.title.toLowerCase() === noteName.toLowerCase() ||
+      n.title.toLowerCase().includes(noteName.toLowerCase())
+    )
+
+    if (matchedNote) {
+      setSearchMode('heading')
+      setSelectedLinkNote(matchedNote)
+      setLinkQuery(headingQuery)
+      setLinkStartPos(from - fullQuery.length - 2)
+
+      try {
+        const content = matchedNote.content
+        if (content) {
+          const parsed = JSON.parse(content)
+          const headings = extractHeadingsFromJSON(parsed)
+          setTargetHeadings(headings)
+        }
+      } catch {
+        setTargetHeadings([])
+      }
+    } else {
+      setSearchMode('note')
+      setSelectedLinkNote(null)
+      setLinkQuery(noteName)
+      setLinkStartPos(from - fullQuery.length - 2)
+    }
+  }, [notes])
+
+  // 处理 block 搜索
+  const handleBlockSearch = useCallback((
+    noteName: string,
+    blockQuery: string,
+    from: number,
+    _lastOpenBracket: number,
+    fullQuery: string
+  ) => {
+    const matchedNote = notes.find(n =>
+      n.title.toLowerCase() === noteName.toLowerCase() ||
+      n.title.toLowerCase().includes(noteName.toLowerCase())
+    )
+
+    if (matchedNote) {
+      setSearchMode('block')
+      setSelectedLinkNote(matchedNote)
+      setLinkQuery(blockQuery)
+      setLinkStartPos(from - fullQuery.length - 2)
+
+      try {
+        const content = matchedNote.content
+        if (content) {
+          const parsed = JSON.parse(content)
+          const blocks = extractBlocksFromJSON(parsed)
+          setTargetBlocks(blocks)
+        }
+      } catch {
+        setTargetBlocks([])
+      }
+    } else {
+      setSearchMode('note')
+      setSelectedLinkNote(null)
+      setLinkQuery(noteName)
+      setLinkStartPos(from - fullQuery.length - 2)
+    }
+  }, [notes])
+
+  // 选择笔记链接
+  const handleSelectNoteLink = useCallback((
+    selectedNote: Note,
+    target?: { type: 'heading' | 'block'; value: string; displayText: string }
+  ) => {
+    if (!editor || linkStartPos === null) return
+
+    const { from } = editor.state.selection
+    const displayText = target?.displayText || selectedNote.title || t.noteList.untitled
+
+    let targetValue = target?.value
+    if (target?.type === 'block' && !targetValue) {
+      targetValue = generateBlockId()
+    }
+
+    editor
+      .chain()
+      .focus()
+      .deleteRange({ from: linkStartPos, to: from })
+      .setNoteLink({
+        noteId: selectedNote.id,
+        noteTitle: selectedNote.title || t.noteList.untitled,
+        targetType: target?.type || 'note',
+        targetValue: targetValue,
+      })
+      .insertContent(displayText)
+      .unsetNoteLink()
+      .run()
+
+    setShowLinkPopup(false)
+    setLinkQuery('')
+    setLinkStartPos(null)
+    setSearchMode('note')
+    setSelectedLinkNote(null)
+  }, [editor, linkStartPos, t.noteList.untitled])
+
+  // 选择笔记后进入标题/block 搜索
+  const handleSelectNoteForSubSearch = useCallback((selectedNote: Note) => {
+    setSelectedLinkNote(selectedNote)
+    setSearchMode('heading')
+    setLinkQuery('')
+
+    try {
+      const content = selectedNote.content
+      if (content) {
+        const parsed = JSON.parse(content)
+        const headings = extractHeadingsFromJSON(parsed)
+        setTargetHeadings(headings)
+        const blocks = extractBlocksFromJSON(parsed)
+        setTargetBlocks(blocks)
+      }
+    } catch {
+      setTargetHeadings([])
+      setTargetBlocks([])
+    }
+  }, [])
+
+  // 创建新笔记链接
+  const handleCreateNoteLink = useCallback(async (title: string) => {
+    if (!editor || linkStartPos === null) return
+
+    try {
+      const newNote = await onCreateNote(title)
+      const { from } = editor.state.selection
+
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: linkStartPos, to: from })
+        .setNoteLink({ noteId: newNote.id, noteTitle: title })
+        .insertContent(title)
+        .unsetNoteLink()
+        .run()
+    } catch (error) {
+      console.error('Failed to create note from link:', error)
+      editor.commands.focus()
+    } finally {
+      setShowLinkPopup(false)
+      setLinkQuery('')
+      setLinkStartPos(null)
+      setSearchMode('note')
+      setSelectedLinkNote(null)
+    }
+  }, [editor, linkStartPos, onCreateNote])
+
+  // 关闭链接弹窗
+  const handleCloseLinkPopup = useCallback(() => {
+    setShowLinkPopup(false)
+    setLinkQuery('')
+    setLinkStartPos(null)
+    setSearchMode('note')
+    setSelectedLinkNote(null)
+  }, [])
 
   // ==================== 事件监听 ====================
 
@@ -703,6 +1010,22 @@ export function TypewriterMode({
     onExit(cursorInfo || undefined)
   }, [editor, onExit])
 
+  // 右键菜单处理
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!editor) return
+
+    const { from, to } = editor.state.selection
+    const hasSelection = from !== to
+
+    setContextMenuPosition({ x: e.clientX, y: e.clientY })
+    setContextMenuHasSelection(hasSelection)
+  }, [editor])
+
+  const handleCloseContextMenu = useCallback(() => {
+    setContextMenuPosition(null)
+  }, [])
+
   /** ESC 键退出 */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -818,7 +1141,9 @@ export function TypewriterMode({
             className="typewriter-title"
             rows={1}
           />
-          <EditorContent editor={editor} className="typewriter-editor-content" />
+          <div onContextMenu={handleContextMenu}>
+            <EditorContent editor={editor} className="typewriter-editor-content" />
+          </div>
         </div>
       </div>
 
@@ -833,6 +1158,130 @@ export function TypewriterMode({
         soundEnabled={soundEnabled}
         onToggleSound={handleToggleSound}
       />
+
+      {/* 右键菜单 */}
+      <EditorContextMenu
+        editor={editor}
+        position={contextMenuPosition}
+        onClose={handleCloseContextMenu}
+        hasSelection={contextMenuHasSelection}
+      />
+
+      {/* Note link popup */}
+      {showLinkPopup && (
+        <NoteLinkPopup
+          notes={notes.filter(n => n.id !== note.id)}
+          query={linkQuery}
+          position={linkPopupPosition}
+          onSelect={handleSelectNoteLink}
+          onCreate={handleCreateNoteLink}
+          onClose={handleCloseLinkPopup}
+          searchMode={searchMode}
+          selectedNote={selectedLinkNote}
+          headings={targetHeadings}
+          blocks={targetBlocks}
+          onSelectNote={handleSelectNoteForSubSearch}
+        />
+      )}
     </div>
   )
+}
+
+// ==================== Helper Functions ====================
+
+// 从 JSON 内容中提取标题
+function extractHeadingsFromJSON(doc: { type: string; content?: unknown[] }): HeadingInfo[] {
+  const headings: HeadingInfo[] = []
+  let pos = 0
+
+  function traverse(node: unknown) {
+    const n = node as { type?: string; attrs?: { level?: number; blockId?: string }; content?: unknown[]; text?: string }
+    if (!n || typeof n !== 'object') return
+
+    if (n.type === 'heading') {
+      const text = extractTextFromNode(n)
+      headings.push({
+        level: n.attrs?.level || 1,
+        text,
+        pos,
+        blockId: n.attrs?.blockId,
+      })
+    }
+
+    if (n.content && Array.isArray(n.content)) {
+      for (const child of n.content) {
+        traverse(child)
+        pos++
+      }
+    }
+  }
+
+  if (doc.content) {
+    for (const node of doc.content) {
+      traverse(node)
+      pos++
+    }
+  }
+
+  return headings
+}
+
+// 从 JSON 内容中提取 blocks
+function extractBlocksFromJSON(doc: { type: string; content?: unknown[] }): BlockInfo[] {
+  const blocks: BlockInfo[] = []
+  let pos = 0
+
+  const blockTypes = ['paragraph', 'heading', 'blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList', 'table', 'horizontalRule']
+
+  function traverse(node: unknown) {
+    const n = node as { type?: string; attrs?: { blockId?: string }; content?: unknown[] }
+    if (!n || typeof n !== 'object') return
+
+    if (n.type && blockTypes.includes(n.type)) {
+      const text = extractTextFromNode(n)
+      if (n.type === 'paragraph' && !text.trim()) {
+        pos++
+        return
+      }
+
+      // 只显示有 blockId 的 block，避免生成临时 ID 导致链接无法跳转
+      if (n.attrs?.blockId) {
+        blocks.push({
+          id: n.attrs.blockId,
+          type: n.type,
+          text: text.slice(0, 100),
+          pos,
+        })
+      }
+    }
+
+    if (n.content && Array.isArray(n.content)) {
+      for (const child of n.content) {
+        traverse(child)
+      }
+    }
+    pos++
+  }
+
+  if (doc.content) {
+    for (const node of doc.content) {
+      traverse(node)
+    }
+  }
+
+  return blocks
+}
+
+// 从节点中提取文本
+function extractTextFromNode(node: unknown): string {
+  const n = node as { type?: string; text?: string; content?: unknown[] }
+  if (!n || typeof n !== 'object') return ''
+
+  if (n.text) return n.text
+
+  if (n.content && Array.isArray(n.content)) {
+    return n.content.map(child => extractTextFromNode(child)).join('')
+  }
+
+  return ''
 }

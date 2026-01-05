@@ -732,69 +732,98 @@
    =================================== */
 
 /**
- * Callout 高亮块 - 禅意适配
+ * Callout 高亮块 - Zen Minimal 禅意适配
  */
 .typewriter-editor-content .ProseMirror .callout {
-  margin: 1.2em 0;
+  margin: 12px 0;
   padding: 0;
-  border-radius: 6px;
-  border-left: 3px solid var(--callout-color, var(--tw-accent));
-  background: color-mix(in srgb, var(--callout-color, var(--tw-accent)) 8%, transparent);
-}
-
-.typewriter-editor-content .ProseMirror .callout-header {
-  padding: 0.8em 1em;
+  border-radius: 0;
+  border-left: 2px solid var(--callout-color, var(--tw-dimmed-text));
   background: transparent;
 }
 
+.typewriter-editor-content .ProseMirror .callout-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 4px 10px;
+  background: transparent;
+  border-radius: 0 4px 4px 0;
+  transition: background 0.15s ease;
+}
+
 .typewriter-editor-content .ProseMirror .callout-header:hover {
-  background: color-mix(in srgb, var(--callout-color, var(--tw-accent)) 5%, transparent);
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
+}
+
+.typewriter-editor-content .ProseMirror .callout-icon {
+  font-size: 14px;
+  opacity: 0.7;
 }
 
 .typewriter-editor-content .ProseMirror .callout-title {
   color: var(--tw-text);
   font-weight: 500;
+  font-size: 0.9375rem;
 }
 
 .typewriter-editor-content .ProseMirror .callout-collapse-icon {
   color: var(--tw-dimmed-text);
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.typewriter-editor-content .ProseMirror .callout-header:hover .callout-collapse-icon {
+  opacity: 1;
 }
 
 .typewriter-editor-content .ProseMirror .callout-content {
-  padding: 0 1em 0.8em 1em;
-  border-top: 1px solid color-mix(in srgb, var(--callout-color, var(--tw-accent)) 15%, transparent);
+  padding: 2px 0 8px 10px;
+  border-top: none;
   color: var(--tw-text);
 }
 
-/* Callout 类型颜色 - 更柔和 */
-.typewriter-editor-content .ProseMirror .callout-note { --callout-color: #5b8dd6; }
-.typewriter-editor-content .ProseMirror .callout-tip { --callout-color: #4eba91; }
-.typewriter-editor-content .ProseMirror .callout-warning { --callout-color: #d4a44a; }
-.typewriter-editor-content .ProseMirror .callout-danger { --callout-color: #d65f5f; }
-.typewriter-editor-content .ProseMirror .callout-info { --callout-color: #7b7ed6; }
-.typewriter-editor-content .ProseMirror .callout-quote { --callout-color: #9b7ed6; }
+/* Callout 类型颜色 - 柔和 */
+.typewriter-editor-content .ProseMirror .callout-note { --callout-color: #64748b; }
+.typewriter-editor-content .ProseMirror .callout-tip { --callout-color: #059669; }
+.typewriter-editor-content .ProseMirror .callout-warning { --callout-color: #d97706; }
+.typewriter-editor-content .ProseMirror .callout-danger { --callout-color: #dc2626; }
+.typewriter-editor-content .ProseMirror .callout-info { --callout-color: #4f46e5; }
+.typewriter-editor-content .ProseMirror .callout-quote { --callout-color: var(--tw-dimmed-text); }
 
 /**
- * Toggle 折叠块 - 禅意适配
+ * Toggle 折叠块 - Zen Minimal 禅意适配
  */
 .typewriter-editor-content .ProseMirror .toggle-block {
-  margin: 1em 0;
-  border: 1px solid color-mix(in srgb, var(--tw-text) 12%, transparent);
-  border-radius: 6px;
+  margin: 4px 0;
+  border: none;
+  border-radius: 0;
   background: transparent;
+  overflow: visible;
 }
 
 .typewriter-editor-content .ProseMirror .toggle-header {
-  padding: 0.7em 1em;
-  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 0;
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.15s ease;
 }
 
 .typewriter-editor-content .ProseMirror .toggle-header:hover {
-  background: color-mix(in srgb, var(--tw-text) 6%, transparent);
+  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
 }
 
 .typewriter-editor-content .ProseMirror .toggle-icon {
   color: var(--tw-dimmed-text);
+  font-size: 10px;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .typewriter-editor-content .ProseMirror .toggle-summary {
@@ -803,18 +832,22 @@
 }
 
 .typewriter-editor-content .ProseMirror .toggle-summary-input {
-  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--tw-text) 20%, transparent);
+  border-radius: 0;
+  padding: 2px 4px;
   color: var(--tw-text);
+  transition: border-color 0.15s ease;
 }
 
 .typewriter-editor-content .ProseMirror .toggle-summary-input:focus {
-  border-color: var(--tw-accent);
+  border-bottom-color: var(--tw-accent);
 }
 
 .typewriter-editor-content .ProseMirror .toggle-content {
-  padding: 0.8em 1em;
-  border-top: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+  padding: 4px 0 4px 20px;
+  border-top: none;
   color: var(--tw-text);
 }
 
@@ -1149,4 +1182,121 @@
 .typewriter-editor-content .ProseMirror .code-block-wrapper .hljs-function,
 .typewriter-editor-content .ProseMirror .code-block-wrapper .hljs-title {
   color: color-mix(in srgb, #6ba3c7 80%, var(--tw-text));
+}
+
+/**
+ * AI Preview - 禅意适配
+ */
+/* 原文 - 淡化删除线 */
+.typewriter-editor-content .ai-preview-old {
+  text-decoration: line-through;
+  text-decoration-color: var(--tw-dimmed-text);
+  color: var(--tw-dimmed-text);
+  opacity: 0.6;
+}
+
+/* 新文本 - 轻微强调 */
+.typewriter-editor-content .ai-preview-new {
+  color: var(--tw-focus-text);
+  background: color-mix(in srgb, var(--tw-accent) 15%, transparent);
+  border-radius: 2px;
+  padding: 0 2px;
+  margin-left: 4px;
+}
+
+/* 操作栏 - 简洁浮动 */
+.typewriter-editor-content .ai-preview-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 8px;
+  padding: 2px;
+  background: var(--tw-bg);
+  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  vertical-align: middle;
+  user-select: none;
+}
+
+.typewriter-editor-content .ai-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  color: var(--tw-dimmed-text);
+  white-space: nowrap;
+}
+
+.typewriter-editor-content .ai-preview-btn:hover {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+  color: var(--tw-text);
+}
+
+.typewriter-editor-content .ai-preview-btn svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.typewriter-editor-content .ai-preview-btn:hover svg {
+  opacity: 1;
+}
+
+/* 接受按钮 - 主要操作 */
+.typewriter-editor-content .ai-preview-accept {
+  color: var(--tw-accent);
+}
+
+.typewriter-editor-content .ai-preview-accept:hover {
+  background: color-mix(in srgb, var(--tw-accent) 15%, transparent);
+  color: var(--tw-accent);
+}
+
+/* 拒绝按钮 */
+.typewriter-editor-content .ai-preview-reject {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ai-preview-reject:hover {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+  color: var(--tw-text);
+}
+
+/* 重试按钮 */
+.typewriter-editor-content .ai-preview-regenerate {
+  color: var(--tw-dimmed-text);
+}
+
+.typewriter-editor-content .ai-preview-regenerate:hover {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+  color: var(--tw-text);
+}
+
+/* Disabled links in AI preview */
+.typewriter-editor-content .ai-preview-new .ai-preview-link-disabled {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Preserve formatting styles within preview */
+.typewriter-editor-content .ai-preview-new mark {
+  background: color-mix(in srgb, var(--tw-accent) 30%, transparent);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.typewriter-editor-content .ai-preview-new code {
+  background: color-mix(in srgb, var(--tw-text) 10%, transparent);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }

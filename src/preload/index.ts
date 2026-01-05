@@ -113,6 +113,9 @@ contextBridge.exposeInMainWorld('electron', {
     setTitleBarOverlay: (options: { color: string; symbolColor: string }) =>
       ipcRenderer.invoke('window:setTitleBarOverlay', options),
   },
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+  },
   attachment: {
     save: (filePath: string) => ipcRenderer.invoke('attachment:save', filePath),
     saveBuffer: (buffer: Uint8Array, ext: string, name?: string) =>

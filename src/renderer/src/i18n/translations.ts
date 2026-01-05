@@ -80,6 +80,7 @@ export interface Translations {
     appearance: string
     ai: string
     about: string
+    data: string
     language: string
     languageDesc: string
     themeColor: string
@@ -221,6 +222,7 @@ export interface Translations {
     rename: string
     enable: string
     disable: string
+    next: string
   }
   date: {
     today: string
@@ -490,6 +492,84 @@ export interface Translations {
     english: string
     system: string
   }
+  importExport: {
+    // Tab
+    dataManagement: string
+    // 导入
+    import: string
+    importDescription: string
+    importButton: string
+    // 导入来源选项
+    importFrom: string
+    markdownImport: string
+    markdownImportDesc: string
+    notionImport: string
+    notionImportDesc: string
+    notionExportGuide: string
+    obsidianImport: string
+    obsidianImportDesc: string
+    obsidianImportHint: string
+    // 导出
+    export: string
+    exportDescription: string
+    exportButton: string
+    // 导入对话框
+    selectSource: string
+    browse: string
+    detected: string
+    noteCount: string
+    attachmentCount: string
+    folderStrategy: string
+    folderStrategyFirstLevel: string
+    folderStrategyFirstLevelDesc: string
+    folderStrategyFlattenPath: string
+    folderStrategyFlattenPathDesc: string
+    folderStrategySingleNotebook: string
+    folderStrategySingleNotebookDesc: string
+    selectNotebook: string
+    tagStrategy: string
+    tagStrategyKeepNested: string
+    tagStrategyFlattenAll: string
+    tagStrategyFirstLevel: string
+    conflictStrategy: string
+    conflictSkip: string
+    conflictRename: string
+    conflictOverwrite: string
+    importAttachments: string
+    parseFrontMatter: string
+    startImport: string
+    // 导出对话框
+    exportRange: string
+    exportAll: string
+    exportCurrentNotebook: string
+    exportSelected: string
+    exportFormat: string
+    formatMarkdown: string
+    formatJson: string
+    groupByNotebook: string
+    includeAttachments: string
+    includeFrontMatter: string
+    asZip: string
+    outputLocation: string
+    startExport: string
+    // 进度和结果
+    importing: string
+    exporting: string
+    importComplete: string
+    exportComplete: string
+    importedNotes: string
+    exportedNotes: string
+    skippedFiles: string
+    createdNotebooks: string
+    errors: string
+    viewDetails: string
+    close: string
+    // 错误信息
+    noSourceSelected: string
+    noTargetSelected: string
+    importFailed: string
+    exportFailed: string
+  }
 }
 
 const zh: Translations = {
@@ -571,6 +651,7 @@ const zh: Translations = {
     appearance: '外观',
     ai: 'AI',
     about: '关于',
+    data: '导入/导出',
     language: '语言',
     languageDesc: '选择界面显示语言',
     themeColor: '主题色',
@@ -711,7 +792,8 @@ const zh: Translations = {
     edit: '编辑',
     rename: '重命名',
     enable: '启用',
-    disable: '禁用'
+    disable: '禁用',
+    next: '下一步'
   },
   date: {
     today: '今天',
@@ -977,6 +1059,84 @@ const zh: Translations = {
     chinese: '中文',
     english: 'English',
     system: '跟随系统'
+  },
+  importExport: {
+    // Tab
+    dataManagement: '数据管理',
+    // 导入
+    import: '导入笔记',
+    importDescription: '从其他笔记应用迁移数据到心流',
+    importButton: '导入笔记...',
+    // 导入来源选项
+    importFrom: '选择导入来源',
+    markdownImport: 'Markdown',
+    markdownImportDesc: '导入 .md 文件或文件夹',
+    notionImport: 'Notion',
+    notionImportDesc: '选择 Markdown & CSV 格式导出的 ZIP 文件',
+    notionExportGuide: '如何从 Notion 导出？',
+    obsidianImport: 'Obsidian',
+    obsidianImportDesc: '导入 Obsidian 库文件夹',
+    obsidianImportHint: '选择你的 Obsidian vault 文件夹，通常包含 .obsidian 目录',
+    // 导出
+    export: '导出笔记',
+    exportDescription: '将笔记导出为 Markdown 文件或 JSON 备份',
+    exportButton: '导出笔记...',
+    // 导入对话框
+    selectSource: '选择来源',
+    browse: '浏览...',
+    detected: '检测到',
+    noteCount: '{n} 篇笔记',
+    attachmentCount: '{n} 个附件',
+    folderStrategy: '文件夹处理',
+    folderStrategyFirstLevel: '第一级文件夹作为笔记本',
+    folderStrategyFirstLevelDesc: '推荐用于整理好的文件夹结构',
+    folderStrategyFlattenPath: '完整路径作为笔记本名',
+    folderStrategyFlattenPathDesc: '保留完整的文件夹层级信息',
+    folderStrategySingleNotebook: '全部放入指定笔记本',
+    folderStrategySingleNotebookDesc: '忽略原有文件夹结构',
+    selectNotebook: '选择笔记本',
+    tagStrategy: '标签处理',
+    tagStrategyKeepNested: '保留嵌套格式',
+    tagStrategyFlattenAll: '拆分为多个标签',
+    tagStrategyFirstLevel: '只保留第一级',
+    conflictStrategy: '同名笔记',
+    conflictSkip: '跳过',
+    conflictRename: '重命名',
+    conflictOverwrite: '覆盖',
+    importAttachments: '导入附件',
+    parseFrontMatter: '解析 Front Matter',
+    startImport: '开始导入',
+    // 导出对话框
+    exportRange: '导出范围',
+    exportAll: '全部笔记',
+    exportCurrentNotebook: '当前笔记本',
+    exportSelected: '选中的笔记',
+    exportFormat: '导出格式',
+    formatMarkdown: 'Markdown (.md)',
+    formatJson: 'JSON 完整备份',
+    groupByNotebook: '按笔记本创建文件夹',
+    includeAttachments: '包含附件',
+    includeFrontMatter: '添加 Front Matter',
+    asZip: '打包为 ZIP',
+    outputLocation: '输出位置',
+    startExport: '开始导出',
+    // 进度和结果
+    importing: '正在导入...',
+    exporting: '正在导出...',
+    importComplete: '导入完成',
+    exportComplete: '导出完成',
+    importedNotes: '已导入 {n} 篇笔记',
+    exportedNotes: '已导出 {n} 篇笔记',
+    skippedFiles: '跳过 {n} 个文件',
+    createdNotebooks: '创建 {n} 个笔记本',
+    errors: '{n} 个错误',
+    viewDetails: '查看详情',
+    close: '关闭',
+    // 错误信息
+    noSourceSelected: '请选择要导入的文件或文件夹',
+    noTargetSelected: '请选择导出目录',
+    importFailed: '导入失败',
+    exportFailed: '导出失败'
   }
 }
 
@@ -1059,6 +1219,7 @@ const en: Translations = {
     appearance: 'Appearance',
     ai: 'AI',
     about: 'About',
+    data: 'Import/Export',
     language: 'Language',
     languageDesc: 'Choose display language',
     themeColor: 'Theme Color',
@@ -1199,7 +1360,8 @@ const en: Translations = {
     edit: 'Edit',
     rename: 'Rename',
     enable: 'Enable',
-    disable: 'Disable'
+    disable: 'Disable',
+    next: 'Next'
   },
   date: {
     today: 'Today',
@@ -1465,6 +1627,84 @@ const en: Translations = {
     chinese: '中文',
     english: 'English',
     system: 'System'
+  },
+  importExport: {
+    // Tab
+    dataManagement: 'Data',
+    // Import
+    import: 'Import Notes',
+    importDescription: 'Import notes from other apps to Flow',
+    importButton: 'Import Notes...',
+    // Import source options
+    importFrom: 'Import From',
+    markdownImport: 'Markdown',
+    markdownImportDesc: 'Import .md files or folders',
+    notionImport: 'Notion',
+    notionImportDesc: 'Export as Markdown & CSV format',
+    notionExportGuide: 'How to export from Notion?',
+    obsidianImport: 'Obsidian',
+    obsidianImportDesc: 'Import Obsidian vault folder',
+    obsidianImportHint: 'Select your Obsidian vault folder (contains .obsidian directory)',
+    // Export
+    export: 'Export Notes',
+    exportDescription: 'Export notes as Markdown files or JSON backup',
+    exportButton: 'Export Notes...',
+    // Import dialog
+    selectSource: 'Select Source',
+    browse: 'Browse...',
+    detected: 'Detected',
+    noteCount: '{n} notes',
+    attachmentCount: '{n} attachments',
+    folderStrategy: 'Folder Handling',
+    folderStrategyFirstLevel: 'First level folders as notebooks',
+    folderStrategyFirstLevelDesc: 'Recommended for organized folder structures',
+    folderStrategyFlattenPath: 'Full path as notebook name',
+    folderStrategyFlattenPathDesc: 'Preserve full folder hierarchy',
+    folderStrategySingleNotebook: 'All to specified notebook',
+    folderStrategySingleNotebookDesc: 'Ignore original folder structure',
+    selectNotebook: 'Select Notebook',
+    tagStrategy: 'Tag Handling',
+    tagStrategyKeepNested: 'Keep nested format',
+    tagStrategyFlattenAll: 'Split into multiple tags',
+    tagStrategyFirstLevel: 'Keep first level only',
+    conflictStrategy: 'Duplicate Notes',
+    conflictSkip: 'Skip',
+    conflictRename: 'Rename',
+    conflictOverwrite: 'Overwrite',
+    importAttachments: 'Import attachments',
+    parseFrontMatter: 'Parse Front Matter',
+    startImport: 'Start Import',
+    // Export dialog
+    exportRange: 'Export Range',
+    exportAll: 'All notes',
+    exportCurrentNotebook: 'Current notebook',
+    exportSelected: 'Selected notes',
+    exportFormat: 'Export Format',
+    formatMarkdown: 'Markdown (.md)',
+    formatJson: 'JSON full backup',
+    groupByNotebook: 'Group by notebook',
+    includeAttachments: 'Include attachments',
+    includeFrontMatter: 'Add Front Matter',
+    asZip: 'Package as ZIP',
+    outputLocation: 'Output Location',
+    startExport: 'Start Export',
+    // Progress and results
+    importing: 'Importing...',
+    exporting: 'Exporting...',
+    importComplete: 'Import Complete',
+    exportComplete: 'Export Complete',
+    importedNotes: '{n} notes imported',
+    exportedNotes: '{n} notes exported',
+    skippedFiles: '{n} files skipped',
+    createdNotebooks: '{n} notebooks created',
+    errors: '{n} errors',
+    viewDetails: 'View Details',
+    close: 'Close',
+    // Error messages
+    noSourceSelected: 'Please select a file or folder to import',
+    noTargetSelected: 'Please select an output directory',
+    importFailed: 'Import failed',
+    exportFailed: 'Export failed'
   }
 }
 

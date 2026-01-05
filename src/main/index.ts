@@ -93,6 +93,15 @@ import { fetchEmbeddingConfigFromSanqian } from './sanqian-sdk'
 import { testEmbeddingAPI } from './embedding/api'
 import { semanticSearch, hybridSearch } from './embedding/semantic-search'
 import {
+  getImporters,
+  detectImporter,
+  previewImport,
+  executeImport,
+  executeExport,
+  type ImportOptions,
+  type ExportOptions,
+} from './import-export'
+import {
   type Language,
   type ResolvedLanguage,
   translations
@@ -1155,6 +1164,65 @@ app.whenReady().then(() => {
   ipcMain.handle('attachment:cleanup', async () => {
     const usedPaths = getUsedAttachmentPaths()
     return cleanupOrphanAttachments(usedPaths)
+  })
+
+  // ============ Import/Export ============
+  ipcMain.handle('import:getImporters', () => getImporters())
+
+  ipcMain.handle('import:detect', async (_, sourcePath: string) => {
+    return detectImporter(sourcePath)
+  })
+
+  ipcMain.handle('import:preview', async (_, options: ImportOptions) => {
+    return previewImport(options)
+  })
+
+  ipcMain.handle('import:execute', async (_, options: ImportOptions) => {
+    const result = await executeImport(options)
+    // 通知渲染进程数据已更新
+    if (result.importedNotes.length > 0) {
+      mainWindow?.webContents.send('data:changed')
+    }
+    return result
+  })
+
+  ipcMain.handle('export:execute', async (_, options: ExportOptions) => {
+    return executeExport(options)
+  })
+
+  ipcMain.handle('import:selectSource', async (_, importerId?: string) => {
+    const { dialog } = await import('electron')
+    const importer = getImporters().find((i) => i.id === importerId) || getImporters()[0]
+
+    const result = await dialog.showOpenDialog({
+      properties: importer?.supportsFolder
+        ? ['openFile', 'openDirectory']
+        : ['openFile'],
+      filters: importer?.fileFilters || [
+        { name: 'Markdown files', extensions: ['md', 'markdown'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    })
+
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('export:selectTarget', async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+    })
+
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('app:getDataPath', () => {
+    return app.getPath('userData')
+  })
+
+  ipcMain.handle('app:openDataPath', async () => {
+    const { shell } = await import('electron')
+    return shell.openPath(app.getPath('userData'))
   })
 
   // Theme

@@ -169,6 +169,90 @@ declare global {
           }>
         }>>
       }
+      importExport: {
+        getImporters: () => Promise<Array<{
+          id: string
+          name: string
+          description: string
+          extensions: string[]
+          supportsFolder: boolean
+          fileFilters: Array<{ name: string; extensions: string[] }>
+        }>>
+        detect: (sourcePath: string) => Promise<{
+          id: string
+          name: string
+          description: string
+          extensions: string[]
+          supportsFolder: boolean
+          fileFilters: Array<{ name: string; extensions: string[] }>
+        } | null>
+        preview: (options: {
+          sourcePath: string
+          folderStrategy: 'first-level' | 'flatten-path' | 'single-notebook'
+          targetNotebookId?: string
+          defaultNotebookId?: string | null
+          tagStrategy: 'keep-nested' | 'flatten-all' | 'first-level'
+          conflictStrategy: 'skip' | 'rename' | 'overwrite'
+          importAttachments: boolean
+          parseFrontMatter: boolean
+        }) => Promise<{
+          importerId: string
+          importerName: string
+          noteCount: number
+          notebookNames: string[]
+          attachmentCount: number
+          files: Array<{ path: string; title: string; notebookName?: string }>
+        }>
+        execute: (options: {
+          sourcePath: string
+          folderStrategy: 'first-level' | 'flatten-path' | 'single-notebook'
+          targetNotebookId?: string
+          defaultNotebookId?: string | null
+          tagStrategy: 'keep-nested' | 'flatten-all' | 'first-level'
+          conflictStrategy: 'skip' | 'rename' | 'overwrite'
+          importAttachments: boolean
+          parseFrontMatter: boolean
+        }) => Promise<{
+          success: boolean
+          importedNotes: Array<{ id: string; title: string; sourcePath: string }>
+          skippedFiles: Array<{ path: string; reason: string }>
+          errors: Array<{ path: string; error: string }>
+          createdNotebooks: Array<{ id: string; name: string }>
+          stats: {
+            totalFiles: number
+            importedNotes: number
+            importedAttachments: number
+            skippedFiles: number
+            errorCount: number
+            duration: number
+          }
+        }>
+        selectSource: (importerId?: string) => Promise<string | null>
+        export: (options: {
+          noteIds: string[]
+          notebookIds: string[]
+          format: 'markdown' | 'json'
+          outputPath: string
+          groupByNotebook: boolean
+          includeAttachments: boolean
+          includeFrontMatter: boolean
+          asZip: boolean
+        }) => Promise<{
+          success: boolean
+          outputPath: string
+          stats: {
+            exportedNotes: number
+            exportedAttachments: number
+            totalSize: number
+          }
+          errors: Array<{ noteId: string; title: string; error: string }>
+        }>
+        selectTarget: () => Promise<string | null>
+      }
+      appData: {
+        getPath: () => Promise<string>
+        openPath: () => Promise<string>
+      }
     }
     api: unknown
   }

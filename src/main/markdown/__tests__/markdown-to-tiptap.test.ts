@@ -25,9 +25,11 @@ describe('markdownToTiptap', () => {
 
     it('多行文本', () => {
       const result = markdownToTiptap('第一段\n\n第二段') as AnyNode
-      expect(result.content).toHaveLength(2)
+      // 两个段落之间的空行会生成一个空段落
+      expect(result.content).toHaveLength(3)
       expect(result.content[0].content[0].text).toBe('第一段')
-      expect(result.content[1].content[0].text).toBe('第二段')
+      expect(result.content[1].type).toBe('paragraph') // 空段落
+      expect(result.content[2].content[0].text).toBe('第二段')
     })
   })
 
@@ -158,7 +160,8 @@ describe('markdownToTiptap', () => {
   describe('分割线', () => {
     it('水平分割线', () => {
       const result = markdownToTiptap('上面\n\n---\n\n下面') as AnyNode
-      expect(result.content[1].type).toBe('horizontalRule')
+      // 空行会生成空段落，所以 horizontalRule 在索引 2
+      expect(result.content[2].type).toBe('horizontalRule')
     })
   })
 

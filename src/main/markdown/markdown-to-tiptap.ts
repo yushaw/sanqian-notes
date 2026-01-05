@@ -190,8 +190,13 @@ function parseInlineTokens(tokens: Token[]): TiptapNode[] {
         nodes.push({
           type: 'image',
           attrs: {
+            blockId: null,
             src: imgToken.href,
-            alt: imgToken.text || ''
+            alt: imgToken.text || '',
+            title: imgToken.title || null,
+            width: null,
+            height: null,
+            align: 'left'
           }
         })
         break
@@ -417,8 +422,21 @@ function parseToken(token: Token): TiptapNode[] {
       return [{ type: 'paragraph', content: [{ type: 'text', text: htmlToken.text }] }]
     }
 
-    case 'space':
+    case 'space': {
+      // space token 表示段落之间的空行
+      // 每个空行都应该显示为一个空段落（不带 content 字段，与手动创建的格式一致）
+      const spaceToken = token as Tokens.Space
+      const newlineCount = (spaceToken.raw.match(/\n/g) || []).length
+      // 2个换行 = 1个空行，3个换行 = 2个空行，以此类推
+      if (newlineCount >= 2) {
+        const emptyParagraphs: TiptapNode[] = []
+        for (let i = 1; i < newlineCount; i++) {
+          emptyParagraphs.push({ type: 'paragraph', attrs: { blockId: null } })
+        }
+        return emptyParagraphs
+      }
       return []
+    }
 
     default:
       return []
@@ -561,6 +579,42 @@ function postProcessMath(nodes: TiptapNode[]): TiptapNode[] {
 }
 
 /**
+ * 后处理：移除空文本节点
+ * TipTap 不允许空文本节点，会导致 "Empty text nodes are not allowed" 错误
+ */
+function removeEmptyTextNodes(nodes: TiptapNode[]): TiptapNode[] {
+  return nodes
+    .filter(node => {
+      // 过滤掉空文本节点
+      if (node.type === 'text') {
+        return node.text !== undefined && node.text !== null && node.text !== ''
+      }
+      return true
+    })
+    .map(node => {
+      // 递归处理子节点
+      if (node.content && Array.isArray(node.content)) {
+        const filteredContent = removeEmptyTextNodes(node.content)
+        // 如果内容为空，某些节点类型需要特殊处理
+        if (filteredContent.length === 0) {
+          // 这些节点类型可以有空内容
+          const allowEmptyContent = [
+            'paragraph', 'heading', 'blockquote',
+            'listItem', 'taskItem', 'tableCell', 'tableHeader',
+            'toggle', 'callout', 'codeBlock', 'tableRow', 'table',
+            'bulletList', 'orderedList', 'taskList'
+          ]
+          if (allowEmptyContent.includes(node.type)) {
+            return { ...node, content: [] }
+          }
+        }
+        return { ...node, content: filteredContent }
+      }
+      return node
+    })
+}
+
+/**
  * 将 Markdown 转换为 TipTap JSON
  *
  * @param markdown - Markdown 文本
@@ -611,9 +665,12 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
   // 后处理：处理行内数学公式
   const processedContent = postProcessMath(content)
 
+  // 后处理：移除空文本节点（TipTap 不允许）
+  const cleanedContent = removeEmptyTextNodes(processedContent)
+
   return {
     type: 'doc',
-    content: processedContent
+    content: cleanedContent
   }
 }
 

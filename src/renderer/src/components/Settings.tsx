@@ -5,10 +5,11 @@ import type { Language } from '../i18n'
 import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting } from '../theme'
 import { AIActionsSettings } from './AIActionsSettings'
 import { KnowledgeBaseSettings } from './KnowledgeBaseSettings'
+import { DataSettings } from './DataSettings'
 
 const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emerald', 'cyan', 'cobalt', 'indigo', 'magenta']
 
-type SettingsTab = 'general' | 'appearance' | 'ai-actions' | 'knowledge-base' | 'about'
+type SettingsTab = 'general' | 'appearance' | 'ai-actions' | 'knowledge-base' | 'data' | 'about'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
 
@@ -190,6 +191,7 @@ export function Settings({ onClose }: SettingsProps) {
     { key: 'appearance', label: t.settings.appearance },
     { key: 'ai-actions', label: t.settings.aiActions.title },
     { key: 'knowledge-base', label: t.settings.knowledgeBase.title },
+    { key: 'data', label: t.settings.data },
     { key: 'about', label: t.settings.about },
   ]
 
@@ -394,6 +396,11 @@ export function Settings({ onClose }: SettingsProps) {
             {/* Knowledge Base Tab */}
             {activeTab === 'knowledge-base' && (
               <KnowledgeBaseSettings />
+            )}
+
+            {/* Data Tab */}
+            {activeTab === 'data' && (
+              <DataSettings />
             )}
 
             {/* About Tab */}

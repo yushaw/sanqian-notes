@@ -169,4 +169,21 @@ contextBridge.exposeInMainWorld('electron', {
       return () => ipcRenderer.removeListener('chat:streamEvent', handler)
     },
   },
+  // Import/Export API
+  importExport: {
+    // 导入
+    getImporters: () => ipcRenderer.invoke('import:getImporters'),
+    detect: (sourcePath: string) => ipcRenderer.invoke('import:detect', sourcePath),
+    preview: (options: unknown) => ipcRenderer.invoke('import:preview', options),
+    execute: (options: unknown) => ipcRenderer.invoke('import:execute', options),
+    selectSource: (importerId?: string) => ipcRenderer.invoke('import:selectSource', importerId),
+    // 导出
+    export: (options: unknown) => ipcRenderer.invoke('export:execute', options),
+    selectTarget: () => ipcRenderer.invoke('export:selectTarget'),
+  },
+  // App data path
+  appData: {
+    getPath: () => ipcRenderer.invoke('app:getDataPath'),
+    openPath: () => ipcRenderer.invoke('app:openDataPath'),
+  },
 })

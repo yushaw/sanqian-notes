@@ -351,9 +351,32 @@ export function TypewriterMode({
     },
 
     addProseMirrorPlugins() {
+      // 用于跟踪是否在 IME 组合状态
+      let isComposing = false
+
       return [
         new Plugin({
           key: new PluginKey('typewriterSound'),
+          props: {
+            // 使用 handleDOMEvents 监听 DOM 级别的事件，可以捕获 IME 组合状态下的按键
+            handleDOMEvents: {
+              compositionstart: () => {
+                isComposing = true
+                return false
+              },
+              compositionend: () => {
+                isComposing = false
+                return false
+              },
+              keydown: (_view, event) => {
+                // 在 IME 组合状态下监听删除键
+                if (isComposing && (event.key === 'Backspace' || event.key === 'Delete')) {
+                  playTypewriterSoundRef.current('backspace')
+                }
+                return false
+              },
+            },
+          },
           appendTransaction: (transactions, _oldState, _newState) => {
             // 检查是否有文档内容变化
             const docChanged = transactions.some(tr => tr.docChanged)
@@ -625,6 +648,8 @@ export function TypewriterMode({
 
     const { from } = editor.state.selection
     const coords = editor.view.coordsAtPos(from)
+    if (!coords) return // coordsAtPos 可能返回 null
+
     const container = contentRef.current
     const containerRect = container.getBoundingClientRect()
     const targetY = containerRect.height * resolvedTheme.cursorOffset

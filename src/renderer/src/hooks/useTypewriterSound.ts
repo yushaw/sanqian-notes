@@ -50,6 +50,10 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
   const normalKeyIndexRef = useRef<number>(0) // 用于轮流播放普通按键音效
   const isInitializedRef = useRef<boolean>(false)
   const pendingInitRef = useRef<boolean>(false)
+  // 存储初始化期间的待播放按键（只保存最后一个，初始化约100-200ms，丢失几个音效可接受）
+  const pendingPlayRef = useRef<KeyType | null>(null)
+  // 用于在 ensureInitialized 中访问最新的 playSound，避免闭包捕获旧版本
+  const playSoundRef = useRef<(keyType: KeyType) => void>(() => {})
 
   // 懒加载初始化函数 - 在第一次用户交互时调用
   const ensureInitialized = useCallback(async () => {
@@ -111,13 +115,117 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
       ])
 
       isInitializedRef.current = true
-      console.log('[TypewriterSound] All audio files loaded successfully')
+
+      // 播放初始化期间的待播放按键
+      if (pendingPlayRef.current) {
+        const pendingKey = pendingPlayRef.current
+        pendingPlayRef.current = null
+        // 短暂延迟让音频上下文稳定后再播放
+        setTimeout(() => {
+          playSoundRef.current(pendingKey)
+        }, 10)
+      }
     } catch (error) {
       console.error('[TypewriterSound] Failed to load audio files:', error)
     } finally {
       pendingInitRef.current = false
     }
-  }, [enabled])
+  }, [enabled]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 内部播放函数
+  const playSound = useCallback((keyType: KeyType) => {
+    if (!audioContextRef.current || audioBuffersRef.current.size === 0) {
+      return
+    }
+
+    // 防抖：避免过于频繁的播放（小于 30ms 间隔）
+    const now = Date.now()
+    if (now - lastPlayTimeRef.current < 30) {
+      return
+    }
+    lastPlayTimeRef.current = now
+
+    // 获取对应的音效
+    let audioBuffer: AudioBuffer | undefined
+    let volumeMultiplier = 1.0
+
+    switch (keyType) {
+      case 'backspace':
+      case 'delete':
+        audioBuffer = audioBuffersRef.current.get('backspace')
+        volumeMultiplier = 2.5
+        break
+      case 'enter':
+        audioBuffer = audioBuffersRef.current.get('enter')
+        break
+      case 'space':
+        audioBuffer = audioBuffersRef.current.get('space')
+        break
+      case 'normal':
+      default: {
+        const index = normalKeyIndexRef.current % SOUND_FILES.normal.length
+        audioBuffer = audioBuffersRef.current.get(`normal-${index}`)
+        normalKeyIndexRef.current = (normalKeyIndexRef.current + 1) % SOUND_FILES.normal.length
+        break
+      }
+    }
+
+    if (!audioBuffer) {
+      return
+    }
+
+    // 限制同时播放数量
+    if (sourceNodesRef.current.length >= maxConcurrent) {
+      const oldestNode = sourceNodesRef.current.shift()
+      if (oldestNode) {
+        try {
+          oldestNode.stop()
+          oldestNode.disconnect()
+        } catch (e) {
+          // 忽略
+        }
+      }
+    }
+
+    try {
+      const context = audioContextRef.current
+
+      if (context.state === 'suspended') {
+        context.resume()
+      }
+
+      const source = context.createBufferSource()
+      source.buffer = audioBuffer
+      source.playbackRate.value = playbackRate
+
+      const gainNode = context.createGain()
+      gainNode.gain.value = volume * volumeMultiplier
+
+      source.connect(gainNode)
+      gainNode.connect(context.destination)
+
+      source.start(0)
+
+      sourceNodesRef.current.push(source)
+
+      source.onended = () => {
+        const idx = sourceNodesRef.current.indexOf(source)
+        if (idx > -1) {
+          sourceNodesRef.current.splice(idx, 1)
+        }
+        try {
+          source.disconnect()
+        } catch (e) {
+          // 忽略
+        }
+      }
+    } catch (error) {
+      console.error('[TypewriterSound] Failed to play audio:', error)
+    }
+  }, [volume, playbackRate, maxConcurrent])
+
+  // 每次渲染更新 ref，确保 ensureInitialized 中使用最新版本
+  playSoundRef.current = playSound
 
   // 清理
   useEffect(() => {
@@ -133,7 +241,11 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
       sourceNodesRef.current = []
 
       if (audioContextRef.current) {
-        audioContextRef.current.close()
+        try {
+          audioContextRef.current.close()
+        } catch (e) {
+          // 忽略关闭失败
+        }
         audioContextRef.current = null
       }
 
@@ -157,7 +269,11 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
       sourceNodesRef.current = []
 
       if (audioContextRef.current) {
-        audioContextRef.current.close()
+        try {
+          audioContextRef.current.close()
+        } catch (e) {
+          // 忽略关闭失败
+        }
         audioContextRef.current = null
       }
 
@@ -167,115 +283,26 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
     }
   }, [enabled])
 
-  // 播放音效
+  // 播放音效（外部接口）
   const play = useCallback((keyType: KeyType = 'normal') => {
     if (!enabled) return
 
     // 懒加载初始化（第一次调用时触发）
     if (!isInitializedRef.current && !pendingInitRef.current) {
+      pendingPlayRef.current = keyType // 保存待播放的按键
       ensureInitialized()
-      return // 第一次调用时跳过播放，等待初始化完成
-    }
-
-    // 如果还在初始化中或没有音频数据，跳过
-    if (!audioContextRef.current || audioBuffersRef.current.size === 0) {
       return
     }
 
-    // 防抖：避免过于频繁的播放（小于 30ms 间隔）
-    const now = Date.now()
-    if (now - lastPlayTimeRef.current < 30) {
-      return
-    }
-    lastPlayTimeRef.current = now
-
-    // 获取对应的音效
-    let audioBuffer: AudioBuffer | undefined
-    let volumeMultiplier = 1.0 // 音量倍数，用于调整不同音效的相对音量
-
-    switch (keyType) {
-      case 'backspace':
-      case 'delete':
-        audioBuffer = audioBuffersRef.current.get('backspace')
-        volumeMultiplier = 2.5 // backspace 音效本身较小，放大 2.5 倍
-        break
-      case 'enter':
-        audioBuffer = audioBuffersRef.current.get('enter')
-        break
-      case 'space':
-        audioBuffer = audioBuffersRef.current.get('space')
-        break
-      case 'normal':
-      default:
-        // 轮流播放 5 个普通按键音效
-        const index = normalKeyIndexRef.current % SOUND_FILES.normal.length
-        audioBuffer = audioBuffersRef.current.get(`normal-${index}`)
-        normalKeyIndexRef.current = (normalKeyIndexRef.current + 1) % SOUND_FILES.normal.length
-        break
-    }
-
-    if (!audioBuffer) {
-      console.warn(`[TypewriterSound] Audio buffer not found for key type: ${keyType}`)
+    // 如果正在初始化中，保存待播放的按键
+    if (pendingInitRef.current) {
+      pendingPlayRef.current = keyType
       return
     }
 
-    // 限制同时播放数量
-    if (sourceNodesRef.current.length >= maxConcurrent) {
-      // 停止最旧的音效
-      const oldestNode = sourceNodesRef.current.shift()
-      if (oldestNode) {
-        try {
-          oldestNode.stop()
-          oldestNode.disconnect()
-        } catch (e) {
-          // 忽略
-        }
-      }
-    }
-
-    try {
-      const context = audioContextRef.current
-
-      // 确保 AudioContext 处于运行状态（某些浏览器需要用户交互后 resume）
-      if (context.state === 'suspended') {
-        context.resume()
-      }
-
-      // 创建音源节点
-      const source = context.createBufferSource()
-      source.buffer = audioBuffer
-      source.playbackRate.value = playbackRate
-
-      // 创建增益节点（音量控制）
-      const gainNode = context.createGain()
-      gainNode.gain.value = volume * volumeMultiplier
-
-      // 连接节点：source -> gain -> destination
-      source.connect(gainNode)
-      gainNode.connect(context.destination)
-
-      // 播放
-      source.start(0)
-
-      // 记录节点
-      sourceNodesRef.current.push(source)
-
-      // 播放结束后清理
-      source.onended = () => {
-        const index = sourceNodesRef.current.indexOf(source)
-        if (index > -1) {
-          sourceNodesRef.current.splice(index, 1)
-        }
-        try {
-          source.disconnect()
-        } catch (e) {
-          // 忽略
-        }
-      }
-    } catch (error) {
-      console.error('[TypewriterSound] Failed to play audio:', error)
-    }
-  }, [enabled, volume, playbackRate, maxConcurrent, ensureInitialized])
+    // 已初始化，直接播放
+    playSound(keyType)
+  }, [enabled, ensureInitialized, playSound])
 
   return { play }
 }

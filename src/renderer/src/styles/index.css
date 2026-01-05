@@ -141,6 +141,7 @@ body {
 }
 
 /* Show scrollbar only on hover, overlay style */
+/* Note: 'overlay' is non-standard but works in Chromium/Electron */
 .scrollbar-on-hover {
   overflow-y: overlay;
 }

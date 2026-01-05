@@ -22,7 +22,7 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 50px;
+  height: 46px;
   z-index: 10;
   -webkit-app-region: drag;
   pointer-events: none;
@@ -35,9 +35,9 @@
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--color-border);
-  /* 和内容区域对齐：zen-content 是 max-width: 816px（内容720px + padding 48px*2），居中，padding-left: 48px */
-  /* 顶栏标题左边距 = (容器宽度 - 816px) / 2 + 48px */
-  padding: 0 48px 0 max(48px, calc((100% - 816px) / 2 + 48px));
+  /* 和内容区域对齐：zen-content 是 max-width: 720px（内容624px + padding 48px*2），居中，padding-left: 48px */
+  /* 顶栏标题左边距 = (容器宽度 - 720px) / 2 + 48px */
+  padding: 0 48px 0 max(48px, calc((100% - 720px) / 2 + 48px));
 }
 
 .zen-header-title {
@@ -64,22 +64,34 @@
   opacity: 0.6;
 }
 
-/* Scroll wrapper - scrollbar at right edge, show on hover */
+/* Scroll wrapper - scrollbar at right edge, show on hover (overlay style) */
+/* Note: 'overlay' is non-standard but works in Chromium/Electron */
 .zen-scroll-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: overlay;
   overflow-x: hidden;
+}
+
+.zen-scroll-wrapper::-webkit-scrollbar {
+  width: 8px;
+  background: transparent;
+}
+
+.zen-scroll-wrapper::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .zen-scroll-wrapper::-webkit-scrollbar-thumb {
   background: transparent;
+  border-radius: 4px;
+  transition: background 0.2s ease;
 }
 
-.zen-scroll-wrapper:hover::-webkit-scrollbar-thumb {
+.zen-editor-container:hover .zen-scroll-wrapper::-webkit-scrollbar-thumb {
   background: var(--color-scrollbar);
 }
 
-.zen-scroll-wrapper:hover::-webkit-scrollbar-thumb:hover {
+.zen-editor-container:hover .zen-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   background: var(--color-scrollbar-hover);
 }
 
@@ -258,7 +270,8 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-width: 816px; /* 有效内容宽度 720px + padding 48px*2 */
+  max-width: 720px; /* 有效内容宽度 624px + padding 48px*2 */
+  min-width: 320px; /* 最小宽度，保证文字可读 */
   width: 100%;
   margin: 0 auto;
   padding: 56px 48px 160px;

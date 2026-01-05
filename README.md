@@ -3305,3 +3305,68 @@ src/main/import-export/
 - YAML 递归深度限制：最大 10 层嵌套，防止栈溢出
 
 **测试：** 93 个导入导出测试全部通过（新增 9 个边界测试）
+
+---
+
+### 2026-01-05 ChatPanel 集成
+
+**从 FloatingWindow 迁移到 ChatPanel：**
+- 升级 `@yushaw/sanqian-chat` 使用 ChatPanel 替代 FloatingWindow
+- ChatPanel 支持 Embedded（嵌入侧边栏）和 Floating（浮动窗口）两种模式
+
+**新增窗口吸附功能：**
+- 浮动聊天窗口可吸附到主窗口右侧
+- 自动跟随主窗口移动、调整大小
+- 支持拖拽分离和自动重新吸附
+- 主窗口最小化/关闭时自动隐藏聊天窗口
+
+**配置变更 (`src/main/index.ts`)：**
+- `FloatingWindow` → `ChatPanel`
+- 新增 `attach` 配置项用于窗口吸附
+- 快捷键 `Cmd+Shift+Space` 切换聊天窗口
+- IPC handlers 保持兼容 (`chatWindow:*`)
+
+**依赖更新：**
+- `@yushaw/sanqian-chat` 升级至 0.2.5（包含 ChatPanel）
+
+---
+
+### 2026-01-05 ChatPanel Embedded 模式支持
+
+**BrowserWindow → BaseWindow + WebContentsView 重构：**
+- 主窗口从 `BrowserWindow` 改为 `BaseWindow` + `WebContentsView` 架构
+- 这是 Electron 30+ 推荐的现代窗口管理方式
+- 支持多个 WebContentsView 共享同一窗口
+
+**ChatPanel 配置更新：**
+- 新增 `hostMainView` 配置，指定主内容视图
+- 设置 `initialMode: 'embedded'` 启用嵌入模式
+- 添加 `onLayoutChange` 回调处理主视图布局调整
+
+**新增功能：**
+- Embedded 模式：聊天面板作为侧边栏嵌入主窗口右侧
+- Floating 模式：聊天面板作为独立窗口
+- 模式切换快捷键 `Cmd+Shift+E`（或 `Ctrl+Shift+E`）
+
+**代码变更：**
+- `mainWindow: BrowserWindow` → `mainWindow: BaseWindow` + `mainView: WebContentsView`
+- 所有 `mainWindow.webContents` 调用改为 `mainView.webContents`
+- 使用 `onLayoutChange` 回调处理布局变化
+
+---
+
+### 2026-01-05 ChatPanel Embedded 模式修复
+
+**问题修复：**
+1. ChatPanel 添加 hostWindow resize 监听器
+2. FloatingChat header 添加 ModeToggleButton 和 AttachButton
+3. 移除 sanqian-notes 冗余的 resize handler（由 ChatPanel 统一处理）
+
+**ChatPanel 改进：**
+- 监听 hostWindow resize 事件，自动更新布局
+- 在 visible 和 hidden 状态都正确调用 onLayoutChange
+- 销毁时清理所有监听器
+
+**UI 变更：**
+- 聊天面板 header 现在显示模式切换按钮（embedded ↔ floating）
+- 聊天面板 header 显示吸附状态按钮（仅 floating 模式）

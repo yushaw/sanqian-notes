@@ -10,7 +10,7 @@
  * 参考: LangChain Indexing API
  */
 
-import { BrowserWindow } from 'electron'
+import type { WebContents } from 'electron'
 import {
   getEmbeddingConfig,
   insertNoteChunks,
@@ -233,15 +233,15 @@ function extractTextFromNodes(nodes: unknown[]): string {
 }
 
 class IndexingService {
-  private mainWindow: BrowserWindow | null = null
+  private webContents: WebContents | null = null
   private isRunning = false
   private indexingLocks = new Set<string>()  // 防止同一笔记并发索引
 
   /**
-   * 设置主窗口引用（用于发送进度通知）
+   * 设置 WebContents 引用（用于发送进度通知）
    */
-  setMainWindow(window: BrowserWindow): void {
-    this.mainWindow = window
+  setWebContents(webContents: WebContents): void {
+    this.webContents = webContents
   }
 
   /**
@@ -642,8 +642,8 @@ class IndexingService {
    * 发送进度通知到前端
    */
   private sendProgress(progress: IndexingProgress): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('knowledgeBase:progress', progress)
+    if (this.webContents && !this.webContents.isDestroyed()) {
+      this.webContents.send('knowledgeBase:progress', progress)
     }
   }
 }

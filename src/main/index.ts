@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme, screen, protocol, net, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BaseWindow, WebContentsView, ipcMain, nativeTheme, screen, protocol, net, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
@@ -106,7 +106,7 @@ import {
   type ResolvedLanguage,
   translations
 } from '../renderer/src/i18n/translations'
-import { FloatingWindow } from '@yushaw/sanqian-chat/main'
+import { ChatPanel } from '@yushaw/sanqian-chat/main'
 
 // ============ Custom Protocol ============
 
@@ -123,7 +123,8 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
-let mainWindow: BrowserWindow | null = null
+let mainWindow: BaseWindow | null = null
+let mainView: WebContentsView | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
@@ -212,9 +213,9 @@ export function getRawUserContext(): UserContext {
 }
 
 function sendUpdateStatus(): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (mainView && !mainView.webContents.isDestroyed()) {
     try {
-      mainWindow.webContents.send('updater:status', {
+      mainView.webContents.send('updater:status', {
         status: updateStatus,
         version: updateVersion,
         progress: updateProgress,
@@ -292,8 +293,8 @@ function setupAutoUpdater(): void {
   })
 }
 
-// ============ FloatingWindow for Chat ============
-let floatingChatWindow: FloatingWindow | null = null
+// ============ ChatPanel for Chat ============
+let chatPanel: ChatPanel | null = null
 
 // ============ Theme Settings (synced from main window) ============
 let currentThemeSettings: {
@@ -369,7 +370,7 @@ function loadWindowState(): WindowState {
   return DEFAULT_WINDOW_STATE
 }
 
-function saveWindowState(win: BrowserWindow): void {
+function saveWindowState(win: BaseWindow): void {
   try {
     const isMaximized = win.isMaximized()
     const bounds = isMaximized ? win.getNormalBounds() : win.getBounds()
@@ -426,7 +427,8 @@ function getCenteredBoundsOnMouseDisplay(state: WindowState): { x: number; y: nu
 function showMainWindow(): void {
   if (!mainWindow) {
     // Create window if it doesn't exist
-    if (BrowserWindow.getAllWindows().length === 0) {
+    // Note: Use BaseWindow.getAllWindows() since mainWindow is BaseWindow, not BrowserWindow
+    if (BaseWindow.getAllWindows().length === 0) {
       createWindow()
     }
     return
@@ -604,33 +606,27 @@ function createWindow(): void {
     }
   }
 
-  const windowOptions: Electron.BrowserWindowConstructorOptions = {
-    ...windowBounds,
-    minWidth: 800,
-    minHeight: 600,
-    show: !isSilent, // Don't show window immediately if launched silently
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  }
-
   const isDarkMode = nativeTheme.shouldUseDarkColors
   // Use card colors to match content area (basePalettes.light.card / dark.card)
   const initialBgColor = isDarkMode ? '#1F1F1F' : '#FFFFFF'
   const initialTextColor = isDarkMode ? '#ffffff' : '#1D1D1F'
 
-  // Note: nativeTheme listener is registered at app level to avoid duplicates
-  // See the consolidated listener near ipcMain.handle('theme:get')
+  // BaseWindow options (subset of BrowserWindow options)
+  const windowOptions: Electron.BaseWindowConstructorOptions = {
+    ...windowBounds,
+    minWidth: 640,
+    minHeight: 600,
+    show: false, // Always start hidden, show after view is ready
+    backgroundColor: initialBgColor,
+  }
 
   // macOS specific options
   if (process.platform === 'darwin') {
     Object.assign(windowOptions, {
       frame: false,
-      transparent: true, // 修复深色模式下顶部白线问题
+      transparent: true,
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 16, y: 16 },
-      backgroundColor: initialBgColor
     })
   } else if (process.platform === 'win32') {
     Object.assign(windowOptions, {
@@ -640,25 +636,39 @@ function createWindow(): void {
         symbolColor: initialTextColor,
         height: 40
       },
-      backgroundColor: initialBgColor
     })
   } else {
     Object.assign(windowOptions, {
       frame: true,
-      backgroundColor: initialBgColor
     })
   }
 
-  mainWindow = new BrowserWindow(windowOptions)
+  // Create BaseWindow
+  mainWindow = new BaseWindow(windowOptions)
+
+  // Create WebContentsView for main content
+  mainView = new WebContentsView({
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+    },
+  })
+
+  // Add mainView to window
+  mainWindow.contentView.addChildView(mainView)
+
+  // Set initial bounds
+  const { width, height } = mainWindow.getBounds()
+  mainView.setBounds({ x: 0, y: 0, width, height })
 
   if (savedState.isMaximized && !isSilent) {
     mainWindow.maximize()
   }
 
-  mainWindow.on('ready-to-show', () => {
-    // Only show window automatically if not in silent mode
-    if (!isSilent) {
-      mainWindow?.show()
+  // Show window when content is ready
+  mainView.webContents.on('did-finish-load', () => {
+    if (!isSilent && mainWindow) {
+      mainWindow.show()
     }
   })
 
@@ -674,11 +684,13 @@ function createWindow(): void {
     }
   })
 
-  // Clear mainWindow reference when actually destroyed
+  // Clear references when actually destroyed
   mainWindow.on('closed', () => {
     mainWindow = null
+    mainView = null
   })
 
+  // Save window state on resize (layout is handled by ChatPanel via onLayoutChange)
   mainWindow.on('resize', () => {
     if (mainWindow && !mainWindow.isMaximized()) {
       saveWindowState(mainWindow)
@@ -691,25 +703,55 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  // Handle external link opens
+  mainView.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
+  // Handle context menu for WebContentsView (fix toggleDevTools error in dev mode)
+  if (is.dev) {
+    mainView.webContents.on('context-menu', (event, params) => {
+      event.preventDefault()
+      const menu = Menu.buildFromTemplate([
+        {
+          label: 'Inspect Element',
+          click: () => {
+            mainView?.webContents.inspectElement(params.x, params.y)
+          }
+        },
+        {
+          label: 'Toggle Developer Tools',
+          click: () => {
+            if (mainView?.webContents.isDevToolsOpened()) {
+              mainView.webContents.closeDevTools()
+            } else {
+              mainView?.webContents.openDevTools({ mode: 'detach' })
+            }
+          }
+        }
+      ])
+      menu.popup()
+    })
+  }
+
+  // Load the app
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    mainView.webContents.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainView.webContents.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
   // Set up data change notification callback for SDK
   const notifyRenderer = () => {
-    mainWindow?.webContents.send('data:changed')
+    mainView?.webContents.send('data:changed')
   }
   setOnSdkDataChange(notifyRenderer)
 
-  // Set mainWindow for indexing service (must be after mainWindow is created)
-  indexingService.setMainWindow(mainWindow)
+  // Set webContents for indexing service (for progress notifications)
+  if (mainView) {
+    indexingService.setWebContents(mainView.webContents)
+  }
 }
 
 // ============ Embedding Config Sync ============
@@ -798,6 +840,44 @@ app.whenReady().then(() => {
   // Initialize language
   initializeLanguage()
 
+  // Set custom application menu to fix toggleDevTools issue with WebContentsView
+  if (is.dev) {
+    const isMac = process.platform === 'darwin'
+    const template: Electron.MenuItemConstructorOptions[] = [
+      ...(isMac ? [{ role: 'appMenu' as const }] : []),
+      { role: 'fileMenu' as const },
+      { role: 'editMenu' as const },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' as const },
+          { role: 'forceReload' as const },
+          {
+            label: 'Toggle Developer Tools (Main)',
+            accelerator: 'Alt+CommandOrControl+I',
+            click: () => mainView?.webContents?.openDevTools({ mode: 'detach' }),
+          },
+          {
+            label: 'Toggle Developer Tools (Chat)',
+            accelerator: 'Shift+CommandOrControl+I',
+            click: () => chatPanel?.getWebContents()?.openDevTools({ mode: 'detach' }),
+          },
+          { type: 'separator' as const },
+          { role: 'resetZoom' as const },
+          { role: 'zoomIn' as const },
+          { role: 'zoomOut' as const },
+          { type: 'separator' as const },
+          { role: 'togglefullscreen' as const },
+        ],
+      },
+      { role: 'windowMenu' as const },
+    ]
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  }
+
+  // Note: This only triggers for BrowserWindow, not BaseWindow.
+  // MainWindow (BaseWindow) won't get F12 shortcut - use View menu instead.
+  // ChatPanel's floating window (BrowserWindow) will still trigger this.
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -831,46 +911,34 @@ app.whenReady().then(() => {
   // Start indexing service (mainWindow is set in createWindow)
   indexingService.start()
 
-  // Setup FloatingWindow for chat (using sanqian-chat package)
-  // Note: FloatingWindow provides its own IPC handlers (sanqian-chat:*)
-  const chatPreloadPath = join(__dirname, '../preload/chat.js')  // Chat-specific preload with sanqian-chat API
-  const chatRendererPath = is.dev && process.env['ELECTRON_RENDERER_URL']
-    ? `${process.env['ELECTRON_RENDERER_URL']}/chat.html`
-    : join(__dirname, '../renderer/chat.html')
-
-  const chatDevMode = is.dev && !!process.env['ELECTRON_RENDERER_URL']
-  floatingChatWindow = new FloatingWindow({
-    alwaysOnTop: true,
-    showInTaskbar: false,
-    position: 'remember',
-    getClient: () => getClient(),
-    getAgentId: () => getAssistantAgentId(),
-    preloadPath: chatPreloadPath,
-    rendererPath: chatRendererPath,
-    devMode: chatDevMode,
-  })
-
   // Setup chatWindow IPC handlers (for main window to control chat window)
+  // Note: ChatPanel is initialized after createWindow() below
   ipcMain.handle('chatWindow:show', () => {
-    floatingChatWindow?.show()
+    if (!chatPanel) {
+      return { success: false, error: 'ChatPanel not initialized' }
+    }
+    chatPanel.show()
     return { success: true }
   })
 
   ipcMain.handle('chatWindow:showWithContext', (_, context: string) => {
+    if (!chatPanel) {
+      return { success: false, error: 'ChatPanel not initialized' }
+    }
     try {
-      floatingChatWindow?.show()
+      chatPanel.show()
       // Send context after window is ready
-      const win = floatingChatWindow?.getWindow()
-      if (!win || win.isDestroyed()) {
+      const webContents = chatPanel?.getWebContents()
+      if (!webContents || webContents.isDestroyed()) {
         return { success: false, error: 'Chat window not available' }
       }
 
-      if (win.webContents.isLoading()) {
+      if (webContents.isLoading()) {
         // Window is still loading, wait for it to finish
-        win.webContents.once('did-finish-load', () => {
-          if (!win.isDestroyed()) {
+        webContents.once('did-finish-load', () => {
+          if (!webContents.isDestroyed()) {
             try {
-              win.webContents.send('chatWindow:setContext', context)
+              webContents.send('chatWindow:setContext', context)
             } catch {
               // Window may have been destroyed during load
             }
@@ -878,7 +946,7 @@ app.whenReady().then(() => {
         })
       } else {
         // Window is already loaded, send immediately
-        win.webContents.send('chatWindow:setContext', context)
+        webContents.send('chatWindow:setContext', context)
       }
       return { success: true }
     } catch (err) {
@@ -888,26 +956,32 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('chatWindow:hide', () => {
-    floatingChatWindow?.hide()
+    if (!chatPanel) {
+      return { success: false, error: 'ChatPanel not initialized' }
+    }
+    chatPanel.hide()
     return { success: true }
   })
 
   ipcMain.handle('chatWindow:toggle', () => {
-    floatingChatWindow?.toggle()
+    if (!chatPanel) {
+      return { success: false, error: 'ChatPanel not initialized' }
+    }
+    chatPanel.toggle()
     return { success: true }
   })
 
   ipcMain.handle('chatWindow:isVisible', () => {
-    return floatingChatWindow?.isVisible() ?? false
+    return chatPanel?.isVisible() ?? false
   })
 
   // Theme sync: main window notifies theme changes, chat window retrieves settings
   ipcMain.handle('theme:sync', (_, settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => {
     currentThemeSettings = settings
     // Notify chat window if open
-    const chatWin = floatingChatWindow?.getWindow()
-    if (chatWin && !chatWin.isDestroyed()) {
-      chatWin.webContents.send('theme:updated', settings)
+    const webContents = chatPanel?.getWebContents()
+    if (webContents && !webContents.isDestroyed()) {
+      webContents.send('theme:updated', settings)
     }
     return { success: true }
   })
@@ -916,8 +990,7 @@ app.whenReady().then(() => {
     return currentThemeSettings
   })
 
-  // Note: sanqian-chat:setAlwaysOnTop and sanqian-chat:getAlwaysOnTop
-  // are registered by FloatingWindow class internally
+  // Note: chatPanel:* IPC handlers are registered by ChatPanel class internally
 
   // ============ Chat API for AI actions (main window inline streaming) ============
   // These handlers use SanqianAppClient directly for AI actions like popup explanations
@@ -1181,7 +1254,7 @@ app.whenReady().then(() => {
     const result = await executeImport(options)
     // 通知渲染进程数据已更新
     if (result.importedNotes.length > 0) {
-      mainWindow?.webContents.send('data:changed')
+      mainView?.webContents.send('data:changed')
     }
     return result
   })
@@ -1231,7 +1304,7 @@ app.whenReady().then(() => {
   nativeTheme.on('updated', () => {
     const dark = nativeTheme.shouldUseDarkColors
     // Notify renderer
-    mainWindow?.webContents.send('theme:changed', dark ? 'dark' : 'light')
+    mainView?.webContents.send('theme:changed', dark ? 'dark' : 'light')
     // Update Windows titlebar overlay
     if (mainWindow && !mainWindow.isDestroyed() && process.platform === 'win32') {
       try {
@@ -1282,8 +1355,8 @@ app.whenReady().then(() => {
 
   // 接着对话 - popup 预览调用，转发给主窗口
   ipcMain.handle('popup:continueInChat', (_, selectedText: string, explanation: string) => {
-    if (mainWindow) {
-      mainWindow.webContents.send('popup:openChatWithContext', selectedText, explanation)
+    if (mainWindow && mainView) {
+      mainView.webContents.send('popup:openChatWithContext', selectedText, explanation)
       mainWindow.show()
       mainWindow.focus()
     }
@@ -1351,6 +1424,42 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Setup ChatPanel for chat (using sanqian-chat package)
+  // Note: Must be after createWindow() so mainWindow and mainView are available
+  const chatPreloadPath = join(__dirname, '../preload/chat.js')
+  const chatRendererPath = is.dev && process.env['ELECTRON_RENDERER_URL']
+    ? `${process.env['ELECTRON_RENDERER_URL']}/chat.html`
+    : join(__dirname, '../renderer/chat.html')
+  const chatDevMode = is.dev && !!process.env['ELECTRON_RENDERER_URL']
+
+  chatPanel = new ChatPanel({
+    hostWindow: mainWindow!,
+    hostMainView: mainView!, // Required for embedded mode
+    initialMode: 'embedded', // Start in embedded mode (sidebar)
+    position: 'right',
+    width: 400,
+    minHostContentWidth: 640, // Auto-expand window to ensure editor content is readable
+    resizable: true,
+    preloadPath: chatPreloadPath,
+    rendererPath: chatRendererPath,
+    devMode: chatDevMode,
+    getClient: () => getClient(),
+    getAgentId: () => getAssistantAgentId(),
+    shortcuts: {
+      toggle: 'CommandOrControl+Shift+Space',
+      toggleMode: 'CommandOrControl+Shift+E', // Enable mode toggle
+    },
+    stateKey: 'sanqian-notes',
+    // Layout change callback - update mainView bounds when chat panel is shown/hidden
+    onLayoutChange: ({ mainWidth }) => {
+      if (mainView && mainWindow) {
+        const { height } = mainWindow.getBounds()
+        mainView.setBounds({ x: 0, y: 0, width: mainWidth, height })
+      }
+    },
+  })
+
   setupTray()
   setupAutoUpdater()
 
@@ -1375,9 +1484,9 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true
-  // Destroy chat window before quitting
-  floatingChatWindow?.destroy()
-  floatingChatWindow = null
+  // Destroy chat panel before quitting
+  chatPanel?.destroy()
+  chatPanel = null
 })
 
 app.on('window-all-closed', () => {

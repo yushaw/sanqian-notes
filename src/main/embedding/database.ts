@@ -285,6 +285,17 @@ function getDb(): Database.Database {
   return db!
 }
 
+/**
+ * 检查 note_embeddings 向量表是否存在
+ * 用户未配置 embedding（dimensions <= 0）时表不存在
+ */
+function embeddingsTableExists(database: Database.Database): boolean {
+  const result = database
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='note_embeddings'")
+    .get()
+  return !!result
+}
+
 // ============ 配置管理 ============
 
 /**
@@ -522,6 +533,9 @@ export function deleteChunksByIds(chunkIds: string[]): void {
 export function deleteEmbeddingsByChunkIds(chunkIds: string[]): void {
   if (chunkIds.length === 0) return
   const database = getDb()
+
+  if (!embeddingsTableExists(database)) return
+
   // vec0 虚拟表需要逐条删除
   const stmt = database.prepare('DELETE FROM note_embeddings WHERE chunk_id = ?')
   const deleteMany = database.transaction((ids: string[]) => {
@@ -659,7 +673,14 @@ export function insertEmbeddings(
     embedding: number[]
   }>
 ): void {
+  if (data.length === 0) return
   const database = getDb()
+
+  if (!embeddingsTableExists(database)) {
+    console.warn('[Embedding] Cannot insert embeddings: table not created (embedding not configured)')
+    return
+  }
+
   const deleteStmt = database.prepare('DELETE FROM note_embeddings WHERE chunk_id = ?')
   const insertStmt = database.prepare(`
     INSERT INTO note_embeddings (chunk_id, note_id, notebook_id, embedding)
@@ -693,6 +714,9 @@ export function insertEmbeddings(
  */
 export function deleteNoteEmbeddings(noteId: string): void {
   const database = getDb()
+
+  if (!embeddingsTableExists(database)) return
+
   database.prepare('DELETE FROM note_embeddings WHERE note_id = ?').run(noteId)
 }
 
@@ -707,6 +731,10 @@ export function searchEmbeddings(
   threshold: number = 2.0 // L2 距离阈值，越小越相似
 ): VectorSearchResult[] {
   const database = getDb()
+
+  if (!embeddingsTableExists(database)) {
+    return []
+  }
 
   // 使用 Float32Array 传递查询向量
   const queryVector = new Float32Array(queryEmbedding)
@@ -773,6 +801,11 @@ export function searchEmbeddingsInNotebook(
   threshold: number = 2.0
 ): VectorSearchResult[] {
   const database = getDb()
+
+  if (!embeddingsTableExists(database)) {
+    return []
+  }
+
   const queryVector = new Float32Array(queryEmbedding)
 
   // 先做向量搜索，再过滤笔记本
@@ -923,6 +956,11 @@ export function searchKeyword(
  */
 export function getEmbeddingCount(): number {
   const database = getDb()
+
+  if (!embeddingsTableExists(database)) {
+    return 0
+  }
+
   const row = database.prepare('SELECT COUNT(*) as count FROM note_embeddings').get() as {
     count: number
   }
@@ -946,9 +984,12 @@ export function getIndexStats(): {
   const chunkCount = database.prepare('SELECT COUNT(*) as count FROM note_chunks').get() as {
     count: number
   }
-  const embeddingCount = database.prepare('SELECT COUNT(*) as count FROM note_embeddings').get() as {
-    count: number
-  }
+
+  const embeddingCount = embeddingsTableExists(database)
+    ? (database.prepare('SELECT COUNT(*) as count FROM note_embeddings').get() as { count: number })
+        .count
+    : 0
+
   const indexedCount = database
     .prepare("SELECT COUNT(*) as count FROM note_index_status WHERE status = 'indexed'")
     .get() as { count: number }
@@ -961,7 +1002,7 @@ export function getIndexStats(): {
 
   return {
     totalChunks: chunkCount.count,
-    totalEmbeddings: embeddingCount.count,
+    totalEmbeddings: embeddingCount,
     indexedNotes: indexedCount.count,
     pendingNotes: pendingCount.count,
     errorNotes: errorCount.count
@@ -973,11 +1014,13 @@ export function getIndexStats(): {
  */
 export function clearAllIndexData(): void {
   const database = getDb()
-  database.exec(`
-    DELETE FROM note_chunks;
-    DELETE FROM note_embeddings;
-    DELETE FROM note_index_status;
-  `)
+
+  database.exec('DELETE FROM note_chunks;')
+  if (embeddingsTableExists(database)) {
+    database.exec('DELETE FROM note_embeddings;')
+  }
+  database.exec('DELETE FROM note_index_status;')
+
   console.log('[Embedding] All index data cleared')
 }
 

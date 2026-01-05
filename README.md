@@ -3052,3 +3052,112 @@ if (!ctx.currentNoteId || !ctx.currentNoteTitle) {
 - selectedText 截断长度改为 300 字符
 - 将 notebook 信息合并到 note info 行
 - 过滤掉 fallback position ID（如 `__pos__230`），只注入真实的 block ID
+
+---
+
+### 2026-01-05 SDK Tools 重新设计
+
+**功能概述：重新设计 SDK Tools API，使用 Markdown 作为内容格式层，提升 AI 交互效率**
+
+**设计理念：**
+- 参考 Notion MCP Tools 和 Sanqian file_ops 最佳实践
+- 存储层保持 TipTap JSON 不变，API 层使用 Markdown
+- 移除 block_id，改用标题导航 + 内容匹配定位
+
+**格式转换层（新增）：**
+- `src/main/markdown/tiptap-to-markdown.ts` - TipTap JSON → Markdown 转换
+  - 支持标题层级提取（heading 参数）
+  - 支持所有常见 Markdown 语法（粗体、斜体、链接、代码块等）
+  - 支持自定义语法（数学公式、Mermaid、Callout）
+  - 37 个测试用例
+- `src/main/markdown/markdown-to-tiptap.ts` - Markdown → TipTap JSON 转换
+  - 使用 marked 库解析
+  - 支持 GFM 扩展语法
+  - 27 个测试用例
+- `src/main/markdown/index.ts` - 统一导出接口
+
+**SDK Tools 更新：**
+- **get_note**：返回 Markdown 格式，支持 heading 参数提取特定章节
+- **create_note**：接收 Markdown 内容，自动转换存储
+- **update_note**：支持三种模式
+  - content: 全量替换
+  - append/prepend: 追加/前置内容
+  - edit: 精确编辑（old_string → new_string）
+- **move_note**：新增，移动笔记到指定文件夹
+- **search_notes**：返回 Markdown 摘要，使用 RRF 混合搜索
+
+**Context 优化：**
+- 新增 `CursorContext` 类型（nearestHeading + currentParagraph）
+- 替代原有的 currentBlockId，提供更有意义的位置上下文
+- `getCursorContext()` 函数从编辑器提取上下文
+- Context Provider 输出更丰富的位置信息
+
+**文件变更：**
+- `src/main/markdown/*.ts` - 新增格式转换模块
+- `src/main/sanqian-sdk.ts` - 重写所有 Tool 实现
+- `src/main/database.ts` - 新增 moveNote, getNoteCountByNotebook
+- `src/main/i18n.ts` - 新增相关翻译
+- `src/main/index.ts` - 更新 UserContext 类型
+- `src/renderer/src/utils/cursor.ts` - 新增 getCursorContext
+- `src/renderer/src/components/Editor.tsx` - 传递 cursorContext
+- `src/renderer/src/App.tsx` - 处理 cursorContext 同步
+- `src/renderer/src/env.d.ts` - 更新 IPC 类型定义
+- `docs/sdk-tools-redesign.md` - 详细设计文档
+
+**测试：** 131 个测试全部通过
+
+---
+
+### 2026-01-05 SDK Tools Bug 修复
+
+基于代码审查修复的问题：
+
+1. **countWords 正则表达式 bug**
+   - 问题：`$1` 引用不存在的捕获组，导致链接文字被删除
+   - 修复：添加捕获组 `/\[([^\]]*)\]\([^)]+\)/g`
+
+2. **moveNote 不检查目标笔记本**
+   - 问题：传入不存在的 notebookId 会导致笔记指向不存在的笔记本
+   - 修复：添加目标笔记本存在性检查
+
+3. **update_note edit 模式空字符串检查**
+   - 问题：`''.includes('')` 永远返回 true，导致不正确的行为
+   - 修复：添加 old_string 空字符串检查
+
+4. **append/prepend 空内容边界情况**
+   - 问题：空笔记 append 会产生开头多余换行
+   - 修复：添加 `.trim()` 和条件判断
+
+**文件变更：**
+- `src/main/markdown/index.ts` - 修复正则表达式
+- `src/main/database.ts` - 添加笔记本存在性检查
+- `src/main/sanqian-sdk.ts` - 添加空字符串检查、修复空内容边界
+- `src/main/i18n.ts` - 添加 editEmptyString 翻译
+
+---
+
+### 2026-01-05 SDK Tools Review 第二轮修复
+
+**修复的问题：**
+
+1. **move_note 错误信息细分**
+   - 问题：笔记不存在和目标笔记本不存在使用相同的错误信息
+   - 修复：先检查笔记存在，再检查笔记本存在，使用不同的错误信息
+   - 新增翻译：`notebookNotFound`
+
+2. **下划线 `++text++` 双向转换**
+   - 问题：tiptap-to-markdown 输出 `++text++`，但 markdown-to-tiptap 没有解析
+   - 修复：在预处理中添加下划线处理，在 parseInlineTokens 中解析
+   - 修复索引问题：split 后需要在 filter 之前记录原始索引
+
+**已知限制：**
+- `<details>` HTML 往返转换：折叠块转换为 HTML 后，再转回会变成普通段落
+  - 这是设计权衡，因为 marked 不原生支持 details 解析
+  - 如需完整支持，需要自定义 HTML 解析器
+
+**文件变更：**
+- `src/main/i18n.ts` - 添加 notebookNotFound 翻译
+- `src/main/sanqian-sdk.ts` - 细分 move_note 错误类型
+- `src/main/markdown/markdown-to-tiptap.ts` - 添加下划线解析，修复索引问题
+
+**测试：** 132 个测试全部通过

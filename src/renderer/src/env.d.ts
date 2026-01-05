@@ -67,6 +67,10 @@ interface Window {
         currentNoteTitle: string | null
         currentBlockId?: string | null
         selectedText?: string | null
+        cursorContext?: {
+          nearestHeading: string | null
+          currentParagraph: string | null
+        } | null
       }) => Promise<void>
       get: () => Promise<{ context: string }>
     }

@@ -7,6 +7,11 @@
  * Uses @yushaw/sanqian-chat/main which provides:
  * - SanqianAppClient: Stable facade for SDK
  * - AppToolDefinition, AppAgentConfig: Application-facing types
+ *
+ * Tool API Design:
+ * - All content uses Markdown format (not TipTap JSON)
+ * - Supports heading-based section extraction
+ * - Supports append/prepend/edit modes for updates
  */
 
 import {
@@ -23,30 +28,24 @@ import {
   updateNote,
   deleteNote,
   getNotebooks,
+  getNoteCountByNotebook,
+  moveNote as dbMoveNote,
   type NoteInput
 } from './database'
 import { hybridSearch } from './embedding/semantic-search'
 import { t } from './i18n'
+import { jsonToMarkdown, markdownToTiptapString, countWords } from './markdown'
 
 /**
  * Safely truncate text without breaking multi-byte characters (emoji, CJK, etc.)
- *
- * @param text - Text to truncate
- * @param maxLength - Maximum length
- * @returns Truncated text
  */
 function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text
 
-  // Truncate to max length first
   let truncated = text.slice(0, maxLength)
-
-  // Check if we cut in the middle of a surrogate pair (emoji, some CJK characters)
   const lastCharCode = truncated.charCodeAt(truncated.length - 1)
 
-  // High surrogate (0xD800-0xDBFF) - first part of emoji or rare CJK
   if (lastCharCode >= 0xD800 && lastCharCode <= 0xDBFF) {
-    // Remove the orphaned high surrogate
     truncated = truncated.slice(0, -1)
   }
 
@@ -54,85 +53,26 @@ function truncateText(text: string, maxLength: number): string {
 }
 
 /**
- * Extract block content by block ID from note content
- *
- * Notes use TipTap editor with block IDs stored in node attrs.
- * Content format: Tiptap JSON with { type: "paragraph", attrs: { blockId: "xxx" }, content: [...] }
- *
- * @param content - The full note content (Tiptap JSON)
- * @param blockId - The block ID to find
- * @returns Block text content or null if not found
- */
-function extractBlockById(content: string, blockId: string): string | null {
-  try {
-    const doc = JSON.parse(content)
-    if (!doc || !doc.content) return null
-
-    // Recursively search for the block with matching blockId
-    function findBlock(nodes: unknown[]): unknown | null {
-      for (const node of nodes) {
-        if (!node || typeof node !== 'object') continue
-        const n = node as { attrs?: { blockId?: string }; content?: unknown[] }
-
-        if (n.attrs?.blockId === blockId) {
-          return node
-        }
-
-        if (n.content) {
-          const found = findBlock(n.content)
-          if (found) return found
-        }
-      }
-      return null
-    }
-
-    const block = findBlock(doc.content)
-    if (!block) return null
-
-    // Extract text from the found block
-    function extractText(node: unknown): string {
-      if (!node || typeof node !== 'object') return ''
-      const n = node as { type?: string; text?: string; content?: unknown[] }
-
-      if (n.type === 'text' && n.text) return n.text
-      if (n.content) return n.content.map(extractText).join('')
-      return ''
-    }
-
-    return extractText(block).trim() || null
-  } catch {
-    // Not valid JSON, return null
-    return null
-  }
-}
-
-/**
  * Get the launch command for this app based on platform
- * Uses app.getPath('exe') to get the actual executable path
  */
 function getLaunchCommand(): string | undefined {
-  // In development mode, don't provide launch command
   if (!app.isPackaged) {
     return undefined
   }
-
-  // Get the actual executable path (works on all platforms)
   const exePath = app.getPath('exe')
   return `"${exePath}" --silent`
 }
 
 let client: SanqianAppClient | null = null
-let assistantAgentId: string | null = null // notes:assistant
-let writingAgentId: string | null = null // notes:writing
+let assistantAgentId: string | null = null
+let writingAgentId: string | null = null
 let syncingPromise: Promise<void> | null = null
 let onDataChangeCallback: (() => void) | null = null
 
-// Set callback for data changes (to notify renderer)
 export function setOnSdkDataChange(callback: () => void): void {
   onDataChangeCallback = callback
 }
 
-// Notify data change
 function notifyDataChange(): void {
   if (onDataChangeCallback) {
     onDataChangeCallback()
@@ -156,9 +96,9 @@ function buildAgentConfigs(): AppAgentConfig[] {
         'create_note',
         'update_note',
         'delete_note',
-        'get_notebooks'
+        'get_notebooks',
+        'move_note'
       ],
-      // Automatically attach editor-state context to know current note/cursor position
       attachedContexts: ['editor-state']
     },
     {
@@ -178,6 +118,7 @@ function buildTools(): AppToolDefinition[] {
   const tools = t().tools
   const common = t().common
   return [
+    // ==================== search_notes ====================
     {
       name: 'search_notes',
       description: tools.searchNotes.description,
@@ -209,11 +150,15 @@ function buildTools(): AppToolDefinition[] {
             notebookId: notebook_id
           })
 
-          // Get note details for each result, filter out deleted/soft-deleted notes
+          // Get notebooks map for names
+          const notebooks = getNotebooks()
+          const notebookMap = new Map(notebooks.map(n => [n.id, n.name]))
+
           const notesWithDetails = results
             .map(result => {
               const note = getNoteById(result.noteId)
-              if (!note || note.deleted_at) return null // Skip deleted/soft-deleted notes
+              if (!note || note.deleted_at) return null
+
               return {
                 id: result.noteId,
                 title: note.title,
@@ -222,7 +167,12 @@ function buildTools(): AppToolDefinition[] {
                   : '',
                 score: result.score,
                 updated_at: note.updated_at,
-                notebook_id: result.notebookId
+                notebook_id: result.notebookId,
+                notebook_name: notebookMap.get(result.notebookId || '') || null,
+                tags: note.tags?.map(t => t.name) || [],
+                has_summary: !!note.ai_summary,
+                is_pinned: note.is_pinned,
+                is_favorite: note.is_favorite
               }
             })
             .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -233,6 +183,8 @@ function buildTools(): AppToolDefinition[] {
         }
       }
     },
+
+    // ==================== get_note ====================
     {
       name: 'get_note',
       description: tools.getNote.description,
@@ -243,9 +195,9 @@ function buildTools(): AppToolDefinition[] {
             type: 'string',
             description: tools.getNote.idDesc
           },
-          block_id: {
+          heading: {
             type: 'string',
-            description: tools.getNote.blockIdDesc
+            description: tools.getNote.headingDesc
           }
         },
         required: ['id']
@@ -253,37 +205,47 @@ function buildTools(): AppToolDefinition[] {
       handler: async (args: Record<string, unknown>) => {
         try {
           const id = args.id as string
-          const blockId = args.block_id as string | undefined
+          const heading = args.heading as string | undefined
           const note = getNoteById(id)
+
           if (!note) {
             throw new Error(`${tools.getNote.notFound}: ${id}`)
           }
 
-          let content = note.content || ''
-
-          // If block_id is specified, extract only that block
-          if (blockId && content) {
-            const blockContent = extractBlockById(content, blockId)
-            if (blockContent === null) {
-              throw new Error(`${tools.getNote.blockNotFound}: ${blockId}`)
+          // Convert TipTap JSON to Markdown
+          let content = ''
+          if (note.content) {
+            content = jsonToMarkdown(note.content, heading ? { heading } : undefined)
+            if (heading && !content) {
+              throw new Error(`${tools.getNote.headingNotFound}: ${heading}`)
             }
-            content = blockContent
           }
+
+          // Get notebook name
+          const notebooks = getNotebooks()
+          const notebook = notebooks.find(n => n.id === note.notebook_id)
 
           return {
             id: note.id,
             title: note.title,
             content,
+            summary: note.ai_summary || undefined,
+            tags: note.tags?.map(t => t.name) || [],
+            notebook_id: note.notebook_id,
+            notebook_name: notebook?.name || null,
             created_at: note.created_at,
             updated_at: note.updated_at,
-            notebook_id: note.notebook_id,
-            ...(blockId && { block_id: blockId })
+            is_pinned: note.is_pinned,
+            is_favorite: note.is_favorite,
+            word_count: countWords(note.content || '')
           }
         } catch (error) {
           throw new Error(`${tools.getNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },
+
+    // ==================== create_note ====================
     {
       name: 'create_note',
       description: tools.createNote.description,
@@ -310,13 +272,18 @@ function buildTools(): AppToolDefinition[] {
           const title = args.title as string
           const content = args.content as string | undefined
           const notebook_id = args.notebook_id as string | undefined
+
+          // Convert Markdown to TipTap JSON
+          const tiptapContent = content ? markdownToTiptapString(content) : ''
+
           const input: NoteInput = {
             title,
-            content: content || '',
+            content: tiptapContent,
             notebook_id: notebook_id || null
           }
           const note = addNote(input)
           notifyDataChange()
+
           return {
             id: note.id,
             title: note.title,
@@ -327,6 +294,8 @@ function buildTools(): AppToolDefinition[] {
         }
       }
     },
+
+    // ==================== update_note ====================
     {
       name: 'update_note',
       description: tools.updateNote.description,
@@ -344,6 +313,24 @@ function buildTools(): AppToolDefinition[] {
           content: {
             type: 'string',
             description: tools.updateNote.contentDesc
+          },
+          append: {
+            type: 'string',
+            description: tools.updateNote.appendDesc
+          },
+          prepend: {
+            type: 'string',
+            description: tools.updateNote.prependDesc
+          },
+          edit: {
+            type: 'object',
+            description: tools.updateNote.editDesc,
+            properties: {
+              old_string: { type: 'string' },
+              new_string: { type: 'string' },
+              replace_all: { type: 'boolean' }
+            },
+            required: ['old_string', 'new_string']
           }
         },
         required: ['id']
@@ -353,25 +340,91 @@ function buildTools(): AppToolDefinition[] {
           const id = args.id as string
           const title = args.title as string | undefined
           const content = args.content as string | undefined
-          const updates: Partial<NoteInput> = {}
-          if (title !== undefined) updates.title = title
-          if (content !== undefined) updates.content = content
+          const append = args.append as string | undefined
+          const prepend = args.prepend as string | undefined
+          const edit = args.edit as { old_string: string; new_string: string; replace_all?: boolean } | undefined
 
-          const note = updateNote(id, updates)
+          const note = getNoteById(id)
           if (!note) {
             throw new Error(`${tools.updateNote.notFound}: ${id}`)
           }
+
+          const updates: Partial<NoteInput> = {}
+          if (title !== undefined) updates.title = title
+
+          // Handle different content update modes
+          let replacements: number | undefined
+
+          if (content !== undefined) {
+            // Mode 1: Full replacement
+            updates.content = markdownToTiptapString(content)
+          } else if (append !== undefined) {
+            // Mode 2: Append
+            const currentMarkdown = jsonToMarkdown(note.content || '').trim()
+            const newMarkdown = currentMarkdown ? currentMarkdown + '\n\n' + append : append
+            updates.content = markdownToTiptapString(newMarkdown)
+          } else if (prepend !== undefined) {
+            // Mode 2: Prepend
+            const currentMarkdown = jsonToMarkdown(note.content || '').trim()
+            const newMarkdown = currentMarkdown ? prepend + '\n\n' + currentMarkdown : prepend
+            updates.content = markdownToTiptapString(newMarkdown)
+          } else if (edit !== undefined) {
+            // Mode 3: Edit (old_string/new_string replacement)
+            const currentMarkdown = jsonToMarkdown(note.content || '')
+            const { old_string, new_string, replace_all } = edit
+
+            // 空字符串检查：避免 ''.includes('') 永远为 true 的问题
+            if (!old_string) {
+              throw new Error(tools.updateNote.editEmptyString)
+            }
+
+            if (!currentMarkdown.includes(old_string)) {
+              throw new Error(tools.updateNote.editNotFound)
+            }
+
+            const occurrences = currentMarkdown.split(old_string).length - 1
+
+            if (occurrences > 1 && !replace_all) {
+              throw new Error(tools.updateNote.editMultipleFound.replace('{count}', String(occurrences)))
+            }
+
+            const newMarkdown = replace_all
+              ? currentMarkdown.split(old_string).join(new_string)
+              : currentMarkdown.replace(old_string, new_string)
+
+            updates.content = markdownToTiptapString(newMarkdown)
+            replacements = replace_all ? occurrences : 1
+          }
+
+          if (Object.keys(updates).length === 0) {
+            return {
+              id: note.id,
+              title: note.title,
+              message: tools.updateNote.noChanges
+            }
+          }
+
+          const updatedNote = updateNote(id, updates)
+          if (!updatedNote) {
+            throw new Error(`${tools.updateNote.notFound}: ${id}`)
+          }
           notifyDataChange()
+
           return {
-            id: note.id,
-            title: note.title,
-            message: tools.updateNote.success
+            id: updatedNote.id,
+            title: updatedNote.title,
+            message: replacements
+              ? tools.updateNote.editSuccess.replace('{count}', String(replacements))
+              : tools.updateNote.success,
+            ...(replacements !== undefined && { replacements })
           }
         } catch (error) {
           throw new Error(`${tools.updateNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },
+
+    // ==================== delete_note ====================
     {
       name: 'delete_note',
       description: tools.deleteNote.description,
@@ -401,6 +454,8 @@ function buildTools(): AppToolDefinition[] {
         }
       }
     },
+
+    // ==================== get_notebooks ====================
     {
       name: 'get_notebooks',
       description: tools.getNotebooks.description,
@@ -411,12 +466,63 @@ function buildTools(): AppToolDefinition[] {
       handler: async () => {
         try {
           const notebooks = getNotebooks()
+          const noteCounts = getNoteCountByNotebook()
+
           return notebooks.map(notebook => ({
             id: notebook.id,
-            name: notebook.name
+            name: notebook.name,
+            note_count: noteCounts[notebook.id] || 0,
+            created_at: notebook.created_at
           }))
         } catch (error) {
           throw new Error(`${tools.getNotebooks.error}: ${error instanceof Error ? error.message : common.unknownError}`)
+        }
+      }
+    },
+
+    // ==================== move_note ====================
+    {
+      name: 'move_note',
+      description: tools.moveNote.description,
+      parameters: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            description: tools.moveNote.idDesc
+          },
+          notebook_id: {
+            type: 'string',
+            description: tools.moveNote.notebookIdDesc
+          }
+        },
+        required: ['id']
+      },
+      handler: async (args: Record<string, unknown>) => {
+        try {
+          const id = args.id as string
+          // undefined means remove from notebook (same as null)
+          const notebook_id = (args.notebook_id as string | undefined) ?? null
+
+          // 先检查笔记是否存在
+          const note = getNoteById(id)
+          if (!note) {
+            throw new Error(`${tools.moveNote.notFound}: ${id}`)
+          }
+
+          const success = dbMoveNote(id, notebook_id)
+          if (!success) {
+            // 笔记存在但移动失败，说明是目标笔记本不存在
+            throw new Error(`${tools.moveNote.notebookNotFound}: ${notebook_id}`)
+          }
+          notifyDataChange()
+
+          return {
+            id,
+            message: tools.moveNote.success
+          }
+        } catch (error) {
+          throw new Error(`${tools.moveNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     }
@@ -425,14 +531,8 @@ function buildTools(): AppToolDefinition[] {
 
 /**
  * Build context providers for Notes
- *
- * Provides editor-state context that includes:
- * - Current notebook and note info
- * - Current block (where cursor is)
- * - Selected text (if any)
  */
 function buildContextProviders(): AppContextProvider[] {
-  // Import lazily to avoid circular dependency
   const { getRawUserContext } = require('./index')
 
   return [
@@ -443,29 +543,23 @@ function buildContextProviders(): AppContextProvider[] {
       getCurrent: async () => {
         const ctx = getRawUserContext()
 
-        // Must have note info for context to be meaningful
         if (!ctx.currentNoteId || !ctx.currentNoteTitle) {
           return null
         }
 
-        // Build lightweight context - essential info only
         const parts: string[] = []
-
-        // Current note info (with notebook if applicable)
         const note = getNoteById(ctx.currentNoteId)
+
         let noteInfo = `Current note: "${ctx.currentNoteTitle}" (ID: ${ctx.currentNoteId})`
-        // Add notebook info if note belongs to one
         if (ctx.currentNotebookName) {
           noteInfo += ` in notebook "${ctx.currentNotebookName}"`
         }
         parts.push(noteInfo)
 
-        // Include AI summary if available (better than full content)
         if (note?.ai_summary) {
           parts.push(`Summary: ${note.ai_summary}`)
         }
 
-        // Selected text (most important for context-aware actions)
         if (ctx.selectedText) {
           const truncated = ctx.selectedText.length > 300
             ? ctx.selectedText.slice(0, 300) + '...'
@@ -473,16 +567,21 @@ function buildContextProviders(): AppContextProvider[] {
           parts.push(`Selected text:\n"${truncated}"`)
         }
 
-        // Cursor position for insertion context (only meaningful with note info)
-        // Skip fallback position IDs (like __pos__230) - they're not real block IDs
-        if (ctx.currentBlockId && !ctx.currentBlockId.startsWith('__pos__')) {
-          parts.push(`Cursor at block ID: ${ctx.currentBlockId}`)
+        // Cursor context (heading + paragraph) instead of block ID
+        if (ctx.cursorContext) {
+          if (ctx.cursorContext.nearestHeading) {
+            parts.push(`Cursor near heading: "${ctx.cursorContext.nearestHeading}"`)
+          }
+          if (ctx.cursorContext.currentParagraph) {
+            const truncated = ctx.cursorContext.currentParagraph.length > 100
+              ? ctx.cursorContext.currentParagraph.slice(0, 100) + '...'
+              : ctx.cursorContext.currentParagraph
+            parts.push(`Current paragraph: "${truncated}"`)
+          }
         }
 
         return {
           content: parts.join('\n')
-          // No version field - backend will auto-compute hash from content
-          // This way, injection only happens when actual content changes
         }
       }
     }
@@ -491,14 +590,12 @@ function buildContextProviders(): AppContextProvider[] {
 
 /**
  * Sync private agents with Sanqian
- * This registers our agents and gets their full IDs (app_name:agent_id)
  */
 async function syncPrivateAgents(): Promise<void> {
   if (!client) {
     throw new Error('Client not initialized')
   }
 
-  // Avoid concurrent syncing
   if (syncingPromise) {
     await syncingPromise
     return
@@ -509,13 +606,11 @@ async function syncPrivateAgents(): Promise<void> {
       const agents = buildAgentConfigs()
       console.log('[Notes SDK] Syncing agents:', agents.map(a => a.agentId))
 
-      // Sync assistant agent (with tools)
       const assistantAgent = agents[0]
       const assistantInfo = await client!.createAgent(assistantAgent)
       assistantAgentId = assistantInfo.agentId
       console.log('[Notes SDK] Assistant agent synced:', assistantAgentId)
 
-      // Sync writing agent (without tools)
       const writingAgent = agents[1]
       const writingInfo = await client!.createAgent(writingAgent)
       writingAgentId = writingInfo.agentId
@@ -526,24 +621,11 @@ async function syncPrivateAgents(): Promise<void> {
   })()
 
   await syncingPromise
-  syncingPromise = null  // Clean up after completion
+  syncingPromise = null
 }
 
 /**
  * Initialize and connect to Sanqian SDK
- *
- * On startup:
- * - Attempts to connect once to register Agents and tools
- * - Does NOT enable auto-reconnect (reconnectRefCount stays at 0)
- * - If connection fails, logs the error but doesn't block app startup
- *
- * When ChatPanel is activated:
- * - Calls acquireReconnect() to enable auto-reconnect
- * - Calls releaseReconnect() when closed to disable it
- *
- * SDK Configuration:
- * - launchCommand: Command for Sanqian to auto-start this app (production only)
- * - autoLaunchSanqian: Defaults to true in SDK - will auto-launch Sanqian when needed
  */
 export async function initializeSanqianSDK(): Promise<void> {
   if (client) {
@@ -565,25 +647,21 @@ export async function initializeSanqianSDK(): Promise<void> {
     launchCommand,
     tools: buildTools(),
     contexts: buildContextProviders()
-    // autoLaunchSanqian defaults to true in SDK - will auto-launch Sanqian when needed
   }
 
   client = new SanqianAppClient(config)
 
-  // Listen to client events
   client.on('connected', () => {
     console.log('[Notes SDK] Connected to Sanqian')
   })
 
   client.on('registered', async () => {
     console.log('[Notes SDK] Registered with Sanqian')
-    // Sync agents after registration (not on connected)
     await syncPrivateAgents()
   })
 
   client.on('disconnected', () => {
     console.log('[Notes SDK] Disconnected from Sanqian')
-    // Reset agent IDs - they will be re-synced on next connection
     assistantAgentId = null
     writingAgentId = null
   })
@@ -598,31 +676,21 @@ export async function initializeSanqianSDK(): Promise<void> {
 
   console.log('[Notes SDK] Initialized')
 
-  // Try to connect once on startup (non-blocking)
-  // This registers our tools with Sanqian if it's running
-  // No auto-reconnect is enabled (refCount=0), so if disconnected later it won't reconnect
-  // ChatPanel will call acquireReconnect() when activated to enable auto-reconnect
   try {
     await client.connect()
     console.log('[Notes SDK] Initial connection successful')
   } catch (err) {
-    // Connection failed - Sanqian might not be running, that's OK
     console.log('[Notes SDK] Initial connection failed (Sanqian may not be running):', err instanceof Error ? err.message : err)
   }
 }
 
 /**
- * Disconnect from Sanqian SDK (keeps instance for reconnection)
- * Cleans up event listeners to prevent memory leaks
+ * Disconnect from Sanqian SDK
  */
 export async function stopSanqianSDK(): Promise<void> {
   if (client) {
-    // Clean up event listeners
     client.removeAllListeners()
-
     await client.disconnect()
-    // Don't set client to null - keep instance for reconnection
-    // Reset agent IDs so they will be re-synced on next connection
     assistantAgentId = null
     writingAgentId = null
     syncingPromise = null
@@ -637,13 +705,7 @@ export function isSanqianConnected(): boolean {
 }
 
 /**
- * Request persistent connection (enables auto-reconnect)
- * Call this when a component needs the connection to stay alive (e.g., chat panel opens)
- *
- * Uses reference counting:
- * - Multiple components can call acquireReconnect()
- * - Connection stays active until all components call releaseReconnect()
- * - When refCount > 0, SDK will auto-reconnect if disconnected
+ * Request persistent connection
  */
 export function acquireReconnect(): void {
   client?.acquireReconnect()
@@ -651,26 +713,20 @@ export function acquireReconnect(): void {
 
 /**
  * Release persistent connection request
- * Call this when a component no longer needs the connection (e.g., chat panel closes)
- *
- * Uses reference counting:
- * - Decrements the reconnect reference count
- * - When refCount reaches 0, auto-reconnect is disabled
- * - Connection may be closed if no other components need it
  */
 export function releaseReconnect(): void {
   client?.releaseReconnect()
 }
 
 /**
- * Get the assistant agent ID (full format: app_name:agent_id)
+ * Get the assistant agent ID
  */
 export function getAssistantAgentId(): string | null {
   return assistantAgentId
 }
 
 /**
- * Get the writing agent ID (full format: app_name:agent_id)
+ * Get the writing agent ID
  */
 export function getWritingAgentId(): string | null {
   return writingAgentId
@@ -684,11 +740,7 @@ export function getClient(): SanqianAppClient | null {
 }
 
 /**
- * Ensure client is connected and agents are ready.
- * This handles auto-reconnection and agent sync.
- *
- * @param agentType - Which agent to ensure ('assistant' or 'writing'), defaults to 'assistant'
- * @throws Error if client not initialized, connection fails, or agent sync fails
+ * Ensure client is connected and agents are ready
  */
 export async function ensureAgentReady(
   agentType: 'assistant' | 'writing' = 'assistant'
@@ -697,19 +749,14 @@ export async function ensureAgentReady(
     throw new Error('Client not initialized')
   }
 
-  // Ensure client is connected (handles auto-launch and reconnection)
   await client.ensureReady()
 
-  // Get the appropriate agent ID
   const agentId = agentType === 'assistant' ? assistantAgentId : writingAgentId
 
-  // If agent is already registered, return immediately
   if (agentId) {
     return { client, agentId }
   }
 
-  // Agent not registered yet (happens after reconnection)
-  // Sync the agents now
   await syncPrivateAgents()
 
   const finalAgentId = agentType === 'assistant' ? assistantAgentId : writingAgentId
@@ -723,9 +770,6 @@ export async function ensureAgentReady(
 
 /**
  * Fetch embedding configuration from Sanqian
- *
- * This allows Notes to use the same embedding model configured in Sanqian.
- * Returns null if Sanqian is not running or embedding is not configured.
  */
 export async function fetchEmbeddingConfigFromSanqian(): Promise<{
   available: boolean
@@ -740,10 +784,7 @@ export async function fetchEmbeddingConfigFromSanqian(): Promise<{
   }
 
   try {
-    // Try to connect if not connected
     await client.ensureReady()
-
-    // Get embedding config from Sanqian
     const config = await client.getEmbeddingConfig()
 
     if (config?.available) {

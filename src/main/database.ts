@@ -1377,6 +1377,46 @@ export function deleteNotebook(id: string): boolean {
   return result.changes > 0
 }
 
+// ============ Notebook Helpers ============
+
+/**
+ * Get note count for each notebook
+ */
+export function getNoteCountByNotebook(): Record<string, number> {
+  const stmt = db.prepare(`
+    SELECT notebook_id, COUNT(*) as count
+    FROM notes
+    WHERE deleted_at IS NULL AND notebook_id IS NOT NULL
+    GROUP BY notebook_id
+  `)
+  const rows = stmt.all() as { notebook_id: string; count: number }[]
+  const result: Record<string, number> = {}
+  for (const row of rows) {
+    result[row.notebook_id] = row.count
+  }
+  return result
+}
+
+/**
+ * Move a note to a different notebook
+ */
+export function moveNote(noteId: string, notebookId: string | null): boolean {
+  const stmt = db.prepare('SELECT id FROM notes WHERE id = ? AND deleted_at IS NULL')
+  const note = stmt.get(noteId) as { id: string } | undefined
+  if (!note) return false
+
+  // 检查目标笔记本是否存在
+  if (notebookId !== null) {
+    const nbStmt = db.prepare('SELECT id FROM notebooks WHERE id = ?')
+    const notebook = nbStmt.get(notebookId)
+    if (!notebook) return false
+  }
+
+  const updateStmt = db.prepare('UPDATE notes SET notebook_id = ?, updated_at = ? WHERE id = ?')
+  updateStmt.run(notebookId, new Date().toISOString(), noteId)
+  return true
+}
+
 // ============ Tags ============
 
 export function getTags(): Tag[] {

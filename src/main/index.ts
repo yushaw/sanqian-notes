@@ -126,6 +126,11 @@ let updateProgress = 0
 let updateError: string | null = null
 
 // ============ User Context for Agent ============
+interface CursorContext {
+  nearestHeading: string | null
+  currentParagraph: string | null
+}
+
 interface UserContext {
   currentNotebookId: string | null
   currentNotebookName: string | null
@@ -135,6 +140,8 @@ interface UserContext {
   currentBlockId: string | null
   /** Selected text (if any) */
   selectedText: string | null
+  /** Cursor context with heading and paragraph info */
+  cursorContext: CursorContext | null
 }
 
 let userContext: UserContext = {
@@ -144,13 +151,14 @@ let userContext: UserContext = {
   currentNoteTitle: null,
   currentBlockId: null,
   selectedText: null,
+  cursorContext: null,
 }
 
 /**
  * Get user context formatted for LLM (always in English, concise but with IDs)
  */
 function getUserContext(): { context: string } {
-  const { currentNotebookId, currentNotebookName, currentNoteId, currentNoteTitle } = userContext
+  const { currentNotebookId, currentNotebookName, currentNoteId, currentNoteTitle, cursorContext } = userContext
   const parts: string[] = []
 
   if (currentNotebookId && currentNotebookName) {
@@ -161,6 +169,20 @@ function getUserContext(): { context: string } {
 
   if (currentNoteId && currentNoteTitle) {
     parts.push(`editing "${currentNoteTitle}" (ID: ${currentNoteId})`)
+  }
+
+  // Add cursor context if available
+  if (cursorContext) {
+    if (cursorContext.nearestHeading) {
+      parts.push(`under section "${cursorContext.nearestHeading}"`)
+    }
+    if (cursorContext.currentParagraph) {
+      // Truncate long paragraphs
+      const para = cursorContext.currentParagraph.length > 100
+        ? cursorContext.currentParagraph.slice(0, 100) + '...'
+        : cursorContext.currentParagraph
+      parts.push(`at paragraph: "${para}"`)
+    }
   }
 
   return { context: parts.join(', ') + '.' }

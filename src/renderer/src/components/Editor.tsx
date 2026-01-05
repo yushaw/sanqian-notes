@@ -20,7 +20,7 @@ import { useTheme } from '../theme'
 import { NoteLink } from './extensions/NoteLink'
 import { BlockId, generateBlockId } from './extensions/BlockId'
 import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
-import { getCursorInfo, type CursorInfo } from '../utils/cursor'
+import { getCursorInfo, getCursorContext, type CursorInfo, type CursorContext } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
 // 新增扩展
 import { CustomHighlight } from './extensions/Highlight'
@@ -203,8 +203,8 @@ const CustomHeading = Heading.extend({
   },
 })
 
-// 重新导出 CursorInfo 供外部使用
-export type { CursorInfo } from '../utils/cursor'
+// 重新导出 CursorInfo 和 CursorContext 供外部使用
+export type { CursorInfo, CursorContext } from '../utils/cursor'
 
 interface EditorProps {
   note: Note | null
@@ -215,7 +215,7 @@ interface EditorProps {
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
   onScrollComplete?: () => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
-  onSelectionChange?: (blockId: string | null, selectedText: string | null) => void
+  onSelectionChange?: (blockId: string | null, selectedText: string | null, cursorContext: CursorContext | null) => void
 }
 
 // 暴露给外部的 Editor 实例接口
@@ -233,7 +233,7 @@ interface ZenEditorProps {
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
   onScrollComplete?: () => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
-  onSelectionChange?: (blockId: string | null, selectedText: string | null) => void
+  onSelectionChange?: (blockId: string | null, selectedText: string | null, cursorContext: CursorContext | null) => void
 }
 
 const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
@@ -1032,7 +1032,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             selectedText !== lastSyncedSelection.current.selectedText
           ) {
             lastSyncedSelection.current = { blockId, selectedText }
-            onSelectionChange(blockId, selectedText)
+            const cursorContext = getCursorContext(editor)
+            onSelectionChange(blockId, selectedText, cursorContext)
           }
         }, 300)
       }

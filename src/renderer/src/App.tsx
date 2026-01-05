@@ -11,7 +11,7 @@ import { TypewriterMode } from './components/TypewriterMode'
 import { AIChatDialog, openChatWithContext } from './components/AIChatDialog'
 import { ThemeProvider } from './theme'
 import { I18nProvider, useTranslations } from './i18n'
-import { getCursorInfo, setCursorByBlockId, type CursorInfo } from './utils/cursor'
+import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext } from './utils/cursor'
 import type { Note, Notebook, SmartViewId } from './types/note'
 
 // localStorage keys for navigation state persistence
@@ -75,6 +75,7 @@ function AppContent() {
   // Editor selection state (for context provider sync)
   const [currentBlockId, setCurrentBlockId] = useState<string | null>(null)
   const [selectedText, setSelectedText] = useState<string | null>(null)
+  const [cursorContext, setCursorContext] = useState<CursorContext | null>(null)
 
   // Editor ref for cursor position sync
   const editorRef = useRef<EditorHandle>(null)
@@ -220,9 +221,10 @@ function AppContent() {
   )
 
   // Handler for editor selection changes (for context provider)
-  const handleSelectionChange = useCallback((blockId: string | null, text: string | null) => {
+  const handleSelectionChange = useCallback((blockId: string | null, text: string | null, ctx: CursorContext | null) => {
     setCurrentBlockId(blockId)
     setSelectedText(text)
+    setCursorContext(ctx)
   }, [])
 
   // Sync user context to main process (for agent tools)
@@ -237,8 +239,10 @@ function AppContent() {
       // Only include cursor info if we have valid note context
       currentBlockId: contextNote ? currentBlockId : null,
       selectedText: contextNote ? selectedText : null,
+      // Cursor context for SDK tools (heading + paragraph)
+      cursorContext: contextNote ? cursorContext : null,
     })
-  }, [contextNotebook, contextNote, currentBlockId, selectedText])
+  }, [contextNotebook, contextNote, currentBlockId, selectedText, cursorContext])
 
   // Listen for data changes from SDK tool calls
   useEffect(() => {

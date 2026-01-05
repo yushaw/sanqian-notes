@@ -10,6 +10,17 @@ export interface CursorInfo {
 }
 
 /**
+ * 光标上下文信息，用于 SDK context
+ * 提供更有意义的位置描述（标题 + 段落内容）
+ */
+export interface CursorContext {
+  /** 光标最近的标题（如 "## 第一章"） */
+  nearestHeading: string | null
+  /** 光标所在段落的文本内容 */
+  currentParagraph: string | null
+}
+
+/**
  * 从编辑器获取当前光标的 block ID 和偏移
  */
 export function getCursorInfo(editor: Editor | null): CursorInfo | null {
@@ -75,4 +86,60 @@ export function setCursorByBlockId(editor: Editor | null, cursorInfo: CursorInfo
   })
 
   return found
+}
+
+/**
+ * 从编辑器获取光标上下文（最近标题 + 当前段落）
+ */
+export function getCursorContext(editor: Editor | null): CursorContext | null {
+  if (!editor) return null
+
+  const { state } = editor
+  const { selection } = state
+  const pos = selection.anchor
+
+  let nearestHeading: string | null = null
+  let currentParagraph: string | null = null
+
+  // 遍历文档找到光标位置之前最近的标题，以及当前段落
+  // 使用容器对象避免 TypeScript 闭包类型推断问题
+  const found: {
+    heading: { level: number; text: string } | null
+    paragraph: string | null
+  } = { heading: null, paragraph: null }
+
+  state.doc.descendants((node, nodePos) => {
+    const nodeEnd = nodePos + node.nodeSize
+
+    // 记录所有经过的标题（在光标之前）
+    if (node.type.name === 'heading' && nodePos < pos) {
+      const level = node.attrs.level as number
+      const text = node.textContent
+      found.heading = { level, text }
+    }
+
+    // 找到光标所在的块
+    if (nodePos <= pos && pos <= nodeEnd) {
+      if (node.isBlock && node.textContent) {
+        found.paragraph = node.textContent
+      }
+    }
+
+    return true
+  })
+
+  if (found.heading) {
+    nearestHeading = '#'.repeat(found.heading.level) + ' ' + found.heading.text
+  }
+
+  if (found.paragraph) {
+    currentParagraph = found.paragraph
+  }
+
+  // 如果两者都没有，返回 null
+  if (!nearestHeading && !currentParagraph) {
+    return null
+  }
+
+  return { nearestHeading, currentParagraph }
 }

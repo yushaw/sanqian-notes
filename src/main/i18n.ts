@@ -28,15 +28,17 @@ const translations = {
       assistantDescription: '帮你管理笔记的智能助手，可以搜索、创建、编辑笔记',
       assistantSystemPrompt: `你是一个专业的笔记助手，帮助用户管理他们的笔记。你可以：
 1. 搜索笔记 - 使用 search_notes 工具（支持指定笔记本范围）
-2. 查看笔记详情 - 使用 get_note 工具
+2. 查看笔记详情 - 使用 get_note 工具（可指定章节）
 3. 创建新笔记 - 使用 create_note 工具
-4. 更新现有笔记 - 使用 update_note 工具
+4. 更新现有笔记 - 使用 update_note 工具（支持追加、插入、精确替换）
 5. 删除笔记 - 使用 delete_note 工具（需要用户确认）
 6. 查看所有笔记本 - 使用 get_notebooks 工具
+7. 移动笔记 - 使用 move_note 工具
 
 注意事项：
 - 删除笔记是危险操作，必须先询问用户确认
-- 创建或更新笔记时，content 使用 Markdown 格式
+- 所有内容使用 Markdown 格式
+- 更新笔记时，优先使用 edit 模式精确替换，而非全量替换
 - 搜索时，如果结果太多，建议用户提供更具体的关键词
 - 始终以用户的需求为中心，提供清晰、准确的帮助`,
       writingName: 'Writing Assistant',
@@ -63,11 +65,11 @@ const translations = {
         error: '搜索笔记失败',
       },
       getNote: {
-        description: '获取笔记的完整内容。用于查看笔记详情或在编辑前读取笔记。可以指定 block_id 只获取特定块的内容。',
+        description: '获取笔记内容（Markdown 格式）。可指定章节只获取部分内容。',
         idDesc: '笔记 ID',
-        blockIdDesc: '块 ID（可选），如果指定则只返回该块的内容',
+        headingDesc: '章节标题（可选），如 "## 第一章"，只返回该章节内容',
         notFound: '笔记不存在',
-        blockNotFound: '块不存在',
+        headingNotFound: '章节不存在',
         error: '获取笔记失败',
       },
       createNote: {
@@ -79,12 +81,20 @@ const translations = {
         error: '创建笔记失败',
       },
       updateNote: {
-        description: '更新现有笔记的标题或内容。',
+        description: '更新笔记。支持三种模式：1) content 全量替换；2) append/prepend 追加；3) edit 精确替换。',
         idDesc: '笔记 ID',
         titleDesc: '新标题（可选）',
-        contentDesc: '新内容，使用 Markdown 格式（可选）',
+        contentDesc: '新内容（Markdown），会替换整个笔记内容',
+        appendDesc: '追加到末尾的内容（Markdown）',
+        prependDesc: '插入到开头的内容（Markdown）',
+        editDesc: '精确替换：{old_string, new_string, replace_all?}',
         notFound: '笔记不存在',
         success: '笔记更新成功',
+        editSuccess: '替换了 {count} 处',
+        editNotFound: '未找到匹配内容',
+        editEmptyString: 'old_string 不能为空',
+        editMultipleFound: '找到 {count} 处匹配，请使用 replace_all=true 或提供更精确的内容',
+        noChanges: '没有需要更新的内容',
         error: '更新笔记失败',
       },
       deleteNote: {
@@ -99,8 +109,17 @@ const translations = {
         error: '获取标签失败',
       },
       getNotebooks: {
-        description: '获取所有笔记本列表。用于了解用户的笔记分类结构。',
+        description: '获取所有笔记本列表，包含笔记数量。',
         error: '获取笔记本失败',
+      },
+      moveNote: {
+        description: '移动笔记到其他笔记本。',
+        idDesc: '笔记 ID',
+        notebookIdDesc: '目标笔记本 ID（null 表示移出笔记本）',
+        notFound: '笔记不存在',
+        notebookNotFound: '目标笔记本不存在',
+        success: '笔记移动成功',
+        error: '移动笔记失败',
       },
     },
     // AI Actions (for database builtin actions)
@@ -148,15 +167,17 @@ const translations = {
       assistantDescription: 'An intelligent assistant to help you manage notes - search, create, and edit',
       assistantSystemPrompt: `You are a professional notes assistant helping users manage their notes. You can:
 1. Search notes - use the search_notes tool (supports filtering by notebook)
-2. View note details - use the get_note tool
+2. View note details - use the get_note tool (can specify heading)
 3. Create new notes - use the create_note tool
-4. Update existing notes - use the update_note tool
+4. Update existing notes - use the update_note tool (supports append, prepend, precise edit)
 5. Delete notes - use the delete_note tool (requires user confirmation)
 6. View all notebooks - use the get_notebooks tool
+7. Move notes - use the move_note tool
 
 Important notes:
 - Deleting notes is a dangerous operation, always ask for user confirmation first
-- When creating or updating notes, use Markdown format for content
+- All content uses Markdown format
+- When updating notes, prefer using edit mode for precise replacement instead of full replacement
 - If search results are too many, suggest the user to provide more specific keywords
 - Always focus on user needs and provide clear, accurate help`,
       writingName: 'Writing Assistant',
@@ -183,11 +204,11 @@ Your job:
         error: 'Failed to search notes',
       },
       getNote: {
-        description: 'Get the full content of a note. Used to view details or read before editing. Can specify block_id to get only a specific block content.',
+        description: 'Get note content (Markdown format). Can specify heading to get only part of the content.',
         idDesc: 'Note ID',
-        blockIdDesc: 'Block ID (optional), if specified returns only that block content',
+        headingDesc: 'Heading (optional), e.g. "## Chapter 1", returns only that section content',
         notFound: 'Note not found',
-        blockNotFound: 'Block not found',
+        headingNotFound: 'Heading not found',
         error: 'Failed to get note',
       },
       createNote: {
@@ -199,12 +220,20 @@ Your job:
         error: 'Failed to create note',
       },
       updateNote: {
-        description: 'Update an existing note title or content.',
+        description: 'Update a note. Three modes: 1) content for full replacement; 2) append/prepend for adding; 3) edit for precise replacement.',
         idDesc: 'Note ID',
         titleDesc: 'New title (optional)',
-        contentDesc: 'New content in Markdown format (optional)',
+        contentDesc: 'New content (Markdown), replaces entire note content',
+        appendDesc: 'Content to append at the end (Markdown)',
+        prependDesc: 'Content to insert at the beginning (Markdown)',
+        editDesc: 'Precise replacement: {old_string, new_string, replace_all?}',
         notFound: 'Note not found',
         success: 'Note updated successfully',
+        editSuccess: 'Replaced {count} occurrence(s)',
+        editNotFound: 'No matching content found',
+        editEmptyString: 'old_string cannot be empty',
+        editMultipleFound: 'Found {count} matches, please use replace_all=true or provide more precise content',
+        noChanges: 'No changes to update',
         error: 'Failed to update note',
       },
       deleteNote: {
@@ -219,8 +248,17 @@ Your job:
         error: 'Failed to get tags',
       },
       getNotebooks: {
-        description: 'Get all notebooks list. Use to understand user\'s note organization structure.',
+        description: 'Get all notebooks list with note counts.',
         error: 'Failed to get notebooks',
+      },
+      moveNote: {
+        description: 'Move a note to another notebook.',
+        idDesc: 'Note ID',
+        notebookIdDesc: 'Target notebook ID (null to remove from notebook)',
+        notFound: 'Note not found',
+        notebookNotFound: 'Target notebook not found',
+        success: 'Note moved successfully',
+        error: 'Failed to move note',
       },
     },
     // AI Actions (for database builtin actions)

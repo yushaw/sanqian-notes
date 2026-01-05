@@ -657,8 +657,10 @@ function createWindow(): void {
   // Add mainView to window
   mainWindow.contentView.addChildView(mainView)
 
-  // Set initial bounds
-  const { width, height } = mainWindow.getBounds()
+  // Set initial bounds using contentView size (not window bounds)
+  // On Windows with titleBarOverlay, window.getBounds() includes the title bar area
+  // but contentView.getBounds() gives the actual content area size
+  const { width, height } = mainWindow.contentView.getBounds()
   mainView.setBounds({ x: 0, y: 0, width, height })
 
   if (savedState.isMaximized && !isSilent) {
@@ -690,10 +692,25 @@ function createWindow(): void {
     mainView = null
   })
 
-  // Save window state on resize (layout is handled by ChatPanel via onLayoutChange)
+  // Save window state on resize and update mainView bounds
+  // Note: When ChatPanel is visible in embedded mode, it handles mainView bounds via onLayoutChange.
+  //       Otherwise (hidden or floating mode), we need to update mainView bounds manually here.
   mainWindow.on('resize', () => {
-    if (mainWindow && !mainWindow.isMaximized()) {
-      saveWindowState(mainWindow)
+    if (mainWindow) {
+      if (!mainWindow.isMaximized()) {
+        saveWindowState(mainWindow)
+      }
+      // Update mainView bounds when ChatPanel is not embedded-visible
+      // Use setImmediate to ensure bounds are updated after resize is complete
+      const isEmbeddedVisible = chatPanel?.isVisible() && chatPanel?.getMode() === 'embedded'
+      if (mainView && !isEmbeddedVisible) {
+        setImmediate(() => {
+          if (mainView && mainWindow) {
+            const { width, height } = mainWindow.contentView.getBounds()
+            mainView.setBounds({ x: 0, y: 0, width, height })
+          }
+        })
+      }
     }
   })
 
@@ -1474,7 +1491,7 @@ app.whenReady().then(() => {
     // Layout change callback - update mainView bounds when chat panel is shown/hidden
     onLayoutChange: ({ mainWidth }) => {
       if (mainView && mainWindow) {
-        const { height } = mainWindow.getBounds()
+        const { height } = mainWindow.contentView.getBounds()
         mainView.setBounds({ x: 0, y: 0, width: mainWidth, height })
       }
     },

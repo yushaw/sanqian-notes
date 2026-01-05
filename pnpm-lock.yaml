@@ -87,8 +87,8 @@ importers:
         specifier: ^3.13.0
         version: 3.14.0(@tiptap/core@3.14.0(@tiptap/pm@3.14.0))(@tiptap/pm@3.14.0)
       '@yushaw/sanqian-chat':
-        specifier: ^0.2.2
-        version: 0.2.2(@types/mdast@4.0.4)(electron@39.2.7)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(tailwindcss@3.4.19)
+        specifier: ^0.2.4
+        version: 0.2.4(@types/mdast@4.0.4)(electron@39.2.7)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(tailwindcss@3.4.19)
       better-sqlite3:
         specifier: ^12.5.0
         version: 12.5.0
@@ -1316,8 +1316,8 @@ packages:
     resolution: {integrity: sha512-cQzWCtO6C8TQiYl1ruKNn2U6Ao4o4WBBcbL61yJl84x+j5sOWWFU9X7DpND8XZG3daDppSsigMdfAIl2upQBRw==}
     engines: {node: '>=10.0.0'}
 
-  '@yushaw/sanqian-chat@0.2.2':
-    resolution: {integrity: sha512-u4HzGXEaLosEIOvOEeD+Bm2svBnr4i/GRVCRLXWVYCsqK6KoEPI4/CGPpsbH4svOtHdT+Fbs6kP81iAlu089oQ==}
+  '@yushaw/sanqian-chat@0.2.4':
+    resolution: {integrity: sha512-WmOD4AV0NlHPaIEPUDhtCrvrbdKSomBWFb+FJ7oebNQLJjg5VYd1pLc80zhXP4VOc7FvxuPRZNwUz5vUv23ISQ==}
     peerDependencies:
       electron: '>=28.0.0'
       react: '>=18.0.0'
@@ -1329,8 +1329,8 @@ packages:
       tailwindcss:
         optional: true
 
-  '@yushaw/sanqian-sdk@0.3.0':
-    resolution: {integrity: sha512-koZRlI9o+VRamAg5RuLAXUvx2WCIN9FkSEgpeT/17urew6E8dFVG82XQcCPIh2MPHqgIOWU2dZcHjmLiAsRifg==}
+  '@yushaw/sanqian-sdk@0.3.2':
+    resolution: {integrity: sha512-tUODglO5pLNvPh05t3NwvPlmXfobLO7ALy2TTSGhiGtjjdiPx6cQscto+s5zTbLfD+rXGAkTlczTvHiBTgPcxQ==}
     peerDependencies:
       electron: '>=20.0.0'
     peerDependenciesMeta:
@@ -5324,9 +5324,9 @@ snapshots:
 
   '@xmldom/xmldom@0.8.11': {}
 
-  '@yushaw/sanqian-chat@0.2.2(@types/mdast@4.0.4)(electron@39.2.7)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(tailwindcss@3.4.19)':
+  '@yushaw/sanqian-chat@0.2.4(@types/mdast@4.0.4)(electron@39.2.7)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(tailwindcss@3.4.19)':
     dependencies:
-      '@yushaw/sanqian-sdk': 0.3.0(electron@39.2.7)
+      '@yushaw/sanqian-sdk': 0.3.2(electron@39.2.7)
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       react-virtuoso: 4.18.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5344,7 +5344,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@yushaw/sanqian-sdk@0.3.0(electron@39.2.7)':
+  '@yushaw/sanqian-sdk@0.3.2(electron@39.2.7)':
     dependencies:
       ws: 8.18.3
     optionalDependencies:

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { TrashList } from './components/TrashList'
+import { DailyView } from './components/DailyView'
 import { Editor, type EditorHandle } from './components/Editor'
 import { EditorErrorBoundary } from './components/ErrorBoundary'
 import { Settings } from './components/Settings'
@@ -11,8 +12,9 @@ import { TypewriterMode } from './components/TypewriterMode'
 import { AIChatDialog, openChatWithContext } from './components/AIChatDialog'
 import { IMAGE_LIGHTBOX_EVENT } from './components/ResizableImageView'
 import { ThemeProvider } from './theme'
-import { I18nProvider, useTranslations } from './i18n'
+import { I18nProvider, useTranslations, useI18n } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext } from './utils/cursor'
+import { formatDailyDate } from './utils/dateFormat'
 import type { Note, Notebook, SmartViewId } from './types/note'
 
 // 全局 Lightbox 组件
@@ -152,6 +154,7 @@ const STORAGE_KEY_NOTE = 'sanqian-notes-last-note'
 
 function AppContent() {
   const t = useTranslations()
+  const { isZh } = useI18n()
   const [notebooks, setNotebooks] = useState<Notebook[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [trashNotes, setTrashNotes] = useState<Note[]>([])
@@ -421,35 +424,42 @@ function AppContent() {
   // Filter notes based on current view
   const filteredNotes = useMemo(() => {
     if (selectedNotebookId) {
-      return notes.filter(n => n.notebook_id === selectedNotebookId)
+      // Notebooks only show regular notes, not daily notes
+      return notes.filter(n => n.notebook_id === selectedNotebookId && !n.is_daily)
     }
     switch (selectedSmartView) {
       case 'all':
-        return notes
+        // All notes excludes daily notes (they have their own view)
+        return notes.filter(n => !n.is_daily)
       case 'daily':
-        return notes.filter(n => n.is_daily)
+        // Daily notes sorted by daily_date DESC (newest first)
+        return notes
+          .filter(n => n.is_daily)
+          .sort((a, b) => (b.daily_date || '').localeCompare(a.daily_date || ''))
       case 'recent':
-        // Notes updated in the last 7 days
+        // Notes updated in the last 7 days (excluding daily notes)
         const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-        return notes.filter(n => new Date(n.updated_at).getTime() > weekAgo)
+        return notes.filter(n => !n.is_daily && new Date(n.updated_at).getTime() > weekAgo)
       case 'favorites':
+        // Favorites can include daily notes (user explicitly favorited them)
         return notes.filter(n => n.is_favorite)
       default:
-        return notes
+        return notes.filter(n => !n.is_daily)
     }
   }, [notes, selectedSmartView, selectedNotebookId])
 
   // Get note counts
   const noteCounts = useMemo(() => {
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const regularNotes = notes.filter(n => !n.is_daily)
     return {
-      all: notes.length,
+      all: regularNotes.length,
       daily: notes.filter(n => n.is_daily).length,
-      recent: notes.filter(n => new Date(n.updated_at).getTime() > weekAgo).length,
+      recent: regularNotes.filter(n => new Date(n.updated_at).getTime() > weekAgo).length,
       favorites: notes.filter(n => n.is_favorite).length,
       trash: trashNotes.length,
       notebooks: notebooks.reduce((acc, nb) => {
-        acc[nb.id] = notes.filter(n => n.notebook_id === nb.id).length
+        acc[nb.id] = regularNotes.filter(n => n.notebook_id === nb.id).length
         return acc
       }, {} as Record<string, number>),
     }
@@ -551,8 +561,36 @@ function AppContent() {
     await deleteEmptyNoteIfNeeded(selectedNoteId)
     setSelectedSmartView(view)
     setSelectedNotebookId(null)
-    setSelectedNoteId(null)
-  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded])
+
+    // Auto-create today's daily note when entering daily view
+    if (view === 'daily') {
+      const today = new Date()
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      const existingDaily = notes.find(n => n.is_daily && n.daily_date === todayStr)
+      if (existingDaily) {
+        setSelectedNoteId(existingDaily.id)
+      } else {
+        // Create today's daily note
+        try {
+          const title = formatDailyDate(todayStr, isZh)
+          const newNote = await window.electron.daily.create(todayStr, title)
+          setNotes(prev => {
+            const newNotes = [newNote as Note, ...prev]
+            return newNotes.sort((a, b) => {
+              if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+              return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+            })
+          })
+          setSelectedNoteId((newNote as Note).id)
+        } catch (error) {
+          console.error('Failed to create today daily note:', error)
+          setSelectedNoteId(null)
+        }
+      }
+    } else {
+      setSelectedNoteId(null)
+    }
+  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh])
 
   // Handle creating a new note
   const handleCreateNote = useCallback(async () => {
@@ -578,6 +616,32 @@ function AppContent() {
       console.error('Failed to create note:', error)
     }
   }, [selectedNotebookId, selectedSmartView])
+
+  // Handle creating a daily note for a specific date
+  const handleCreateDaily = useCallback(async (date: string) => {
+    try {
+      // Check if daily already exists for this date
+      const existing = notes.find(n => n.is_daily && n.daily_date === date)
+      if (existing) {
+        setSelectedNoteId(existing.id)
+        return
+      }
+
+      // Generate localized title
+      const title = formatDailyDate(date, isZh)
+      const newNote = await window.electron.daily.create(date, title)
+      setNotes(prev => {
+        const newNotes = [newNote as Note, ...prev]
+        return newNotes.sort((a, b) => {
+          if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        })
+      })
+      setSelectedNoteId((newNote as Note).id)
+    } catch (error) {
+      console.error('Failed to create daily note:', error)
+    }
+  }, [notes, isZh])
 
   // Handle updating a note
   const handleUpdateNote = useCallback(async (id: string, updates: { title?: string; content?: string }) => {
@@ -1025,13 +1089,23 @@ function AppContent() {
         onCollapsedChange={setIsSidebarCollapsed}
       />
 
-      {/* Note List or Trash List */}
+      {/* Note List, Daily View, or Trash List */}
       {selectedSmartView === 'trash' ? (
         <TrashList
           notes={trashNotes}
           onRestore={handleRestoreNote}
           onPermanentDelete={handlePermanentDelete}
           onEmptyTrash={handleEmptyTrash}
+          isSidebarCollapsed={isSidebarCollapsed}
+        />
+      ) : selectedSmartView === 'daily' ? (
+        <DailyView
+          dailyNotes={filteredNotes}
+          selectedNoteId={selectedNoteId}
+          onSelectNote={handleSelectNote}
+          onCreateDaily={handleCreateDaily}
+          onToggleFavorite={handleToggleFavorite}
+          onDeleteNote={handleDeleteNote}
           isSidebarCollapsed={isSidebarCollapsed}
         />
       ) : (

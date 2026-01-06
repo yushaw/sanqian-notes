@@ -21,6 +21,9 @@ import {
   getTags,
   getTagsByNote,
   createDemoNote,
+  // Daily notes
+  getDailyByDate,
+  createDaily,
   // Trash operations
   getTrashNotes,
   restoreNote,
@@ -727,31 +730,10 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  // Handle context menu for WebContentsView (fix toggleDevTools error in dev mode)
-  if (is.dev) {
-    mainView.webContents.on('context-menu', (event, params) => {
-      event.preventDefault()
-      const menu = Menu.buildFromTemplate([
-        {
-          label: 'Inspect Element',
-          click: () => {
-            mainView?.webContents.inspectElement(params.x, params.y)
-          }
-        },
-        {
-          label: 'Toggle Developer Tools',
-          click: () => {
-            if (mainView?.webContents.isDevToolsOpened()) {
-              mainView.webContents.closeDevTools()
-            } else {
-              mainView?.webContents.openDevTools({ mode: 'detach' })
-            }
-          }
-        }
-      ])
-      menu.popup()
-    })
-  }
+  // Disable default context menu (dev tools available via Cmd+Option+I or View menu)
+  mainView.webContents.on('context-menu', (event) => {
+    event.preventDefault()
+  })
 
   // Load the app
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -1153,6 +1135,10 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('note:search', (_, query) => searchNotes(query))
   ipcMain.handle('note:createDemo', () => createDemoNote())
+
+  // IPC handlers for daily notes
+  ipcMain.handle('daily:getByDate', (_, date: string) => getDailyByDate(date))
+  ipcMain.handle('daily:create', (_, date: string, title?: string) => createDaily(date, title))
 
   // IPC handlers for trash operations
   ipcMain.handle('trash:getAll', () => getTrashNotes())

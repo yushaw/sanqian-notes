@@ -54,7 +54,8 @@ export function useI18n() {
   if (!context) {
     throw new Error('useI18n must be used within an I18nProvider')
   }
-  return context
+  const isZh = context.language === 'zh' || (context.language === 'system' && navigator.language.startsWith('zh'))
+  return { ...context, isZh }
 }
 
 export function useTranslations() {

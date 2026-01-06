@@ -3370,3 +3370,41 @@ src/main/import-export/
 **UI 变更：**
 - 聊天面板 header 现在显示模式切换按钮（embedded ↔ floating）
 - 聊天面板 header 显示吸附状态按钮（仅 floating 模式）
+
+---
+
+### 2026-01-07 日记 (Daily Note) 功能实现
+
+**核心功能：**
+- 每天最多一篇日记，日期唯一索引
+- 日记本质是普通笔记 + `is_daily=true` + `daily_date` 字段
+- 三栏布局：侧边栏 | 日记视图（月历 + 列表）| 编辑器
+
+**数据库 API (`src/main/database.ts`)：**
+- `getDailyByDate(date)` - 获取指定日期的日记
+- `createDaily(date, title?)` - 创建日记（支持可选标题）
+
+**UI 组件：**
+- `DailyCalendar.tsx` - 月历组件，显示有内容的日期（小圆点）
+- `DailyView.tsx` - 日记视图，包含月历 + 日记列表
+- 侧边栏日记图标显示当天日期数字
+
+**自动化功能：**
+- 点击侧边栏日记图标时，自动创建当天日记（如果不存在）
+- 日记标题自动生成：中文 "1月7日 周二"，英文 "Jan 7, Wed"
+
+**代码变更：**
+- `src/main/index.ts` - IPC handlers for daily notes
+- `src/preload/index.ts` - Preload API
+- `src/renderer/src/env.d.ts` - 类型定义
+- `src/renderer/src/App.tsx` - 集成日记视图和自动创建逻辑
+- `src/renderer/src/styles/index.css` - 日历和日记视图样式
+- `src/renderer/src/i18n/translations.ts` - 翻译 "日记"
+
+**日记视图优化 (代码重构)：**
+- 日期格式化函数抽取到 `src/renderer/src/utils/dateFormat.ts` 共享使用
+- 日记列表现按 `daily_date` 降序排列（最新日期在前）
+- 移除 DailyView 未使用的 `onSelectDate` prop
+- 禁用默认右键开发菜单，添加自定义右键菜单（收藏/删除）
+- "+"按钮添加 Tooltip 显示当前选中日期
+- 修复浅色模式下日历点击闪烁问题（移除 transition 动画）

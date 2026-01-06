@@ -580,7 +580,7 @@ const zh: Translations = {
   sidebar: {
     smartViews: '智能视图',
     all: '全部笔记',
-    daily: '每日笔记',
+    daily: '日记',
     recent: '最近编辑',
     favorites: '收藏',
     notebooks: '笔记本',

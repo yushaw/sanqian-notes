@@ -46,6 +46,10 @@ declare global {
         onDataChanged: (callback: () => void) => () => void
         onSummaryUpdated: (callback: (noteId: string) => void) => () => void
       }
+      daily: {
+        getByDate: (date: string) => Promise<unknown | null>
+        create: (date: string, title?: string) => Promise<unknown>
+      }
       trash: {
         getAll: () => Promise<unknown[]>
         restore: (id: string) => Promise<boolean>

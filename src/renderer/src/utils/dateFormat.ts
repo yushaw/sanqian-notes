@@ -6,6 +6,25 @@ interface DateTranslations {
 }
 
 /**
+ * Format daily note date (e.g., "1月7日 周二" or "Jan 7, Wed")
+ * @param dateStr - Date string in YYYY-MM-DD format
+ * @param isZh - Whether to use Chinese format
+ */
+export function formatDailyDate(dateStr: string, isZh: boolean): string {
+  const date = new Date(dateStr + 'T00:00:00')
+  if (isZh) {
+    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+    return `${date.getMonth() + 1}月${date.getDate()}日 ${weekdays[date.getDay()]}`
+  } else {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      weekday: 'short'
+    })
+  }
+}
+
+/**
  * Format date for display in note list
  * - Today: show time (14:30)
  * - Yesterday/Day before: localized label

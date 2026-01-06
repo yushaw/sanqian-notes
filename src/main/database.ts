@@ -1318,6 +1318,33 @@ export function searchNotes(query: string, limit = 100, offset = 0): Note[] {
   )
 }
 
+// ============ Daily Notes ============
+
+export function getDailyByDate(date: string): Note | null {
+  const stmt = db.prepare(`
+    SELECT ${NOTE_SELECT_COLUMNS}
+    FROM notes n
+    WHERE n.deleted_at IS NULL AND n.is_daily = 1 AND n.daily_date = ?
+  `)
+  const row = stmt.get(date)
+  if (!row) return null
+  return rowToNote(row as Record<string, unknown>)
+}
+
+export function createDaily(date: string, title?: string): Note {
+  // Check if already exists
+  const existing = getDailyByDate(date)
+  if (existing) return existing
+
+  return addNote({
+    title: title || '',
+    content: '[]',
+    is_daily: true,
+    daily_date: date,
+    is_favorite: false
+  })
+}
+
 // ============ Notebooks ============
 
 export function getNotebooks(): Notebook[] {

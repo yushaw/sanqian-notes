@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('electron', {
       return () => ipcRenderer.removeListener('summary:updated', handler)
     },
   },
+  daily: {
+    getByDate: (date: string) => ipcRenderer.invoke('daily:getByDate', date),
+    create: (date: string, title?: string) => ipcRenderer.invoke('daily:create', date, title),
+  },
   trash: {
     getAll: () => ipcRenderer.invoke('trash:getAll'),
     restore: (id: string) => ipcRenderer.invoke('trash:restore', id),

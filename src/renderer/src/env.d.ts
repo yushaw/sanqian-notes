@@ -54,6 +54,10 @@ interface Window {
       empty: () => Promise<number>
       cleanup: () => Promise<number>
     }
+    daily: {
+      getByDate: (date: string) => Promise<Note | null>
+      create: (date: string, title?: string) => Promise<Note>
+    }
     notebook: {
       getAll: () => Promise<Notebook[]>
       add: (notebook: NotebookInput) => Promise<Notebook>

@@ -89,7 +89,8 @@ import {
   getDimensionsForModel,
   type EmbeddingConfig,
 } from './embedding'
-import { fetchEmbeddingConfigFromSanqian } from './sanqian-sdk'
+import { fetchEmbeddingConfigFromSanqian, updateSdkContexts } from './sanqian-sdk'
+import { setAppLocale } from './i18n'
 import { testEmbeddingAPI } from './embedding/api'
 import { semanticSearch, hybridSearch } from './embedding/semantic-search'
 import {
@@ -305,7 +306,7 @@ let currentThemeSettings: {
 } = {
   colorMode: 'light',
   accentColor: '#2563EB', // default cobalt
-  locale: 'en',
+  locale: app.getLocale().toLowerCase().startsWith('zh') ? 'zh' : 'en', // use system locale as initial
   fontSize: 'normal'
 }
 
@@ -993,12 +994,28 @@ app.whenReady().then(() => {
   })
 
   // Theme sync: main window notifies theme changes, chat window retrieves settings
-  ipcMain.handle('theme:sync', (_, settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => {
+  ipcMain.handle('theme:sync', async (_, settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => {
+    const localeChanged = currentThemeSettings.locale !== settings.locale
     currentThemeSettings = settings
+
     // Notify chat window if open
     const webContents = chatPanel?.getWebContents()
     if (webContents && !webContents.isDestroyed()) {
       webContents.send('theme:updated', settings)
+    }
+
+    // Update SDK context providers when locale changes
+    // Must wait for update before notifying renderer to refresh
+    if (localeChanged) {
+      try {
+        // Update i18n module's locale state first
+        setAppLocale(settings.locale)
+        await updateSdkContexts()
+        // Now notify renderer to refresh providers (after backend is updated)
+        chatPanel?.notifyLocaleChanged(settings.locale)
+      } catch (err) {
+        console.error('[Notes] Failed to update SDK contexts on locale change:', err)
+      }
     }
     return { success: true }
   })

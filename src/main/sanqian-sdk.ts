@@ -101,7 +101,7 @@ function buildAgentConfigs(): AppAgentConfig[] {
         'get_notebooks',
         'move_note'
       ],
-      attachedContexts: ['sanqian-notes:editor-state', 'sanqian-notes:notes']
+      attachedContexts: ['sanqian-notes:editor-state', 'sanqian-notes:notes', 'sanqian-notes:notebooks']
     },
     {
       agentId: 'writing',
@@ -590,8 +590,8 @@ function buildContextProviders(): AppContextProvider[] {
     // Notes resource provider - allows users to reference notes in conversations
     {
       id: 'notes',
-      name: 'Notes',
-      description: 'Search and reference your notes',
+      name: t().contexts.notes.name,
+      description: t().contexts.notes.description,
       getList: async (options) => {
         const query = options?.query?.trim()
         const offset = options?.offset ?? 0
@@ -629,6 +629,7 @@ function buildContextProviders(): AppContextProvider[] {
         const title = note.title || 'Untitled'
         const summary = note.ai_summary || ''
         const lines = [
+          `[Note]`,
           `- Title: ${title}`,
           `- Note ID: ${note.id}`,
         ]
@@ -649,6 +650,54 @@ function buildContextProviders(): AppContextProvider[] {
             dailyDate: note.daily_date,
             createdAt: note.created_at,
             updatedAt: note.updated_at,
+          }
+        }
+      }
+    },
+    // Notebooks resource provider
+    {
+      id: 'notebooks',
+      name: t().contexts.notebooks.name,
+      description: t().contexts.notebooks.description,
+      getList: async () => {
+        const notebooks = getNotebooks()
+        const noteCounts = getNoteCountByNotebook()
+
+        const items = notebooks.map(notebook => ({
+          id: notebook.id,
+          title: notebook.name,
+          summary: `${noteCounts[notebook.id] || 0} notes`,
+        }))
+
+        return { items, hasMore: false }
+      },
+      getById: async (id: string) => {
+        const notebooks = getNotebooks()
+        const notebook = notebooks.find(n => n.id === id)
+        if (!notebook) {
+          return null
+        }
+
+        const noteCounts = getNoteCountByNotebook()
+        const noteCount = noteCounts[notebook.id] || 0
+
+        const lines = [
+          `[Notebook]`,
+          `- Title: ${notebook.name}`,
+          `- Notebook ID: ${notebook.id}`,
+          `- Note count: ${noteCount}`,
+        ]
+        const content = lines.join('\n')
+
+        return {
+          id: notebook.id,
+          content,
+          title: notebook.name,
+          summary: `${noteCount} notes`,
+          type: 'notebook',
+          metadata: {
+            noteCount,
+            createdAt: notebook.created_at,
           }
         }
       }
@@ -762,6 +811,28 @@ export async function stopSanqianSDK(): Promise<void> {
     assistantAgentId = null
     writingAgentId = null
     syncingPromise = null
+  }
+}
+
+/**
+ * Update SDK i18n (contexts and agents) when locale changes
+ */
+export async function updateSdkContexts(): Promise<void> {
+  if (!client || !client.isConnected()) {
+    return
+  }
+
+  try {
+    // Update context providers
+    const contexts = buildContextProviders()
+    await client.updateContexts(contexts)
+
+    // Update agents (name, description, systemPrompt)
+    await syncPrivateAgents()
+
+    console.log('[Notes SDK] Contexts and agents updated for new locale')
+  } catch (error) {
+    console.error('[Notes SDK] Failed to update SDK i18n:', error)
   }
 }
 

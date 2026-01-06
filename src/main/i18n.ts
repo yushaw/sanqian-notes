@@ -18,6 +18,25 @@ export function getSystemLang(): Lang {
 }
 
 /**
+ * App locale state (can be set by user, defaults to system language)
+ */
+let appLocale: Lang = getSystemLang()
+
+/**
+ * Set app locale (call when user changes language in settings)
+ */
+export function setAppLocale(locale: Lang): void {
+  appLocale = locale
+}
+
+/**
+ * Get current app locale
+ */
+export function getAppLocale(): Lang {
+  return appLocale
+}
+
+/**
  * Main process translations
  */
 const translations = {
@@ -166,6 +185,17 @@ const translations = {
         name: '解释说明',
         description: '用通俗语言解释内容',
         prompt: '用通俗语言解释，假设读者没有专业背景。先一句话概括，再用类比或例子展开。如果是代码，说明功能和关键逻辑。',
+      },
+    },
+    // Context providers
+    contexts: {
+      notes: {
+        name: '笔记',
+        description: '搜索和引用笔记',
+      },
+      notebooks: {
+        name: '笔记本',
+        description: '查看笔记本列表',
       },
     },
     // Common
@@ -320,6 +350,17 @@ Your job:
         prompt: 'Explain in plain language, assuming the reader has no professional background. Start with a one-sentence summary, then elaborate with analogies or examples. For code, explain the functionality and key logic.',
       },
     },
+    // Context providers
+    contexts: {
+      notes: {
+        name: 'Notes',
+        description: 'Search and reference notes',
+      },
+      notebooks: {
+        name: 'Notebooks',
+        description: 'View notebook list',
+      },
+    },
     // Common
     common: {
       unknownError: 'Unknown error',
@@ -330,10 +371,10 @@ Your job:
 export type MainTranslations = typeof translations.zh
 
 /**
- * Get translations for current system language
+ * Get translations for current app locale
  */
 export function t(): MainTranslations {
-  return translations[getSystemLang()]
+  return translations[appLocale]
 }
 
 /**

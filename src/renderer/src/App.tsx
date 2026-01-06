@@ -177,12 +177,22 @@ function AppContent() {
     } catch { /* ignore */ }
     return null
   })
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(() => {
+  const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY_NOTE)
+      const saved = localStorage.getItem(STORAGE_KEY_NOTE)
+      return saved ? [saved] : []
     } catch { /* ignore */ }
-    return null
+    return []
   })
+  // Anchor note for Shift+Click range selection (set on normal click, preserved on Cmd+Click)
+  const [anchorNoteId, setAnchorNoteId] = useState<string | null>(null)
+
+  // Helper to select a single note and set anchor (for consistency)
+  const selectSingleNote = useCallback((noteId: string) => {
+    setSelectedNoteIds([noteId])
+    setAnchorNoteId(noteId)
+  }, [])
+
   const [showSettings, setShowSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -303,7 +313,8 @@ function AppContent() {
           const noteExists = loadedNotes.some(n => n.id === savedNoteId)
           if (!noteExists) {
             // Note was deleted, clear selection
-            setSelectedNoteId(null)
+            setSelectedNoteIds([])
+            setAnchorNoteId(null)
             localStorage.removeItem(STORAGE_KEY_NOTE)
           }
         }
@@ -336,19 +347,23 @@ function AppContent() {
 
   useEffect(() => {
     try {
-      if (selectedNoteId) {
-        localStorage.setItem(STORAGE_KEY_NOTE, selectedNoteId)
+      // Persist only the last selected note (single note for restore)
+      const lastNoteId = selectedNoteIds[selectedNoteIds.length - 1]
+      if (lastNoteId) {
+        localStorage.setItem(STORAGE_KEY_NOTE, lastNoteId)
       } else {
         localStorage.removeItem(STORAGE_KEY_NOTE)
       }
     } catch { /* ignore storage errors */ }
-  }, [selectedNoteId])
+  }, [selectedNoteIds])
 
   // Derive current notebook/note for context sync
   const contextNotebook = useMemo(
     () => (selectedNotebookId ? notebooks.find(nb => nb.id === selectedNotebookId) : null),
     [selectedNotebookId, notebooks]
   )
+  // Last selected note ID for editor display
+  const selectedNoteId = selectedNoteIds[selectedNoteIds.length - 1] || null
   const contextNote = useMemo(
     () => (selectedNoteId ? notes.find(n => n.id === selectedNoteId) : null),
     [selectedNoteId, notes]
@@ -510,19 +525,61 @@ function AppContent() {
   }, [notes, isNoteEmpty])
 
   // Handle selecting a note (with empty note cleanup and index check)
-  const handleSelectNote = useCallback(async (noteId: string) => {
-    // Don't do anything if selecting the same note
-    if (noteId === selectedNoteId) return
+  // Supports multi-select with Cmd/Ctrl+Click (toggle) and Shift+Click (range)
+  const handleSelectNote = useCallback(async (noteId: string, event?: React.MouseEvent) => {
+    const isMultiSelectKey = event && (event.metaKey || event.ctrlKey)
+    const isRangeSelectKey = event && event.shiftKey
 
-    // Trigger incremental index check for the note being left
-    // (AI summary is triggered by indexing service when change ratio > 30%)
-    triggerIndexCheck(selectedNoteId)
+    // Single click without modifiers: clear selection and select only this note
+    if (!isMultiSelectKey && !isRangeSelectKey) {
+      // Don't do anything if selecting the same single note
+      if (selectedNoteIds.length === 1 && selectedNoteIds[0] === noteId) return
 
-    // Delete empty note if switching away from it
-    await deleteEmptyNoteIfNeeded(selectedNoteId)
+      // Trigger incremental index check for the note being left
+      triggerIndexCheck(selectedNoteId)
 
-    setSelectedNoteId(noteId)
-  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded])
+      // Delete empty note if switching away from it
+      await deleteEmptyNoteIfNeeded(selectedNoteId)
+
+      setSelectedNoteIds([noteId])
+      setAnchorNoteId(noteId)  // Set anchor on normal click
+      return
+    }
+
+    // Cmd/Ctrl+Click: toggle selection (anchor stays unchanged)
+    if (isMultiSelectKey) {
+      setSelectedNoteIds(prev => {
+        if (prev.includes(noteId)) {
+          // Remove from selection (but keep at least one selected)
+          const newIds = prev.filter(id => id !== noteId)
+          return newIds.length > 0 ? newIds : prev
+        } else {
+          // Add to selection
+          return [...prev, noteId]
+        }
+      })
+      // Set anchor if this is first selection (no anchor yet)
+      if (!anchorNoteId) {
+        setAnchorNoteId(noteId)
+      }
+      return
+    }
+
+    // Shift+Click: range selection using anchor
+    if (isRangeSelectKey) {
+      const anchor = anchorNoteId || selectedNoteId
+      if (anchor) {
+        const currentIndex = filteredNotes.findIndex(n => n.id === noteId)
+        const anchorIndex = filteredNotes.findIndex(n => n.id === anchor)
+        if (currentIndex >= 0 && anchorIndex >= 0) {
+          const start = Math.min(currentIndex, anchorIndex)
+          const end = Math.max(currentIndex, anchorIndex)
+          const rangeIds = filteredNotes.slice(start, end + 1).map(n => n.id)
+          setSelectedNoteIds(rangeIds)
+        }
+      }
+    }
+  }, [selectedNoteIds, selectedNoteId, anchorNoteId, filteredNotes, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
   // Get list title based on current view
   const listTitle = useMemo(() => {
@@ -551,7 +608,8 @@ function AppContent() {
     await deleteEmptyNoteIfNeeded(selectedNoteId)
     setSelectedNotebookId(id)
     setSelectedSmartView(null)
-    setSelectedNoteId(null)
+    setSelectedNoteIds([])
+    setAnchorNoteId(null)
   }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
   // Handle selecting a smart view
@@ -568,7 +626,7 @@ function AppContent() {
       const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
       const existingDaily = notes.find(n => n.is_daily && n.daily_date === todayStr)
       if (existingDaily) {
-        setSelectedNoteId(existingDaily.id)
+        selectSingleNote(existingDaily.id)
       } else {
         // Create today's daily note
         try {
@@ -581,16 +639,18 @@ function AppContent() {
               return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
             })
           })
-          setSelectedNoteId((newNote as Note).id)
+          selectSingleNote((newNote as Note).id)
         } catch (error) {
           console.error('Failed to create today daily note:', error)
-          setSelectedNoteId(null)
+          setSelectedNoteIds([])
+          setAnchorNoteId(null)
         }
       }
     } else {
-      setSelectedNoteId(null)
+      setSelectedNoteIds([])
+      setAnchorNoteId(null)
     }
-  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh])
+  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh, selectSingleNote])
 
   // Handle creating a new note
   const handleCreateNote = useCallback(async () => {
@@ -611,11 +671,11 @@ function AppContent() {
           return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
         })
       })
-      setSelectedNoteId((newNote as Note).id)
+      selectSingleNote((newNote as Note).id)
     } catch (error) {
       console.error('Failed to create note:', error)
     }
-  }, [selectedNotebookId, selectedSmartView])
+  }, [selectedNotebookId, selectedSmartView, selectSingleNote])
 
   // Handle creating a daily note for a specific date
   const handleCreateDaily = useCallback(async (date: string) => {
@@ -623,7 +683,7 @@ function AppContent() {
       // Check if daily already exists for this date
       const existing = notes.find(n => n.is_daily && n.daily_date === date)
       if (existing) {
-        setSelectedNoteId(existing.id)
+        selectSingleNote(existing.id)
         return
       }
 
@@ -637,11 +697,11 @@ function AppContent() {
           return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
         })
       })
-      setSelectedNoteId((newNote as Note).id)
+      selectSingleNote((newNote as Note).id)
     } catch (error) {
       console.error('Failed to create daily note:', error)
     }
-  }, [notes, isZh])
+  }, [notes, isZh, selectSingleNote])
 
   // Handle updating a note
   const handleUpdateNote = useCallback(async (id: string, updates: { title?: string; content?: string }) => {
@@ -660,13 +720,13 @@ function AppContent() {
 
   // Handle clicking a note link (支持标题和 block 定位)
   const handleNoteClick = useCallback((noteId: string, target?: { type: 'heading' | 'block'; value: string }) => {
-    setSelectedNoteId(noteId)
+    selectSingleNote(noteId)
     if (target) {
       setScrollTarget(target)
     } else {
       setScrollTarget(null)
     }
-  }, [])
+  }, [selectSingleNote])
 
   // 清除滚动目标的回调
   const handleScrollComplete = useCallback(() => {
@@ -731,15 +791,18 @@ function AppContent() {
     }
   }, [notes])
 
-  // Handle move note to notebook
-  const handleMoveToNotebook = useCallback(async (noteId: string, notebookId: string | null) => {
+  // Handle move note(s) to notebook - supports both single and bulk
+  const handleMoveToNotebook = useCallback(async (noteIdOrIds: string | string[], notebookId: string | null) => {
+    const ids = Array.isArray(noteIdOrIds) ? noteIdOrIds : [noteIdOrIds]
     try {
-      const updated = await window.electron.note.update(noteId, { notebook_id: notebookId })
-      if (updated) {
-        setNotes(prev => prev.map(n => n.id === noteId ? updated as Note : n))
+      for (const id of ids) {
+        await window.electron.note.update(id, { notebook_id: notebookId })
       }
+      setNotes(prev => prev.map(n =>
+        ids.includes(n.id) ? { ...n, notebook_id: notebookId } : n
+      ))
     } catch (error) {
-      console.error('Failed to move note to notebook:', error)
+      console.error('Failed to move note(s) to notebook:', error)
     }
   }, [])
 
@@ -756,13 +819,12 @@ function AppContent() {
           deleted_at: new Date().toISOString()
         }, ...prev])
       }
-      if (selectedNoteId === id) {
-        setSelectedNoteId(null)
-      }
+      // Remove from selection
+      setSelectedNoteIds(prev => prev.filter(nid => nid !== id))
     } catch (error) {
       console.error('Failed to delete note:', error)
     }
-  }, [selectedNoteId, notes])
+  }, [notes])
 
   // Handle search - merge hybrid search (indexed) and keyword search (all notes)
   const handleSearch = useCallback(async (query: string): Promise<Note[]> => {
@@ -922,16 +984,15 @@ function AppContent() {
           setSelectedNotebookId(null)
           setSelectedSmartView('all')
         }
-        // If selected note was in this notebook, deselect it
-        if (selectedNoteId && notesInNotebook.some(n => n.id === selectedNoteId)) {
-          setSelectedNoteId(null)
-        }
+        // Remove deleted notes from selection
+        const deletedIds = new Set(notesInNotebook.map(n => n.id))
+        setSelectedNoteIds(prev => prev.filter(id => !deletedIds.has(id)))
       }
       setNotebookToDelete(null)
     } catch (error) {
       console.error('Failed to delete notebook:', error)
     }
-  }, [notebookToDelete, notes, selectedNotebookId, selectedNoteId])
+  }, [notebookToDelete, notes, selectedNotebookId])
 
   // Handle deleting notebook from modal (legacy, keep for modal delete button)
   const handleDeleteNotebook = useCallback(async () => {
@@ -1032,11 +1093,13 @@ function AppContent() {
   const getCursorInfoFromEditorRef = useRef(getCursorInfoFromEditor)
   const handleCreateNoteRef = useRef(handleCreateNote)
   const selectedSmartViewRef = useRef(selectedSmartView)
+  const filteredNotesRef = useRef(filteredNotes)
   isTypewriterModeRef.current = isTypewriterMode
   handleToggleTypewriterRef.current = handleToggleTypewriter
   getCursorInfoFromEditorRef.current = getCursorInfoFromEditor
   handleCreateNoteRef.current = handleCreateNote
   selectedSmartViewRef.current = selectedSmartView
+  filteredNotesRef.current = filteredNotes
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1058,10 +1121,69 @@ function AppContent() {
           handleCreateNoteRef.current()
         }
       }
+      // Cmd/Ctrl + A: Select all notes in current list (only when not in editor)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'a') {
+        // Check if focus is in an editable element
+        const activeEl = document.activeElement
+        const isInEditor = activeEl?.closest('.bn-editor, .ProseMirror, [contenteditable="true"], input, textarea')
+        if (!isInEditor && selectedSmartViewRef.current !== 'trash') {
+          e.preventDefault()
+          const allIds = filteredNotesRef.current.map(n => n.id)
+          if (allIds.length > 0) {
+            setSelectedNoteIds(allIds)
+            setAnchorNoteId(allIds[0])  // Set anchor to first note
+          }
+        }
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
+
+  // Bulk delete notes
+  const handleBulkDelete = useCallback(async (ids: string[]) => {
+    try {
+      const now = new Date().toISOString()
+      const notesToTrash: Note[] = []
+
+      for (const id of ids) {
+        const noteToDelete = notes.find(n => n.id === id)
+        await window.electron.note.delete(id)
+        if (noteToDelete) {
+          notesToTrash.push({ ...noteToDelete, deleted_at: now })
+        }
+      }
+
+      // Batch state updates
+      setTrashNotes(prev => [...notesToTrash, ...prev])
+      setNotes(prev => prev.filter(n => !ids.includes(n.id)))
+      setSelectedNoteIds([])
+      setAnchorNoteId(null)
+    } catch (error) {
+      console.error('Failed to bulk delete notes:', error)
+    }
+  }, [notes])
+
+  // Bulk toggle favorite on notes
+  const handleBulkToggleFavorite = useCallback(async (ids: string[]) => {
+    try {
+      // Set all to favorite (if any unfavorited, set all to favorite)
+      const anyUnfavorited = ids.some(id => {
+        const note = notes.find(n => n.id === id)
+        return note && !note.is_favorite
+      })
+      const newFavoriteStatus = anyUnfavorited
+
+      for (const id of ids) {
+        await window.electron.note.update(id, { is_favorite: newFavoriteStatus })
+      }
+      setNotes(prev => prev.map(n =>
+        ids.includes(n.id) ? { ...n, is_favorite: newFavoriteStatus } : n
+      ))
+    } catch (error) {
+      console.error('Failed to bulk toggle favorite:', error)
+    }
+  }, [notes])
 
   if (isLoading) {
     return (
@@ -1111,7 +1233,7 @@ function AppContent() {
       ) : (
         <NoteList
           notes={filteredNotes}
-          selectedNoteId={selectedNoteId}
+          selectedNoteIds={selectedNoteIds}
           title={listTitle}
           onSelectNote={handleSelectNote}
           onCreateNote={handleCreateNote}
@@ -1120,6 +1242,9 @@ function AppContent() {
           onToggleFavorite={handleToggleFavorite}
           onDeleteNote={handleDeleteNote}
           onMoveToNotebook={handleMoveToNotebook}
+          onBulkDelete={handleBulkDelete}
+          onBulkMove={handleMoveToNotebook}
+          onBulkToggleFavorite={handleBulkToggleFavorite}
           notebooks={notebooks}
           isSidebarCollapsed={isSidebarCollapsed}
           showCreateButton={selectedSmartView !== 'favorites'}

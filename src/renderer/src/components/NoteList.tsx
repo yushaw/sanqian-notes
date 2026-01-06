@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Pin } from 'lucide-react'
 import type { Note, Notebook } from '../types/note'
 import { useTranslations } from '../i18n'
@@ -13,15 +13,18 @@ const isMac = isMacOS()
 
 interface NoteListProps {
   notes: Note[]
-  selectedNoteId: string | null
+  selectedNoteIds: string[]
   title: string
-  onSelectNote: (id: string) => void
+  onSelectNote: (id: string, event?: React.MouseEvent) => void
   onCreateNote: () => void
   onSearch: (query: string) => Promise<Note[]>
   onTogglePinned: (id: string) => void
   onToggleFavorite: (id: string) => void
   onDeleteNote: (id: string) => void
-  onMoveToNotebook: (noteId: string, notebookId: string | null) => void
+  onMoveToNotebook: (noteIdOrIds: string | string[], notebookId: string | null) => void
+  onBulkDelete?: (ids: string[]) => void
+  onBulkMove?: (noteIdOrIds: string | string[], notebookId: string | null) => void
+  onBulkToggleFavorite?: (ids: string[]) => void
   notebooks: Notebook[]
   isSidebarCollapsed?: boolean
   showCreateButton?: boolean
@@ -32,13 +35,14 @@ interface ContextMenuState {
   x: number
   y: number
   noteId: string | null
+  noteIds: string[]  // For bulk operations
   isPinned: boolean
   isFavorite: boolean
 }
 
 export function NoteList({
   notes,
-  selectedNoteId,
+  selectedNoteIds,
   title,
   onSelectNote,
   onCreateNote,
@@ -47,6 +51,9 @@ export function NoteList({
   onToggleFavorite,
   onDeleteNote,
   onMoveToNotebook,
+  onBulkDelete,
+  onBulkMove,
+  onBulkToggleFavorite,
   notebooks,
   isSidebarCollapsed = false,
   showCreateButton = true,
@@ -63,9 +70,13 @@ export function NoteList({
     x: 0,
     y: 0,
     noteId: null,
+    noteIds: [],
     isPinned: false,
     isFavorite: false,
   })
+
+  // Optimize selection checks with Set (O(1) instead of O(n))
+  const selectedIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds])
 
   // Hover preview state
   const [hoveredNote, setHoveredNote] = useState<Note | null>(null)
@@ -133,11 +144,26 @@ export function NoteList({
   // 右键菜单
   const handleContextMenu = (e: React.MouseEvent, note: Note) => {
     e.preventDefault()
+    // Check if right-clicked note is in current selection
+    const isInSelection = selectedIdSet.has(note.id)
+
+    // If right-clicking an unselected note, select it first (like Finder)
+    if (!isInSelection) {
+      onSelectNote(note.id)  // No event = single select
+    }
+
+    // If in selection and multiple selected, show bulk menu
+    // Otherwise show single note menu
+    const targetIds = isInSelection && selectedNoteIds.length > 1
+      ? selectedNoteIds
+      : [note.id]
+
     setContextMenu({
       visible: true,
       x: e.clientX,
       y: e.clientY,
       noteId: note.id,
+      noteIds: targetIds,
       isPinned: note.is_pinned,
       isFavorite: note.is_favorite,
     })
@@ -215,6 +241,67 @@ export function NoteList({
   const getContextMenuItems = useCallback((): ContextMenuItem[] => {
     if (!contextMenu.noteId) return []
 
+    const isBulk = contextMenu.noteIds.length > 1
+    const count = contextMenu.noteIds.length
+
+    // Bulk operations menu
+    if (isBulk) {
+      const items: ContextMenuItem[] = []
+
+      // Bulk favorite
+      if (onBulkToggleFavorite) {
+        items.push({
+          label: t.noteList.bulkFavorite?.replace('{n}', String(count)) || `收藏 ${count} 个`,
+          icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+          ),
+          onClick: () => onBulkToggleFavorite(contextMenu.noteIds)
+        })
+      }
+
+      // Bulk move (submenu)
+      if (onBulkMove) {
+        items.push({
+          label: t.noteList.bulkMove?.replace('{n}', String(count)) || `移动 ${count} 个`,
+          icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+          ),
+          subItems: [
+            {
+              label: t.noteList.allNotes,
+              onClick: () => onBulkMove(contextMenu.noteIds, null)
+            },
+            ...notebooks.map(notebook => ({
+              label: notebook.name,
+              onClick: () => onBulkMove(contextMenu.noteIds, notebook.id)
+            }))
+          ]
+        })
+      }
+
+      // Divider before delete
+      if (onBulkDelete) {
+        items.push({ label: '', onClick: () => {}, divider: true })
+        items.push({
+          label: t.noteList.bulkDelete?.replace('{n}', String(count)) || `删除 ${count} 个`,
+          icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          ),
+          danger: true,
+          onClick: () => onBulkDelete(contextMenu.noteIds)
+        })
+      }
+
+      return items
+    }
+
+    // Single note menu
     return [
       // Pin/Unpin
       {
@@ -267,7 +354,7 @@ export function NoteList({
         onClick: () => onDeleteNote(contextMenu.noteId!)
       }
     ]
-  }, [contextMenu.noteId, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onMoveToNotebook, onDeleteNote])
+  }, [contextMenu.noteId, contextMenu.noteIds, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite])
 
   // Dragging state
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
@@ -365,9 +452,9 @@ export function NoteList({
         ) : (
           <div className="py-1">
             {displayNotes.map((note, index) => {
-              const isSelected = selectedNoteId === note.id
+              const isSelected = selectedIdSet.has(note.id)
               const nextNote = displayNotes[index + 1]
-              const isNextSelected = nextNote && selectedNoteId === nextNote.id
+              const isNextSelected = nextNote && selectedIdSet.has(nextNote.id)
               // 隐藏分隔线：当前选中或下一个选中时
               const hideDivider = isSelected || isNextSelected
 
@@ -375,14 +462,18 @@ export function NoteList({
                 <button
                   key={note.id}
                   draggable
-                  onClick={() => onSelectNote(note.id)}
+                  onClick={(e) => onSelectNote(note.id, e)}
                   onContextMenu={(e) => handleContextMenu(e, note)}
                   onMouseEnter={(e) => handleNoteMouseEnter(note, e.currentTarget)}
                   onMouseLeave={handleNoteMouseLeave}
                   onDragStart={(e) => {
+                    // If dragging a selected note, drag all selected; otherwise drag only this one
+                    const idsToMove = selectedIdSet.has(note.id)
+                      ? selectedNoteIds
+                      : [note.id]
                     setDraggingNoteId(note.id)
                     e.dataTransfer.effectAllowed = 'move'
-                    e.dataTransfer.setData('text/plain', note.id)
+                    e.dataTransfer.setData('application/json', JSON.stringify(idsToMove))
                   }}
                   onDragEnd={(e) => {
                     // Prevent snap-back animation

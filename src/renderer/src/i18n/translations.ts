@@ -47,6 +47,10 @@ export interface Translations {
     notesCount: string
     move: string
     allNotes: string
+    // Bulk operations
+    bulkFavorite: string
+    bulkMove: string
+    bulkDelete: string
   }
   editor: {
     selectNote: string
@@ -618,7 +622,10 @@ const zh: Translations = {
     noteCount: '{n} 篇笔记',
     notesCount: '{n} 篇笔记',
     move: '移动',
-    allNotes: '全部笔记'
+    allNotes: '全部笔记',
+    bulkFavorite: '收藏 {n} 篇',
+    bulkMove: '移动 {n} 篇',
+    bulkDelete: '删除 {n} 篇'
   },
   editor: {
     selectNote: '选择一篇笔记开始编辑',
@@ -1187,7 +1194,10 @@ const en: Translations = {
     noteCount: '{n} note',
     notesCount: '{n} notes',
     move: 'Move',
-    allNotes: 'All Notes'
+    allNotes: 'All Notes',
+    bulkFavorite: 'Favorite {n} notes',
+    bulkMove: 'Move {n} notes',
+    bulkDelete: 'Delete {n} notes'
   },
   editor: {
     selectNote: 'Select a note to start editing',

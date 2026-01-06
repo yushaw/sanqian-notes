@@ -3408,3 +3408,40 @@ src/main/import-export/
 - 禁用默认右键开发菜单，添加自定义右键菜单（收藏/删除）
 - "+"按钮添加 Tooltip 显示当前选中日期
 - 修复浅色模式下日历点击闪烁问题（移除 transition 动画）
+
+### 2026-01-07 (续)
+**笔记多选功能：**
+- 实现笔记列表多选功能
+  - 普通点击：清除选择，只选中当前笔记
+  - Cmd/Ctrl + 点击：切换选中状态（添加或移除）
+  - Shift + 点击：范围选择（从锚点到当前位置的所有笔记）
+- 多选时编辑器显示最后选中的笔记
+- 右键菜单支持批量操作：
+  - 批量收藏（如有未收藏的，全部设为收藏）
+  - 批量移动到笔记本
+  - 批量删除
+- 新增 i18n 翻译键：bulkFavorite, bulkMove, bulkDelete
+
+**代码变更：**
+- `src/renderer/src/App.tsx` - selectedNoteId → selectedNoteIds[]，添加批量操作 handlers
+- `src/renderer/src/components/NoteList.tsx` - 更新 props 和右键菜单
+- `src/renderer/src/i18n/translations.ts` - 批量操作翻译
+
+**多选功能优化和修复：**
+- 修复多选拖拽：拖拽已选中笔记时移动所有选中项，非选中笔记只移动单个
+- 修复 trashNotes 批量更新：改为收集后一次性 setState
+- 修复右键菜单行为：右键点击未选中笔记会先选中它（与 Finder 一致）
+- 优化 includes 性能：使用 useMemo + Set 将 O(n) 改为 O(1)
+- 新增 Cmd/Ctrl+A 全选：在笔记列表聚焦时全选当前视图的所有笔记
+- 修复 Shift+Click 锚点：添加独立 anchorNoteId 状态，Cmd+Click 不改变锚点
+
+**二次 Review 修复：**
+- 修复 anchorNoteId 在视图切换/批量删除时未重置问题
+- 删除冗余的 handleBulkMove，统一使用 handleMoveToNotebook
+- 修复 NoteList 类型定义（onMoveToNotebook 支持 string | string[]）
+- 统一翻译占位符为 {n}，优化英文翻译（加 "notes" 后缀）
+
+**三次 Review 修复：**
+- 封装 selectSingleNote helper 函数统一处理单选 + anchor 设置
+- 替换 6 处直接调用 setSelectedNoteIds([noteId]) 为 selectSingleNote
+- Cmd+A 全选后设置 anchor 为第一个笔记

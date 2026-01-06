@@ -102,7 +102,7 @@ interface SidebarProps {
   onEditNotebook: (notebook: Notebook) => void
   onDeleteNotebook: (notebook: Notebook) => void
   onOpenSettings: () => void
-  onMoveNoteToNotebook: (noteId: string, notebookId: string | null) => void
+  onMoveNoteToNotebook: (noteIds: string[], notebookId: string | null) => void
   noteCounts: {
     all: number
     daily: number
@@ -423,9 +423,21 @@ export function Sidebar({
                 }}
                 onDrop={(e) => {
                   e.preventDefault()
-                  const noteId = e.dataTransfer.getData('text/plain')
-                  if (noteId) {
-                    onMoveNoteToNotebook(noteId, notebook.id)
+                  // Support both JSON array and plain text (backwards compatible)
+                  const jsonData = e.dataTransfer.getData('application/json')
+                  const plainData = e.dataTransfer.getData('text/plain')
+                  let noteIds: string[] = []
+                  if (jsonData) {
+                    try {
+                      noteIds = JSON.parse(jsonData)
+                    } catch {
+                      noteIds = plainData ? [plainData] : []
+                    }
+                  } else if (plainData) {
+                    noteIds = [plainData]
+                  }
+                  if (noteIds.length > 0) {
+                    onMoveNoteToNotebook(noteIds, notebook.id)
                   }
                   setDragOverNotebookId(null)
                 }}

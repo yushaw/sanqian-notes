@@ -1143,15 +1143,15 @@ function rowToNote(row: Record<string, unknown>): Note {
   }
 }
 
-export function getNotes(limit = 1000): Note[] {
+export function getNotes(limit = 1000, offset = 0): Note[] {
   const stmt = db.prepare(`
     SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
     WHERE n.deleted_at IS NULL
     ORDER BY n.is_pinned DESC, n.updated_at DESC
-    LIMIT ?
+    LIMIT ? OFFSET ?
   `)
-  return stmt.all(limit).map(row => rowToNote(row as Record<string, unknown>))
+  return stmt.all(limit, offset).map(row => rowToNote(row as Record<string, unknown>))
 }
 
 export function getNoteById(id: string): Note | null {
@@ -1290,7 +1290,7 @@ export function cleanupOldTrash(): number {
   return result.changes
 }
 
-export function searchNotes(query: string, limit = 100): Note[] {
+export function searchNotes(query: string, limit = 100, offset = 0): Note[] {
   if (!query.trim()) return []
 
   // Use LIKE search for better CJK support
@@ -1310,10 +1310,10 @@ export function searchNotes(query: string, limit = 100): Note[] {
       OR n.ai_summary LIKE ? ESCAPE '\\'
     )
     ORDER BY n.is_pinned DESC, n.updated_at DESC
-    LIMIT ?
+    LIMIT ? OFFSET ?
   `)
 
-  return stmt.all(likeQuery, likeQuery, likeQuery, actualLimit).map(row =>
+  return stmt.all(likeQuery, likeQuery, likeQuery, actualLimit, offset).map(row =>
     rowToNote(row as Record<string, unknown>)
   )
 }

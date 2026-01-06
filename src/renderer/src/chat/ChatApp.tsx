@@ -9,17 +9,10 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { CompactChat, createIpcAdapter, type ChatAdapter, type ChatUiConfig } from '@yushaw/sanqian-chat/renderer'
 import '@yushaw/sanqian-chat/renderer/styles/variables.css'
 import notesLogo from '../assets/notes-logo.png'
+import type { ThemeSettings, ThemeAPI } from '../../../shared/types'
 
-// Font size options matching sanqian-chat ChatUiConfig
-type FontSize = 'small' | 'normal' | 'large' | 'extra-large'
-
-// Theme settings synced from main window
-interface ThemeSettings {
-  colorMode: 'light' | 'dark'
-  accentColor: string
-  locale: 'en' | 'zh'
-  fontSize?: FontSize
-}
+// Cast window.sanqianChat to ThemeAPI (only theme methods are needed here)
+const getThemeApi = () => window.sanqianChat as unknown as ThemeAPI | undefined
 
 function useThemeSettings() {
   const [settings, setSettings] = useState<ThemeSettings>({
@@ -30,15 +23,17 @@ function useThemeSettings() {
   })
 
   useEffect(() => {
+    const api = getThemeApi()
+
     // Get initial settings from main process
-    window.sanqianChat?.getThemeSettings?.().then((s) => {
+    api?.getThemeSettings?.().then((s: ThemeSettings) => {
       if (s) setSettings(s)
-    }).catch((err) => {
+    }).catch((err: Error) => {
       console.error('[ChatApp] Failed to get theme settings:', err)
     })
 
     // Listen for updates
-    const cleanup = window.sanqianChat?.onThemeUpdated?.((s) => {
+    const cleanup = api?.onThemeUpdated?.((s: ThemeSettings) => {
       setSettings(s)
     })
 

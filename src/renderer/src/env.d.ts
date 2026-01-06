@@ -20,6 +20,7 @@ interface ChatAPI {
 type AIAction = import('../../shared/types').AIAction
 type AIActionInput = import('../../shared/types').AIActionInput
 type AIActionAPI = import('../../shared/types').AIActionAPI
+type ThemeSettings = import('../../shared/types').ThemeSettings
 
 interface Window {
   electron: {
@@ -91,7 +92,7 @@ interface Window {
     theme: {
       get: () => Promise<'light' | 'dark'>
       onChange?: (callback: (theme: 'light' | 'dark') => void) => () => void
-      sync?: (settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => Promise<{ success: boolean }>
+      sync?: (settings: ThemeSettings) => Promise<{ success: boolean }>
     }
     window: {
       setTitleBarOverlay?: (options: { color: string; symbolColor: string }) => void

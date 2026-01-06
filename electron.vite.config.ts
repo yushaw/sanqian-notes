@@ -7,7 +7,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({
+      // Don't externalize sanqian-chat - it needs to be bundled into preload
+      exclude: ['@yushaw/sanqian-chat']
+    })],
     build: {
       rollupOptions: {
         input: {

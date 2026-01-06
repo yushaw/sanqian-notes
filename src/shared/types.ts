@@ -298,3 +298,22 @@ export interface ChatAPI {
   /** 监听流式事件 */
   onStreamEvent: (callback: (streamId: string, event: ChatStreamEvent) => void) => void
 }
+
+// ============ Theme Types ============
+
+/** 字体大小选项 */
+export type FontSize = 'small' | 'normal' | 'large' | 'extra-large'
+
+/** 主题设置（用于 main window 和 chat window 同步） */
+export interface ThemeSettings {
+  colorMode: 'light' | 'dark'
+  accentColor: string
+  locale: 'en' | 'zh'
+  fontSize?: FontSize
+}
+
+/** Theme API 扩展（sanqian-notes 特有，用于 chat window） */
+export interface ThemeAPI {
+  getThemeSettings(): Promise<ThemeSettings>
+  onThemeUpdated(callback: (settings: ThemeSettings) => void): () => void
+}

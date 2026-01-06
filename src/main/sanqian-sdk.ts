@@ -24,6 +24,8 @@ import {
 import { app } from 'electron'
 import {
   getNoteById,
+  getNotes,
+  searchNotes,
   addNote,
   updateNote,
   deleteNote,
@@ -99,7 +101,7 @@ function buildAgentConfigs(): AppAgentConfig[] {
         'get_notebooks',
         'move_note'
       ],
-      attachedContexts: ['editor-state']
+      attachedContexts: ['sanqian-notes:editor-state', 'sanqian-notes:notes']
     },
     {
       agentId: 'writing',
@@ -582,6 +584,72 @@ function buildContextProviders(): AppContextProvider[] {
 
         return {
           content: parts.join('\n')
+        }
+      }
+    },
+    // Notes resource provider - allows users to reference notes in conversations
+    {
+      id: 'notes',
+      name: 'Notes',
+      description: 'Search and reference your notes',
+      getList: async (options) => {
+        const query = options?.query?.trim()
+        const offset = options?.offset ?? 0
+        const limit = options?.limit ?? 20
+
+        // Get notes with database-level pagination
+        // Fetch limit + 1 to check if there are more results
+        const notes = query
+          ? searchNotes(query, limit + 1, offset)
+          : getNotes(limit + 1, offset)
+
+        // Check hasMore and trim to limit
+        const hasMore = notes.length > limit
+        const paginatedNotes = hasMore ? notes.slice(0, limit) : notes
+
+        // Convert to list items
+        const items = paginatedNotes.map(note => ({
+          id: note.id,
+          title: note.title || 'Untitled',
+          summary: note.ai_summary || undefined,
+          type: 'note' as const,
+          updatedAt: note.updated_at,
+          icon: note.is_daily ? '📅' : '📝',
+        }))
+
+        return { items, hasMore }
+      },
+      getById: async (id: string) => {
+        const note = getNoteById(id)
+        if (!note || note.deleted_at) {
+          return null
+        }
+
+        // Build reference content with metadata only (not full content)
+        const title = note.title || 'Untitled'
+        const summary = note.ai_summary || ''
+        const lines = [
+          `- Title: ${title}`,
+          `- Note ID: ${note.id}`,
+        ]
+        if (summary) {
+          lines.push(`- Summary: ${summary}`)
+        }
+        const content = lines.join('\n')
+
+        return {
+          id: note.id,
+          content,
+          title,
+          summary: note.ai_summary || undefined,
+          type: 'note' as const,
+          metadata: {
+            notebookId: note.notebook_id,
+            isDaily: note.is_daily,
+            dailyDate: note.daily_date,
+            createdAt: note.created_at,
+            updatedAt: note.updated_at,
+          }
         }
       }
     }

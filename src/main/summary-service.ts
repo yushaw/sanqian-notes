@@ -316,6 +316,12 @@ export async function generateSummary(noteId: string): Promise<boolean> {
     return false
   }
 
+  // Skip daily notes - they are personal journal entries, not knowledge content
+  if (note.is_daily) {
+    console.log(`[Summary] Skipping daily note ${noteId}`)
+    return false
+  }
+
   const summaryInfo = getNoteSummaryInfo(noteId)
   const checkResult = shouldGenerateSummary(note.content, summaryInfo)
 

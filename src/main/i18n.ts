@@ -183,6 +183,15 @@ const translations = {
         success: '笔记移动成功',
         error: '移动笔记失败',
       },
+      webSearch: {
+        description: '搜索网络获取最新信息。当用户询问需要实时数据或你的知识库中没有的信息时使用。',
+        queryDesc: '搜索关键词',
+      },
+      fetchWeb: {
+        description: '获取指定网页的内容。用于读取用户提供的链接或需要详细了解某个网页时使用。',
+        urlDesc: '要获取的网页 URL',
+        promptDesc: '可选的提示，指定需要从网页中提取什么信息',
+      },
     },
     // AI Actions (for database builtin actions)
     aiActions: {
@@ -370,6 +379,15 @@ Your job:
         notebookNotFound: 'Target notebook not found',
         success: 'Note moved successfully',
         error: 'Failed to move note',
+      },
+      webSearch: {
+        description: 'Search the web for up-to-date information. Use when user asks about real-time data or information not in your knowledge base.',
+        queryDesc: 'Search query keywords',
+      },
+      fetchWeb: {
+        description: 'Fetch content from a specified webpage. Use to read links provided by user or when you need detailed information from a webpage.',
+        urlDesc: 'URL of the webpage to fetch',
+        promptDesc: 'Optional prompt specifying what information to extract from the page',
       },
     },
     // AI Actions (for database builtin actions)

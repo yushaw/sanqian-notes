@@ -100,7 +100,9 @@ function buildAgentConfigs(): AppAgentConfig[] {
         'update_note',
         'delete_note',
         'get_notebooks',
-        'move_note'
+        'move_note',
+        'web_search',
+        'fetch_web'
       ],
       attachedContexts: ['sanqian-notes:editor-state', 'sanqian-notes:notes', 'sanqian-notes:notebooks']
     },
@@ -568,6 +570,53 @@ function buildTools(): AppToolDefinition[] {
         } catch (error) {
           throw new Error(`${tools.moveNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
+      }
+    },
+
+    // ==================== web_search ====================
+    {
+      name: 'web_search',
+      description: tools.webSearch.description,
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: tools.webSearch.queryDesc
+          }
+        },
+        required: ['query']
+      },
+      handler: async (args: Record<string, unknown>) => {
+        const query = args.query as string
+        // 实际搜索由 SDK 内置实现，这里只是声明工具
+        return { query, message: 'Web search executed by SDK' }
+      }
+    },
+
+    // ==================== fetch_web ====================
+    {
+      name: 'fetch_web',
+      description: tools.fetchWeb.description,
+      parameters: {
+        type: 'object',
+        properties: {
+          url: {
+            type: 'string',
+            description: tools.fetchWeb.urlDesc
+          },
+          prompt: {
+            type: 'string',
+            description: tools.fetchWeb.promptDesc
+          }
+        },
+        required: ['url']
+      },
+      handler: async (args: Record<string, unknown>) => {
+        const url = args.url as string
+        const prompt = args.prompt as string | undefined
+        // 实际抓取由 SDK 内置实现，这里只是声明工具
+        return { url, prompt, message: 'Web fetch executed by SDK' }
       }
     }
   ]

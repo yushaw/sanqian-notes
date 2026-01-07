@@ -83,16 +83,21 @@
 
 .zen-scroll-wrapper::-webkit-scrollbar-thumb {
   background: transparent;
-  border-radius: 4px;
-  transition: background 0.2s ease;
+  border-radius: 2px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 .zen-editor-container:hover .zen-scroll-wrapper::-webkit-scrollbar-thumb {
   background: var(--color-scrollbar);
+  background-clip: content-box;
 }
 
 .zen-editor-container:hover .zen-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   background: var(--color-scrollbar-hover);
+  border: 0px solid transparent;
+  border-radius: 4px;
+  background-clip: padding-box;
 }
 
 /* ============================================

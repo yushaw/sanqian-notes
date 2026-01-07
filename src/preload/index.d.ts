@@ -260,6 +260,14 @@ declare global {
         getPath: () => Promise<string>
         openPath: () => Promise<string>
       }
+      agentTask: {
+        get: (id: string) => Promise<unknown | null>
+        getByBlockId: (blockId: string) => Promise<unknown | null>
+        create: (input: unknown) => Promise<unknown>
+        update: (id: string, updates: unknown) => Promise<unknown | null>
+        delete: (id: string) => Promise<boolean>
+        deleteByBlockId: (blockId: string) => Promise<boolean>
+      }
     }
     api: unknown
   }

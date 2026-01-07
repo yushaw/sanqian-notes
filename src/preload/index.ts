@@ -154,6 +154,44 @@ contextBridge.exposeInMainWorld('electron', {
     delete: (id: string) => ipcRenderer.invoke('popup:delete', id),
     cleanup: (maxAgeDays?: number) => ipcRenderer.invoke('popup:cleanup', maxAgeDays),
   },
+  agentTask: {
+    get: (id: string) => ipcRenderer.invoke('agentTask:get', id),
+    getByBlockId: (blockId: string) => ipcRenderer.invoke('agentTask:getByBlockId', blockId),
+    create: (input: {
+      blockId: string
+      pageId: string
+      notebookId?: string | null
+      content: string
+      additionalPrompt?: string
+      agentMode?: 'auto' | 'specified'
+      agentId?: string
+      agentName?: string
+    }) => ipcRenderer.invoke('agentTask:create', input),
+    update: (id: string, updates: Record<string, unknown>) => ipcRenderer.invoke('agentTask:update', id, updates),
+    delete: (id: string) => ipcRenderer.invoke('agentTask:delete', id),
+    deleteByBlockId: (blockId: string) => ipcRenderer.invoke('agentTask:deleteByBlockId', blockId),
+  },
+  // Agent execution API
+  agent: {
+    list: () => ipcRenderer.invoke('agent:list'),
+    run: (taskId: string, agentId: string, agentName: string, content: string, additionalPrompt?: string) =>
+      ipcRenderer.invoke('agent:run', taskId, agentId, agentName, content, additionalPrompt),
+    cancel: (taskId: string) => ipcRenderer.invoke('agent:cancel', taskId),
+    onEvent: (callback: (taskId: string, event: {
+      type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error'
+      content?: string
+      toolName?: string
+      toolArgs?: Record<string, unknown>
+      result?: unknown
+      error?: string
+    }) => void) => {
+      const handler = (_: unknown, taskId: string, event: unknown) => callback(taskId, event as Parameters<typeof callback>[1])
+      ipcRenderer.on('agent:event', handler)
+      return () => {
+        ipcRenderer.removeListener('agent:event', handler)
+      }
+    },
+  },
   chatWindow: {
     show: () => ipcRenderer.invoke('chatWindow:show'),
     showWithContext: (context: string) => ipcRenderer.invoke('chatWindow:showWithContext', context),

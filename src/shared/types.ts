@@ -317,3 +317,67 @@ export interface ThemeAPI {
   getThemeSettings(): Promise<ThemeSettings>
   onThemeUpdated(callback: (settings: ThemeSettings) => void): () => void
 }
+
+// ============ Agent Task Types ============
+
+/** Agent Task 状态 */
+export type AgentTaskStatus = 'idle' | 'running' | 'completed' | 'failed'
+
+/** Agent 模式 */
+export type AgentMode = 'auto' | 'specified'
+
+/** Agent Task 完整类型（数据库存储） */
+export interface AgentTaskRecord {
+  id: string
+  blockId: string
+  pageId: string
+  notebookId: string | null
+  /** Block 内容 */
+  content: string
+  /** 用户补充说明 */
+  additionalPrompt: string | null
+  /** Agent 选择模式 */
+  agentMode: AgentMode
+  /** 指定的 Agent ID */
+  agentId: string | null
+  /** Agent 名称 */
+  agentName: string | null
+  /** 执行状态 */
+  status: AgentTaskStatus
+  /** 开始执行时间 */
+  startedAt: string | null
+  /** 完成时间 */
+  completedAt: string | null
+  /** 执行耗时（毫秒） */
+  durationMs: number | null
+  /** 执行步骤 JSON */
+  steps: string | null
+  /** 执行结果 */
+  result: string | null
+  /** 错误信息 */
+  error: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Agent Task 创建输入 */
+export interface AgentTaskInput {
+  blockId: string
+  pageId: string
+  notebookId?: string | null
+  content: string
+  additionalPrompt?: string
+  agentMode?: AgentMode
+  agentId?: string
+  agentName?: string
+}
+
+/** Agent Task API 接口 */
+export interface AgentTaskAPI {
+  get: (id: string) => Promise<AgentTaskRecord | null>
+  getByBlockId: (blockId: string) => Promise<AgentTaskRecord | null>
+  create: (input: AgentTaskInput) => Promise<AgentTaskRecord>
+  update: (id: string, updates: Partial<AgentTaskRecord>) => Promise<AgentTaskRecord | null>
+  delete: (id: string) => Promise<boolean>
+  deleteByBlockId: (blockId: string) => Promise<boolean>
+}

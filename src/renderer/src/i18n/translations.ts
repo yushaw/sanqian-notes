@@ -474,6 +474,39 @@ export interface Translations {
     aiProcessing: string
     aiError: string
     aiContinueInChat: string
+    agentTask: string
+  }
+  agentTask: {
+    title: string
+    loading: string
+    inputContent: string
+    emptyContent: string
+    selectAgent: string
+    loadingAgents: string
+    noAgents: string
+    useAgent: string
+    processContent: string
+    additionalPrompt: string
+    additionalPromptPlaceholder: string
+    executing: string
+    executingMessage: string
+    steps: string
+    cancel: string
+    result: string
+    error: string
+    remove: string
+    execute: string
+    insertBelow: string
+    copy: string
+    reExecute: string
+    retry: string
+    collapse: string
+    configure: string
+    reconfigure: string
+    placeholderResult: string
+    interrupted: string
+    unknownError: string
+    thinking: string
   }
   fileError: {
     tooLarge: string
@@ -1034,7 +1067,7 @@ const zh: Translations = {
     addColumnAfter: '在右侧插入列',
     deleteColumn: '删除列',
     deleteTable: '删除表格',
-    ai: 'AI',
+    ai: 'AI Actions',
     aiImprove: '润色改写',
     aiSimplify: '简化语言',
     aiExpand: '扩写详述',
@@ -1045,7 +1078,40 @@ const zh: Translations = {
     aiCustomPlaceholder: '让 AI 帮你...',
     aiProcessing: 'AI 处理中...',
     aiError: 'AI 处理失败',
-    aiContinueInChat: '继续对话'
+    aiContinueInChat: '继续对话',
+    agentTask: 'Agent 任务'
+  },
+  agentTask: {
+    title: 'Agent 任务',
+    loading: '加载中...',
+    inputContent: '输入',
+    emptyContent: '（空）',
+    selectAgent: 'Agent',
+    loadingAgents: '加载 Agent 列表...',
+    noAgents: '暂无可用 Agent',
+    useAgent: '使用',
+    processContent: '处理',
+    additionalPrompt: '补充说明',
+    additionalPromptPlaceholder: '可选：添加额外的说明或要求...',
+    executing: '执行中...',
+    executingMessage: '正在处理...',
+    steps: '执行步骤',
+    cancel: '取消',
+    result: '结果',
+    error: '错误',
+    remove: '移除',
+    execute: '运行',
+    insertBelow: '插入',
+    copy: '复制',
+    reExecute: '重试',
+    retry: '重试',
+    collapse: '收起',
+    configure: '配置',
+    reconfigure: '重新配置',
+    placeholderResult: '这是一个示例结果。Agent 执行功能将在后续版本中实现。',
+    interrupted: '任务已中断',
+    unknownError: '未知错误',
+    thinking: '思考中'
   },
   fileError: {
     tooLarge: '文件过大',
@@ -1606,7 +1672,7 @@ const en: Translations = {
     addColumnAfter: 'Insert Column Right',
     deleteColumn: 'Delete Column',
     deleteTable: 'Delete Table',
-    ai: 'AI',
+    ai: 'AI Actions',
     aiImprove: 'Improve Writing',
     aiSimplify: 'Simplify',
     aiExpand: 'Expand',
@@ -1617,7 +1683,40 @@ const en: Translations = {
     aiCustomPlaceholder: 'Ask AI to...',
     aiProcessing: 'AI processing...',
     aiError: 'AI processing failed',
-    aiContinueInChat: 'Continue in chat'
+    aiContinueInChat: 'Continue in chat',
+    agentTask: 'Agent Task'
+  },
+  agentTask: {
+    title: 'Agent Task',
+    loading: 'Loading...',
+    inputContent: 'Input',
+    emptyContent: '(empty)',
+    selectAgent: 'Agent',
+    loadingAgents: 'Loading agents...',
+    noAgents: 'No agents available',
+    useAgent: 'Use',
+    processContent: 'to process',
+    additionalPrompt: 'Instructions',
+    additionalPromptPlaceholder: 'Optional: Add extra instructions...',
+    executing: 'Executing...',
+    executingMessage: 'Processing...',
+    steps: 'Steps',
+    cancel: 'Cancel',
+    result: 'Result',
+    error: 'Error',
+    remove: 'Remove',
+    execute: 'Run',
+    insertBelow: 'Insert',
+    copy: 'Copy',
+    reExecute: 'Retry',
+    retry: 'Retry',
+    collapse: 'Collapse',
+    configure: 'Configure',
+    reconfigure: 'Reconfigure',
+    placeholderResult: 'This is a placeholder result. Agent execution will be implemented in a future version.',
+    interrupted: 'Task was interrupted',
+    unknownError: 'Unknown error',
+    thinking: 'Thinking'
   },
   fileError: {
     tooLarge: 'File too large',

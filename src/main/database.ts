@@ -12,7 +12,9 @@ import type {
   Tag,
   TagWithSource,
   Notebook,
-  NotebookInput
+  NotebookInput,
+  AgentTaskRecord,
+  AgentTaskInput
 } from '../shared/types'
 
 // Re-export for backward compatibility
@@ -154,6 +156,28 @@ export function initDatabase(): void {
       updated_at TEXT NOT NULL
     );
 
+    -- Agent Tasks table (stores agent task execution records, separate from notes)
+    CREATE TABLE IF NOT EXISTS agent_tasks (
+      id TEXT PRIMARY KEY,
+      block_id TEXT NOT NULL,
+      page_id TEXT NOT NULL,
+      notebook_id TEXT,
+      content TEXT NOT NULL,
+      additional_prompt TEXT,
+      agent_mode TEXT NOT NULL DEFAULT 'auto',
+      agent_id TEXT,
+      agent_name TEXT,
+      status TEXT NOT NULL DEFAULT 'idle',
+      started_at TEXT,
+      completed_at TEXT,
+      duration_ms INTEGER,
+      steps TEXT,
+      result TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_notes_notebook_id ON notes(notebook_id);
     CREATE INDEX IF NOT EXISTS idx_notes_is_daily ON notes(is_daily);
@@ -169,6 +193,9 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_ai_actions_order ON ai_actions(order_index);
     CREATE INDEX IF NOT EXISTS idx_ai_actions_enabled ON ai_actions(enabled);
     CREATE INDEX IF NOT EXISTS idx_ai_popups_created_at ON ai_popups(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_tasks_block_id ON agent_tasks(block_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_tasks_page_id ON agent_tasks(page_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status);
   `)
 
   // Create demo note for new databases
@@ -2032,4 +2059,156 @@ export function cleanupPopups(maxAgeDays = 30): number {
 
   const result = db.prepare('DELETE FROM ai_popups WHERE created_at < ?').run(cutoffStr)
   return result.changes
+}
+
+// ============ Agent Task Functions ============
+
+interface AgentTaskRow {
+  id: string
+  block_id: string
+  page_id: string
+  notebook_id: string | null
+  content: string
+  additional_prompt: string | null
+  agent_mode: string
+  agent_id: string | null
+  agent_name: string | null
+  status: string
+  started_at: string | null
+  completed_at: string | null
+  duration_ms: number | null
+  steps: string | null
+  result: string | null
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
+function rowToAgentTask(row: AgentTaskRow): AgentTaskRecord {
+  return {
+    id: row.id,
+    blockId: row.block_id,
+    pageId: row.page_id,
+    notebookId: row.notebook_id,
+    content: row.content,
+    additionalPrompt: row.additional_prompt,
+    agentMode: row.agent_mode as 'auto' | 'specified',
+    agentId: row.agent_id,
+    agentName: row.agent_name,
+    status: row.status as 'idle' | 'running' | 'completed' | 'failed',
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: row.duration_ms,
+    steps: row.steps,
+    result: row.result,
+    error: row.error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+/**
+ * Get an agent task by ID
+ */
+export function getAgentTask(id: string): AgentTaskRecord | null {
+  const row = db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(id) as AgentTaskRow | undefined
+  if (!row) return null
+  return rowToAgentTask(row)
+}
+
+/**
+ * Get an agent task by block ID
+ */
+export function getAgentTaskByBlockId(blockId: string): AgentTaskRecord | null {
+  const row = db.prepare('SELECT * FROM agent_tasks WHERE block_id = ?').get(blockId) as AgentTaskRow | undefined
+  if (!row) return null
+  return rowToAgentTask(row)
+}
+
+/**
+ * Create a new agent task
+ */
+export function createAgentTask(input: AgentTaskInput): AgentTaskRecord {
+  const id = uuidv4()
+  const now = new Date().toISOString()
+
+  db.prepare(`
+    INSERT INTO agent_tasks (
+      id, block_id, page_id, notebook_id, content, additional_prompt,
+      agent_mode, agent_id, agent_name, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+  `).run(
+    id,
+    input.blockId,
+    input.pageId,
+    input.notebookId ?? null,
+    input.content,
+    input.additionalPrompt ?? null,
+    input.agentMode ?? 'auto',
+    input.agentId ?? null,
+    input.agentName ?? null,
+    now,
+    now
+  )
+
+  return getAgentTask(id)!
+}
+
+/**
+ * Update an agent task
+ */
+export function updateAgentTask(id: string, updates: Partial<AgentTaskRecord>): AgentTaskRecord | null {
+  const existing = getAgentTask(id)
+  if (!existing) return null
+
+  const now = new Date().toISOString()
+  const fields: string[] = []
+  const values: unknown[] = []
+
+  // Map camelCase to snake_case
+  const fieldMap: Record<string, string> = {
+    blockId: 'block_id',
+    pageId: 'page_id',
+    notebookId: 'notebook_id',
+    additionalPrompt: 'additional_prompt',
+    agentMode: 'agent_mode',
+    agentId: 'agent_id',
+    agentName: 'agent_name',
+    startedAt: 'started_at',
+    completedAt: 'completed_at',
+    durationMs: 'duration_ms'
+  }
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (key === 'id' || key === 'createdAt' || key === 'updatedAt') continue
+    const dbField = fieldMap[key] || key
+    fields.push(`${dbField} = ?`)
+    values.push(value)
+  }
+
+  if (fields.length === 0) return existing
+
+  fields.push('updated_at = ?')
+  values.push(now)
+  values.push(id)
+
+  db.prepare(`UPDATE agent_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+
+  return getAgentTask(id)
+}
+
+/**
+ * Delete an agent task by ID
+ */
+export function deleteAgentTask(id: string): boolean {
+  const result = db.prepare('DELETE FROM agent_tasks WHERE id = ?').run(id)
+  return result.changes > 0
+}
+
+/**
+ * Delete an agent task by block ID
+ */
+export function deleteAgentTaskByBlockId(blockId: string): boolean {
+  const result = db.prepare('DELETE FROM agent_tasks WHERE block_id = ?').run(blockId)
+  return result.changes > 0
 }

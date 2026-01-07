@@ -49,7 +49,15 @@ import {
   deletePopup,
   cleanupPopups,
   type PopupInput,
+  // Agent Tasks
+  getAgentTask,
+  getAgentTaskByBlockId,
+  createAgentTask,
+  updateAgentTask,
+  deleteAgentTask,
+  deleteAgentTaskByBlockId,
 } from './database'
+import type { AgentTaskInput, AgentTaskRecord } from '../shared/types'
 import {
   saveAttachment,
   saveAttachmentBuffer,
@@ -74,6 +82,11 @@ import {
   getClient,
   getAssistantAgentId,
 } from './sanqian-sdk'
+import {
+  listAgents,
+  runAgentTask,
+  cancelAgentTask,
+} from './agent-task-service'
 import {
   getSanqianApiUrl,
   startPortWatcher,
@@ -1181,6 +1194,43 @@ app.whenReady().then(() => {
   ipcMain.handle('popup:updateContent', (_, id: string, content: string) => updatePopupContent(id, content))
   ipcMain.handle('popup:delete', (_, id: string) => deletePopup(id))
   ipcMain.handle('popup:cleanup', (_, maxAgeDays?: number) => cleanupPopups(maxAgeDays))
+
+  // IPC handlers for Agent Tasks
+  ipcMain.handle('agentTask:get', (_, id: string) => getAgentTask(id))
+  ipcMain.handle('agentTask:getByBlockId', (_, blockId: string) => getAgentTaskByBlockId(blockId))
+  ipcMain.handle('agentTask:create', (_, input: AgentTaskInput) => createAgentTask(input))
+  ipcMain.handle('agentTask:update', (_, id: string, updates: Partial<AgentTaskRecord>) => updateAgentTask(id, updates))
+  ipcMain.handle('agentTask:delete', (_, id: string) => deleteAgentTask(id))
+  ipcMain.handle('agentTask:deleteByBlockId', (_, blockId: string) => deleteAgentTaskByBlockId(blockId))
+
+  // IPC handlers for Agent execution
+  ipcMain.handle('agent:list', async () => {
+    return listAgents()
+  })
+
+  ipcMain.handle('agent:run', async (event, taskId: string, agentId: string, agentName: string, content: string, additionalPrompt?: string) => {
+    const webContents = event.sender
+
+    try {
+      for await (const taskEvent of runAgentTask(taskId, agentId, agentName, content, additionalPrompt)) {
+        // Check if webContents is still valid (window not closed)
+        if (!webContents.isDestroyed()) {
+          webContents.send('agent:event', taskId, taskEvent)
+        }
+      }
+    } catch (error) {
+      if (!webContents.isDestroyed()) {
+        webContents.send('agent:event', taskId, {
+          type: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+    }
+  })
+
+  ipcMain.handle('agent:cancel', (_, taskId: string) => {
+    return cancelAgentTask(taskId)
+  })
 
   // IPC handlers for knowledge base (embedding)
   ipcMain.handle('knowledgeBase:getConfig', () => getEmbeddingConfig())

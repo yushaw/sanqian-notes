@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 // 从 shared/types 导入类型
+type AgentTaskRecord = import('../../shared/types').AgentTaskRecord
+type AgentTaskInput = import('../../shared/types').AgentTaskInput
 type AttachmentResult = import('../../shared/types').AttachmentResult
 type AttachmentSelectOptions = import('../../shared/types').AttachmentSelectOptions
 type AttachmentAPI = import('../../shared/types').AttachmentAPI
@@ -329,7 +331,47 @@ interface Window {
       getPath: () => Promise<string>
       openPath: () => Promise<string>
     }
+    agentTask: {
+      get: (id: string) => Promise<AgentTaskRecord | null>
+      getByBlockId: (blockId: string) => Promise<AgentTaskRecord | null>
+      create: (input: AgentTaskInput) => Promise<AgentTaskRecord>
+      update: (id: string, updates: Partial<AgentTaskRecord>) => Promise<AgentTaskRecord | null>
+      delete: (id: string) => Promise<boolean>
+      deleteByBlockId: (blockId: string) => Promise<boolean>
+    }
+    agent: {
+      list: () => Promise<AgentCapability[]>
+      run: (
+        taskId: string,
+        agentId: string,
+        agentName: string,
+        content: string,
+        additionalPrompt?: string
+      ) => Promise<void>
+      cancel: (taskId: string) => Promise<boolean>
+      onEvent: (callback: (taskId: string, event: AgentTaskEvent) => void) => () => void
+    }
   }
+}
+
+// Agent types
+interface AgentCapability {
+  type: 'agent'
+  id: string
+  name: string
+  description?: string
+  source: 'builtin' | 'custom' | 'sdk'
+  sourceId?: string
+  icon?: string
+}
+
+interface AgentTaskEvent {
+  type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error'
+  content?: string
+  toolName?: string
+  toolArgs?: Record<string, unknown>
+  result?: unknown
+  error?: string
 }
 
 // Note types are imported from shared/types

@@ -3445,3 +3445,75 @@ src/main/import-export/
 - 封装 selectSingleNote helper 函数统一处理单选 + anchor 设置
 - 替换 6 处直接调用 setSelectedNoteIds([noteId]) 为 selectSingleNote
 - Cmd+A 全选后设置 anchor 为第一个笔记
+
+### 2026-01-07 Agent Block Phase 1
+
+**功能概述：**
+为任意 block 添加 Agent 任务能力，用户可以通过右键菜单 → AI Actions → Agent 任务 来为选中的 block 附加 Agent 任务。
+
+**实现的功能：**
+- 左侧机器人图标 + 右侧状态信息显示
+- 点击图标/状态打开任务配置弹窗
+- 支持 idle/running/completed/failed 四种状态
+- 执行结果可复制或插入到下方
+- Block 删除时自动清理关联的 AgentTaskRecord
+
+**架构设计：**
+- Block 只存储 `agentTaskId` 属性，完整数据存储在独立的 `agent_tasks` 表中
+- 使用 ProseMirror Decoration.widget 渲染左侧图标和右侧状态（支持点击事件）
+- 内存缓存层 `agentTaskStorage.ts` 避免频繁数据库调用
+
+**新建文件：**
+- `src/renderer/src/components/extensions/AgentTask.ts` - Tiptap 扩展
+- `src/renderer/src/components/AgentTaskPanel.tsx` - 任务配置弹窗
+- `src/renderer/src/utils/agentTaskStorage.ts` - 缓存存储服务
+
+**修改文件：**
+- `src/shared/types.ts` - 添加 AgentTaskRecord/AgentTaskInput/AgentTaskStatus/AgentMode 类型
+- `src/main/database.ts` - 添加 agent_tasks 表和 CRUD 函数
+- `src/main/index.ts` - 添加 IPC handlers
+- `src/preload/index.ts` - 暴露 agentTask API
+- `src/renderer/src/env.d.ts` - 添加类型定义
+- `src/renderer/src/components/Editor.tsx` - 集成扩展和弹窗
+- `src/renderer/src/components/Editor.css` - 添加样式
+- `src/renderer/src/components/EditorContextMenu.tsx` - 添加菜单项
+- `src/renderer/src/i18n/translations.ts` - 添加中英文翻译
+
+**后续计划（Phase 2）：**
+- 集成 Sanqian SDK 实际执行 Agent 任务
+- 支持选择具体的 Agent
+- 实时显示执行步骤
+- 支持取消正在执行的任务
+
+### 2026-01-07 Agent Block Phase 2
+
+**功能概述：**
+集成 Sanqian SDK 实现 Agent 任务的实际执行。用户现在可以：
+1. 从可用 Agent 列表中选择要执行的 Agent
+2. 实时查看执行过程中的流式输出
+3. 查看执行步骤（thinking、tool_call、tool_result）
+4. 取消正在执行的任务
+
+**实现的功能：**
+- Agent 列表加载：从 SDK 获取所有可用 Agent（builtin/custom/sdk）
+- 流式执行：实时显示 Agent 输出文本
+- 步骤追踪：显示 thinking、工具调用等执行步骤
+- 任务取消：支持取消正在运行的任务
+- 状态持久化：执行信息（agentId、agentName、result、steps）存储到数据库
+
+**新建文件：**
+- `src/main/agent-task-service.ts` - Main 进程 Agent 执行服务
+  - `listAgents()` - 获取可用 Agent 列表
+  - `runAgentTask()` - 流式执行 Agent 任务（async generator）
+  - `cancelAgentTask()` - 取消任务
+
+**修改文件：**
+- `src/main/index.ts` - 添加 agent IPC handlers（agent:list, agent:run, agent:cancel）
+- `src/preload/index.ts` - 暴露 agent API（list, run, cancel, onEvent）
+- `src/renderer/src/env.d.ts` - 添加 AgentCapability 和 AgentTaskEvent 类型
+- `src/renderer/src/components/AgentTaskPanel.tsx` - 集成真实执行逻辑
+  - Agent 选择下拉框
+  - 流式输出显示
+  - 执行步骤列表
+  - 取消按钮
+- `src/renderer/src/i18n/translations.ts` - 添加新翻译（selectAgent, loadingAgents, noAgents, steps, cancel）

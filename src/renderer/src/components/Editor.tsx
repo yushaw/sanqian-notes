@@ -45,8 +45,12 @@ import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { AIPreview } from './extensions/AIPreview'
 import { AIPopupMark } from './extensions/AIPopupMark'
+import { AgentTask } from './extensions/AgentTask'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
+import { AgentTaskPanel } from './AgentTaskPanel'
+import { AgentTaskIndicators } from './AgentTaskIndicators'
+import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlockIds } from '../utils/agentTaskStorage'
 import { useAIActions } from '../hooks/useAIActions'
 import { useAIWriting } from '../hooks/useAIWriting'
 import { getAIContext } from '../utils/aiContext'
@@ -271,6 +275,12 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [contextMenuHasSelection, setContextMenuHasSelection] = useState(false)
 
+  // Agent Task Panel 状态
+  const [agentTaskPanelOpen, setAgentTaskPanelOpen] = useState(false)
+  const [agentTaskBlockId, setAgentTaskBlockId] = useState<string>('')
+  const [agentTaskId, setAgentTaskId] = useState<string | null>(null)
+  const [agentTaskBlockContent, setAgentTaskBlockContent] = useState<string>('')
+
   const t = useTranslations()
   const { resolvedColorMode } = useTheme()
   const editorContainerRef = useRef<HTMLDivElement>(null)
@@ -279,6 +289,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const headerTitleRef = useRef<HTMLInputElement>(null)
   const headerMouseDown = useRef<{ x: number; y: number; time: number } | null>(null)
   const headerClickX = useRef<number>(0)
+
+  // Ref for AgentTask panel callback (to avoid circular dependency with useEditor)
+  const openAgentTaskRef = useRef<(blockId: string, taskId: string | null, blockContent: string) => void>(() => {})
 
   // 处理文件插入（粘贴或拖拽）
   const handleFileInsert = async (
@@ -479,6 +492,11 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         }
       }),
       AIPopupMark,
+      AgentTask.configure({
+        onOpenPanel: (blockId: string, taskId: string | null, blockContent: string) => {
+          openAgentTaskRef.current(blockId, taskId, blockContent)
+        },
+      }),
       NoteLink.configure({
         onNoteClick: (noteId: string, _noteTitle: string, target?: { type: 'heading' | 'block'; value: string }) => {
           onNoteClick(noteId, target)
@@ -852,6 +870,71 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setTitle(note.title)
   }, [note.id, note.title])
 
+  // Initialize agent task cache when note changes
+  useEffect(() => {
+    if (!editor) return
+
+    initTaskCache().then(async () => {
+      // Scan document for blocks with agentTaskId and preload their tasks
+      const blockIds: string[] = []
+      editor.state.doc.descendants((node) => {
+        if (node.attrs.agentTaskId && node.attrs.blockId) {
+          blockIds.push(node.attrs.blockId)
+        }
+      })
+
+      if (blockIds.length > 0) {
+        await preloadTasksByBlockIds(blockIds)
+      }
+
+      // Refresh decorations after cache is ready
+      editor.commands.refreshAgentTaskDecorations()
+    })
+  }, [note.id, editor])
+
+  // Track blocks with agentTaskId for cleanup
+  const previousAgentBlocksRef = useRef<Set<string>>(new Set())
+
+  // Clean up orphan agent tasks when blocks are deleted
+  useEffect(() => {
+    if (!editor) return
+
+    const checkDeletedBlocks = () => {
+      const currentAgentBlocks = new Set<string>()
+
+      // Collect all blockIds that have agentTaskId
+      editor.state.doc.descendants((node) => {
+        if (node.attrs.agentTaskId && node.attrs.blockId) {
+          currentAgentBlocks.add(node.attrs.blockId)
+        }
+      })
+
+      // Find deleted blocks (were in previous set but not in current)
+      const deletedBlocks = Array.from(previousAgentBlocksRef.current).filter(
+        (blockId) => !currentAgentBlocks.has(blockId)
+      )
+
+      // Clean up tasks for deleted blocks
+      for (const blockId of deletedBlocks) {
+        deleteTaskByBlockId(blockId).catch((err) => {
+          console.error('Failed to clean up agent task for deleted block:', blockId, err)
+        })
+      }
+
+      // Update ref
+      previousAgentBlocksRef.current = currentAgentBlocks
+    }
+
+    // Initial check
+    checkDeletedBlocks()
+
+    // Check on document changes
+    editor.on('update', checkDeletedBlocks)
+    return () => {
+      editor.off('update', checkDeletedBlocks)
+    }
+  }, [editor])
+
   // Auto-focus title for new (empty) notes
   const prevNoteIdRef = useRef<string | null>(null)
   useEffect(() => {
@@ -1020,6 +1103,67 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const handleCloseContextMenu = useCallback(() => {
     setContextMenuPosition(null)
   }, [])
+
+  // Agent Task Panel handlers
+  const handleOpenAgentTask = useCallback((blockId: string, taskId: string | null, blockContent: string) => {
+    setAgentTaskBlockId(blockId)
+    setAgentTaskId(taskId)
+    setAgentTaskBlockContent(blockContent)
+    setAgentTaskPanelOpen(true)
+  }, [])
+
+  // Update the ref so the extension can access the latest handler
+  openAgentTaskRef.current = handleOpenAgentTask
+
+  const handleCloseAgentTaskPanel = useCallback(() => {
+    setAgentTaskPanelOpen(false)
+  }, [])
+
+  const handleAgentTaskCreated = useCallback((taskId: string) => {
+    if (!editor) return
+    // 设置 block 的 agentTaskId 属性
+    editor.commands.setAgentTask(agentTaskBlockId, taskId)
+    setAgentTaskId(taskId)
+    // 刷新缓存和装饰
+    refreshTaskCache().then(() => {
+      editor.commands.refreshAgentTaskDecorations()
+    })
+  }, [editor, agentTaskBlockId])
+
+  const handleAgentTaskRemoved = useCallback(() => {
+    if (!editor) return
+    // 移除 block 的 agentTaskId 属性
+    editor.commands.removeAgentTask(agentTaskBlockId)
+    setAgentTaskId(null)
+    // 刷新装饰
+    editor.commands.refreshAgentTaskDecorations()
+  }, [editor, agentTaskBlockId])
+
+  const handleAgentTaskUpdated = useCallback(() => {
+    if (!editor) return
+    // 刷新缓存和装饰
+    refreshTaskCache().then(() => {
+      editor.commands.refreshAgentTaskDecorations()
+    })
+  }, [editor])
+
+  const handleInsertAgentResult = useCallback((content: string) => {
+    if (!editor) return
+    // 在当前 block 后插入结果
+    // 找到 block 的位置
+    let insertPos: number | null = null
+    editor.state.doc.descendants((node, pos) => {
+      if (node.attrs.blockId === agentTaskBlockId && insertPos === null) {
+        insertPos = pos + node.nodeSize
+      }
+    })
+    if (insertPos !== null) {
+      editor.chain().focus().insertContentAt(insertPos, {
+        type: 'paragraph',
+        content: [{ type: 'text', text: content }],
+      }).run()
+    }
+  }, [editor, agentTaskBlockId])
 
   // 持续追踪最后的光标位置（即使焦点离开编辑器也能记住）
   const lastCursorInfo = useRef<CursorInfo | null>(null)
@@ -1304,6 +1448,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       <div
         ref={contentRef}
         className="zen-scroll-wrapper"
+        style={{ position: 'relative' }}
         onClick={(e) => {
           // Click on empty area focuses editor at end
           // But don't interfere with text selection - if user has selected text, don't focus
@@ -1318,6 +1463,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           }
         }}
       >
+        {/* Agent Task Indicators - overlay layer for dots */}
+        <AgentTaskIndicators
+          editor={editor}
+          containerRef={contentRef as React.RefObject<HTMLElement>}
+          onOpenPanel={handleOpenAgentTask}
+        />
+
         {/* Editor content area */}
         <div className={`zen-content ${isTypewriterMode ? 'typewriter-mode' : ''}`}>
           {/* Title */}
@@ -1369,6 +1521,22 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         position={contextMenuPosition}
         onClose={handleCloseContextMenu}
         hasSelection={contextMenuHasSelection}
+        onOpenAgentTask={handleOpenAgentTask}
+      />
+
+      {/* Agent Task Panel */}
+      <AgentTaskPanel
+        isOpen={agentTaskPanelOpen}
+        onClose={handleCloseAgentTaskPanel}
+        blockId={agentTaskBlockId}
+        taskId={agentTaskId}
+        blockContent={agentTaskBlockContent}
+        pageId={note.id}
+        notebookId={note.notebook_id ?? null}
+        onTaskCreated={handleAgentTaskCreated}
+        onTaskRemoved={handleAgentTaskRemoved}
+        onTaskUpdated={handleAgentTaskUpdated}
+        onInsertResult={handleInsertAgentResult}
       />
     </div>
   )

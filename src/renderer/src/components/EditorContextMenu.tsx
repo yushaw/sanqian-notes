@@ -23,6 +23,7 @@ interface EditorContextMenuProps {
   position: ContextMenuPosition | null
   onClose: () => void
   hasSelection: boolean
+  onOpenAgentTask?: (blockId: string, taskId: string | null, blockContent: string) => void
 }
 
 // SVG 图标
@@ -162,6 +163,15 @@ const Icons = {
       <path d="M17 19h4" />
     </svg>
   ),
+  agent: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="10" rx="2" />
+      <circle cx="12" cy="5" r="2" />
+      <path d="M12 7v4" />
+      <line x1="8" y1="16" x2="8" y2="16" strokeWidth="3" strokeLinecap="round" />
+      <line x1="16" y1="16" x2="16" y2="16" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  ),
 }
 
 // 插入项配置 - 来自斜杠命令中常用的
@@ -179,7 +189,7 @@ const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
 
 // AI 操作项配置现在从数据库动态加载
 
-export function EditorContextMenu({ editor, position, onClose, hasSelection }: EditorContextMenuProps) {
+export function EditorContextMenu({ editor, position, onClose, hasSelection, onOpenAgentTask }: EditorContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const insertSubmenuRef = useRef<HTMLDivElement>(null)
   const tableSubmenuRef = useRef<HTMLDivElement>(null)
@@ -465,6 +475,40 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       onClose()
     }
   }, [executeAction, aiContext, editor, onClose, handlePopupAction])
+
+  // 处理 Agent 任务
+  const handleAgentTask = useCallback(() => {
+    if (!editor) return
+
+    // 获取当前光标所在的 block
+    const { $from } = editor.state.selection
+    const resolvedPos = editor.state.doc.resolve($from.pos)
+
+    // 向上查找最近的带 blockId 的节点
+    let blockNode = null
+    for (let d = resolvedPos.depth; d >= 0; d--) {
+      const node = resolvedPos.node(d)
+      if (node.attrs.blockId) {
+        blockNode = node
+        break
+      }
+    }
+
+    if (!blockNode || !blockNode.attrs.blockId) {
+      console.warn('No block found at cursor position')
+      return
+    }
+
+    const blockId = blockNode.attrs.blockId
+    const taskId = blockNode.attrs.agentTaskId ?? null
+    const blockContent = blockNode.textContent || ''
+
+    setShowAISubmenu(false)
+    onClose()
+
+    // 调用回调打开面板
+    onOpenAgentTask?.(blockId, taskId, blockContent)
+  }, [editor, onClose, onOpenAgentTask])
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -895,6 +939,19 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
             <span className="context-menu-arrow">{Icons.chevronRight}</span>
           </button>
         </div>
+
+        {/* Agent 任务 - 独立菜单项 */}
+        {onOpenAgentTask && (
+          <div className="context-menu-group">
+            <button
+              className="context-menu-item"
+              onClick={handleAgentTask}
+            >
+              <span className="context-menu-icon">{Icons.agent}</span>
+              <span className="context-menu-label">{t.contextMenu.agentTask || 'Agent Task'}</span>
+            </button>
+          </div>
+        )}
 
         {/* 表格操作组 - 仅在表格内显示 */}
         {isInTable && (

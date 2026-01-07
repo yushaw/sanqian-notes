@@ -2,6 +2,7 @@ import { Extension } from '@tiptap/core'
 import Suggestion, { SuggestionOptions } from '@tiptap/suggestion'
 import type { Editor } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
+import type { EditorState } from '@tiptap/pm/state'
 import { getFileCategory } from '../../utils/fileCategory'
 import { translations, getSystemLanguage } from '../../i18n/translations'
 
@@ -297,7 +298,7 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
         // null = 行首, ' ' = 空格后
         allowedPrefixes: [' ', null] as (string | null)[],
         // 自定义触发条件：光标后面如果有非空格内容则不触发
-        allow: ({ state, range }: { state: any; range: { from: number; to: number } }) => {
+        allow: ({ state, range }: { state: EditorState; range: { from: number; to: number } }) => {
           const $from = state.doc.resolve(range.from)
           const textAfter = $from.parent.textBetween(
             range.to - $from.start(),

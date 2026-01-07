@@ -12,6 +12,7 @@ import { Extension } from '@tiptap/core'
 
 // 声明 Tiptap 扩展命令类型
 declare module '@tiptap/core' {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface Commands<ReturnType> {
     customKeyboardShortcuts: Record<string, never>
   }

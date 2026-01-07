@@ -67,12 +67,14 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
 
   // 组件卸载时清理事件监听
   useEffect(() => {
+    // Capture ref for cleanup to avoid stale reference warning
+    const handlers = handlersRef.current
     return () => {
-      if (handlersRef.current.move) {
-        document.removeEventListener('mousemove', handlersRef.current.move)
+      if (handlers.move) {
+        document.removeEventListener('mousemove', handlers.move)
       }
-      if (handlersRef.current.up) {
-        document.removeEventListener('mouseup', handlersRef.current.up)
+      if (handlers.up) {
+        document.removeEventListener('mouseup', handlers.up)
       }
     }
   }, [])

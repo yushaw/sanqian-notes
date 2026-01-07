@@ -3517,3 +3517,37 @@ src/main/import-export/
   - 执行步骤列表
   - 取消按钮
 - `src/renderer/src/i18n/translations.ts` - 添加新翻译（selectAgent, loadingAgents, noAgents, steps, cancel）
+
+
+---
+
+## 2026-01-07: Agent 问答模式增强
+
+**背景：** 增强 Agent 的"和文档对话"能力，让用户可以更自然地查询笔记内容。
+
+**改动：**
+
+### 1. search_notes 工具优化
+- `has_summary` → `summary`：直接返回摘要内容，便于 LLM 判断相关性
+- `preview` 长度 200 → 300 字：提供更多上下文
+
+### 2. get_note 工具支持批量获取
+- `id` 参数支持单个字符串或 ID 数组
+- 单个 ID：保持原有行为（错误时抛异常）
+- 批量 ID：优雅降级（错误项返回 `{id, error}`）
+- `heading` 参数仅在单个 ID 时生效
+
+### 3. System Prompt 新增问答模式
+- 明确"操作指令"和"问答"的区分
+- 引导 Agent 正确使用检索工具
+- 规范引用格式：「根据《笔记标题》...」
+- 处理边界情况：找不到时如何回应
+
+### 4. 修复 pdf-importer 类型错误
+- `Buffer` → `Uint8Array`（fetch body 类型兼容）
+- 未使用变量添加下划线前缀
+
+**文件：**
+- `src/main/sanqian-sdk.ts`
+- `src/main/i18n.ts`
+- `src/main/import-export/importers/pdf-importer.ts`

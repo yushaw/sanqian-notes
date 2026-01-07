@@ -12,6 +12,11 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 
+// Safari compatibility: webkitAudioContext
+interface WindowWithWebkit extends Window {
+  webkitAudioContext?: typeof AudioContext
+}
+
 interface TypewriterSoundOptions {
   enabled?: boolean
   volume?: number // 0-1
@@ -55,13 +60,39 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
   // 用于在 ensureInitialized 中访问最新的 playSound，避免闭包捕获旧版本
   const playSoundRef = useRef<(keyType: KeyType) => void>(() => {})
 
+  // 清理音频资源的公共函数
+  const cleanupAudio = useCallback(() => {
+    sourceNodesRef.current.forEach(node => {
+      try {
+        node.stop()
+        node.disconnect()
+      } catch {
+        // 忽略已经停止的节点
+      }
+    })
+    sourceNodesRef.current = []
+
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close()
+      } catch {
+        // 忽略关闭失败
+      }
+      audioContextRef.current = null
+    }
+
+    audioBuffersRef.current.clear()
+    isInitializedRef.current = false
+    pendingInitRef.current = false
+  }, [])
+
   // 懒加载初始化函数 - 在第一次用户交互时调用
   const ensureInitialized = useCallback(async () => {
     if (isInitializedRef.current || pendingInitRef.current || !enabled) return
     pendingInitRef.current = true
 
     // 创建 AudioContext（兼容 Safari）
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+    const AudioContextClass = window.AudioContext || (window as WindowWithWebkit).webkitAudioContext
     if (!AudioContextClass) {
       console.warn('[TypewriterSound] Web Audio API not supported')
       pendingInitRef.current = false
@@ -130,7 +161,7 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
     } finally {
       pendingInitRef.current = false
     }
-  }, [enabled]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled])  
 
   // 内部播放函数
   const playSound = useCallback((keyType: KeyType) => {
@@ -181,7 +212,7 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
         try {
           oldestNode.stop()
           oldestNode.disconnect()
-        } catch (e) {
+        } catch {
           // 忽略
         }
       }
@@ -215,7 +246,7 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
         }
         try {
           source.disconnect()
-        } catch (e) {
+        } catch {
           // 忽略
         }
       }
@@ -227,61 +258,17 @@ export function useTypewriterSound(options: TypewriterSoundOptions = {}) {
   // 每次渲染更新 ref，确保 ensureInitialized 中使用最新版本
   playSoundRef.current = playSound
 
-  // 清理
+  // 组件卸载时清理
   useEffect(() => {
-    return () => {
-      sourceNodesRef.current.forEach(node => {
-        try {
-          node.stop()
-          node.disconnect()
-        } catch (e) {
-          // 忽略已经停止的节点
-        }
-      })
-      sourceNodesRef.current = []
-
-      if (audioContextRef.current) {
-        try {
-          audioContextRef.current.close()
-        } catch (e) {
-          // 忽略关闭失败
-        }
-        audioContextRef.current = null
-      }
-
-      audioBuffersRef.current.clear()
-      isInitializedRef.current = false
-      pendingInitRef.current = false
-    }
-  }, [])
+    return cleanupAudio
+  }, [cleanupAudio])
 
   // 当 enabled 变为 false 时重置状态
   useEffect(() => {
     if (!enabled) {
-      sourceNodesRef.current.forEach(node => {
-        try {
-          node.stop()
-          node.disconnect()
-        } catch (e) {
-          // 忽略
-        }
-      })
-      sourceNodesRef.current = []
-
-      if (audioContextRef.current) {
-        try {
-          audioContextRef.current.close()
-        } catch (e) {
-          // 忽略关闭失败
-        }
-        audioContextRef.current = null
-      }
-
-      audioBuffersRef.current.clear()
-      isInitializedRef.current = false
-      pendingInitRef.current = false
+      cleanupAudio()
     }
-  }, [enabled])
+  }, [enabled, cleanupAudio])
 
   // 播放音效（外部接口）
   const play = useCallback((keyType: KeyType = 'normal') => {

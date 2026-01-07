@@ -742,6 +742,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
 
     setInsertSubmenuPosition({ top, left })
     setShowInsertSubmenu(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- insertItems.length is derived from translations which changes rarely
   }, [clearCloseTimeout])
 
   // 插入内容

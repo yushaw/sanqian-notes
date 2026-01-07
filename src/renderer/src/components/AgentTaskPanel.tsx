@@ -137,6 +137,7 @@ export function AgentTaskPanel({
       setTask(null)
       setAdditionalPrompt('')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- t change doesn't require refetch; onTaskUpdated is event handler
   }, [isOpen, taskId])
 
   // Cleanup on unmount

@@ -12,6 +12,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Typography from '@tiptap/extension-typography'
@@ -492,27 +493,27 @@ export function TypewriterMode({
       clipboardTextSerializer: (slice) => {
         const lines: string[] = []
 
-        const serializeNode = (node: any, indent: number = 0, listType?: 'bullet' | 'ordered' | 'task', listIndex?: number) => {
+        const serializeNode = (node: PMNode, indent: number = 0, listType?: 'bullet' | 'ordered' | 'task', listIndex?: number) => {
           const indentStr = '  '.repeat(indent)
 
           if (node.type.name === 'bulletList') {
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               serializeNode(child, indent, 'bullet')
             })
           } else if (node.type.name === 'orderedList') {
             let idx = 1
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               serializeNode(child, indent, 'ordered', idx++)
             })
           } else if (node.type.name === 'taskList') {
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               serializeNode(child, indent, 'task')
             })
           } else if (node.type.name === 'listItem') {
             const prefix = listType === 'ordered' ? `${listIndex}. ` : '• '
             const text = node.textContent || ''
             lines.push(indentStr + prefix + text)
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
                 serializeNode(child, indent + 1)
               }
@@ -521,7 +522,7 @@ export function TypewriterMode({
             const checked = node.attrs?.checked ? '☑' : '☐'
             const text = node.textContent || ''
             lines.push(indentStr + checked + ' ' + text)
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
                 serializeNode(child, indent + 1)
               }
@@ -536,7 +537,7 @@ export function TypewriterMode({
           }
         }
 
-        slice.content.forEach((node: any) => {
+        slice.content.forEach((node) => {
           serializeNode(node)
         })
 

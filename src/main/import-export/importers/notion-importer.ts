@@ -437,7 +437,7 @@ export class NotionImporter extends BaseImporter {
 
     // 下载每个图片
     for (let i = 0; i < matches.length; i++) {
-      const { full, url } = matches[i]
+      const { full, alt, url } = matches[i]
 
       // 生成本地文件名
       const ext = getExtensionFromUrl(url)
@@ -452,6 +452,9 @@ export class NotionImporter extends BaseImporter {
           originalRef: full,
           sourcePath: result.localPath,
         })
+        // 替换 content 中的云端 URL 为本地路径占位符（后续会被替换为 attachment://）
+        const localRef = `![${alt}](${localFilename})`
+        updatedContent = updatedContent.replace(full, localRef)
       } else {
         // 下载失败，保留原 URL（添加注释说明）
         console.warn(`Failed to download image: ${url} - ${result.error}`)
@@ -539,7 +542,7 @@ export class NotionImporter extends BaseImporter {
     // 从 resolvedTitles 中找到对应的笔记标题
     for (const value of titleValues) {
       // 查找匹配的笔记
-      for (const [_path, title] of resolvedTitles) {
+      for (const [, title] of resolvedTitles) {
         if (title === value || title.endsWith(`/${value}`)) {
           rowToNoteTitle.set(value, title)
           break

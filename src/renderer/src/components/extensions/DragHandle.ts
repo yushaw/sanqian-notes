@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { NodeSelection } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 
 export interface DragHandleOptions {
   dragHandleClass: string
@@ -21,7 +22,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     let dragHandle: HTMLElement | null = null
     let currentBlock: HTMLElement | null = null
 
-    const showDragHandle = (view: any, block: HTMLElement) => {
+    const showDragHandle = (view: EditorView, block: HTMLElement) => {
       if (!dragHandle) {
         dragHandle = document.createElement('div')
         dragHandle.className = this.options.dragHandleClass
@@ -95,7 +96,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               const editorDom = view.dom
 
               // 查找最近的块级元素
-              let block = target.closest('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, .callout, .toggle-block, .mermaid-wrapper, .image-wrapper, .video-wrapper, .audio-wrapper, .file-attachment-wrapper')
+              const block = target.closest('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, .callout, .toggle-block, .mermaid-wrapper, .image-wrapper, .video-wrapper, .audio-wrapper, .file-attachment-wrapper')
 
               if (block && editorDom.contains(block)) {
                 showDragHandle(view, block as HTMLElement)

@@ -172,6 +172,7 @@ export function KnowledgeBaseSettings() {
       }
     }
     loadData()
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSanqianConfig is defined below (hoisted), only run on mount
   }, [])
 
   // 获取 Sanqian 配置（带超时，防止无限 loading）

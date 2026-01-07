@@ -20,8 +20,8 @@ vi.mock('../../attachment', () => ({
 }))
 
 import { getNotes, getNotesByIds, getNotebooks } from '../../database'
+import type { Note, Notebook } from '../../database'
 // getFullPath is mocked but not directly used in tests (used internally by exporter)
-import type {} from '../../attachment'
 
 describe('MarkdownExporter', () => {
   let exporter: MarkdownExporter
@@ -74,7 +74,7 @@ describe('MarkdownExporter', () => {
         },
       ]
 
-      vi.mocked(getNotes).mockReturnValue(mockNotes as any)
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
       vi.mocked(getNotebooks).mockReturnValue([])
 
       const result = await exporter.export({
@@ -125,8 +125,8 @@ describe('MarkdownExporter', () => {
         { id: 'nb1', name: '工作笔记本', icon: 'work' },
       ]
 
-      vi.mocked(getNotes).mockReturnValue(mockNotes as any)
-      vi.mocked(getNotebooks).mockReturnValue(mockNotebooks as any)
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
+      vi.mocked(getNotebooks).mockReturnValue(mockNotebooks as Notebook[])
 
       await exporter.export({
         noteIds: [],
@@ -174,8 +174,8 @@ describe('MarkdownExporter', () => {
         { id: 'nb2', name: '笔记本2', icon: '' },
       ]
 
-      vi.mocked(getNotes).mockReturnValue(mockNotes as any)
-      vi.mocked(getNotebooks).mockReturnValue(mockNotebooks as any)
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
+      vi.mocked(getNotebooks).mockReturnValue(mockNotebooks as Notebook[])
 
       await exporter.export({
         noteIds: [],
@@ -211,7 +211,7 @@ describe('MarkdownExporter', () => {
         },
       ]
 
-      vi.mocked(getNotes).mockReturnValue(mockNotes as any)
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
       vi.mocked(getNotebooks).mockReturnValue([])
 
       const result = await exporter.export({
@@ -242,7 +242,7 @@ describe('MarkdownExporter', () => {
         },
       ]
 
-      vi.mocked(getNotesByIds).mockReturnValue(mockNotes as any)
+      vi.mocked(getNotesByIds).mockReturnValue(mockNotes as Note[])
       vi.mocked(getNotebooks).mockReturnValue([])
 
       const result = await exporter.export({
@@ -278,7 +278,7 @@ describe('MarkdownExporter', () => {
         },
       ]
 
-      vi.mocked(getNotes).mockReturnValue(mockNotes as any)
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
       vi.mocked(getNotebooks).mockReturnValue([])
 
       await exporter.export({
@@ -309,7 +309,7 @@ describe('MarkdownExporter', () => {
         },
       ]
 
-      vi.mocked(getNotes).mockReturnValue(mockNotes as any)
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
       vi.mocked(getNotebooks).mockReturnValue([])
 
       await exporter.export({

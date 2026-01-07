@@ -221,7 +221,7 @@ def hello():
 
       // 3. 模拟导出（直接测试 contentToMarkdown）
       const exporter = new MarkdownExporter()
-      const exportedMarkdown = (exporter as any).contentToMarkdown(importedNote.content)
+      const exportedMarkdown = (exporter as unknown as { contentToMarkdown: (content: string) => string }).contentToMarkdown(importedNote.content)
 
       // 4. 验证关键内容保留
       expect(exportedMarkdown).toContain('第一节')
@@ -246,7 +246,7 @@ def hello():
       expect(reImportedNotes.length).toBe(1)
 
       // 再次导出
-      const reExportedMarkdown = (exporter as any).contentToMarkdown(
+      const reExportedMarkdown = (exporter as unknown as { contentToMarkdown: (content: string) => string }).contentToMarkdown(
         reImportedNotes[0].content
       )
 

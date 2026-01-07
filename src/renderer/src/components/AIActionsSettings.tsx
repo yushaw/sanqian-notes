@@ -69,7 +69,7 @@ export function AIActionsSettings() {
 
   // Save a single field immediately for existing actions
   // Takes actionId as parameter to avoid stale closure issues
-  const saveFieldImmediately = useCallback(async (actionId: string, field: string, value: any) => {
+  const saveFieldImmediately = useCallback(async (actionId: string, field: string, value: string | boolean | number) => {
     try {
       await updateAction(actionId, { [field]: value })
     } catch (error) {

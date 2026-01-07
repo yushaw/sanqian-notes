@@ -14,6 +14,7 @@ import { TableHeader } from '@tiptap/extension-table-header'
 import { TableCell } from '@tiptap/extension-table-cell'
 // 移除默认 Image，使用 ResizableImage
 import { textblockTypeInputRule } from '@tiptap/core'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Note } from '../types/note'
 import { useTranslations } from '../i18n'
 import { useTheme } from '../theme'
@@ -526,20 +527,20 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       clipboardTextSerializer: (slice) => {
         const lines: string[] = []
 
-        const serializeNode = (node: any, indent: number = 0, listType?: 'bullet' | 'ordered' | 'task', listIndex?: number) => {
+        const serializeNode = (node: PMNode, indent: number = 0, listType?: 'bullet' | 'ordered' | 'task', listIndex?: number) => {
           const indentStr = '  '.repeat(indent)
 
           if (node.type.name === 'bulletList') {
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               serializeNode(child, indent, 'bullet')
             })
           } else if (node.type.name === 'orderedList') {
             let idx = 1
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               serializeNode(child, indent, 'ordered', idx++)
             })
           } else if (node.type.name === 'taskList') {
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               serializeNode(child, indent, 'task')
             })
           } else if (node.type.name === 'listItem') {
@@ -547,7 +548,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             const text = node.textContent || ''
             lines.push(indentStr + prefix + text)
             // Handle nested lists
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
                 serializeNode(child, indent + 1)
               }
@@ -557,7 +558,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             const text = node.textContent || ''
             lines.push(indentStr + checked + ' ' + text)
             // Handle nested lists
-            node.content.forEach((child: any) => {
+            node.content.forEach((child) => {
               if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
                 serializeNode(child, indent + 1)
               }
@@ -573,7 +574,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           }
         }
 
-        slice.content.forEach((node: any) => {
+        slice.content.forEach((node) => {
           serializeNode(node)
         })
 
@@ -1017,7 +1018,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setLinkStartPos(null)
     setSearchMode('note')
     setSelectedLinkNote(null)
-  }, [editor, linkStartPos])
+  }, [editor, linkStartPos, t.noteList.untitled])
 
   // 选择笔记后进入标题/block 搜索
   const handleSelectNoteForSubSearch = useCallback((selectedNote: Note) => {

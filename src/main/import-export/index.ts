@@ -231,7 +231,7 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
     const notebooksToCreate = new Set<string>()
 
     for (const note of parsedNotes) {
-      let notebookName = note.notebookName
+      const notebookName = note.notebookName
 
       // 处理 single-notebook 策略
       if (options.folderStrategy === 'single-notebook' && options.targetNotebookId) {

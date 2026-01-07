@@ -33,6 +33,25 @@ export type {
 // Constants
 export const TRASH_RETENTION_DAYS = 30
 
+// Database row interfaces (snake_case columns)
+interface AIActionRow {
+  id: string
+  name: string
+  description: string | null
+  icon: string
+  prompt: string
+  mode: string
+  show_in_context_menu: number
+  show_in_slash_command: number
+  show_in_shortcut: number
+  shortcut_key: string | null
+  order_index: number
+  is_builtin: number
+  enabled: number
+  created_at: string
+  updated_at: string
+}
+
 // 获取系统语言 (alias for backward compatibility)
 function getSystemLanguage(): 'zh' | 'en' {
   return getSystemLang()
@@ -1761,7 +1780,7 @@ export function initDefaultAIActions(): void {
  */
 export function getAIActions(): AIAction[] {
   const stmt = db.prepare('SELECT * FROM ai_actions WHERE enabled = 1 ORDER BY order_index ASC')
-  const rows = stmt.all() as any[]
+  const rows = stmt.all() as AIActionRow[]
 
   return rows.map(row => ({
     id: row.id,
@@ -1787,7 +1806,7 @@ export function getAIActions(): AIAction[] {
  */
 export function getAllAIActions(): AIAction[] {
   const stmt = db.prepare('SELECT * FROM ai_actions ORDER BY order_index ASC')
-  const rows = stmt.all() as any[]
+  const rows = stmt.all() as AIActionRow[]
 
   return rows.map(row => ({
     id: row.id,
@@ -1813,7 +1832,7 @@ export function getAllAIActions(): AIAction[] {
  */
 export function getAIAction(id: string): AIAction | null {
   const stmt = db.prepare('SELECT * FROM ai_actions WHERE id = ?')
-  const row = stmt.get(id) as any
+  const row = stmt.get(id) as AIActionRow | undefined
 
   if (!row) return null
 
@@ -1878,7 +1897,7 @@ export function updateAIAction(id: string, updates: Partial<AIActionInput> & { e
 
   const now = new Date().toISOString()
   const fields: string[] = ['updated_at = ?']
-  const values: any[] = [now]
+  const values: (string | number | null)[] = [now]
 
   if (updates.name !== undefined) {
     fields.push('name = ?')

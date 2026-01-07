@@ -19,7 +19,8 @@ import {
   type AppConfig,
   type AppToolDefinition,
   type AppAgentConfig,
-  type AppContextProvider
+  type AppContextProvider,
+  type AppJsonSchemaProperty
 } from '@yushaw/sanqian-chat/main'
 import { app } from 'electron'
 import {
@@ -165,14 +166,14 @@ function buildTools(): AppToolDefinition[] {
                 id: result.noteId,
                 title: note.title,
                 preview: result.matchedChunks[0]?.chunkText
-                  ? truncateText(result.matchedChunks[0].chunkText, 200)
+                  ? truncateText(result.matchedChunks[0].chunkText, 300)
                   : '',
                 score: result.score,
                 updated_at: note.updated_at,
                 notebook_id: result.notebookId,
                 notebook_name: notebookMap.get(result.notebookId || '') || null,
                 tags: note.tags?.map(t => t.name) || [],
-                has_summary: !!note.ai_summary,
+                summary: note.ai_summary || null,
                 is_pinned: note.is_pinned,
                 is_favorite: note.is_favorite
               }
@@ -194,9 +195,12 @@ function buildTools(): AppToolDefinition[] {
         type: 'object',
         properties: {
           id: {
-            type: 'string',
+            oneOf: [
+              { type: 'string' },
+              { type: 'array', items: { type: 'string' } }
+            ],
             description: tools.getNote.idDesc
-          },
+          } as unknown as AppJsonSchemaProperty,
           heading: {
             type: 'string',
             description: tools.getNote.headingDesc
@@ -206,41 +210,79 @@ function buildTools(): AppToolDefinition[] {
       },
       handler: async (args: Record<string, unknown>) => {
         try {
-          const id = args.id as string
+          const idArg = args.id as string | string[]
           const heading = args.heading as string | undefined
-          const note = getNoteById(id)
+          const isBatch = Array.isArray(idArg)
+          const ids = isBatch ? idArg : [idArg]
 
-          if (!note) {
-            throw new Error(`${tools.getNote.notFound}: ${id}`)
-          }
+          // Get notebooks map for names
+          const notebooks = getNotebooks()
+          const notebookMap = new Map(notebooks.map(n => [n.id, n.name]))
 
-          // Convert TipTap JSON to Markdown
-          let content = ''
-          if (note.content) {
-            content = jsonToMarkdown(note.content, heading ? { heading } : undefined)
-            if (heading && !content) {
+          // Error markers for single mode (avoid re-querying)
+          const NOT_FOUND = Symbol('not_found')
+          const HEADING_NOT_FOUND = Symbol('heading_not_found')
+
+          const results = ids.map(id => {
+            const note = getNoteById(id)
+
+            // 排除不存在或已删除的笔记（与 search_notes 行为一致）
+            if (!note || note.deleted_at) {
+              // Batch mode: return error object; Single mode: return marker
+              if (isBatch) {
+                return { id, error: `${tools.getNote.notFound}: ${id}` }
+              }
+              return NOT_FOUND
+            }
+
+            // Convert TipTap JSON to Markdown
+            // heading only applies to single note
+            let content = ''
+            if (note.content) {
+              content = jsonToMarkdown(note.content, (!isBatch && heading) ? { heading } : undefined)
+              if (!isBatch && heading && !content) {
+                // Single mode with heading not found: return marker
+                return HEADING_NOT_FOUND
+              }
+            }
+
+            return {
+              id: note.id,
+              title: note.title,
+              content,
+              summary: note.ai_summary || undefined,
+              tags: note.tags?.map(t => t.name) || [],
+              notebook_id: note.notebook_id,
+              notebook_name: notebookMap.get(note.notebook_id || '') || null,
+              created_at: note.created_at,
+              updated_at: note.updated_at,
+              is_pinned: note.is_pinned,
+              is_favorite: note.is_favorite,
+              word_count: countWords(note.content || '')
+            }
+          })
+
+          // Single id mode: throw based on error marker
+          if (!isBatch) {
+            const result = results[0]
+            if (result === NOT_FOUND) {
+              throw new Error(`${tools.getNote.notFound}: ${ids[0]}`)
+            }
+            if (result === HEADING_NOT_FOUND) {
               throw new Error(`${tools.getNote.headingNotFound}: ${heading}`)
             }
+            return result
           }
 
-          // Get notebook name
-          const notebooks = getNotebooks()
-          const notebook = notebooks.find(n => n.id === note.notebook_id)
-
-          return {
-            id: note.id,
-            title: note.title,
-            content,
-            summary: note.ai_summary || undefined,
-            tags: note.tags?.map(t => t.name) || [],
-            notebook_id: note.notebook_id,
-            notebook_name: notebook?.name || null,
-            created_at: note.created_at,
-            updated_at: note.updated_at,
-            is_pinned: note.is_pinned,
-            is_favorite: note.is_favorite,
-            word_count: countWords(note.content || '')
+          // Batch mode: return array (may contain error objects)
+          // Warn if heading was provided but ignored
+          if (heading) {
+            return {
+              warning: tools.getNote.headingIgnoredInBatch,
+              notes: results
+            }
           }
+          return results
         } catch (error) {
           throw new Error(`${tools.getNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
@@ -347,7 +389,7 @@ function buildTools(): AppToolDefinition[] {
           const edit = args.edit as { old_string: string; new_string: string; replace_all?: boolean } | undefined
 
           const note = getNoteById(id)
-          if (!note) {
+          if (!note || note.deleted_at) {
             throw new Error(`${tools.updateNote.notFound}: ${id}`)
           }
 
@@ -506,9 +548,9 @@ function buildTools(): AppToolDefinition[] {
           // undefined means remove from notebook (same as null)
           const notebook_id = (args.notebook_id as string | undefined) ?? null
 
-          // 先检查笔记是否存在
+          // 先检查笔记是否存在（排除已删除的笔记）
           const note = getNoteById(id)
-          if (!note) {
+          if (!note || note.deleted_at) {
             throw new Error(`${tools.moveNote.notFound}: ${id}`)
           }
 

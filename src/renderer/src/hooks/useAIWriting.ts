@@ -300,7 +300,7 @@ export function useAIWriting(options: UseAIWritingOptions) {
     // Cross-block mode state
     let blockMapping: Record<string, string> = {}  // Simple ID -> actual blockId
     let blockParserState: BlockParserState = { currentBlockId: null, currentContent: '', buffer: '' }
-    let blockContentBuffers: Record<string, string> = {}  // blockId -> accumulated content (final Markdown)
+    const blockContentBuffers: Record<string, string> = {}  // blockId -> accumulated content (final Markdown)
 
     // Generate stream ID
     const streamId = crypto.randomUUID()

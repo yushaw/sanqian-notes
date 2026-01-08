@@ -5,6 +5,7 @@
 import { MarkdownImporter } from './importers/markdown-importer'
 import { ObsidianImporter } from './importers/obsidian-importer'
 import { NotionImporter } from './importers/notion-importer'
+import { PdfImporter } from './importers/pdf-importer'
 import { MarkdownExporter } from './exporters/markdown-exporter'
 import { BaseImporter } from './base-importer'
 import { copyAttachmentsAndUpdateContent } from './utils/attachment-handler'
@@ -38,7 +39,8 @@ import type {
 const importers: BaseImporter[] = [
   new NotionImporter(),
   new ObsidianImporter(),
-  new MarkdownImporter(),
+  new PdfImporter(),
+  new MarkdownImporter(), // Markdown 放最后作为通用导入器
 ]
 
 const exporters: Partial<Record<ExportFormat, MarkdownExporter>> = {

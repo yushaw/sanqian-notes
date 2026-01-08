@@ -7,8 +7,9 @@ import { useState } from 'react'
 import { useI18n } from '../i18n'
 import { ImportDialog } from './ImportDialog'
 import { ExportDialog } from './ExportDialog'
+import { PdfImportDialog } from './PdfImportDialog'
 
-type ImporterType = 'markdown' | 'notion' | 'obsidian'
+type ImporterType = 'markdown' | 'notion' | 'obsidian' | 'pdf'
 
 // 导入来源卡片组件
 function ImportSourceCard({
@@ -73,6 +74,16 @@ function ObsidianIcon() {
   )
 }
 
+// PDF 图标
+function PdfIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/>
+      <path d="M8 12h1.5c.55 0 1 .45 1 1s-.45 1-1 1H9v1.5H8V12zm3.5 0H13c.55 0 1 .45 1 1v2c0 .55-.45 1-1 1h-1.5V12zm1 3.5V13h-.5v2.5h.5zm2-3.5H16c.55 0 1 .45 1 1v2.5h-1V14h-.5v1.5h-1V12z"/>
+    </svg>
+  )
+}
+
 export function DataSettings() {
   const { t } = useI18n()
   const [showImportDialog, setShowImportDialog] = useState(false)
@@ -115,6 +126,12 @@ export function DataSettings() {
             description={t.importExport.obsidianImportDesc}
             onClick={() => handleImportClick('obsidian')}
           />
+          <ImportSourceCard
+            icon={<PdfIcon />}
+            title={t.pdfImport?.title || 'PDF'}
+            description={t.pdfImport?.description || 'Import PDF files via cloud API (requires API key)'}
+            onClick={() => handleImportClick('pdf')}
+          />
         </div>
       </div>
 
@@ -139,7 +156,11 @@ export function DataSettings() {
 
       {/* 导入对话框 */}
       {showImportDialog && selectedImporter && (
-        <ImportDialog importerType={selectedImporter} onClose={handleCloseImport} />
+        selectedImporter === 'pdf' ? (
+          <PdfImportDialog onClose={handleCloseImport} />
+        ) : (
+          <ImportDialog importerType={selectedImporter} onClose={handleCloseImport} />
+        )
       )}
 
       {/* 导出对话框 */}

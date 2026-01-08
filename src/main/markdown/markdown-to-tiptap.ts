@@ -27,6 +27,22 @@ interface TiptapDoc {
 }
 
 /**
+ * 解码 HTML 实体
+ */
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&amp;/g, '&') // 必须放在最后，避免二次解码
+}
+
+/**
  * 预处理 Markdown，处理自定义语法
  */
 function preprocessMarkdown(markdown: string): string {
@@ -46,11 +62,35 @@ function preprocessMarkdown(markdown: string): string {
     return `\x00INLINE_CODE_${inlineCodes.length - 1}\x00`
   })
 
+  // 保护 data URI（base64 图片等）
+  const dataUris: string[] = []
+  result = result.replace(/data:[^)\s"']+/g, (match) => {
+    dataUris.push(match)
+    return `\x00DATA_URI_${dataUris.length - 1}\x00`
+  })
+
+  // 保护图片标签中的 src 属性（防止 base64 被处理）
+  const imgTags: string[] = []
+  result = result.replace(/<img[^>]+>/gi, (match) => {
+    imgTags.push(match)
+    return `\x00IMG_TAG_${imgTags.length - 1}\x00`
+  })
+
   // 处理高亮: ==text== -> 特殊标记
   result = result.replace(/==([^=]+)==/g, '\x00HIGHLIGHT_START\x00$1\x00HIGHLIGHT_END\x00')
 
   // 处理下划线: ++text++ -> 特殊标记
   result = result.replace(/\+\+([^+]+)\+\+/g, '\x00UNDERLINE_START\x00$1\x00UNDERLINE_END\x00')
+
+  // 恢复图片标签
+  imgTags.forEach((tag, i) => {
+    result = result.replace(`\x00IMG_TAG_${i}\x00`, tag)
+  })
+
+  // 恢复 data URI
+  dataUris.forEach((uri, i) => {
+    result = result.replace(`\x00DATA_URI_${i}\x00`, uri)
+  })
 
   // 恢复行内代码
   inlineCodes.forEach((code, i) => {
@@ -418,7 +458,26 @@ function parseToken(token: Token): TiptapNode[] {
 
     case 'html': {
       const htmlToken = token as Tokens.HTML
-      // 简单处理 HTML，作为段落文本
+      const htmlText = htmlToken.text.trim()
+
+      // 检查是否是 HTML 注释
+      const commentMatch = htmlText.match(/^<!--([\s\S]*?)-->$/)
+      if (commentMatch) {
+        return [{
+          type: 'htmlComment',
+          attrs: { content: commentMatch[1].trim() }
+        }]
+      }
+
+      // 检查是否是 HTML 表格
+      if (htmlText.startsWith('<table') && htmlText.includes('</table>')) {
+        const tableNode = parseHtmlTable(htmlText)
+        if (tableNode) {
+          return [tableNode]
+        }
+      }
+
+      // 简单处理其他 HTML，作为段落文本
       return [{ type: 'paragraph', content: [{ type: 'text', text: htmlToken.text }] }]
     }
 
@@ -440,6 +499,81 @@ function parseToken(token: Token): TiptapNode[] {
 
     default:
       return []
+  }
+}
+
+/**
+ * 解析 HTML 表格为 TipTap 表格节点
+ *
+ * TextIn API 返回的 markdown 中包含 HTML 表格，需要转换为 TipTap 格式
+ */
+function parseHtmlTable(html: string): TiptapNode | null {
+  try {
+    // 简单的 HTML 表格解析器
+    const rows: TiptapNode[] = []
+
+    // 提取所有行
+    const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+    let trMatch
+
+    let isFirstRow = true
+    while ((trMatch = trRegex.exec(html)) !== null) {
+      const rowHtml = trMatch[1]
+      const cells: TiptapNode[] = []
+
+      // 提取单元格（th 或 td）- 先匹配完整标签，再提取属性
+      const cellRegex = /<(th|td)([^>]*)>([\s\S]*?)<\/\1>/gi
+      let cellMatch
+
+      while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
+        const cellType = cellMatch[1].toLowerCase()
+        const cellAttrs = cellMatch[2] || ''
+        const cellContent = decodeHtmlEntities(
+          cellMatch[3]
+            .replace(/<[^>]+>/g, '') // 移除内部 HTML 标签
+            .replace(/\n/g, ' ')
+            .trim()
+        )
+
+        // 从属性字符串中提取 colspan
+        const colspanMatch = cellAttrs.match(/colspan=['"]?(\d+)['"]?/i)
+        const colspan = colspanMatch ? parseInt(colspanMatch[1], 10) : 1
+
+        // 根据是否是表头或第一行决定单元格类型
+        const isHeader = cellType === 'th' || isFirstRow
+        const tiptapCellType = isHeader ? 'tableHeader' : 'tableCell'
+
+        const cellNode: TiptapNode = {
+          type: tiptapCellType,
+          attrs: colspan > 1 ? { colspan } : undefined,
+          content: [{
+            type: 'paragraph',
+            content: cellContent ? [{ type: 'text', text: cellContent }] : []
+          }]
+        }
+
+        cells.push(cellNode)
+      }
+
+      if (cells.length > 0) {
+        rows.push({
+          type: 'tableRow',
+          content: cells
+        })
+        isFirstRow = false
+      }
+    }
+
+    if (rows.length === 0) {
+      return null
+    }
+
+    return {
+      type: 'table',
+      content: rows
+    }
+  } catch {
+    return null
   }
 }
 

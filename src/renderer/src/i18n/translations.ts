@@ -608,6 +608,29 @@ export interface Translations {
     importFailed: string
     exportFailed: string
   }
+  pdfImport: {
+    title: string
+    description: string
+    parseService: string
+    getApiKey: string
+    rememberConfig: string
+    selectFile: string
+    browse: string
+    filesSelected: string
+    targetNotebook: string
+    noNotebook: string
+    importImages: string
+    startImport: string
+    parsing: string
+    parsingHint: string
+    cancelImport: string
+    importCancelled: string
+    importSuccess: string
+    importPartial: string
+    successCount: string
+    failCount: string
+    close: string
+  }
 }
 
 const zh: Translations = {
@@ -1212,6 +1235,29 @@ const zh: Translations = {
     noTargetSelected: '请选择导出目录',
     importFailed: '导入失败',
     exportFailed: '导出失败'
+  },
+  pdfImport: {
+    title: '导入 PDF',
+    description: '通过云端 API 解析 PDF 文档（需要 API 密钥）',
+    parseService: '解析服务',
+    getApiKey: '获取密钥',
+    rememberConfig: '记住配置',
+    selectFile: 'PDF 文件',
+    browse: '选择文件',
+    filesSelected: '已选择 {n} 个文件',
+    targetNotebook: '目标笔记本',
+    noNotebook: '不指定',
+    importImages: '导入图片作为附件',
+    startImport: '开始导入',
+    parsing: '正在解析...',
+    parsingHint: '解析时间取决于文件大小，通常需要 10-60 秒',
+    cancelImport: '取消导入',
+    importCancelled: '导入已取消',
+    importSuccess: '导入成功！',
+    importPartial: '导入完成（有错误）',
+    successCount: '成功导入 {n} 个文件',
+    failCount: '{n} 个失败',
+    close: '完成'
   }
 }
 
@@ -1817,6 +1863,29 @@ const en: Translations = {
     noTargetSelected: 'Please select an output directory',
     importFailed: 'Import failed',
     exportFailed: 'Export failed'
+  },
+  pdfImport: {
+    title: 'Import PDF',
+    description: 'Import PDF files via cloud API (requires API key)',
+    parseService: 'Parse Service',
+    getApiKey: 'Get API Key',
+    rememberConfig: 'Remember configuration',
+    selectFile: 'PDF Files',
+    browse: 'Select Files',
+    filesSelected: '{n} file(s) selected',
+    targetNotebook: 'Target Notebook',
+    noNotebook: 'None (use default)',
+    importImages: 'Import images as attachments',
+    startImport: 'Start Import',
+    parsing: 'Processing...',
+    parsingHint: 'Parsing may take 10-60 seconds depending on file size',
+    cancelImport: 'Cancel',
+    importCancelled: 'Import cancelled',
+    importSuccess: 'Import Successful!',
+    importPartial: 'Import Completed with Errors',
+    successCount: '{n} files imported',
+    failCount: '{n} failed',
+    close: 'Done'
   }
 }
 

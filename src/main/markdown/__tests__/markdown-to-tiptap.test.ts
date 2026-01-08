@@ -182,6 +182,43 @@ describe('markdownToTiptap', () => {
       expect(result.content[0].content).toHaveLength(2) // header + 1 row
       expect(result.content[0].content[0].content[0].type).toBe('tableHeader')
     })
+
+    it('HTML 表格', () => {
+      const html = '<table border="1"><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table>'
+      const result = markdownToTiptap(html) as AnyNode
+      expect(result.content[0].type).toBe('table')
+      expect(result.content[0].content).toHaveLength(2) // 2 rows
+      expect(result.content[0].content[0].content[0].type).toBe('tableHeader') // first row is header
+      expect(result.content[0].content[0].content[0].content[0].content[0].text).toBe('A')
+      expect(result.content[0].content[1].content[0].type).toBe('tableCell')
+      expect(result.content[0].content[1].content[0].content[0].content[0].text).toBe('1')
+    })
+
+    it('HTML 表格带 colspan', () => {
+      const html = '<table><tr><td colspan="2">Header</td></tr><tr><td>A</td><td>B</td></tr></table>'
+      const result = markdownToTiptap(html) as AnyNode
+      expect(result.content[0].type).toBe('table')
+      expect(result.content[0].content[0].content[0].attrs?.colspan).toBe(2)
+    })
+  })
+
+  describe('HTML 注释', () => {
+    it('HTML 注释转为 htmlComment 节点', () => {
+      const result = markdownToTiptap('<!-- This is a comment -->') as AnyNode
+      expect(result.content[0].type).toBe('htmlComment')
+      expect(result.content[0].attrs.content).toBe('This is a comment')
+    })
+
+    it('多行 HTML 注释', () => {
+      const result = markdownToTiptap('<!-- Line 1\nLine 2 -->') as AnyNode
+      expect(result.content[0].type).toBe('htmlComment')
+      expect(result.content[0].attrs.content).toBe('Line 1\nLine 2')
+    })
+
+    it('混合内容中的 HTML 注释', () => {
+      const result = markdownToTiptap('Hello\n\n<!-- Comment -->\n\nWorld') as AnyNode
+      expect(result.content.some((n: AnyNode) => n.type === 'htmlComment')).toBe(true)
+    })
   })
 
   describe('自定义语法', () => {

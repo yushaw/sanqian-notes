@@ -256,6 +256,61 @@ declare global {
         }>
         selectTarget: () => Promise<string | null>
       }
+      pdfImport: {
+        getServices: () => Promise<Array<{
+          id: string
+          name: string
+          description: string
+          configUrl: string
+          configFields: Array<{
+            key: string
+            label: string
+            type: 'text' | 'password'
+            placeholder?: string
+            required: boolean
+          }>
+        }>>
+        getConfig: () => Promise<{
+          activeService: string
+          services: Record<string, Record<string, string>>
+          rememberConfig: boolean
+        }>
+        setConfig: (config: {
+          activeService: string
+          services: Record<string, Record<string, string>>
+          rememberConfig: boolean
+        }) => Promise<void>
+        getServiceConfig: (serviceId: string) => Promise<Record<string, string> | null>
+        setServiceConfig: (serviceId: string, config: Record<string, string>) => Promise<void>
+        selectFiles: () => Promise<string[]>
+        import: (options: {
+          pdfPaths: string[]
+          serviceId: string
+          serviceConfig: Record<string, string>
+          targetNotebookId?: string
+          importImages: boolean
+        }) => Promise<{
+          results: Array<{
+            path: string
+            success: boolean
+            noteId?: string
+            noteTitle?: string
+            imageCount?: number
+            error?: string
+          }>
+          successCount: number
+          failCount: number
+        }>
+        cancel: () => Promise<boolean>
+        onProgress: (callback: (progress: {
+          stage: string
+          message: string
+          currentFile?: number
+          totalFiles?: number
+          fileName?: string
+          percent?: number
+        }) => void) => () => void
+      }
       appData: {
         getPath: () => Promise<string>
         openPath: () => Promise<string>

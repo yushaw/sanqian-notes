@@ -46,6 +46,7 @@ import { Mathematics } from './extensions/Mathematics'
 import { Mermaid } from './extensions/Mermaid'
 import { CustomCodeBlock } from './extensions/CodeBlock'
 import { Footnote } from './extensions/Footnote'
+import { HtmlComment } from './extensions/HtmlComment'
 import { MarkdownPaste } from './extensions/MarkdownPaste'
 import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { SlashCommand } from './extensions/SlashCommand'
@@ -459,6 +460,7 @@ export function TypewriterMode({
       Mermaid,
       CustomCodeBlock,
       Footnote,
+      HtmlComment,
       MarkdownPaste,
       SlashCommand.configure({
         suggestion: slashCommandSuggestion,

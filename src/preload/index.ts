@@ -226,6 +226,42 @@ contextBridge.exposeInMainWorld('electron', {
     export: (options: unknown) => ipcRenderer.invoke('export:execute', options),
     selectTarget: () => ipcRenderer.invoke('export:selectTarget'),
   },
+  // PDF Import API
+  pdfImport: {
+    // 服务配置
+    getServices: () => ipcRenderer.invoke('pdf:getServices'),
+    getConfig: () => ipcRenderer.invoke('pdf:getConfig'),
+    setConfig: (config: unknown) => ipcRenderer.invoke('pdf:setConfig', config),
+    getServiceConfig: (serviceId: string) => ipcRenderer.invoke('pdf:getServiceConfig', serviceId),
+    setServiceConfig: (serviceId: string, config: Record<string, string>) =>
+      ipcRenderer.invoke('pdf:setServiceConfig', serviceId, config),
+    // 文件选择
+    selectFiles: () => ipcRenderer.invoke('pdf:selectFiles'),
+    // 导入
+    import: (options: {
+      pdfPaths: string[]
+      serviceId: string
+      serviceConfig: Record<string, string>
+      targetNotebookId?: string
+      importImages: boolean
+    }) => ipcRenderer.invoke('pdf:import', options),
+    // 取消导入
+    cancel: () => ipcRenderer.invoke('pdf:cancel'),
+    // 进度监听
+    onProgress: (callback: (progress: {
+      stage: string
+      message: string
+      currentFile?: number
+      totalFiles?: number
+      fileName?: string
+      percent?: number
+    }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]) =>
+        callback(progress)
+      ipcRenderer.on('pdf:importProgress', handler)
+      return () => ipcRenderer.removeListener('pdf:importProgress', handler)
+    },
+  },
   // App data path
   appData: {
     getPath: () => ipcRenderer.invoke('app:getDataPath'),

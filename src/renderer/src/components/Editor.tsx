@@ -47,6 +47,7 @@ import { CustomHorizontalRule } from './extensions/HorizontalRule'
 import { AIPreview } from './extensions/AIPreview'
 import { AIPopupMark } from './extensions/AIPopupMark'
 import { AgentTask } from './extensions/AgentTask'
+import { HtmlComment } from './extensions/HtmlComment'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
 import { AgentTaskPanel } from './AgentTaskPanel'
@@ -475,6 +476,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       Audio,
       FileAttachment,
       Footnote,
+      HtmlComment,
       // 新增扩展
       CustomHighlight,
       CustomUnderline,
@@ -1488,14 +1490,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           <div onContextMenu={handleContextMenu}>
             <EditorContent editor={editor} className="zen-editor-content" />
           </div>
+        </div>
 
-          {/* Word count - subtle */}
-          <div className="zen-stats">
-            {selectedWordCount !== null
-              ? `${selectedWordCount} / ${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
-              : `${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
-            }
-          </div>
+        {/* Word count - subtle, outside zen-content to stay fixed during scroll */}
+        <div className="zen-stats">
+          {selectedWordCount !== null
+            ? `${selectedWordCount} / ${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
+            : `${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
+          }
         </div>
       </div>
 

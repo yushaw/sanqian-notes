@@ -175,6 +175,13 @@ export function initDatabase(): void {
       updated_at TEXT NOT NULL
     );
 
+    -- App Settings table (general key-value settings storage)
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     -- Agent Tasks table (stores agent task execution records, separate from notes)
     CREATE TABLE IF NOT EXISTS agent_tasks (
       id TEXT PRIMARY KEY,
@@ -2229,5 +2236,37 @@ export function deleteAgentTask(id: string): boolean {
  */
 export function deleteAgentTaskByBlockId(blockId: string): boolean {
   const result = db.prepare('DELETE FROM agent_tasks WHERE block_id = ?').run(blockId)
+  return result.changes > 0
+}
+
+// ============================================
+// App Settings (General key-value storage)
+// ============================================
+
+/**
+ * Get a setting value by key
+ */
+export function getAppSetting(key: string): string | null {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined
+  return row?.value ?? null
+}
+
+/**
+ * Set a setting value
+ */
+export function setAppSetting(key: string, value: string): void {
+  const now = new Date().toISOString()
+  db.prepare(
+    'INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)'
+  ).run(key, value, now)
+}
+
+/**
+ * Delete a setting
+ */
+export function deleteAppSetting(key: string): boolean {
+  const result = db.prepare('DELETE FROM app_settings WHERE key = ?').run(key)
   return result.changes > 0
 }

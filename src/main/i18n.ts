@@ -237,6 +237,18 @@ const translations = {
         description: '查看笔记本列表',
       },
     },
+    // PDF Import
+    pdf: {
+      uploading: '正在上传 PDF...',
+      parsing: '正在解析文档...',
+      extracting: '正在提取图片...',
+      converting: '正在转换格式...',
+      processingFile: (current: number, total: number) => `正在处理第 ${current}/${total} 个文件`,
+      // TextIn service
+      textinDescription: '合合信息文档解析服务，支持表格、公式、图片提取',
+      textinAppIdPlaceholder: '输入 TextIn App ID',
+      textinSecretCodePlaceholder: '输入 TextIn Secret Code',
+    },
     // Common
     common: {
       unknownError: '未知错误',
@@ -433,6 +445,18 @@ Your job:
         name: 'Notebooks',
         description: 'View notebook list',
       },
+    },
+    // PDF Import
+    pdf: {
+      uploading: 'Uploading PDF...',
+      parsing: 'Parsing document...',
+      extracting: 'Extracting images...',
+      converting: 'Converting format...',
+      processingFile: (current: number, total: number) => `Processing file ${current} of ${total}`,
+      // TextIn service
+      textinDescription: 'TextIn document parsing service, supports tables, formulas, and images',
+      textinAppIdPlaceholder: 'Enter TextIn App ID',
+      textinSecretCodePlaceholder: 'Enter TextIn Secret Code',
     },
     // Common
     common: {

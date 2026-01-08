@@ -106,7 +106,7 @@ import {
   type EmbeddingConfig,
 } from './embedding'
 import { fetchEmbeddingConfigFromSanqian, updateSdkContexts } from './sanqian-sdk'
-import { setAppLocale } from './i18n'
+import { setAppLocale, t } from './i18n'
 import { testEmbeddingAPI } from './embedding/api'
 import { semanticSearch, hybridSearch } from './embedding/semantic-search'
 import {
@@ -118,6 +118,10 @@ import {
   type ImportOptions,
   type ExportOptions,
 } from './import-export'
+import { getPdfServiceInfos } from './import-export/pdf-services'
+import { getPdfConfig, setPdfConfig, getServiceConfig, setServiceConfig, type PdfServiceConfigs } from './import-export/pdf-config'
+import { pdfImporter } from './import-export/importers/pdf-importer'
+import type { PdfParseProgress } from './import-export/pdf-services/types'
 import {
   type Language,
   type ResolvedLanguage,
@@ -1358,6 +1362,159 @@ app.whenReady().then(() => {
 
     return result.canceled ? null : result.filePaths[0]
   })
+
+  // ============ PDF Import ============
+  ipcMain.handle('pdf:getServices', () => getPdfServiceInfos())
+
+  ipcMain.handle('pdf:getConfig', () => getPdfConfig())
+
+  ipcMain.handle('pdf:setConfig', (_, config: PdfServiceConfigs) => setPdfConfig(config))
+
+  ipcMain.handle('pdf:getServiceConfig', (_, serviceId: string) => getServiceConfig(serviceId))
+
+  ipcMain.handle('pdf:setServiceConfig', (_, serviceId: string, config: Record<string, string>) => {
+    setServiceConfig(serviceId, config)
+  })
+
+  ipcMain.handle('pdf:selectFiles', async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'PDF files', extensions: ['pdf'] }],
+    })
+    return result.canceled ? [] : result.filePaths
+  })
+
+  // PDF import abort controller (module-level so it can be cancelled from another handler)
+  let pdfImportAbortController: AbortController | null = null
+
+  ipcMain.handle('pdf:cancel', () => {
+    if (pdfImportAbortController) {
+      pdfImportAbortController.abort()
+      pdfImportAbortController = null
+      return true
+    }
+    return false
+  })
+
+  ipcMain.handle(
+    'pdf:import',
+    async (
+      _event,
+      options: {
+        pdfPaths: string[]
+        serviceId: string
+        serviceConfig: Record<string, string>
+        targetNotebookId?: string
+        importImages: boolean
+      }
+    ) => {
+      const win = mainView
+
+      // Create abort controller for this import session
+      pdfImportAbortController = new AbortController()
+      const abortSignal = pdfImportAbortController.signal
+
+      const results: Array<{
+        path: string
+        success: boolean
+        noteId?: string
+        noteTitle?: string
+        imageCount?: number
+        error?: string
+      }> = []
+
+      try {
+        for (let i = 0; i < options.pdfPaths.length; i++) {
+          // Check if cancelled before processing next file
+          if (abortSignal.aborted) {
+            // Add remaining files as cancelled
+            for (let j = i; j < options.pdfPaths.length; j++) {
+              results.push({
+                path: options.pdfPaths[j],
+                success: false,
+                error: 'Import cancelled',
+              })
+            }
+            break
+          }
+
+          const pdfPath = options.pdfPaths[i]
+
+          // 发送进度：当前文件
+          win?.webContents.send('pdf:importProgress', {
+            stage: 'file',
+            message: t().pdf.processingFile(i + 1, options.pdfPaths.length),
+            currentFile: i + 1,
+            totalFiles: options.pdfPaths.length,
+            fileName: pdfPath.split(/[/\\]/).pop() || pdfPath,
+          })
+
+          // 设置进度回调
+          const onProgress = (progress: PdfParseProgress) => {
+            win?.webContents.send('pdf:importProgress', {
+              ...progress,
+              currentFile: i + 1,
+              totalFiles: options.pdfPaths.length,
+            })
+          }
+
+          // 设置运行时配置（包含 abort signal）
+          pdfImporter.setRuntimeConfig({
+            serviceId: options.serviceId,
+            serviceConfig: options.serviceConfig,
+            onProgress,
+            abortSignal,
+          })
+
+          try {
+            // 复用现有导入流程
+            const result = await executeImport({
+              sourcePath: pdfPath,
+              folderStrategy: 'single-notebook',
+              targetNotebookId: options.targetNotebookId,
+              tagStrategy: 'keep-nested',
+              conflictStrategy: 'rename',
+              importAttachments: options.importImages,
+              parseFrontMatter: false,
+            })
+
+            results.push({
+              path: pdfPath,
+              success: result.success,
+              noteId: result.importedNotes[0]?.id,
+              noteTitle: result.importedNotes[0]?.title,
+              imageCount: result.stats.importedAttachments,
+              error: result.errors[0]?.error,
+            })
+          } catch (error) {
+            results.push({
+              path: pdfPath,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          } finally {
+            pdfImporter.cleanup()
+          }
+        }
+      } finally {
+        // Clean up abort controller
+        pdfImportAbortController = null
+      }
+
+      // 通知数据更新
+      const successCount = results.filter((r) => r.success).length
+      if (successCount > 0) {
+        mainView?.webContents.send('data:changed')
+      }
+
+      return {
+        results,
+        successCount,
+        failCount: results.length - successCount,
+      }
+    }
+  )
 
   ipcMain.handle('app:getDataPath', () => {
     return app.getPath('userData')

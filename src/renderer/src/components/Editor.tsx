@@ -1502,13 +1502,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           </div>
         </div>
 
-        {/* Word count - subtle, outside zen-content to stay fixed during scroll */}
-        <div className="zen-stats">
-          {selectedWordCount !== null
-            ? `${selectedWordCount} / ${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
-            : `${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
-          }
-        </div>
+      </div>
+
+      {/* Word count - outside scroll wrapper to stay fixed during scroll */}
+      <div className="zen-stats">
+        {selectedWordCount !== null
+          ? `${selectedWordCount} / ${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
+          : `${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
+        }
       </div>
 
       {/* Note link popup */}

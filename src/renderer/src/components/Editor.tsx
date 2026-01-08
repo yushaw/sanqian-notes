@@ -1880,7 +1880,7 @@ function ToolbarButton({
   return (
     <button
       onClick={onClick}
-      title={title}
+      data-tooltip={title}
       className={`zen-toolbar-btn ${active ? 'active' : ''}`}
     >
       {icon}

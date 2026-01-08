@@ -160,6 +160,36 @@
   height: 16px;
 }
 
+/* Tooltip - 立即显示，无延迟 */
+.zen-toolbar-btn[data-tooltip] {
+  position: relative;
+}
+
+.zen-toolbar-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 6px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.zen-toolbar-btn[data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
 .zen-toolbar-text {
   font-size: 12px;
   font-weight: 600;

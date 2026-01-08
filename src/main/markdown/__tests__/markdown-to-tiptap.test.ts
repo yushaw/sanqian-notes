@@ -232,8 +232,10 @@ describe('markdownToTiptap', () => {
 
     it('块级数学公式', () => {
       const result = markdownToTiptap('$$\n\\int_0^\\infty e^{-x^2} dx\n$$') as AnyNode
-      expect(result.content[0].type).toBe('mathematics')
-      expect(result.content[0].attrs.display).toBe('yes')
+      // 统一使用 inlineMath + display: 'yes'，包裹在 paragraph 中
+      expect(result.content[0].type).toBe('paragraph')
+      expect(result.content[0].content[0].type).toBe('inlineMath')
+      expect(result.content[0].content[0].attrs.display).toBe('yes')
     })
 
     it('Mermaid 图表', () => {

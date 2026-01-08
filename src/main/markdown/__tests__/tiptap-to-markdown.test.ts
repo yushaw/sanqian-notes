@@ -435,7 +435,7 @@ describe('tiptapToMarkdown', () => {
         type: 'doc',
         content: [
           {
-            type: 'mathematics',
+            type: 'inlineMath',
             attrs: { latex: '\\int_0^\\infty e^{-x^2} dx', display: 'yes' }
           }
         ]

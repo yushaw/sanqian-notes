@@ -2,7 +2,7 @@
 
 > 状态：设计确定，可开始实现
 > 创建时间：2025-01-07
-> 更新时间：2026-01-07
+> 更新时间：2026-01-08
 > 相关文档：[sanqian/docs/meta-agent-design.md](../../sanqian/docs/meta-agent-design.md)
 
 ## 1. 概述
@@ -685,9 +685,213 @@ editor.on('update', ({ transaction }) => {
 
 ---
 
-## 6. 待讨论问题
+## 6. 输出机制
 
-### 6.1 UI/UX
+### 6.1 输出位置
+
+Agent Block 的输出作为**独立 block**，插入在 agent block 下方：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ [🤖] Agent Block: 总结这篇文章              Researcher · ✓  │
+│      输入: "React 19 带来了很多新特性..."                   │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 输出 Block (独立 block)                                      │
+│                                                              │
+│ ## 摘要                                                      │
+│ React 19 主要特性包括：                                      │
+│ - Actions: 异步操作原语                                      │
+│ - use(): Promise 读取                                        │
+│ ...                                                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 6.2 关联机制
+
+使用**双向 ID 引用**管理 agent block 与输出 block 的关系：
+
+```typescript
+// Agent Block attrs
+{
+  type: 'agentTask',
+  attrs: {
+    // ... 其他属性
+    outputBlockId: string | null  // 指向输出 block
+  }
+}
+
+// 输出 Block attrs（普通 block + 标记）
+{
+  type: 'paragraph' | 'table' | 'htmlSandbox',
+  attrs: {
+    // ... 原有属性
+    managedBy: string | null  // 指向 agent block ID，null 表示已断开
+  }
+}
+```
+
+### 6.3 编辑断开机制
+
+当用户编辑输出 block 后，自动断开关联：
+
+```
+用户编辑输出 → 清除 managedBy → 输出变成普通 block
+                                    ↓
+重新运行 Agent → 生成新的输出 block（原输出保留）
+```
+
+**重新运行逻辑**：
+1. 检查 `outputBlockId` 指向的 block
+2. 如果 `managedBy` 仍指向自己 → 覆盖内容
+3. 如果 `managedBy` 为 null → 生成新的输出 block
+
+### 6.4 处理模式
+
+| 模式 | 行为 | 适用场景 |
+|------|------|----------|
+| `append` | Agent block 保留，输出插入下方 | 分析、生成内容、总结 |
+| `replace` | Agent block 消失，变成输出内容 | 翻译、格式转换、改写 |
+
+默认使用 `append` 模式。
+
+### 6.5 运行时机
+
+| 时机 | 行为 | MVP |
+|------|------|-----|
+| `manual` | 用户点击运行 | ✅ |
+| `immediate` | 创建后立即运行一次 | ✅ |
+| `scheduled` | 定时运行（每天/每周/指定时间） | ✅ |
+
+---
+
+## 7. 执行流程
+
+### 7.1 串行两步执行
+
+为保证安全性和职责分离，采用**串行两步执行**：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Agent Block 运行                        │
+├─────────────────────────────────────────────────────────────┤
+│  Step 1: 内容生成                                            │
+│  ┌─────────┐     ┌──────────────┐     ┌─────────────┐       │
+│  │ 用户输入 │ ──→ │ assistant    │ ──→ │ 原始内容     │       │
+│  │ + 上下文 │     │ agent        │     │ (markdown)  │       │
+│  └─────────┘     └──────────────┘     └─────────────┘       │
+│                                              ↓               │
+│  Step 2: 格式化                                              │
+│  ┌─────────────┐     ┌──────────────┐     ┌─────────────┐   │
+│  │ 原始内容     │ ──→ │ editor       │ ──→ │ 结构化输出   │   │
+│  │ + 输出模式   │     │ agent        │     │ (blocks)    │   │
+│  └─────────────┘     └──────────────┘     └─────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**优点**：
+- 现有 agent 不需要改动
+- 职责分离：生成内容 vs 格式化
+- 易于调试：出问题知道是哪个环节
+- editor agent 可复用于任何来源的内容
+
+### 7.2 输出格式保证
+
+使用 **Tool Use / Function Calling** 保证输出格式（模型无关）：
+
+```typescript
+// Editor Agent 的 tools 定义
+const editorTools = [
+  {
+    name: 'insert_paragraph',
+    description: 'Insert a paragraph of markdown text',
+    parameters: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'Markdown formatted text' }
+      },
+      required: ['content']
+    }
+  },
+  {
+    name: 'insert_list',
+    description: 'Insert a list',
+    parameters: {
+      type: 'object',
+      properties: {
+        listType: { type: 'string', enum: ['ordered', 'unordered', 'todo'] },
+        items: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['listType', 'items']
+    }
+  },
+  {
+    name: 'insert_table',
+    description: 'Insert a table',
+    parameters: {
+      type: 'object',
+      properties: {
+        headers: { type: 'array', items: { type: 'string' } },
+        rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } }
+      },
+      required: ['headers', 'rows']
+    }
+  },
+  {
+    name: 'insert_html',
+    description: 'Insert an interactive HTML sandbox',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'Complete HTML document' }
+      },
+      required: ['code']
+    }
+  },
+  {
+    name: 'create_note_ref',
+    description: 'Create a new note and insert a reference',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        content: { type: 'string', description: 'Markdown content for new note' }
+      },
+      required: ['title', 'content']
+    }
+  }
+]
+```
+
+### 7.3 模型兼容性
+
+Tool Use / Function Calling 是**模型无关**的方案，主流模型都支持：
+
+| 模型 | Function Calling | Structured Output |
+|------|-----------------|-------------------|
+| OpenAI GPT-4 | ✅ | ✅ JSON Schema 强制 |
+| Claude | ✅ Tool Use | ✅ 通过 Tool Use |
+| GLM-4.6/4.7 | ✅ | ✅ JSON Schema |
+| Kimi K2 | ✅ | ✅ |
+| 通义千问 Qwen3 | ✅ | ✅ |
+| DeepSeek | ✅ strict mode | ✅ JSON Mode |
+
+### 7.4 输出类型
+
+| 类型 | Tool | 生成的 Block |
+|------|------|-------------|
+| 段落 | `insert_paragraph` | paragraph (支持 markdown) |
+| 列表 | `insert_list` | bulletList / orderedList / taskList |
+| 表格 | `insert_table` | table |
+| HTML | `insert_html` | htmlSandbox (iframe) |
+| 笔记引用 | `create_note_ref` | 创建新笔记 + 插入引用 |
+
+---
+
+## 8. 待讨论问题
+
+### 8.1 UI/UX
 
 - [x] Agent Block 的展示方式 → **左侧图标 + 右侧信息，hover 显示**
 - [x] 结果存储位置 → **分开存储，与 AI Actions 模式相同**
@@ -699,7 +903,7 @@ editor.on('update', ({ transaction }) => {
 - [ ] 移动端适配
 - [ ] 键盘导航
 
-### 6.2 功能
+### 8.2 功能
 
 - [x] Block 删除时的处理 → **立即删除关联的 AgentTaskRecord**
 - [x] 是否支持原生创建 → **支持，Phase 2 通过 `/agent` 斜杠命令**
@@ -708,53 +912,62 @@ editor.on('update', ({ transaction }) => {
 - [ ] 任务记录的过期策略？
 - [ ] 是否支持从历史任务恢复/重试？
 
-### 6.3 技术
+### 8.3 技术
 
 - [ ] 离线状态的处理
 - [ ] 大结果的分页/截断
 - [ ] 与现有 AI Actions 代码的复用
 - [ ] 任务记录的同步策略（多设备）
 
-### 6.4 与元 Agent 的边界
+### 8.4 与元 Agent 的边界
 
 - [ ] notes 是否需要知道元 agent 的存在，还是只关心最终结果？
 - [ ] Agent 保存后如何在 notes 中展示和选择？
 
 ---
 
-## 7. 实现计划
+## 9. 实现计划
 
 ### Phase 1: 基础功能（模式 1）
-- [ ] Block 属性扩展（agentTask）
-- [ ] 左侧图标 + 右侧信息的 Decoration
-- [ ] 触发方式：右键菜单 + Block 菜单
-- [ ] 基础弹窗 UI（含移除功能）
-- [ ] 与 sanqian 的通信
-- [ ] 任务记录存储（IndexedDB）
+- [x] Block 属性扩展（agentTask）
+- [x] 左侧图标 + 右侧信息的 Decoration（AgentTaskIndicators）
+- [x] 触发方式：右键菜单
+- [x] 基础弹窗 UI（AgentTaskPanel）
+- [x] 与 sanqian 的通信（window.electron.agent）
+- [x] 任务记录存储（agentTaskStorage + SQLite）
 - [ ] Block 删除时的清理逻辑
+- [ ] Block 菜单（六个点）触发
 
 ### Phase 2: 完善交互
-- [ ] 执行过程可视化
-- [ ] 流式结果显示
+- [x] 执行过程可视化（ExecutionSteps）
+- [x] 流式结果显示
 - [ ] 结果插入到文档
 - [ ] 错误处理和重试
 - [ ] 快捷键支持 (Cmd+Shift+A)
 
-### Phase 3: 独立 Agent Block（模式 2）
+### Phase 3: 输出机制
+- [ ] 双向 ID 引用（outputBlockId, managedBy）
+- [ ] 编辑断开机制
+- [ ] 串行两步执行（内容生成 + 格式化）
+- [ ] Editor Agent 定义（output tools）
+- [ ] 输出类型支持（paragraph, list, table, html, noteRef）
+
+### Phase 4: 独立 Agent Block（模式 2）
 - [ ] 斜杠命令 `/agent` 创建原生 Agent Block
 - [ ] 非连续多选支持
 - [ ] 独立 Agent Block 类型
 - [ ] 引用多 blocks
 
-### Phase 4: 高级功能
+### Phase 5: 高级功能
 - [ ] auto 模式（接入元 agent）
+- [ ] 定时运行（scheduled）
 - [ ] Artifact 结果类型
 - [ ] 保存 agent 功能
 - [ ] 任务历史管理
 
 ---
 
-## 8. 已确认的设计决策
+## 10. 已确认的设计决策
 
 | 决策项 | 结论 |
 |--------|------|
@@ -764,12 +977,19 @@ editor.on('update', ({ transaction }) => {
 | 点击区域 | 左侧图标和右侧信息都可点击 |
 | 多次执行 | 覆盖上一次结果 |
 | Block 删除 | 立即删除关联的 AgentTaskRecord |
-| 原生创建 | 支持，Phase 2 通过斜杠命令 |
+| 原生创建 | 支持，Phase 4 通过斜杠命令 |
 | 触发方式 | 右键菜单 "AI Actions" + Block 菜单 |
+| **输出位置** | 独立 block，插入在 agent block 下方 |
+| **关联机制** | 双向 ID 引用（outputBlockId, managedBy） |
+| **编辑断开** | 用户编辑输出后清除 managedBy，重新运行生成新 block |
+| **处理模式** | append（默认）/ replace |
+| **运行时机** | manual / immediate / scheduled（MVP 都需要） |
+| **执行流程** | 串行两步：内容生成 agent → editor agent 格式化 |
+| **输出格式保证** | Tool Use / Function Calling（模型无关） |
 
 ---
 
-## 9. 参考
+## 11. 参考
 
 - [Notion AI Blocks](https://www.notion.com/help/notion-ai-faqs)
 - [Tana AI Command Nodes](https://tana.inc/docs/ai-command-nodes)

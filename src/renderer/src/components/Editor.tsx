@@ -34,7 +34,7 @@ import { ColorPicker } from './ColorPicker'
 import { Callout } from './extensions/Callout'
 import { Toggle } from './extensions/Toggle'
 import { ResizableImage } from './extensions/ResizableImage'
-import { Mathematics } from './extensions/Mathematics'
+import { Mathematics, BlockMath } from './extensions/Mathematics'
 import { Mermaid } from './extensions/Mermaid'
 import { Video } from './extensions/Video'
 import { Audio } from './extensions/Audio'
@@ -471,6 +471,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       Callout,
       Toggle,
       Mathematics,
+      BlockMath,
       Mermaid,
       Video,
       Audio,
@@ -1454,16 +1455,24 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         className="zen-scroll-wrapper"
         style={{ position: 'relative' }}
         onClick={(e) => {
-          // Click on empty area focuses editor at end
-          // But don't interfere with text selection - if user has selected text, don't focus
-          if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('zen-content')) {
-            // Check if there's an active text selection (from drag-select)
-            const selection = window.getSelection()
-            if (selection && selection.toString().length > 0) {
-              // User has selected text, don't change focus
-              return
-            }
+          // 点击空白区域时聚焦编辑器
+          // 水平 padding 已移到 .zen-editor，ProseMirror 会自然处理点击定位
+          const target = e.target as HTMLElement
+          // 如果点击的是 ProseMirror 或标题，让它们自己处理
+          if (target.closest('.zen-editor') || target.closest('.zen-title')) {
+            return
+          }
+          // 如果有文本选中，不改变焦点
+          const selection = window.getSelection()
+          if (selection && selection.toString().length > 0) {
+            return
+          }
+          // 点击内容区域下方空白（zen-content 或 zen-editor-content）时跳到末尾继续输入
+          // 点击其他空白区域只聚焦
+          if (target.classList.contains('zen-content') || target.classList.contains('zen-editor-content')) {
             editor?.commands.focus('end')
+          } else {
+            editor?.commands.focus()
           }
         }}
       >

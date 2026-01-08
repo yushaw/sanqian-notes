@@ -83,8 +83,7 @@
   max-width: var(--tw-max-width);
   margin-left: auto;
   margin-right: auto;
-  padding-left: var(--tw-padding-h);
-  padding-right: var(--tw-padding-h);
+  /* 水平 padding 移到 .typewriter-title 和 .ProseMirror，让 ProseMirror 处理点击定位 */
 
   /* 过度滚动：让首行/末行也能滚到固定光标位置 */
   padding-top: calc(var(--tw-cursor-offset-vh, 45vh));
@@ -186,7 +185,7 @@
   outline: none;
   resize: none;
   margin-bottom: 3rem;
-  padding: 0;
+  padding: 0 var(--tw-padding-h); /* 水平 padding 与编辑器对齐 */
   line-height: 1.4;
   letter-spacing: 0.08em;
 }
@@ -211,6 +210,8 @@
   line-height: var(--tw-line-height);
   letter-spacing: var(--tw-letter-spacing);
   color: var(--tw-text);
+  padding-left: var(--tw-padding-h);  /* 水平 padding 让 ProseMirror 处理点击定位 */
+  padding-right: var(--tw-padding-h);
 
   /* 优化文字渲染 */
   -webkit-font-smoothing: antialiased;

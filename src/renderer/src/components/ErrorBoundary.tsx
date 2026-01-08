@@ -11,6 +11,7 @@ interface Props {
   children: ReactNode
   fallback?: ReactNode
   onError?: (error: Error, errorInfo: ErrorInfo) => void
+  resetKey?: string | number  // 当这个值变化时，自动重置错误状态
 }
 
 interface State {
@@ -32,6 +33,13 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('[ErrorBoundary] Caught error:', error)
     console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack)
     this.props.onError?.(error, errorInfo)
+  }
+
+  componentDidUpdate(prevProps: Props): void {
+    // 当 resetKey 变化时，自动重置错误状态
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null })
+    }
   }
 
   handleRetry = (): void => {
@@ -85,6 +93,13 @@ export class EditorErrorBoundary extends Component<Props, State> {
     console.error('[EditorErrorBoundary] Editor crashed:', error)
     console.error('[EditorErrorBoundary] Component stack:', errorInfo.componentStack)
     this.props.onError?.(error, errorInfo)
+  }
+
+  componentDidUpdate(prevProps: Props): void {
+    // 当 resetKey 变化时（例如切换笔记），自动重置错误状态
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null })
+    }
   }
 
   handleRetry = (): void => {

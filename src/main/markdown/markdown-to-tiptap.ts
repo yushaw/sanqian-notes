@@ -282,11 +282,16 @@ function parseToken(token: Token): TiptapNode[] {
       const text = paraToken.raw?.trim() || ''
 
       // 检查是否是块级数学公式
+      // 统一使用 inlineMath + display: 'yes'，包裹在 paragraph 中
+      // 与用户输入 $$...$$ 创建的节点保持一致
       const mathMatch = text.match(/^\$\$([\s\S]+?)\$\$$/)
       if (mathMatch) {
         return [{
-          type: 'mathematics',
-          attrs: { latex: mathMatch[1].trim(), display: 'yes' }
+          type: 'paragraph',
+          content: [{
+            type: 'inlineMath',
+            attrs: { latex: mathMatch[1].trim(), display: 'yes' }
+          }]
         }]
       }
 

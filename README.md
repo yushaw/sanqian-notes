@@ -3521,6 +3521,36 @@ src/main/import-export/
 
 ---
 
+## 2026-01-08: PDF 导入功能
+
+**背景：** 支持从 arXiv 等来源导入 PDF 论文，自动转换为 Markdown 笔记。
+
+**功能特性：**
+- 支持多个 PDF 文件同时导入
+- TextIn 云服务解析（支持表格、公式、图片）
+- API 密钥配置持久化（加密存储）
+- 可扩展的服务抽象（后续可支持 Mathpix 等）
+- 实时进度显示
+
+**新增文件：**
+- `src/main/import-export/pdf-services/` - 服务抽象层
+  - `types.ts` - 服务接口定义
+  - `textin.ts` - TextIn 服务实现
+  - `index.ts` - 服务注册表
+- `src/main/import-export/pdf-config.ts` - 配置存储（加密）
+- `src/renderer/src/components/PdfImportDialog.tsx` - 导入对话框
+
+**修改文件：**
+- `src/main/database.ts` - 新增 app_settings 表
+- `src/main/import-export/importers/pdf-importer.ts` - 重构使用服务层
+- `src/main/import-export/index.ts` - 注册 PDF 导入器
+- `src/main/index.ts` - 新增 IPC 处理器
+- `src/preload/index.ts` - 新增 pdfImport API
+- `src/renderer/src/components/DataSettings.tsx` - 新增 PDF 导入卡片
+- `src/renderer/src/i18n/translations.ts` - 新增 pdfImport 翻译
+
+---
+
 ## 2026-01-07: Agent 问答模式增强
 
 **背景：** 增强 Agent 的"和文档对话"能力，让用户可以更自然地查询笔记内容。

@@ -42,7 +42,7 @@ import { CustomUnderline } from './extensions/Underline'
 import { TextStyle, Color } from './extensions/TextColor'
 import { Callout } from './extensions/Callout'
 import { Toggle } from './extensions/Toggle'
-import { Mathematics } from './extensions/Mathematics'
+import { Mathematics, BlockMath } from './extensions/Mathematics'
 import { Mermaid } from './extensions/Mermaid'
 import { CustomCodeBlock } from './extensions/CodeBlock'
 import { Footnote } from './extensions/Footnote'
@@ -457,6 +457,7 @@ export function TypewriterMode({
       Callout,
       Toggle,
       Mathematics,
+      BlockMath,
       Mermaid,
       CustomCodeBlock,
       Footnote,

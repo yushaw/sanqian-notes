@@ -1256,7 +1256,7 @@ function AppContent() {
         // Empty placeholder for trash view (same background as editor)
         <div className="flex-1 bg-[var(--color-card-solid)]" />
       ) : !isTypewriterMode ? (
-        <EditorErrorBoundary key={selectedNote?.id}>
+        <EditorErrorBoundary resetKey={selectedNote?.id}>
           <Editor
             ref={editorRef}
             note={selectedNote}
@@ -1274,7 +1274,7 @@ function AppContent() {
 
       {/* Typewriter Mode - 全屏覆盖层 */}
       {isTypewriterMode && selectedNote && (
-        <EditorErrorBoundary key={`typewriter-${selectedNote.id}`}>
+        <EditorErrorBoundary resetKey={`typewriter-${selectedNote.id}`}>
           <TypewriterMode
             note={selectedNote}
             notes={notes}

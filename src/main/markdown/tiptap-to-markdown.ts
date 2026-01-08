@@ -159,10 +159,8 @@ function convertNode(node: TiptapNode, ctx: ConvertContext): string {
     case 'tableCell':
       return convertChildren(node, ctx)
 
-    // 数学公式
+    // 数学公式（inlineMath 和 mathematics 都走这个逻辑，兼容旧数据）
     case 'inlineMath':
-      return `$${node.attrs?.latex || ''}$`
-
     case 'mathematics': {
       const latex = (node.attrs?.latex as string) || ''
       const display = node.attrs?.display === 'yes'

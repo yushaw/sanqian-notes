@@ -59,6 +59,7 @@ import { getAIContext } from '../utils/aiContext'
 import { openAIChat } from './AIChatDialog'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
+import { ScrollText } from 'lucide-react'
 import 'katex/dist/katex.min.css'
 import './Editor.css'
 
@@ -151,14 +152,7 @@ const ToolbarIcons = {
       <polyline points="8 6 2 12 8 18" />
     </svg>
   ),
-  typewriter: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="4" width="20" height="12" rx="2" />
-      <path d="M6 20h12" />
-      <path d="M12 16v4" />
-      <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01" />
-    </svg>
-  ),
+  typewriter: <ScrollText size={16} />,
   focus: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />

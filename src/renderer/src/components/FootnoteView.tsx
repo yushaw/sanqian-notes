@@ -1,10 +1,16 @@
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useI18n } from '../i18n/context'
 
 interface FootnoteAttrs {
   id: number
   content: string
+}
+
+interface PopupPosition {
+  top: number
+  left: number
 }
 
 export function FootnoteView({ node, updateAttributes, selected, deleteNode }: NodeViewProps) {
@@ -13,20 +19,75 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
   // 空内容时自动进入编辑模式（从斜杠菜单插入的新脚注）
   const [isEditing, setIsEditing] = useState(!attrs.content)
   const [showTooltip, setShowTooltip] = useState(false)
+  const [popupPosition, setPopupPosition] = useState<PopupPosition>({ top: 0, left: 0 })
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const refSpanRef = useRef<HTMLSpanElement>(null)
+
+  // 计算弹窗位置，确保不超出视口
+  const updatePopupPosition = useCallback(() => {
+    if (refSpanRef.current) {
+      const rect = refSpanRef.current.getBoundingClientRect()
+      // 紧凑样式：CSS max-width: 320px，高度包含 header + textarea + hint
+      const popupWidth = 320
+      const popupHeight = 120
+
+      let top = rect.bottom + 4
+      let left = rect.left
+
+      // 右边界检查
+      if (left + popupWidth > window.innerWidth - 16) {
+        left = window.innerWidth - popupWidth - 16
+      }
+
+      // 左边界检查
+      if (left < 16) {
+        left = 16
+      }
+
+      // 下边界检查 - 如果下方空间不足，显示在上方
+      if (top + popupHeight > window.innerHeight - 16) {
+        top = rect.top - popupHeight - 4
+      }
+
+      setPopupPosition({ top, left })
+    }
+  }, [])
 
   useEffect(() => {
-    if (isEditing && inputRef.current) {
-      // 延迟聚焦，确保编辑器操作完成后再获取焦点
-      const timer = setTimeout(() => {
+    if (isEditing) {
+      // 使用 requestAnimationFrame 确保 DOM 完全渲染后再计算位置
+      const rafId = requestAnimationFrame(() => {
+        updatePopupPosition()
         if (inputRef.current) {
           inputRef.current.focus()
           inputRef.current.select()
         }
-      }, 0)
-      return () => clearTimeout(timer)
+      })
+      return () => cancelAnimationFrame(rafId)
     }
-  }, [isEditing])
+  }, [isEditing, updatePopupPosition])
+
+  // 滚动或窗口大小变化时关闭弹窗
+  useEffect(() => {
+    if (!isEditing) return
+
+    const handleScrollOrResize = () => {
+      setIsEditing(false)
+      // 如果内容为空，删除脚注
+      if (!attrs.content?.trim()) {
+        deleteNode()
+      }
+    }
+
+    // 使用 capture 确保能捕获所有滚动事件
+    window.addEventListener('scroll', handleScrollOrResize, true)
+    window.addEventListener('resize', handleScrollOrResize)
+
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true)
+      window.removeEventListener('resize', handleScrollOrResize)
+    }
+  }, [isEditing, attrs.content, deleteNode])
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -66,6 +127,7 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
       className={`footnote-wrapper ${selected ? 'selected' : ''}`}
     >
       <span
+        ref={refSpanRef}
         className="footnote-ref"
         onClick={handleClick}
         onMouseEnter={() => setShowTooltip(true)}
@@ -81,9 +143,17 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
         </div>
       )}
 
-      {/* Edit popup */}
-      {isEditing && (
-        <div className="footnote-editor">
+      {/* Edit popup - 使用 Portal 渲染到 body，避免被父元素遮挡 */}
+      {isEditing && createPortal(
+        <div
+          className="footnote-editor"
+          style={{
+            position: 'fixed',
+            top: popupPosition.top,
+            left: popupPosition.left,
+            zIndex: 9999
+          }}
+        >
           <div className="footnote-editor-header">
             {t.slashCommand.footnote} {attrs.id}
           </div>
@@ -99,7 +169,8 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
           <div className="footnote-editor-hint">
             {t.media.footnoteHint}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </NodeViewWrapper>
   )

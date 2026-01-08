@@ -3617,3 +3617,21 @@ src/main/import-export/
 - `src/renderer/src/components/extensions/SlashCommand.ts`
 - `src/renderer/src/components/MathView.tsx`
 - `src/renderer/src/components/FootnoteView.tsx`
+
+## 2026-01-08: 修复脚注弹窗被遮挡问题
+
+**问题：** 脚注编辑弹窗被父元素 overflow: hidden 遮挡
+
+**修复：**
+- 使用 React Portal 将弹窗渲染到 `document.body`
+- 使用 `position: fixed` 定位，基于视口计算位置
+- 添加边界检测：右侧/左侧/底部超出时自动调整位置
+
+**文件：**
+- `src/renderer/src/components/FootnoteView.tsx`
+- `src/renderer/src/components/Editor.css`
+
+### 补充优化
+- 调大弹窗尺寸估算值（400x180），与 CSS max-width 一致
+- 添加滚动/resize 监听，滚动或窗口大小变化时自动关闭弹窗
+- Tooltip 暂不改动（显示在上方，内容短，遮挡概率低）

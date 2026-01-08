@@ -2575,50 +2575,54 @@
 }
 
 .footnote-editor {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: 8px;
-  padding: 12px;
+  /* 位置由 React Portal 内联样式控制 (position: fixed) */
+  /* 紧凑禅意风格 */
+  padding: 8px;
   background: var(--color-card);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: var(--shadow-elevated);
-  z-index: 9999;
-  min-width: 280px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  min-width: 240px;
+  max-width: 320px;
+}
+
+.dark .footnote-editor {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
 }
 
 .footnote-editor-header {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--color-muted);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  opacity: 0.7;
 }
 
 .footnote-editor textarea {
   width: 100%;
-  min-height: 60px;
-  padding: 8px;
-  border: 1px solid var(--color-border);
+  min-height: 48px;
+  padding: 6px 8px;
+  border: none;
   border-radius: 4px;
   background: var(--color-surface);
   color: var(--color-text);
   font-size: 13px;
   line-height: 1.5;
-  resize: vertical;
+  resize: none;
   outline: none;
+  transition: background var(--transition-fast);
 }
 
 .footnote-editor textarea:focus {
-  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-surface) 80%, var(--color-accent) 5%);
 }
 
 .footnote-editor-hint {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--color-muted);
-  margin-top: 6px;
+  margin-top: 4px;
   text-align: right;
+  opacity: 0.5;
 }
 
 /* ============================================

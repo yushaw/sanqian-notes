@@ -490,7 +490,7 @@ export function TypewriterMode({
     ],
     content: getInitialContent(),
     editorProps: {
-      attributes: { class: 'typewriter-editor' },
+      attributes: { class: 'typewriter-editor', spellcheck: 'false' },
       // 自定义剪贴板纯文本序列化，正确处理列表格式
       clipboardTextSerializer: (slice) => {
         const lines: string[] = []

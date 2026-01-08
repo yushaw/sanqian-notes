@@ -524,6 +524,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     editorProps: {
       attributes: {
         class: `zen-editor ${isFocusMode ? 'focus-mode' : ''}`,
+        spellcheck: 'false',
       },
       // 自定义剪贴板纯文本序列化，正确处理列表格式
       clipboardTextSerializer: (slice) => {

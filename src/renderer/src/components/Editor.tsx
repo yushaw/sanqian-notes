@@ -1698,7 +1698,7 @@ function EditorToolbar({
           <button
             className={`zen-toolbar-btn zen-toolbar-dropdown-trigger ${isAIProcessing ? 'active' : ''} ${showAIMenu ? 'open' : ''}`}
             onClick={onAIButtonClick}
-            title={t.contextMenu.ai}
+            data-tooltip={t.contextMenu.ai}
           >
             {ToolbarIcons.sparkles}
             {ToolbarIcons.chevronUp}
@@ -1845,11 +1845,11 @@ function EditorToolbar({
       </div>
       <div className="zen-toolbar-divider" />
       {/* 段落类型 */}
-      <ToolbarButton active={isBody} onClick={() => editor.chain().focus().setParagraph().run()} title={`Body (${shortcuts.body})`} icon={<span className="zen-toolbar-text">Body</span>} />
+      <ToolbarButton active={isBody} onClick={() => editor.chain().focus().setParagraph().run()} title={`${t.slashCommand.paragraph} (${shortcuts.body})`} icon={<span className="zen-toolbar-text">Body</span>} />
       <ToolbarButton active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} title={`${t.toolbar.heading1} (${shortcuts.h1})`} icon={<span className="zen-toolbar-text">H1</span>} />
       <ToolbarButton active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} title={`${t.toolbar.heading2} (${shortcuts.h2})`} icon={<span className="zen-toolbar-text">H2</span>} />
       <ToolbarButton active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} title={`${t.toolbar.heading3} (${shortcuts.h3})`} icon={<span className="zen-toolbar-text">H3</span>} />
-      <ToolbarButton active={editor.isActive('heading', { level: 4 })} onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()} title={`H4 (${shortcuts.h4})`} icon={<span className="zen-toolbar-text">H4</span>} />
+      <ToolbarButton active={editor.isActive('heading', { level: 4 })} onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()} title={`${t.toolbar.heading4} (${shortcuts.h4})`} icon={<span className="zen-toolbar-text">H4</span>} />
       <div className="zen-toolbar-divider" />
       {/* 列表 */}
       <ToolbarButton active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} title={`${t.toolbar.bulletList} (${shortcuts.bulletList})`} icon={ToolbarIcons.bulletList} />

@@ -137,6 +137,12 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
     // 使用图片的实际渲染宽度，如果没有设置 width 属性则取自然宽度
     const startWidth = attrs.width || imageRef.current?.naturalWidth || containerRef.current?.offsetWidth || 300
     const ratio = aspectRatio || 1
+    const container = containerRef.current
+    const maxWidth = container?.parentElement?.offsetWidth || 1200
+
+    // 用于存储最终尺寸
+    let finalWidth = startWidth
+    let finalHeight = Math.round(startWidth / ratio)
 
     setIsResizing(true)
 
@@ -148,14 +154,17 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
       let newWidth = startWidth + adjustedDelta
 
       // 限制尺寸：最小 50px，最大为容器宽度或 1200px
-      const maxWidth = containerRef.current?.parentElement?.offsetWidth || 1200
       newWidth = Math.max(50, Math.min(maxWidth, newWidth))
       const newHeight = Math.round(newWidth / ratio)
 
-      updateAttributes({
-        width: Math.round(newWidth),
-        height: newHeight,
-      })
+      // 保存最终尺寸
+      finalWidth = Math.round(newWidth)
+      finalHeight = newHeight
+
+      // 直接操作 DOM 实现实时预览，避免触发 React 重新渲染
+      if (container) {
+        container.style.width = `${finalWidth}px`
+      }
     }
 
     const handleMouseUp = () => {
@@ -164,6 +173,12 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
       document.removeEventListener('mouseup', handleMouseUp)
       handlersRef.current.move = null
       handlersRef.current.up = null
+
+      // 只在 mouseup 时更新 TipTap 属性
+      updateAttributes({
+        width: finalWidth,
+        height: finalHeight,
+      })
     }
 
     // 保存引用以便清理

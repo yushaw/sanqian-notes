@@ -11,10 +11,17 @@ function getT() {
   return translations[getSystemLanguage()]
 }
 
+// Range 类型，表示触发字符的位置范围
+export interface SlashCommandRange {
+  from: number
+  to: number
+}
+
 export interface SlashCommandItem {
   id: string  // 用于查找翻译的 key
   icon: string
-  command: (editor: Editor) => void | boolean | Promise<void | boolean>
+  // 命令现在接收 range 参数，在单个 chain 中处理删除和操作
+  command: (editor: Editor, range: SlashCommandRange) => void | boolean | Promise<void | boolean>
   keywords?: string[]
   // AI action specific fields
   isAIAction?: boolean
@@ -35,7 +42,7 @@ export interface SlashAIActionDetail {
   actionName: string
   prompt: string
   mode: 'replace' | 'insert' | 'popup'
-  selectedText: string
+  // 注意：selectedText 已移除，EditorContextMenu 通过 getAIContext() 获取上下文
 }
 
 export function triggerSlashAIAction(detail: SlashAIActionDetail) {
@@ -69,18 +76,16 @@ async function fetchAIActions(): Promise<SlashCommandItem[]> {
         aiPrompt: action.prompt,
         aiMode: action.mode,
         group: 'ai' as const,
-        command: (editor: Editor) => {
-          // Get selected text if any
-          const { from, to } = editor.state.selection
-          const selectedText = from !== to ? editor.state.doc.textBetween(from, to, ' ') : ''
+        command: (editor: Editor, range: SlashCommandRange) => {
+          // 删除触发字符，然后触发 AI action 事件
+          // EditorContextMenu 会通过 getAIContext() 获取上下文
+          editor.chain().focus().deleteRange(range).run()
 
-          // Trigger AI action via event
           triggerSlashAIAction({
             actionId: action.id,
             actionName: action.name,
             prompt: action.prompt,
             mode: action.mode,
-            selectedText
           })
         }
       }))
@@ -99,125 +104,135 @@ export function invalidateAIActionsCache() {
 }
 
 export const slashCommands: SlashCommandItem[] = [
+  // 格式切换命令：先删除触发字符，再切换格式
   {
     id: 'paragraph',
     icon: '¶',
     keywords: ['paragraph', 'text', 'body', 'zhengwen'],
-    command: (editor) => editor.chain().focus().setParagraph().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setParagraph().run(),
   },
   {
     id: 'heading1',
     icon: 'H1',
     keywords: ['h1', 'heading1', 'biaoti'],
-    command: (editor) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleHeading({ level: 1 }).run(),
   },
   {
     id: 'heading2',
     icon: 'H2',
     keywords: ['h2', 'heading2'],
-    command: (editor) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleHeading({ level: 2 }).run(),
   },
   {
     id: 'heading3',
     icon: 'H3',
     keywords: ['h3', 'heading3'],
-    command: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleHeading({ level: 3 }).run(),
   },
   {
     id: 'bulletList',
     icon: '•',
     keywords: ['bullet', 'list', 'ul', 'liebiao'],
-    command: (editor) => editor.chain().focus().toggleBulletList().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleBulletList().run(),
   },
   {
     id: 'numberedList',
     icon: '1.',
     keywords: ['numbered', 'ordered', 'ol'],
-    command: (editor) => editor.chain().focus().toggleOrderedList().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleOrderedList().run(),
   },
   {
     id: 'taskList',
     icon: '☑',
     keywords: ['todo', 'task', 'checkbox', 'daiban'],
-    command: (editor) => editor.chain().focus().toggleTaskList().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleTaskList().run(),
   },
   {
     id: 'quote',
     icon: '"',
     keywords: ['quote', 'blockquote', 'yinyong'],
-    command: (editor) => editor.chain().focus().toggleBlockquote().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
   },
   {
     id: 'codeBlock',
     icon: '</>',
     keywords: ['code', 'codeblock', 'daima'],
-    command: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
   },
+  // 插入命令：使用 insertContentAt 在一个操作中完成删除和插入
   {
     id: 'divider',
     icon: '—',
     keywords: ['hr', 'divider', 'line', 'fenge'],
-    command: (editor) => editor.chain().focus().setHorizontalRule().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
   },
   {
     id: 'table',
     icon: '▦',
     keywords: ['table', 'biaoge'],
-    command: (editor) => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
   },
   {
     id: 'toggle',
     icon: '▶',
     keywords: ['toggle', 'collapse', 'details', 'zhedie'],
-    command: (editor) => editor.chain().focus().setToggle().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setToggle().run(),
   },
   {
     id: 'calloutNote',
     icon: 'ℹ',
     keywords: ['callout', 'note', 'info', 'tishi'],
-    command: (editor) => editor.chain().focus().setCallout({ type: 'note' }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setCallout({ type: 'note' }).run(),
   },
   {
     id: 'calloutTip',
     icon: '💡',
     keywords: ['callout', 'tip', 'hint'],
-    command: (editor) => editor.chain().focus().setCallout({ type: 'tip' }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setCallout({ type: 'tip' }).run(),
   },
   {
     id: 'calloutWarning',
     icon: '⚠',
     keywords: ['callout', 'warning', 'caution', 'jinggao'],
-    command: (editor) => editor.chain().focus().setCallout({ type: 'warning' }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setCallout({ type: 'warning' }).run(),
   },
   {
     id: 'calloutDanger',
     icon: '🚫',
     keywords: ['callout', 'danger', 'error', 'weixian'],
-    command: (editor) => editor.chain().focus().setCallout({ type: 'danger' }).run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setCallout({ type: 'danger' }).run(),
   },
+  // 使用 insertContentAt 替换触发字符为新节点
   {
     id: 'math',
     icon: '∑',
     keywords: ['math', 'latex', 'formula', 'gongshi', 'shuxue'],
-    command: (editor) => editor.chain().focus().insertContent('$E = mc^2$').run(),
+    command: (editor, range) => editor.chain().focus().insertContentAt(range, {
+      type: 'inlineMath',
+      attrs: { latex: '', display: 'no' }
+    }).run(),
   },
   {
     id: 'mermaid',
     icon: '📊',
     keywords: ['mermaid', 'diagram', 'flowchart', 'chart', 'tubiao', 'liucheng'],
-    command: (editor) => editor.chain().focus().setMermaid().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setMermaid().run(),
   },
   {
     id: 'footnote',
     icon: '¹',
     keywords: ['footnote', 'note', 'reference', 'jiaozhu'],
-    command: (editor) => editor.chain().focus().setFootnote().run(),
+    command: (editor, range) => editor.chain().focus().deleteRange(range).setFootnote().run(),
   },
+  // 异步命令：先删除触发字符，再异步插入
   {
     id: 'image',
     icon: '🖼️',
     keywords: ['image', 'picture', 'photo', 'tupian', 'img'],
-    command: async (editor) => {
+    command: async (editor, range) => {
+      // 先删除触发字符
+      editor.chain().focus().deleteRange(range).run()
+
       try {
         const files = await window.electron.attachment.selectImages()
         if (!files?.length) return
@@ -241,7 +256,10 @@ export const slashCommands: SlashCommandItem[] = [
     id: 'file',
     icon: '📎',
     keywords: ['file', 'attachment', 'fujian', 'wenjian', 'upload'],
-    command: async (editor) => {
+    command: async (editor, range) => {
+      // 先删除触发字符
+      editor.chain().focus().deleteRange(range).run()
+
       try {
         const files = await window.electron.attachment.selectFiles({ multiple: true })
         if (!files?.length) return
@@ -259,18 +277,18 @@ export const slashCommands: SlashCommandItem[] = [
               }).run()
               break
             case 'video':
-              editor.commands.setVideo({ src: attachmentUrl })
+              editor.chain().focus().setVideo({ src: attachmentUrl }).run()
               break
             case 'audio':
-              editor.commands.setAudio({ src: attachmentUrl, title: result.name })
+              editor.chain().focus().setAudio({ src: attachmentUrl, title: result.name }).run()
               break
             default:
-              editor.commands.setFileAttachment({
+              editor.chain().focus().setFileAttachment({
                 src: result.relativePath,
                 name: result.name,
                 size: result.size,
                 type: result.type,
-              })
+              }).run()
           }
         }
       } catch (error) {
@@ -313,13 +331,9 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
           return true
         },
         command: ({ editor, range, props }: { editor: Editor; range: { from: number; to: number }; props: SlashCommandItem }) => {
-          // 删除触发字符和查询文本（不加入撤销历史）
-          const { tr } = editor.state
-          tr.delete(range.from, range.to)
-          tr.setMeta('addToHistory', false)
-          editor.view.dispatch(tr)
-          // 执行命令
-          props.command(editor)
+          // 直接把 range 传给命令，让命令在单个 chain 中处理删除和操作
+          // 这是 Tiptap 官方 mention 扩展推荐的模式
+          props.command(editor, range)
         },
       },
     }

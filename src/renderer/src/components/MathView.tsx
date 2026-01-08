@@ -8,9 +8,10 @@ interface MathAttrs {
   display?: string
 }
 
-export function MathView({ node, updateAttributes, selected }: NodeViewProps) {
+export function MathView({ node, updateAttributes, selected, deleteNode }: NodeViewProps) {
   const attrs = node.attrs as MathAttrs
-  const [isEditing, setIsEditing] = useState(false)
+  // 空内容时自动进入编辑模式（从斜杠菜单插入的新节点）
+  const [isEditing, setIsEditing] = useState(!attrs.latex)
   const [latex, setLatex] = useState(attrs.latex)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const renderRef = useRef<HTMLSpanElement>(null)
@@ -46,9 +47,15 @@ export function MathView({ node, updateAttributes, selected }: NodeViewProps) {
   // Focus textarea when entering edit mode
   useEffect(() => {
     if (isEditing && textareaRef.current) {
-      textareaRef.current.focus()
-      textareaRef.current.select()
-      resizeTextarea()
+      // 延迟聚焦，确保编辑器操作完成后再获取焦点
+      const timer = setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+          textareaRef.current.select()
+          resizeTextarea()
+        }
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [isEditing, resizeTextarea])
 
@@ -65,20 +72,36 @@ export function MathView({ node, updateAttributes, selected }: NodeViewProps) {
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
+    // 如果内容为空，删除这个公式节点
+    if (!latex?.trim()) {
+      deleteNode()
+      return
+    }
     if (latex !== attrs.latex) {
       updateAttributes({ latex })
     }
-  }, [latex, attrs.latex, updateAttributes])
+  }, [latex, attrs.latex, updateAttributes, deleteNode])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsEditing(false)
+      // Escape 时如果内容为空也删除
+      if (!latex?.trim()) {
+        deleteNode()
+        return
+      }
+      if (latex !== attrs.latex) {
+        updateAttributes({ latex })
+      }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       setIsEditing(false)
       if (latex !== attrs.latex) {
         updateAttributes({ latex })
       }
     }
-  }, [latex, attrs.latex, updateAttributes])
+  }, [latex, attrs.latex, updateAttributes, deleteNode])
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setLatex(e.target.value)

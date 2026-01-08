@@ -7,17 +7,24 @@ interface FootnoteAttrs {
   content: string
 }
 
-export function FootnoteView({ node, updateAttributes, selected }: NodeViewProps) {
+export function FootnoteView({ node, updateAttributes, selected, deleteNode }: NodeViewProps) {
   const { t } = useI18n()
   const attrs = node.attrs as FootnoteAttrs
-  const [isEditing, setIsEditing] = useState(false)
+  // 空内容时自动进入编辑模式（从斜杠菜单插入的新脚注）
+  const [isEditing, setIsEditing] = useState(!attrs.content)
   const [showTooltip, setShowTooltip] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
+      // 延迟聚焦，确保编辑器操作完成后再获取焦点
+      const timer = setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus()
+          inputRef.current.select()
+        }
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [isEditing])
 
@@ -29,10 +36,21 @@ export function FootnoteView({ node, updateAttributes, selected }: NodeViewProps
 
   const handleBlur = () => {
     setIsEditing(false)
+    // 如果内容为空，删除这个脚注（使用可选链防止 undefined）
+    if (!attrs.content?.trim()) {
+      deleteNode()
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsEditing(false)
+      // Escape 时如果内容为空也删除
+      if (!attrs.content?.trim()) {
+        deleteNode()
+      }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       setIsEditing(false)
     }

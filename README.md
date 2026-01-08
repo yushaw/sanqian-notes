@@ -3581,3 +3581,39 @@ src/main/import-export/
 - `src/main/sanqian-sdk.ts`
 - `src/main/i18n.ts`
 - `src/main/import-export/importers/pdf-importer.ts`
+
+## 2026-01-08: 修复斜杠菜单和数学公式问题
+
+**问题：**
+1. `/math` 命令插入的是纯文本，不会转换为公式节点
+2. 斜杠菜单选择命令后，焦点跳到笔记末尾
+
+**调研：** 参考 Notion、Obsidian、Typora 的最佳实践
+
+**修复：**
+
+### 1. `/math` 命令改进
+- 直接插入空的 `inlineMath` 节点
+- **自动进入编辑模式**，用户可立即输入公式
+
+### 2. 斜杠菜单选区修复
+- 使用 `editor.chain().deleteRange()` 替代手动 `tr.delete()`
+- 确保删除触发字符后选区位置正确
+
+### 3. atom 节点插入体验优化（长期主义）
+- **MathView**: 空内容时自动进入编辑模式
+- **FootnoteView**: 空内容时自动进入编辑模式，blur 时删除空脚注
+- **MermaidView**: 保持双击编辑（默认图表有示例价值）
+
+### 4. 按官方模式重构斜杠命令
+- 每个命令接收 `range` 参数，在单个 chain 中处理删除和操作
+- 参考 Tiptap 官方 mention 扩展的 `insertContentAt(range, content)` 模式
+
+### 5. 代码优化
+- 统一 video/audio/file 命令使用 `chain().focus().setXxx().run()` 模式
+- 清理 AI action 中冗余的 `selectedText` 获取逻辑（由 EditorContextMenu 统一处理）
+
+**文件：**
+- `src/renderer/src/components/extensions/SlashCommand.ts`
+- `src/renderer/src/components/MathView.tsx`
+- `src/renderer/src/components/FootnoteView.tsx`

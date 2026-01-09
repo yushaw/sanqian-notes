@@ -1106,7 +1106,7 @@
 }
 
 .typewriter-editor-content .ProseMirror tr:hover td {
-  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
+  background: transparent;
 }
 
 /* Math */

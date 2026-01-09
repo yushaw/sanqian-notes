@@ -4018,3 +4018,11 @@ Agent 'sanqian-notes:researcher' not found or not accessible
    - 从 `EmbedView.tsx` 抽取内联转换函数到共享工具
    - `Editor.tsx` 创建 embed 时也调用转换
    - 编辑 URL 时同样自动转换
+
+### 2026-01-09: IME 输入法回车跳转 Bug 修复
+
+**问题**：打字机模式下使用拼音输入法，按回车确认中文时光标会跳到笔记底部
+
+**原因**：`TypewriterMode.tsx` 的 `handleTitleKeyDown` 函数未检查 IME composition 状态，导致在输入法组合过程中就执行了 `editor.commands.focus("start")`
+
+**修复**：添加 `e.nativeEvent.isComposing` 检查，与 `Editor.tsx` 保持一致

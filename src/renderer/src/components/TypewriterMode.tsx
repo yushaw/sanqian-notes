@@ -1086,6 +1086,9 @@ export function TypewriterMode({
   }, [note.id, onUpdate])
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Skip if IME is composing (e.g., Chinese/Japanese input)
+    if (e.nativeEvent.isComposing) return
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       editor?.commands.focus('start')

@@ -6,8 +6,8 @@ import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion
 
 export const slashCommandSuggestion = {
   render: () => {
-    let component: ReactRenderer
-    let popup: Instance[]
+    let component: ReactRenderer | null = null
+    let popup: Instance[] | null = null
 
     return {
       onStart: (props: SuggestionProps<SlashCommandItem>) => {
@@ -48,9 +48,9 @@ export const slashCommandSuggestion = {
       },
 
       onUpdate: (props: SuggestionProps<SlashCommandItem>) => {
-        component.updateProps(props)
+        component?.updateProps(props)
 
-        if (!props.clientRect) return
+        if (!props.clientRect || !popup?.[0]) return
 
         popup[0].setProps({
           getReferenceClientRect: props.clientRect as () => DOMRect,
@@ -59,15 +59,21 @@ export const slashCommandSuggestion = {
 
       onKeyDown: (props: SuggestionKeyDownProps) => {
         if (props.event.key === 'Escape') {
-          popup[0].hide()
+          popup?.[0]?.hide()
           return true
         }
-        return (component.ref as { onKeyDown?: (props: SuggestionKeyDownProps) => boolean })?.onKeyDown?.(props) ?? false
+        return (component?.ref as { onKeyDown?: (props: SuggestionKeyDownProps) => boolean })?.onKeyDown?.(props) ?? false
       },
 
       onExit: () => {
-        popup?.[0]?.destroy()
-        component?.destroy()
+        if (popup?.[0]) {
+          popup[0].destroy()
+          popup = null
+        }
+        if (component) {
+          component.destroy()
+          component = null
+        }
       },
     }
   },

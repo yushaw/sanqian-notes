@@ -6,11 +6,60 @@
 
 计划新增三种 Block 类型：
 
-| Block 类型 | 用途 | 优先级 |
-|-----------|------|--------|
-| **Transclusion Block** | 引用/展示另一个笔记的内容 | 高 |
-| **Embed Block** | 嵌入 iframe/本地项目预览 | 高 |
-| **Dataview Block** | 查询笔记数据（类似 Obsidian Dataview） | 中 |
+| Block 类型 | 用途 | 优先级 | 状态 |
+|-----------|------|--------|------|
+| **Transclusion Block** | 引用/展示另一个笔记的内容 | 高 | ✅ 已实现 |
+| **Embed Block** | 嵌入 iframe/本地项目预览 | 高 | ✅ 已实现 |
+| **Dataview Block** | 查询笔记数据（类似 Obsidian Dataview） | 中 | ✅ 已实现 |
+
+### 实现记录
+
+#### 2026-01-09 Transclusion Block 实现
+
+实现了完整的 Transclusion Block 功能：
+- `TransclusionBlock.ts` - Tiptap Node 扩展
+- `TransclusionView.tsx` - React 组件，支持折叠/展开、内容高度限制、错误处理
+- SlashCommand `/transclusion` - 触发笔记选择弹窗
+- 支持三种嵌入粒度：整个笔记、标题章节、指定 block
+- 样式和中英文翻译
+
+#### 2026-01-09 Embed Block 实现
+
+实现了 URL 模式的 Embed Block 功能：
+- `EmbedBlock.ts` - Tiptap Node 扩展，支持 url/local 两种模式
+- `EmbedView.tsx` - React 组件，包含：
+  - iframe 嵌入外部网页
+  - 工具栏：刷新、外部打开、设置
+  - 加载/错误状态处理
+  - 拖拽调整高度（200-800px）
+  - 设置面板调整高度
+- SlashCommand `/embed` - 触发 URL 输入弹窗
+- 样式和中英文翻译
+
+注意：Local 模式（本地 HTML 预览）暂未实现，需要注册自定义协议。
+
+#### 2026-01-09 Dataview Block 实现
+
+实现了 MVP 版本的 Dataview Block：
+- `dataviewParser.ts` - 查询解析器，支持 DQL 语法
+  - LIST/TABLE 输出类型
+  - FROM #tag 或 "folder"
+  - WHERE field = "value" (支持 =, !=, >, <, >=, <=, contains)
+  - SORT field ASC/DESC
+  - LIMIT number
+- `dataviewExecutor.ts` - 查询执行器
+  - 内置字段：title, created, updated, tags, folder, is_daily, is_favorite, is_pinned, summary
+  - 支持多条件 AND/OR 组合
+  - 自动排序和分页
+- `DataviewBlock.ts` - Tiptap Node 扩展
+- `DataviewView.tsx` - React 组件
+  - 编辑模式：代码编辑器，语法错误提示
+  - 结果模式：LIST 和 TABLE 视图
+  - 加载/错误/空状态处理
+  - 分页（每页 10 条）
+  - 点击笔记链接跳转
+- SlashCommand `/dataview` - 插入查询块
+- 样式和中英文翻译
 
 ---
 

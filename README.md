@@ -3995,3 +3995,26 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - 从 `AgentTaskPanel.tsx` 抽取为独立组件 `AgentSelect.tsx`
 - 新增 14 个单元测试覆盖
 - 支持 ESC 关闭、disabled 状态、hover 显示描述
+
+### 2026-01-09: Embed Web URL 自动转换
+
+**功能需求**：
+- 用户粘贴普通分享链接时，自动转换为 embed 格式
+- 支持国际和国内主流视频/设计/协作平台
+
+**技术实现**：
+
+1. **配置驱动的 URL 转换** (`src/renderer/src/utils/embedUrl.ts`)
+   - 创建 `EmbedUrlConfig` 接口定义转换规则
+   - `embedUrlConfigs` 配置列表，方便后续扩展
+   - `convertToEmbedUrl()` 函数执行转换
+   - `detectPlatform()` / `getSupportedPlatforms()` 辅助函数
+
+2. **支持的平台**：
+   - **国际**：YouTube, Vimeo, Figma, Loom, CodePen, CodeSandbox, Spotify, Google Docs/Sheets/Slides, Miro, Airtable
+   - **国内**：哔哩哔哩 (BV/AV 号)、优酷、腾讯视频、网易云音乐 (单曲/歌单)
+
+3. **代码重构**：
+   - 从 `EmbedView.tsx` 抽取内联转换函数到共享工具
+   - `Editor.tsx` 创建 embed 时也调用转换
+   - 编辑 URL 时同样自动转换

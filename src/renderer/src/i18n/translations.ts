@@ -308,12 +308,20 @@ export interface Translations {
     collapse: string
     expand: string
     unknownError: string
+    cancel: string
+    save: string
+    back: string
   }
   noteLink: {
     create: string
     noResults: string
     searchHeadingHint: string
     searchBlockHint: string
+    searchPlaceholder: string
+    searchHeadingPlaceholder: string
+    searchBlockPlaceholder: string
+    fullNote: string
+    noteNotFound: string
   }
   emoji: {
     loading: string
@@ -362,6 +370,12 @@ export interface Translations {
     imageDesc: string
     file: string
     fileDesc: string
+    transclusion: string
+    transclusionDesc: string
+    embed: string
+    embedDesc: string
+    dataview: string
+    dataviewDesc: string
     noMatches: string
     // Group headers
     formatGroup: string
@@ -416,6 +430,74 @@ export interface Translations {
   }
   toc: {
     title: string
+  }
+  transclusion: {
+    noNoteId: string
+    noteNotFound: string
+    headingNotFound: string
+    blockNotFound: string
+    loadError: string
+    unknownNote: string
+    paragraphs: string
+    chars: string
+    loading: string
+    retry: string
+    searchSimilar: string
+    refresh: string
+    goToSource: string
+    showMore: string
+    showLess: string
+    editLink: string
+  }
+  embed: {
+    noSource: string
+    loading: string
+    loadError: string
+    refresh: string
+    openExternal: string
+    showInFolder: string
+    settings: string
+    height: string
+    retry: string
+    openInBrowser: string
+    insertEmbed: string
+    urlPlaceholder: string
+    insert: string
+    invalidUrl: string
+    untitled: string
+    securityHint: string
+    blankHint: string
+    editUrl: string
+  }
+  dataview: {
+    run: string
+    edit: string
+    refresh: string
+    querying: string
+    noResults: string
+    titleColumn: string
+    totalResults: string
+    lastUpdated: string
+    placeholder: string
+    syntaxError: string
+    syntaxHelp: string
+    syntaxList: string
+    syntaxTable: string
+    syntaxFrom: string
+    syntaxFromFolder: string
+    syntaxWhere: string
+    syntaxWhereDate: string
+    syntaxSort: string
+    syntaxLimit: string
+    fieldsTitle: string
+    fieldTitle: string
+    fieldCreated: string
+    fieldUpdated: string
+    fieldTags: string
+    fieldFolder: string
+    fieldIsDaily: string
+    fieldIsFavorite: string
+    fieldIsPinned: string
   }
   shortcuts: {
     title: string
@@ -959,12 +1041,20 @@ const zh: Translations = {
     collapse: '收起',
     expand: '展开',
     unknownError: '未知错误',
+    cancel: '取消',
+    save: '保存',
+    back: '返回',
   },
   noteLink: {
     create: '创建「{name}」',
     noResults: '没有找到匹配项',
     searchHeadingHint: '在「{name}」中搜索标题',
-    searchBlockHint: '在「{name}」中搜索段落'
+    searchBlockHint: '在「{name}」中搜索段落',
+    searchPlaceholder: '搜索笔记...',
+    searchHeadingPlaceholder: '搜索标题...',
+    searchBlockPlaceholder: '搜索段落...',
+    fullNote: '全文',
+    noteNotFound: '笔记不存在',
   },
   emoji: {
     loading: '加载中...',
@@ -1013,6 +1103,12 @@ const zh: Translations = {
     imageDesc: '从本地选择图片插入',
     file: '文件',
     fileDesc: '插入本地文件附件',
+    transclusion: '嵌入笔记',
+    transclusionDesc: '嵌入其他笔记的内容',
+    embed: '嵌入网页',
+    embedDesc: '嵌入外部网页或本地 HTML',
+    dataview: '数据查询',
+    dataviewDesc: '查询和展示笔记数据',
     noMatches: '没有匹配的命令',
     formatGroup: '格式',
     aiGroup: 'AI 操作',
@@ -1066,6 +1162,74 @@ const zh: Translations = {
   },
   toc: {
     title: '目录'
+  },
+  transclusion: {
+    noNoteId: '未指定笔记 ID',
+    noteNotFound: '笔记未找到或已删除',
+    headingNotFound: '标题未找到',
+    blockNotFound: 'Block 未找到',
+    loadError: '加载笔记内容失败',
+    unknownNote: '未知笔记',
+    paragraphs: '个段落',
+    chars: '字符',
+    loading: '加载中...',
+    retry: '重试',
+    searchSimilar: '搜索相似',
+    refresh: '刷新',
+    goToSource: '跳转到源笔记',
+    showMore: '显示更多',
+    showLess: '收起',
+    editLink: '编辑'
+  },
+  embed: {
+    noSource: '未指定 URL 或文件路径',
+    loading: '加载中...',
+    loadError: '加载内容失败',
+    refresh: '刷新',
+    openExternal: '在浏览器中打开',
+    showInFolder: '在文件夹中显示',
+    settings: '设置',
+    height: '高度',
+    retry: '重试',
+    openInBrowser: '在浏览器中打开',
+    insertEmbed: '嵌入网页',
+    urlPlaceholder: '请输入 URL...',
+    insert: '插入',
+    invalidUrl: '请输入有效的 URL',
+    untitled: '无标题',
+    securityHint: '注意：大多数网站出于安全原因禁止嵌入。支持 YouTube、Bilibili、Google Maps 等允许嵌入的网站。',
+    blankHint: '显示空白？该网站可能禁止嵌入。',
+    editUrl: '编辑链接'
+  },
+  dataview: {
+    run: '运行',
+    edit: '编辑',
+    refresh: '刷新',
+    querying: '查询中...',
+    noResults: '没有匹配的笔记',
+    titleColumn: '标题',
+    totalResults: '共 {count} 条结果',
+    lastUpdated: '更新于',
+    placeholder: 'LIST FROM #tag\nWHERE field = "value"\nSORT updated DESC\nLIMIT 10',
+    syntaxError: '语法错误',
+    syntaxHelp: '语法',
+    syntaxList: '列出笔记',
+    syntaxTable: '表格显示',
+    syntaxFrom: '按标签筛选',
+    syntaxFromFolder: '按笔记本筛选',
+    syntaxWhere: '条件筛选',
+    syntaxWhereDate: '日期筛选',
+    syntaxSort: '排序',
+    syntaxLimit: '限制数量',
+    fieldsTitle: '可用字段',
+    fieldTitle: '笔记标题',
+    fieldCreated: '创建日期',
+    fieldUpdated: '更新日期',
+    fieldTags: '标签列表',
+    fieldFolder: '笔记本名',
+    fieldIsDaily: '是否日记',
+    fieldIsFavorite: '是否收藏',
+    fieldIsPinned: '是否置顶'
   },
   shortcuts: {
     title: '快捷键',
@@ -1607,12 +1771,20 @@ const en: Translations = {
     collapse: 'Collapse',
     expand: 'Expand',
     unknownError: 'Unknown error',
+    cancel: 'Cancel',
+    save: 'Save',
+    back: 'Back',
   },
   noteLink: {
     create: 'Create "{name}"',
     noResults: 'No matches found',
     searchHeadingHint: 'Search headings in "{name}"',
-    searchBlockHint: 'Search blocks in "{name}"'
+    searchBlockHint: 'Search blocks in "{name}"',
+    searchPlaceholder: 'Search notes...',
+    searchHeadingPlaceholder: 'Search headings...',
+    searchBlockPlaceholder: 'Search blocks...',
+    fullNote: 'Full note',
+    noteNotFound: 'Note not found',
   },
   emoji: {
     loading: 'Loading...',
@@ -1661,6 +1833,12 @@ const en: Translations = {
     imageDesc: 'Select and insert local image',
     file: 'File',
     fileDesc: 'Insert local file attachment',
+    transclusion: 'Embed Note',
+    transclusionDesc: 'Embed content from another note',
+    embed: 'Embed Web',
+    embedDesc: 'Embed external webpage or local HTML',
+    dataview: 'Dataview',
+    dataviewDesc: 'Query and display note data',
     noMatches: 'No matching commands',
     formatGroup: 'Format',
     aiGroup: 'AI Actions',
@@ -1714,6 +1892,74 @@ const en: Translations = {
   },
   toc: {
     title: 'Contents'
+  },
+  transclusion: {
+    noNoteId: 'No note ID specified',
+    noteNotFound: 'Note not found or deleted',
+    headingNotFound: 'Heading not found',
+    blockNotFound: 'Block not found',
+    loadError: 'Failed to load note content',
+    unknownNote: 'Unknown Note',
+    paragraphs: 'blocks',
+    chars: 'chars',
+    loading: 'Loading...',
+    retry: 'Retry',
+    searchSimilar: 'Search similar',
+    refresh: 'Refresh',
+    goToSource: 'Go to source',
+    showMore: 'Show more',
+    showLess: 'Show less',
+    editLink: 'Edit'
+  },
+  embed: {
+    noSource: 'No URL or file path specified',
+    loading: 'Loading...',
+    loadError: 'Failed to load content',
+    refresh: 'Refresh',
+    openExternal: 'Open in Browser',
+    showInFolder: 'Show in Folder',
+    settings: 'Settings',
+    height: 'Height',
+    retry: 'Retry',
+    openInBrowser: 'Open in Browser',
+    insertEmbed: 'Embed Web Page',
+    urlPlaceholder: 'Enter URL...',
+    insert: 'Insert',
+    invalidUrl: 'Please enter a valid URL',
+    untitled: 'Untitled',
+    securityHint: 'Note: Most websites block embedding for security. Works with YouTube, Bilibili, Google Maps, etc.',
+    blankHint: 'Blank page? This website may block embedding.',
+    editUrl: 'Edit URL'
+  },
+  dataview: {
+    run: 'Run',
+    edit: 'Edit',
+    refresh: 'Refresh',
+    querying: 'Querying...',
+    noResults: 'No matching notes',
+    titleColumn: 'Title',
+    totalResults: '{count} results',
+    lastUpdated: 'Updated',
+    placeholder: 'LIST FROM #tag\nWHERE field = "value"\nSORT updated DESC\nLIMIT 10',
+    syntaxError: 'Syntax error',
+    syntaxHelp: 'Syntax',
+    syntaxList: 'List notes',
+    syntaxTable: 'Table view',
+    syntaxFrom: 'Filter by tag',
+    syntaxFromFolder: 'Filter by notebook',
+    syntaxWhere: 'Condition',
+    syntaxWhereDate: 'Date filter',
+    syntaxSort: 'Sort',
+    syntaxLimit: 'Limit',
+    fieldsTitle: 'Fields',
+    fieldTitle: 'Note title',
+    fieldCreated: 'Created date',
+    fieldUpdated: 'Updated date',
+    fieldTags: 'Tags list',
+    fieldFolder: 'Notebook name',
+    fieldIsDaily: 'Is daily note',
+    fieldIsFavorite: 'Is favorite',
+    fieldIsPinned: 'Is pinned'
   },
   shortcuts: {
     title: 'Shortcuts',

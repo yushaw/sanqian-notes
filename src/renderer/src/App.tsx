@@ -15,6 +15,7 @@ import { ThemeProvider } from './theme'
 import { I18nProvider, useTranslations, useI18n } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext } from './utils/cursor'
 import { formatDailyDate } from './utils/dateFormat'
+import { toast } from './utils/toast'
 import type { Note, Notebook, SmartViewId } from './types/note'
 
 // 全局 Lightbox 组件
@@ -327,7 +328,7 @@ function AppContent() {
     loadData()
 
     // Cleanup old trash (notes older than 30 days)
-    window.electron.trash.cleanup().catch(console.error)
+    window.electron?.trash?.cleanup().catch(console.error)
   }, [])
 
   // Persist navigation state changes to localStorage
@@ -581,6 +582,20 @@ function AppContent() {
     }
   }, [selectedNoteIds, selectedNoteId, anchorNoteId, filteredNotes, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
+  // Listen for note:navigate events (from Dataview, Transclusion, etc.)
+  useEffect(() => {
+    const handleNoteNavigate = (event: CustomEvent<{ noteId: string }>) => {
+      const { noteId } = event.detail
+      if (noteId) {
+        handleSelectNote(noteId)
+      }
+    }
+    window.addEventListener('note:navigate', handleNoteNavigate as EventListener)
+    return () => {
+      window.removeEventListener('note:navigate', handleNoteNavigate as EventListener)
+    }
+  }, [handleSelectNote])
+
   // Get list title based on current view
   const listTitle = useMemo(() => {
     if (selectedNotebookId) {
@@ -720,13 +735,20 @@ function AppContent() {
 
   // Handle clicking a note link (支持标题和 block 定位)
   const handleNoteClick = useCallback((noteId: string, target?: { type: 'heading' | 'block'; value: string }) => {
+    // 检查笔记是否存在
+    const noteExists = notes.some(n => n.id === noteId)
+    if (!noteExists) {
+      toast(t.noteLink?.noteNotFound || 'Note not found', { type: 'error' })
+      return
+    }
+
     selectSingleNote(noteId)
     if (target) {
       setScrollTarget(target)
     } else {
       setScrollTarget(null)
     }
-  }, [selectSingleNote])
+  }, [selectSingleNote, notes, t])
 
   // 清除滚动目标的回调
   const handleScrollComplete = useCallback(() => {
@@ -1261,6 +1283,7 @@ function AppContent() {
             ref={editorRef}
             note={selectedNote}
             notes={notes}
+            notebooks={notebooks}
             onUpdate={handleUpdateNote}
             onNoteClick={handleNoteClick}
             onCreateNote={handleCreateNoteFromLink}

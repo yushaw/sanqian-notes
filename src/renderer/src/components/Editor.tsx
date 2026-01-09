@@ -48,6 +48,9 @@ import { AIPreview } from './extensions/AIPreview'
 import { AIPopupMark } from './extensions/AIPopupMark'
 import { AgentTask } from './extensions/AgentTask'
 import { HtmlComment } from './extensions/HtmlComment'
+import { TransclusionBlock } from './extensions/TransclusionBlock'
+import { EmbedBlock } from './extensions/EmbedBlock'
+import { DataviewBlock } from './extensions/DataviewBlock'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
 import { AgentTaskPanel } from './AgentTaskPanel'
@@ -57,9 +60,9 @@ import { setupOutputListener } from '../utils/editorOutputHandler'
 import { useAIActions } from '../hooks/useAIActions'
 import { useAIWriting } from '../hooks/useAIWriting'
 import { getAIContext } from '../utils/aiContext'
-import { openAIChat } from './AIChatDialog'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
+import { convertToEmbedUrl } from '../utils/embedUrl'
 import { ScrollText } from 'lucide-react'
 import 'katex/dist/katex.min.css'
 import './Editor.css'
@@ -187,6 +190,10 @@ const ToolbarIcons = {
   sparkles: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+      <path d="M5 3v4" />
+      <path d="M19 17v4" />
+      <path d="M3 5h4" />
+      <path d="M17 19h4" />
     </svg>
   ),
 }
@@ -210,6 +217,7 @@ export type { CursorInfo, CursorContext } from '../utils/cursor'
 interface EditorProps {
   note: Note | null
   notes: Note[]
+  notebooks?: import('../types/note').Notebook[]
   onUpdate: (id: string, updates: { title?: string; content?: string }) => void
   onNoteClick: (noteId: string, target?: { type: 'heading' | 'block'; value: string }) => void
   onCreateNote: (title: string) => Promise<Note>
@@ -228,6 +236,7 @@ export interface EditorHandle {
 interface ZenEditorProps {
   note: Note
   notes: Note[]
+  notebooks?: import('../types/note').Notebook[]
   onUpdate: (id: string, updates: { title?: string; content?: string }) => void
   onNoteClick: (noteId: string, target?: { type: 'heading' | 'block'; value: string }) => void
   onCreateNote: (title: string) => Promise<Note>
@@ -240,6 +249,7 @@ interface ZenEditorProps {
 const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   note,
   notes,
+  notebooks = [],
   onUpdate,
   onNoteClick,
   onCreateNote,
@@ -277,6 +287,19 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [agentTaskBlockId, setAgentTaskBlockId] = useState<string>('')
   const [agentTaskId, setAgentTaskId] = useState<string | null>(null)
   const [agentTaskBlockContent, setAgentTaskBlockContent] = useState<string>('')
+
+  // Transclusion 选择弹窗状态
+  const [showTransclusionPopup, setShowTransclusionPopup] = useState(false)
+  const [transclusionSearchMode, setTransclusionSearchMode] = useState<SearchMode>('note')
+  const [selectedTransclusionNote, setSelectedTransclusionNote] = useState<Note | null>(null)
+  const [transclusionHeadings, setTransclusionHeadings] = useState<HeadingInfo[]>([])
+  const [transclusionBlocks, setTransclusionBlocks] = useState<BlockInfo[]>([])
+  const [transclusionQuery, setTransclusionQuery] = useState('')
+  const [transclusionEditCallback, setTransclusionEditCallback] = useState<((attrs: Record<string, unknown>) => void) | null>(null)
+
+  // Embed 弹窗状态
+  const [showEmbedPopup, setShowEmbedPopup] = useState(false)
+  const [embedUrl, setEmbedUrl] = useState('')
 
   const t = useTranslations()
   const { resolvedColorMode } = useTheme()
@@ -501,6 +524,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           onNoteClick(noteId, target)
         },
       }),
+      TransclusionBlock.configure({
+        onNoteClick: (noteId: string, target?: { type: 'heading' | 'block'; value: string }) => {
+          onNoteClick(noteId, target)
+        },
+      }),
+      EmbedBlock,
+      DataviewBlock,
       FileHandler.configure({
         // 不限制 MIME 类型，允许所有文件类型
         // 类型检查在 handleFileInsert 中通过 getFileCategory 处理
@@ -678,10 +708,6 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       console.error('[AI Writing] Error:', errorCode)
     }
   })
-
-  const handleAIButtonClick = useCallback(() => {
-    openAIChat()
-  }, [])
 
   const handleAIActionClick = useCallback((action: AIAction) => {
     if (!editor) return
@@ -1010,6 +1036,52 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     return cleanup
   }, [editor])
 
+  // Listen for transclusion:select event from SlashCommand
+  useEffect(() => {
+    const handleTransclusionSelect = () => {
+      // 获取编辑器容器位置作为弹窗位置参考
+      setShowTransclusionPopup(true)
+      setTransclusionSearchMode('note')
+      setSelectedTransclusionNote(null)
+      setTransclusionQuery('')
+      setTransclusionEditCallback(null) // 新建模式
+    }
+
+    window.addEventListener('transclusion:select', handleTransclusionSelect)
+    return () => {
+      window.removeEventListener('transclusion:select', handleTransclusionSelect)
+    }
+  }, [])
+
+  // Listen for transclusion:edit event from TransclusionView
+  useEffect(() => {
+    const handleTransclusionEdit = (e: CustomEvent<{ updateAttributes: (attrs: Record<string, unknown>) => void }>) => {
+      setShowTransclusionPopup(true)
+      setTransclusionSearchMode('note')
+      setSelectedTransclusionNote(null)
+      setTransclusionQuery('')
+      setTransclusionEditCallback(() => e.detail.updateAttributes) // 编辑模式
+    }
+
+    window.addEventListener('transclusion:edit', handleTransclusionEdit as EventListener)
+    return () => {
+      window.removeEventListener('transclusion:edit', handleTransclusionEdit as EventListener)
+    }
+  }, [])
+
+  // Listen for embed:select event from SlashCommand
+  useEffect(() => {
+    const handleEmbedSelect = () => {
+      setShowEmbedPopup(true)
+      setEmbedUrl('')
+    }
+
+    window.addEventListener('embed:select', handleEmbedSelect)
+    return () => {
+      window.removeEventListener('embed:select', handleEmbedSelect)
+    }
+  }, [])
+
   // Auto-focus title for new (empty) notes
   const prevNoteIdRef = useRef<string | null>(null)
   useEffect(() => {
@@ -1155,6 +1227,119 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setLinkStartPos(null)
     setSearchMode('note')
     setSelectedLinkNote(null)
+  }, [])
+
+  // 返回上一级（从 heading/block 模式回到 note 模式）
+  const handleBackToNoteSearch = useCallback(() => {
+    setSearchMode('note')
+    setSelectedLinkNote(null)
+    setLinkQuery('')
+    setTargetHeadings([])
+    setTargetBlocks([])
+  }, [])
+
+  // Transclusion handlers
+  const handleSelectTransclusion = useCallback((
+    selectedNote: Note,
+    target?: { type: 'heading' | 'block'; value: string; displayText: string }
+  ) => {
+    const attrs = {
+      noteId: selectedNote.id,
+      noteName: selectedNote.title || t.noteList.untitled,
+      targetType: (target?.type || 'note') as 'note' | 'heading' | 'block',
+      targetValue: target?.value,
+    }
+
+    if (transclusionEditCallback) {
+      // 编辑模式：更新现有 block
+      transclusionEditCallback(attrs)
+    } else if (editor) {
+      // 新建模式：插入新 block
+      editor.chain().focus().setTransclusion(attrs).run()
+    }
+
+    setShowTransclusionPopup(false)
+    setTransclusionQuery('')
+    setTransclusionSearchMode('note')
+    setSelectedTransclusionNote(null)
+    setTransclusionEditCallback(null)
+  }, [editor, t.noteList.untitled, transclusionEditCallback])
+
+  const handleSelectTransclusionNoteForSubSearch = useCallback((selectedNote: Note) => {
+    setSelectedTransclusionNote(selectedNote)
+    setTransclusionSearchMode('heading')
+    setTransclusionQuery('')
+
+    // 获取目标笔记的标题和 block 列表
+    try {
+      const content = selectedNote.content
+      if (content) {
+        const parsed = JSON.parse(content)
+        const headings = extractHeadingsFromJSON(parsed)
+        setTransclusionHeadings(headings)
+        const blocks = extractBlocksFromJSON(parsed)
+        setTransclusionBlocks(blocks)
+      }
+    } catch {
+      setTransclusionHeadings([])
+      setTransclusionBlocks([])
+    }
+  }, [])
+
+  const handleCloseTransclusionPopup = useCallback(() => {
+    setShowTransclusionPopup(false)
+    setTransclusionQuery('')
+    setTransclusionSearchMode('note')
+    setSelectedTransclusionNote(null)
+    setTransclusionHeadings([])
+    setTransclusionBlocks([])
+    setTransclusionEditCallback(null)
+  }, [])
+
+  // 返回上一级（Transclusion 的 heading/block 模式回到 note 模式）
+  const handleBackToTransclusionNoteSearch = useCallback(() => {
+    setTransclusionSearchMode('note')
+    setSelectedTransclusionNote(null)
+    setTransclusionQuery('')
+    setTransclusionHeadings([])
+    setTransclusionBlocks([])
+  }, [])
+
+  // Embed handlers
+  const handleInsertEmbed = useCallback(() => {
+    if (!editor || !embedUrl.trim()) return
+
+    // 自动补全协议
+    let urlToUse = embedUrl.trim()
+    if (!/^https?:\/\//i.test(urlToUse)) {
+      urlToUse = 'https://' + urlToUse
+    }
+
+    // 验证 URL 格式
+    try {
+      new URL(urlToUse)
+    } catch {
+      alert(t.embed?.invalidUrl || 'Invalid URL')
+      return
+    }
+
+    // 自动转换为 embed 格式
+    const convertedUrl = convertToEmbedUrl(urlToUse)
+
+    editor.chain().focus().setEmbed({
+      mode: 'url',
+      url: convertedUrl,
+      title: '',
+      height: 400,
+    }).run()
+
+    setShowEmbedPopup(false)
+    setEmbedUrl('')
+  }, [editor, embedUrl, t])
+
+  const handleCloseEmbedPopup = useCallback(() => {
+    setShowEmbedPopup(false)
+    setEmbedUrl('')
   }, [])
 
   // Toggle focus mode
@@ -1338,6 +1523,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // Toolbar visibility on mouse move - show when near bottom, hide when leave
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
+      // 检查鼠标是否在工具栏区域内（包括弹出框）
+      const toolbar = document.querySelector('.zen-toolbar')
+      if (toolbar?.contains(e.target as Node)) {
+        // 鼠标在工具栏内，保持显示
+        setShowToolbar(true)
+        return
+      }
+
       const rect = editorContainerRef.current?.getBoundingClientRect()
       if (rect) {
         // 鼠标在底部 200px 范围内时显示
@@ -1345,10 +1538,17 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       }
     }
 
+    const handleMouseLeave = () => {
+      // 鼠标离开编辑器容器时隐藏工具栏
+      setShowToolbar(false)
+    }
+
     const container = editorContainerRef.current
     container?.addEventListener('mousemove', handleMouseMove)
+    container?.addEventListener('mouseleave', handleMouseLeave)
     return () => {
       container?.removeEventListener('mousemove', handleMouseMove)
+      container?.removeEventListener('mouseleave', handleMouseLeave)
     }
   }, [])
 
@@ -1499,7 +1699,6 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         showToolbar={showToolbar}
         aiActions={aiActions}
         onAIActionClick={handleAIActionClick}
-        onAIButtonClick={handleAIButtonClick}
         isAIProcessing={isAIProcessing}
       />
 
@@ -1580,7 +1779,81 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           headings={targetHeadings}
           blocks={targetBlocks}
           onSelectNote={handleSelectNoteForSubSearch}
+          notebooks={notebooks}
+          onQueryChange={setLinkQuery}
+          onBack={handleBackToNoteSearch}
         />
+      )}
+
+      {/* Transclusion popup - 居中显示 */}
+      {showTransclusionPopup && (
+        <div className="transclusion-popup-overlay" onClick={handleCloseTransclusionPopup}>
+          <div className="transclusion-popup-container" onClick={(e) => e.stopPropagation()}>
+            <NoteLinkPopup
+              notes={notes.filter(n => n.id !== note.id)}
+              query={transclusionQuery}
+              position={{ top: 0, left: 0 }} // 位置由 overlay 控制
+              onSelect={handleSelectTransclusion}
+              onClose={handleCloseTransclusionPopup}
+              searchMode={transclusionSearchMode}
+              selectedNote={selectedTransclusionNote}
+              headings={transclusionHeadings}
+              blocks={transclusionBlocks}
+              onSelectNote={handleSelectTransclusionNoteForSubSearch}
+              isTransclusionMode={true}
+              notebooks={notebooks}
+              onQueryChange={setTransclusionQuery}
+              onBack={handleBackToTransclusionNoteSearch}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Embed popup - URL 输入弹窗 */}
+      {showEmbedPopup && (
+        <div className="embed-popup-overlay" onClick={handleCloseEmbedPopup}>
+          <div className="embed-popup-container" onClick={(e) => e.stopPropagation()}>
+            <div className="embed-popup">
+              <div className="embed-popup-header">
+                <span>{t.embed?.insertEmbed || 'Embed Web Page'}</span>
+              </div>
+              <div className="embed-popup-content">
+                <input
+                  type="text"
+                  className="embed-popup-input"
+                  placeholder={t.embed?.urlPlaceholder || 'Enter URL (e.g., youtube.com/watch?v=xxx)'}
+                  value={embedUrl}
+                  onChange={(e) => setEmbedUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    // IME 输入法组合状态时不响应
+                    if (e.nativeEvent.isComposing) return
+                    if (e.key === 'Enter') {
+                      handleInsertEmbed()
+                    } else if (e.key === 'Escape') {
+                      handleCloseEmbedPopup()
+                    }
+                  }}
+                  autoFocus
+                />
+                <p className="embed-popup-hint">
+                  {t.embed?.securityHint || 'Note: Most websites block iframe embedding for security reasons. Works best with YouTube, Bilibili, Google Maps, etc.'}
+                </p>
+              </div>
+              <div className="embed-popup-footer">
+                <button className="embed-popup-cancel" onClick={handleCloseEmbedPopup}>
+                  {t.common?.cancel || 'Cancel'}
+                </button>
+                <button
+                  className="embed-popup-confirm"
+                  onClick={handleInsertEmbed}
+                  disabled={!embedUrl.trim()}
+                >
+                  {t.embed?.insert || 'Insert'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 右键菜单 */}
@@ -1610,7 +1883,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 })
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
-  { note, notes, onUpdate, onNoteClick, onCreateNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange },
+  { note, notes, notebooks, onUpdate, onNoteClick, onCreateNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange },
   ref
 ) {
   const t = useTranslations()
@@ -1640,6 +1913,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           ref={ref}
           note={note}
           notes={notes}
+          notebooks={notebooks}
           onUpdate={onUpdate}
           onNoteClick={onNoteClick}
           onCreateNote={onCreateNote}
@@ -1664,7 +1938,6 @@ function EditorToolbar({
   showToolbar,
   aiActions,
   onAIActionClick,
-  onAIButtonClick,
   isAIProcessing
 }: {
   editor: ReturnType<typeof useEditor>
@@ -1676,7 +1949,6 @@ function EditorToolbar({
   showToolbar: boolean
   aiActions: AIAction[]
   onAIActionClick: (action: AIAction) => void
-  onAIButtonClick: () => void
   isAIProcessing: boolean
 }) {
   const toolbarRef = useRef<HTMLDivElement>(null)
@@ -1685,31 +1957,6 @@ function EditorToolbar({
   const [showAIMenu, setShowAIMenu] = useState(false)
   const colorPickerRef = useRef<HTMLDivElement>(null)
   const aiMenuRef = useRef<HTMLDivElement>(null)
-  const aiMenuTimeoutRef = useRef<number | null>(null)
-
-  // AI menu hover handlers
-  const handleAIMenuEnter = useCallback(() => {
-    if (aiMenuTimeoutRef.current) {
-      clearTimeout(aiMenuTimeoutRef.current)
-      aiMenuTimeoutRef.current = null
-    }
-    setShowAIMenu(true)
-  }, [])
-
-  const handleAIMenuLeave = useCallback(() => {
-    aiMenuTimeoutRef.current = window.setTimeout(() => {
-      setShowAIMenu(false)
-    }, 200)
-  }, [])
-
-  // Cleanup aiMenuTimeoutRef on unmount
-  useEffect(() => {
-    return () => {
-      if (aiMenuTimeoutRef.current) {
-        clearTimeout(aiMenuTimeoutRef.current)
-      }
-    }
-  }, [])
 
   // 监听容器宽度变化
   useEffect(() => {
@@ -1728,16 +1975,27 @@ function EditorToolbar({
     return () => window.removeEventListener('resize', checkWidth)
   }, [])
 
-  // 点击外部关闭颜色选择器
+  // 点击外部关闭弹出框
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
         setShowColorPicker(false)
       }
+      if (aiMenuRef.current && !aiMenuRef.current.contains(e.target as Node)) {
+        setShowAIMenu(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // 工具栏隐藏时关闭弹出框
+  useEffect(() => {
+    if (!showToolbar) {
+      setShowColorPicker(false)
+      setShowAIMenu(false)
+    }
+  }, [showToolbar])
 
   if (!editor) return null
 
@@ -1749,15 +2007,10 @@ function EditorToolbar({
     return (
       <div ref={toolbarRef} className={`zen-toolbar ${showToolbar ? 'visible' : ''}`}>
         {/* AI - 放在最左边 */}
-        <div
-          className="zen-toolbar-dropdown"
-          onMouseEnter={handleAIMenuEnter}
-          onMouseLeave={handleAIMenuLeave}
-        >
+        <div className="zen-toolbar-dropdown" ref={aiMenuRef}>
           <button
             className={`zen-toolbar-btn zen-toolbar-dropdown-trigger ${isAIProcessing ? 'active' : ''} ${showAIMenu ? 'open' : ''}`}
-            onClick={onAIButtonClick}
-            data-tooltip={t.contextMenu.ai}
+            onClick={() => setShowAIMenu(!showAIMenu)}
           >
             {ToolbarIcons.sparkles}
             {ToolbarIcons.chevronUp}
@@ -1785,6 +2038,7 @@ function EditorToolbar({
         <ToolbarDropdown
           icon={ToolbarIcons.bold}
           active={editor.isActive('bold') || editor.isActive('italic') || editor.isActive('strike') || editor.isActive('highlight') || editor.isActive('underline')}
+          forceClose={!showToolbar}
           items={[
             { label: t.toolbar.bold, icon: ToolbarIcons.bold, active: editor.isActive('bold'), onClick: () => editor.chain().focus().toggleBold().run(), shortcut: shortcuts.bold },
             { label: t.toolbar.italic, icon: ToolbarIcons.italic, active: editor.isActive('italic'), onClick: () => editor.chain().focus().toggleItalic().run(), shortcut: shortcuts.italic },
@@ -1797,6 +2051,7 @@ function EditorToolbar({
         <ToolbarDropdown
           icon={ToolbarIcons.heading}
           active={editor.isActive('heading')}
+          forceClose={!showToolbar}
           items={[
             { label: 'Body', active: isBody, onClick: () => editor.chain().focus().setParagraph().run(), shortcut: shortcuts.body },
             { label: 'H1', active: editor.isActive('heading', { level: 1 }), onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), shortcut: shortcuts.h1 },
@@ -1809,6 +2064,7 @@ function EditorToolbar({
         <ToolbarDropdown
           icon={ToolbarIcons.list}
           active={editor.isActive('bulletList') || editor.isActive('orderedList') || editor.isActive('taskList')}
+          forceClose={!showToolbar}
           items={[
             { label: t.toolbar.bulletList, icon: ToolbarIcons.bulletList, active: editor.isActive('bulletList'), onClick: () => editor.chain().focus().toggleBulletList().run(), shortcut: shortcuts.bulletList },
             { label: t.toolbar.numberedList, icon: ToolbarIcons.orderedList, active: editor.isActive('orderedList'), onClick: () => editor.chain().focus().toggleOrderedList().run(), shortcut: shortcuts.orderedList },
@@ -1819,6 +2075,7 @@ function EditorToolbar({
         <ToolbarDropdown
           icon={ToolbarIcons.block}
           active={editor.isActive('blockquote') || editor.isActive('code')}
+          forceClose={!showToolbar}
           items={[
             { label: t.toolbar.quote, icon: ToolbarIcons.quote, active: editor.isActive('blockquote'), onClick: () => editor.chain().focus().toggleBlockquote().run(), shortcut: shortcuts.quote },
             { label: t.toolbar.code, icon: ToolbarIcons.code, active: editor.isActive('code'), onClick: () => editor.chain().focus().toggleCode().run(), shortcut: shortcuts.code },
@@ -1849,16 +2106,10 @@ function EditorToolbar({
   return (
     <div ref={toolbarRef} className={`zen-toolbar ${showToolbar ? 'visible' : ''}`}>
       {/* AI - 放在最左边 */}
-      <div
-        className="zen-toolbar-dropdown"
-        ref={aiMenuRef}
-        onMouseEnter={handleAIMenuEnter}
-        onMouseLeave={handleAIMenuLeave}
-      >
+      <div className="zen-toolbar-dropdown" ref={aiMenuRef}>
         <button
           className={`zen-toolbar-btn zen-toolbar-dropdown-trigger ${isAIProcessing ? 'active' : ''} ${showAIMenu ? 'open' : ''}`}
-          onClick={onAIButtonClick}
-          title={t.contextMenu.ai}
+          onClick={() => setShowAIMenu(!showAIMenu)}
         >
           {ToolbarIcons.sparkles}
           {ToolbarIcons.chevronUp}
@@ -1958,11 +2209,13 @@ interface DropdownItem {
 function ToolbarDropdown({
   icon,
   active,
-  items
+  items,
+  forceClose
 }: {
   icon: React.ReactNode
   active?: boolean
   items: DropdownItem[]
+  forceClose?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -1976,6 +2229,13 @@ function ToolbarDropdown({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // 强制关闭下拉菜单
+  useEffect(() => {
+    if (forceClose) {
+      setIsOpen(false)
+    }
+  }, [forceClose])
 
   return (
     <div className="zen-toolbar-dropdown" ref={dropdownRef}>

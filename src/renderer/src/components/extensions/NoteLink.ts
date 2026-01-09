@@ -115,6 +115,70 @@ export const NoteLink = Mark.create<NoteLinkOptions>({
     } as unknown as Partial<import('@tiptap/core').RawCommands>
   },
 
+  addKeyboardShortcuts() {
+    const deleteNoteLink = () => {
+      const { state, dispatch } = this.editor.view
+      const { selection } = state
+      const { $from } = selection
+
+      // 检查光标位置是否有 noteLink mark
+      const markType = state.schema.marks.noteLink
+      if (!markType) return false
+
+      // 查找当前位置的 noteLink mark 范围
+      let markFrom = $from.pos
+      let markTo = $from.pos
+
+      // 向前查找 mark 起始位置
+      const parent = $from.parent
+      const parentOffset = $from.parentOffset
+      let foundMark = false
+
+      parent.forEach((node, offset) => {
+        const nodeStart = $from.start() + offset
+        const nodeEnd = nodeStart + node.nodeSize
+
+        if (nodeStart <= $from.pos && $from.pos <= nodeEnd) {
+          const marks = node.marks
+          const noteLinkMark = marks.find(m => m.type.name === 'noteLink')
+          if (noteLinkMark) {
+            markFrom = nodeStart
+            markTo = nodeEnd
+            foundMark = true
+          }
+        }
+      })
+
+      // 也检查光标紧邻左侧的字符是否有 noteLink
+      if (!foundMark && parentOffset > 0) {
+        parent.forEach((node, offset) => {
+          const nodeEnd = offset + node.nodeSize
+          if (nodeEnd === parentOffset) {
+            const marks = node.marks
+            const noteLinkMark = marks.find(m => m.type.name === 'noteLink')
+            if (noteLinkMark) {
+              markFrom = $from.start() + offset
+              markTo = $from.start() + nodeEnd
+              foundMark = true
+            }
+          }
+        })
+      }
+
+      if (foundMark && dispatch) {
+        dispatch(state.tr.delete(markFrom, markTo))
+        return true
+      }
+
+      return false
+    }
+
+    return {
+      Backspace: () => deleteNoteLink(),
+      Delete: () => deleteNoteLink(),
+    }
+  },
+
   addProseMirrorPlugins() {
     const { onNoteClick } = this.options
 

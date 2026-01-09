@@ -298,6 +298,44 @@ export const slashCommands: SlashCommandItem[] = [
       }
     },
   },
+  // Transclusion Block - 嵌入笔记
+  {
+    id: 'transclusion',
+    icon: '📄',
+    keywords: ['transclusion', 'embed', 'note', 'qianru', 'yinyong', '嵌入', '引用'],
+    command: (editor, range) => {
+      // 删除触发字符，触发笔记选择弹窗
+      editor.chain().focus().deleteRange(range).run()
+      // 触发自定义事件，由 Editor 组件处理
+      window.dispatchEvent(new CustomEvent('transclusion:select', {
+        detail: { editor }
+      }))
+    },
+  },
+  // Embed Block - 嵌入网页
+  {
+    id: 'embed',
+    icon: '🌐',
+    keywords: ['embed', 'iframe', 'web', 'url', 'website', 'qianru', 'wangye', '网页', '嵌入网页'],
+    command: (editor, range) => {
+      // 删除触发字符，触发 URL 输入弹窗
+      editor.chain().focus().deleteRange(range).run()
+      // 触发自定义事件，由 Editor 组件处理
+      window.dispatchEvent(new CustomEvent('embed:select', {
+        detail: { editor }
+      }))
+    },
+  },
+  // Dataview Block - 数据查询
+  {
+    id: 'dataview',
+    icon: '📊',
+    keywords: ['dataview', 'query', 'table', 'list', 'chaxun', 'biaoge', '查询', '表格', '数据'],
+    command: (editor, range) => {
+      // 删除触发字符，插入 Dataview block
+      editor.chain().focus().deleteRange(range).setDataview().run()
+    },
+  },
 ]
 
 export interface SlashCommandOptions {

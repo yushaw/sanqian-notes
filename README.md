@@ -4026,3 +4026,32 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 **原因**：`TypewriterMode.tsx` 的 `handleTitleKeyDown` 函数未检查 IME composition 状态，导致在输入法组合过程中就执行了 `editor.commands.focus("start")`
 
 **修复**：添加 `e.nativeEvent.isComposing` 检查，与 `Editor.tsx` 保持一致
+
+
+### 2026-01-09: 笔记右键菜单 Duplicate 功能
+
+**功能需求**：
+- 在笔记列表右键菜单中添加「创建副本」功能（非日记笔记）
+
+**技术实现**：
+
+1. **翻译支持** (`translations.ts`)
+   - 中文：创建副本
+   - 英文：Duplicate
+
+2. **右键菜单** (`NoteList.tsx`)
+   - 在「收藏/取消收藏」和「移动」之间添加「创建副本」菜单项
+   - 使用复制图标（两个重叠矩形）
+
+3. **副本逻辑** (`App.tsx` - `handleDuplicateNote`)
+   - 复制原笔记的标题和内容
+   - 标题自动添加「 副本」或「 Copy」后缀
+   - 如果已有副本，自动递增编号（副本 2, 副本 3...）
+   - 副本不继承置顶和收藏状态
+   - 副本始终是普通笔记（不是日记）
+   - 创建后自动选中新笔记
+
+**Review 修复**：
+- 修复副本编号逻辑：复制 "Title 副本" 不会叠加成 "Title 副本 副本"，而是正确生成 "Title 副本 2"
+- 使用正则表达式精确匹配，避免 "Test" 误匹配 "Testing"
+- 空标题处理：直接生成 "副本" 或 "Copy"

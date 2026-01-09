@@ -848,6 +848,60 @@ function AppContent() {
     }
   }, [notes])
 
+  // Handle duplicate note
+  const handleDuplicateNote = useCallback(async (id: string) => {
+    try {
+      const noteToDuplicate = notes.find(n => n.id === id)
+      if (!noteToDuplicate) return
+
+      const suffix = isZh ? '副本' : 'Copy'
+      const originalTitle = noteToDuplicate.title || ''
+
+      // Strip existing copy suffix to get base title
+      // Match patterns like "Title 副本", "Title 副本 2", "Title Copy", "Title Copy 3"
+      const suffixPattern = new RegExp(`^(.+?)\\s*${suffix}(?:\\s*(\\d+))?$`)
+      const match = originalTitle.match(suffixPattern)
+      const baseTitle = match ? match[1].trim() : originalTitle
+
+      // Find all existing copies of the base title
+      const copyPattern = new RegExp(`^${baseTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+${suffix}(?:\\s+(\\d+))?$`)
+      let maxNumber = 0
+      for (const note of notes) {
+        if (!note.title) continue
+        const copyMatch = note.title.match(copyPattern)
+        if (copyMatch) {
+          const num = copyMatch[1] ? parseInt(copyMatch[1], 10) : 1
+          if (num > maxNumber) maxNumber = num
+        }
+      }
+
+      // Generate new title: "Title 副本" for first copy, "Title 副本 2" for second, etc.
+      const newTitle = baseTitle
+        ? (maxNumber === 0 ? `${baseTitle} ${suffix}` : `${baseTitle} ${suffix} ${maxNumber + 1}`)
+        : suffix  // Handle empty title case
+
+      const newNote = await window.electron.note.add({
+        title: newTitle,
+        content: noteToDuplicate.content,
+        notebook_id: noteToDuplicate.notebook_id,
+        is_daily: false,  // Duplicates are never daily notes
+        daily_date: null,
+        is_favorite: false,  // Don't copy favorite status
+      })
+
+      setNotes(prev => {
+        const newNotes = [newNote as Note, ...prev]
+        return newNotes.sort((a, b) => {
+          if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        })
+      })
+      selectSingleNote((newNote as Note).id)
+    } catch (error) {
+      console.error('Failed to duplicate note:', error)
+    }
+  }, [notes, isZh, selectSingleNote])
+
   // Handle search - merge hybrid search (indexed) and keyword search (all notes)
   const handleSearch = useCallback(async (query: string): Promise<Note[]> => {
     try {
@@ -1263,6 +1317,7 @@ function AppContent() {
           onTogglePinned={handleTogglePinned}
           onToggleFavorite={handleToggleFavorite}
           onDeleteNote={handleDeleteNote}
+          onDuplicateNote={handleDuplicateNote}
           onMoveToNotebook={handleMoveToNotebook}
           onBulkDelete={handleBulkDelete}
           onBulkMove={handleMoveToNotebook}

@@ -21,6 +21,7 @@ interface NoteListProps {
   onTogglePinned: (id: string) => void
   onToggleFavorite: (id: string) => void
   onDeleteNote: (id: string) => void
+  onDuplicateNote: (id: string) => void
   onMoveToNotebook: (noteIdOrIds: string | string[], notebookId: string | null) => void
   onBulkDelete?: (ids: string[]) => void
   onBulkMove?: (noteIdOrIds: string | string[], notebookId: string | null) => void
@@ -50,6 +51,7 @@ export function NoteList({
   onTogglePinned,
   onToggleFavorite,
   onDeleteNote,
+  onDuplicateNote,
   onMoveToNotebook,
   onBulkDelete,
   onBulkMove,
@@ -319,6 +321,16 @@ export function NoteList({
         ),
         onClick: () => onToggleFavorite(contextMenu.noteId!)
       },
+      // Duplicate
+      {
+        label: t.noteList.duplicate,
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        ),
+        onClick: () => onDuplicateNote(contextMenu.noteId!)
+      },
       // Move (submenu)
       {
         label: t.noteList.move,
@@ -354,7 +366,7 @@ export function NoteList({
         onClick: () => onDeleteNote(contextMenu.noteId!)
       }
     ]
-  }, [contextMenu.noteId, contextMenu.noteIds, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite])
+  }, [contextMenu.noteId, contextMenu.noteIds, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onDuplicateNote, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite])
 
   // Dragging state
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)

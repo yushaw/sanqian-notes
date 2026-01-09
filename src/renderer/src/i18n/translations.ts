@@ -43,6 +43,7 @@ export interface Translations {
     favorite: string
     unfavorite: string
     delete: string
+    duplicate: string
     noteCount: string
     notesCount: string
     move: string
@@ -777,6 +778,7 @@ const zh: Translations = {
     favorite: '收藏',
     unfavorite: '取消收藏',
     delete: '删除',
+    duplicate: '创建副本',
     noteCount: '{n} 篇笔记',
     notesCount: '{n} 篇笔记',
     move: '移动',
@@ -1507,6 +1509,7 @@ const en: Translations = {
     favorite: 'Favorite',
     unfavorite: 'Unfavorite',
     delete: 'Delete',
+    duplicate: 'Duplicate',
     noteCount: '{n} note',
     notesCount: '{n} notes',
     move: 'Move',

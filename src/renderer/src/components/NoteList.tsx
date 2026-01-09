@@ -26,6 +26,7 @@ interface NoteListProps {
   onBulkDelete?: (ids: string[]) => void
   onBulkMove?: (noteIdOrIds: string | string[], notebookId: string | null) => void
   onBulkToggleFavorite?: (ids: string[]) => void
+  onOpenInNewTab?: (id: string) => void
   notebooks: Notebook[]
   isSidebarCollapsed?: boolean
   showCreateButton?: boolean
@@ -56,6 +57,7 @@ export function NoteList({
   onBulkDelete,
   onBulkMove,
   onBulkToggleFavorite,
+  onOpenInNewTab,
   notebooks,
   isSidebarCollapsed = false,
   showCreateButton = true,
@@ -149,13 +151,8 @@ export function NoteList({
     // Check if right-clicked note is in current selection
     const isInSelection = selectedIdSet.has(note.id)
 
-    // If right-clicking an unselected note, select it first (like Finder)
-    if (!isInSelection) {
-      onSelectNote(note.id)  // No event = single select
-    }
-
     // If in selection and multiple selected, show bulk menu
-    // Otherwise show single note menu
+    // Otherwise show single note menu (without changing selection)
     const targetIds = isInSelection && selectedNoteIds.length > 1
       ? selectedNoteIds
       : [note.id]
@@ -305,6 +302,16 @@ export function NoteList({
 
     // Single note menu
     return [
+      // Open in new tab
+      ...(onOpenInNewTab ? [{
+        label: t.noteList.openInNewTab,
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          </svg>
+        ),
+        onClick: () => onOpenInNewTab(contextMenu.noteId!)
+      }] : []),
       // Pin/Unpin
       {
         label: contextMenu.isPinned ? t.noteList.unpin : t.noteList.pin,
@@ -366,7 +373,7 @@ export function NoteList({
         onClick: () => onDeleteNote(contextMenu.noteId!)
       }
     ]
-  }, [contextMenu.noteId, contextMenu.noteIds, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onDuplicateNote, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite])
+  }, [contextMenu.noteId, contextMenu.noteIds, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onDuplicateNote, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite, onOpenInNewTab])
 
   // Dragging state
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
@@ -376,7 +383,7 @@ export function NoteList({
   return (
     <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col drag-region">
       {/* Header */}
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
+      <div className="px-4 h-[42px] flex items-center justify-between flex-shrink-0 border-b border-black/5 dark:border-white/5">
         {isSearching ? (
           <div className="flex-1 flex items-center gap-2 no-drag min-w-0">
             {shouldHideTitle && <div className="w-[28px] flex-shrink-0" />}
@@ -462,7 +469,7 @@ export function NoteList({
             )}
           </div>
         ) : (
-          <div className="py-1">
+          <div className="pb-1">
             {displayNotes.map((note, index) => {
               const isSelected = selectedIdSet.has(note.id)
               const nextNote = displayNotes[index + 1]

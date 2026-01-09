@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { TrashList } from './components/TrashList'
@@ -11,6 +11,9 @@ import { NotebookModal } from './components/NotebookModal'
 import { TypewriterMode } from './components/TypewriterMode'
 import { AIChatDialog, openChatWithContext } from './components/AIChatDialog'
 import { IMAGE_LIGHTBOX_EVENT } from './components/ResizableImageView'
+import { TabBar } from './components/TabBar'
+import { PaneLayout } from './components/PaneLayout'
+import { TabProvider, useTabs } from './contexts/TabContext'
 import { ThemeProvider } from './theme'
 import { I18nProvider, useTranslations, useI18n } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext } from './utils/cursor'
@@ -156,6 +159,18 @@ const STORAGE_KEY_NOTE = 'sanqian-notes-last-note'
 function AppContent() {
   const t = useTranslations()
   const { isZh } = useI18n()
+
+  // Tab system
+  const {
+    activeTabId,
+    focusedNoteId: tabFocusedNoteId,
+    createTab,
+    closeTab,
+    openNoteInPane,
+    closePane,
+    splitPane,
+  } = useTabs()
+
   const [notebooks, setNotebooks] = useState<Notebook[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [trashNotes, setTrashNotes] = useState<Note[]>([])
@@ -187,12 +202,6 @@ function AppContent() {
   })
   // Anchor note for Shift+Click range selection (set on normal click, preserved on Cmd+Click)
   const [anchorNoteId, setAnchorNoteId] = useState<string | null>(null)
-
-  // Helper to select a single note and set anchor (for consistency)
-  const selectSingleNote = useCallback((noteId: string) => {
-    setSelectedNoteIds([noteId])
-    setAnchorNoteId(noteId)
-  }, [])
 
   const [showSettings, setShowSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -365,9 +374,11 @@ function AppContent() {
   )
   // Last selected note ID for editor display
   const selectedNoteId = selectedNoteIds[selectedNoteIds.length - 1] || null
+  // Use tab's focused note if available (for multi-tab/split scenarios)
+  const contextNoteId = tabFocusedNoteId || selectedNoteId
   const contextNote = useMemo(
-    () => (selectedNoteId ? notes.find(n => n.id === selectedNoteId) : null),
-    [selectedNoteId, notes]
+    () => (contextNoteId ? notes.find(n => n.id === contextNoteId) : null),
+    [contextNoteId, notes]
   )
 
   // Handler for editor selection changes (for context provider)
@@ -481,10 +492,11 @@ function AppContent() {
     }
   }, [notes, notebooks, trashNotes])
 
-  // Get selected note
+  // Get selected note - use tab's focused note if available
+  const effectiveNoteId = tabFocusedNoteId || selectedNoteId
   const selectedNote = useMemo(() => {
-    return notes.find(n => n.id === selectedNoteId) || null
-  }, [notes, selectedNoteId])
+    return notes.find(n => n.id === effectiveNoteId) || null
+  }, [notes, effectiveNoteId])
 
   // Check if a note is empty (no title and no content)
   const isNoteEmpty = useCallback((note: Note | null): boolean => {
@@ -515,19 +527,68 @@ function AppContent() {
   }, [])
 
   // Delete empty note if switching away from it (permanently, not to trash)
+  // Uses notesRef to always get the latest notes (avoids closure issues)
   const deleteEmptyNoteIfNeeded = useCallback(async (noteId: string | null) => {
     if (!noteId) return
-    const note = notes.find(n => n.id === noteId)
+    const note = notesRef.current.find(n => n.id === noteId)
     if (note && isNoteEmpty(note)) {
       // Empty notes are permanently deleted, not moved to trash
       await window.electron.trash.permanentDelete(noteId)
       setNotes(prev => prev.filter(n => n.id !== noteId))
     }
-  }, [notes, isNoteEmpty])
+  }, [isNoteEmpty])
+
+  // Track previous tabFocusedNoteId for empty note cleanup
+  const prevTabFocusedNoteIdRef = useRef<string | null>(null)
+
+  // Sync NoteList selection when pane focus changes
+  // If the focused note is in the current list, select it; otherwise clear selection
+  // Also check if previous note was empty and should be deleted
+  useEffect(() => {
+    const prevNoteId = prevTabFocusedNoteIdRef.current
+
+    // Check if previous note was empty and delete it
+    if (prevNoteId && prevNoteId !== tabFocusedNoteId) {
+      deleteEmptyNoteIfNeeded(prevNoteId)
+    }
+
+    // Update selection based on new focused note
+    if (tabFocusedNoteId) {
+      const isInList = filteredNotes.some(n => n.id === tabFocusedNoteId)
+      if (isInList) {
+        setSelectedNoteIds([tabFocusedNoteId])
+        setAnchorNoteId(tabFocusedNoteId)
+      } else {
+        // Note is not in current list (different notebook/view), clear selection
+        setSelectedNoteIds([])
+        setAnchorNoteId(null)
+      }
+    }
+
+    // Update ref for next comparison
+    prevTabFocusedNoteIdRef.current = tabFocusedNoteId
+  }, [tabFocusedNoteId, filteredNotes, deleteEmptyNoteIfNeeded])
+
+  // Helper to select a single note and set anchor (for consistency)
+  // Also handles cleanup of empty notes when switching away
+  const selectSingleNote = useCallback((noteId: string) => {
+    const prevNoteId = selectedNoteId
+
+    // First update selection and open new note
+    setSelectedNoteIds([noteId])
+    setAnchorNoteId(noteId)
+    openNoteInPane(noteId)
+
+    // Then delete previous empty note if switching away
+    // Run in background without blocking selection
+    if (prevNoteId && prevNoteId !== noteId) {
+      deleteEmptyNoteIfNeeded(prevNoteId)
+    }
+  }, [selectedNoteId, deleteEmptyNoteIfNeeded, openNoteInPane])
 
   // Handle selecting a note (with empty note cleanup and index check)
   // Supports multi-select with Cmd/Ctrl+Click (toggle) and Shift+Click (range)
-  const handleSelectNote = useCallback(async (noteId: string, event?: React.MouseEvent) => {
+  const handleSelectNote = useCallback((noteId: string, event?: React.MouseEvent) => {
     const isMultiSelectKey = event && (event.metaKey || event.ctrlKey)
     const isRangeSelectKey = event && event.shiftKey
 
@@ -540,10 +601,16 @@ function AppContent() {
       triggerIndexCheck(selectedNoteId)
 
       // Delete empty note if switching away from it
-      await deleteEmptyNoteIfNeeded(selectedNoteId)
+      // Run in background without blocking selection
+      if (selectedNoteId && selectedNoteId !== noteId) {
+        deleteEmptyNoteIfNeeded(selectedNoteId)
+      }
 
       setSelectedNoteIds([noteId])
       setAnchorNoteId(noteId)  // Set anchor on normal click
+
+      // Open note in current pane (tab system)
+      openNoteInPane(noteId)
       return
     }
 
@@ -580,7 +647,7 @@ function AppContent() {
         }
       }
     }
-  }, [selectedNoteIds, selectedNoteId, anchorNoteId, filteredNotes, triggerIndexCheck, deleteEmptyNoteIfNeeded])
+  }, [selectedNoteIds, selectedNoteId, anchorNoteId, filteredNotes, triggerIndexCheck, deleteEmptyNoteIfNeeded, openNoteInPane])
 
   // Listen for note:navigate events (from Dataview, Transclusion, etc.)
   useEffect(() => {
@@ -647,11 +714,14 @@ function AppContent() {
         try {
           const title = formatDailyDate(todayStr, isZh)
           const newNote = await window.electron.daily.create(todayStr, title)
-          setNotes(prev => {
-            const newNotes = [newNote as Note, ...prev]
-            return newNotes.sort((a, b) => {
-              if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
-              return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+          // Use flushSync to ensure notes state is updated before selecting
+          flushSync(() => {
+            setNotes(prev => {
+              const newNotes = [newNote as Note, ...prev]
+              return newNotes.sort((a, b) => {
+                if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+                return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+              })
             })
           })
           selectSingleNote((newNote as Note).id)
@@ -678,12 +748,15 @@ function AppContent() {
         daily_date: selectedSmartView === 'daily' ? new Date().toISOString().split('T')[0] : null,
         is_favorite: false,
       })
-      setNotes(prev => {
-        const newNotes = [newNote as Note, ...prev]
-        // Re-sort: pinned first, then by updated_at
-        return newNotes.sort((a, b) => {
-          if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
-          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      // Use flushSync to ensure notes state is updated before selecting
+      flushSync(() => {
+        setNotes(prev => {
+          const newNotes = [newNote as Note, ...prev]
+          // Re-sort: pinned first, then by updated_at
+          return newNotes.sort((a, b) => {
+            if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+          })
         })
       })
       selectSingleNote((newNote as Note).id)
@@ -691,6 +764,11 @@ function AppContent() {
       console.error('Failed to create note:', error)
     }
   }, [selectedNotebookId, selectedSmartView, selectSingleNote])
+
+  // Handle opening note in new tab
+  const handleOpenInNewTab = useCallback((noteId: string) => {
+    createTab(noteId)
+  }, [createTab])
 
   // Handle creating a daily note for a specific date
   const handleCreateDaily = useCallback(async (date: string) => {
@@ -705,11 +783,14 @@ function AppContent() {
       // Generate localized title
       const title = formatDailyDate(date, isZh)
       const newNote = await window.electron.daily.create(date, title)
-      setNotes(prev => {
-        const newNotes = [newNote as Note, ...prev]
-        return newNotes.sort((a, b) => {
-          if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
-          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      // Use flushSync to ensure notes state is updated before selecting
+      flushSync(() => {
+        setNotes(prev => {
+          const newNotes = [newNote as Note, ...prev]
+          return newNotes.sort((a, b) => {
+            if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+          })
         })
       })
       selectSingleNote((newNote as Note).id)
@@ -765,12 +846,15 @@ function AppContent() {
       daily_date: null,
       is_favorite: false,
     })
-    setNotes(prev => {
-      const newNotes = [newNote as Note, ...prev]
-      // Re-sort: pinned first, then by updated_at
-      return newNotes.sort((a, b) => {
-        if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    // 使用 flushSync 确保状态同步更新，避免 handleNoteClick 找不到新笔记
+    flushSync(() => {
+      setNotes(prev => {
+        const newNotes = [newNote as Note, ...prev]
+        // Re-sort: pinned first, then by updated_at
+        return newNotes.sort((a, b) => {
+          if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        })
       })
     })
     return newNote as Note
@@ -1170,12 +1254,14 @@ function AppContent() {
   const handleCreateNoteRef = useRef(handleCreateNote)
   const selectedSmartViewRef = useRef(selectedSmartView)
   const filteredNotesRef = useRef(filteredNotes)
+  const tabFocusedNoteIdRef = useRef(tabFocusedNoteId)
   isTypewriterModeRef.current = isTypewriterMode
   handleToggleTypewriterRef.current = handleToggleTypewriter
   getCursorInfoFromEditorRef.current = getCursorInfoFromEditor
   handleCreateNoteRef.current = handleCreateNote
   selectedSmartViewRef.current = selectedSmartView
   filteredNotesRef.current = filteredNotes
+  tabFocusedNoteIdRef.current = tabFocusedNoteId
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1187,6 +1273,32 @@ function AppContent() {
           handleToggleTypewriterRef.current(cursorInfo)
         } else {
           setIsTypewriterMode(false)
+        }
+      }
+      // Cmd/Ctrl + T: New Tab
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 't') {
+        e.preventDefault()
+        createTab()
+      }
+      // Cmd/Ctrl + W: Close current Tab
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') {
+        e.preventDefault()
+        if (activeTabId) {
+          closeTab(activeTabId)
+        }
+      }
+      // Cmd/Ctrl + \: Split vertical
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === '\\') {
+        e.preventDefault()
+        if (tabFocusedNoteIdRef.current) {
+          splitPane('row')
+        }
+      }
+      // Cmd/Ctrl + Shift + \: Split horizontal
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '\\') {
+        e.preventDefault()
+        if (tabFocusedNoteIdRef.current) {
+          splitPane('column')
         }
       }
       // Cmd/Ctrl + N: Create new note (not in trash view)
@@ -1214,7 +1326,7 @@ function AppContent() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [createTab, closeTab, activeTabId, splitPane])
 
   // Bulk delete notes
   const handleBulkDelete = useCallback(async (ids: string[]) => {
@@ -1304,6 +1416,7 @@ function AppContent() {
           onCreateDaily={handleCreateDaily}
           onToggleFavorite={handleToggleFavorite}
           onDeleteNote={handleDeleteNote}
+          onOpenInNewTab={handleOpenInNewTab}
           isSidebarCollapsed={isSidebarCollapsed}
         />
       ) : (
@@ -1322,32 +1435,80 @@ function AppContent() {
           onBulkDelete={handleBulkDelete}
           onBulkMove={handleMoveToNotebook}
           onBulkToggleFavorite={handleBulkToggleFavorite}
+          onOpenInNewTab={handleOpenInNewTab}
           notebooks={notebooks}
           isSidebarCollapsed={isSidebarCollapsed}
           showCreateButton={selectedSmartView !== 'favorites'}
         />
       )}
 
-      {/* Editor - only show when not in trash view and not in typewriter mode */}
+      {/* Editor Area - TabBar + PaneLayout */}
       {selectedSmartView === 'trash' ? (
         // Empty placeholder for trash view (same background as editor)
         <div className="flex-1 bg-[var(--color-card-solid)]" />
       ) : !isTypewriterMode ? (
-        <EditorErrorBoundary resetKey={selectedNote?.id}>
-          <Editor
-            ref={editorRef}
-            note={selectedNote}
-            notes={notes}
-            notebooks={notebooks}
-            onUpdate={handleUpdateNote}
-            onNoteClick={handleNoteClick}
-            onCreateNote={handleCreateNoteFromLink}
-            scrollTarget={scrollTarget}
-            onScrollComplete={handleScrollComplete}
-            onTypewriterModeToggle={handleToggleTypewriter}
-            onSelectionChange={handleSelectionChange}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* TabBar */}
+          <TabBar
+            getNoteTitle={(noteId) => {
+              const note = notes.find(n => n.id === noteId)
+              const title = note?.title || t.editor?.untitled || 'Untitled'
+              return typeof title === 'string' ? title : 'Untitled'
+            }}
           />
-        </EditorErrorBoundary>
+
+          {/* PaneLayout with Editors */}
+          <PaneLayout
+            renderPane={(paneId, noteId, isFocused, panelCount) => {
+              // noteId 为 null 表示空 pane
+              const note = noteId ? notes.find(n => n.id === noteId) : null
+              return (
+                <EditorErrorBoundary resetKey={paneId}>
+                  <Editor
+                    ref={isFocused ? editorRef : undefined}
+                    note={note || null}
+                    notes={notes}
+                    notebooks={notebooks}
+                    onUpdate={handleUpdateNote}
+                    onNoteClick={handleNoteClick}
+                    onCreateNote={handleCreateNoteFromLink}
+                    onSelectNote={selectSingleNote}
+                    scrollTarget={isFocused ? scrollTarget : null}
+                    onScrollComplete={isFocused ? handleScrollComplete : undefined}
+                    onTypewriterModeToggle={handleToggleTypewriter}
+                    onSelectionChange={isFocused ? handleSelectionChange : undefined}
+                    showPaneControls={true}
+                    onSplitHorizontal={() => splitPane('row', { fromPaneId: paneId })}
+                    onSplitVertical={() => splitPane('column', { fromPaneId: paneId })}
+                    onClosePane={panelCount > 1 ? () => closePane(paneId) : undefined}
+                  />
+                </EditorErrorBoundary>
+              )
+            }}
+            renderEmpty={() => (
+              <div className="h-full flex flex-col bg-[var(--color-card-solid)]">
+                <div className="h-[50px] flex-shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
+                <div className="flex-1 flex flex-col items-center justify-center gap-2">
+                  <p className="text-lg font-medium text-[var(--color-muted)]">
+                    {t.editor?.selectNote || 'Select a note to start editing'}
+                  </p>
+                  <p className="text-sm text-[var(--color-muted)] opacity-50">
+                    {t.editor?.or || 'or'}
+                  </p>
+                  <button
+                    onClick={async () => {
+                      const newNote = await handleCreateNoteFromLink('')
+                      selectSingleNote(newNote.id)
+                    }}
+                    className="text-sm text-[var(--color-muted)] opacity-60 hover:opacity-100 hover:bg-[var(--color-surface)] hover:text-[var(--color-text)] px-4 py-2 rounded-md transition-all"
+                  >
+                    {t.editor?.createNewNote || 'Create new note'}
+                  </button>
+                </div>
+              </div>
+            )}
+          />
+        </div>
       ) : null}
 
       {/* Typewriter Mode - 全屏覆盖层 */}
@@ -1433,7 +1594,9 @@ function App() {
   return (
     <ThemeProvider>
       <I18nProvider>
-        <AppContent />
+        <TabProvider>
+          <AppContent />
+        </TabProvider>
       </I18nProvider>
     </ThemeProvider>
   )

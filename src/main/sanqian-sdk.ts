@@ -24,7 +24,7 @@ import {
 } from '@yushaw/sanqian-chat/main'
 import { app } from 'electron'
 import {
-  editorAgentConfig,
+  formatterAgentConfig,
   createEditorOutputTools,
 } from './editor-agent'
 import {
@@ -156,7 +156,7 @@ function getLaunchCommand(): string | undefined {
 let client: SanqianAppClient | null = null
 let assistantAgentId: string | null = null
 let writingAgentId: string | null = null
-let editorAgentId: string | null = null
+let formatterAgentId: string | null = null
 let syncingPromise: Promise<void> | null = null
 let onDataChangeCallback: (() => void) | null = null
 let currentTaskIdGetter: (() => string | null) | null = null
@@ -209,8 +209,8 @@ function buildAgentConfigs(): AppAgentConfig[] {
       systemPrompt: sdk.writingSystemPrompt,
       tools: []
     },
-    // Editor Agent for formatting output
-    editorAgentConfig
+    // Formatter Agent for formatting output
+    formatterAgentConfig
   ]
 }
 
@@ -732,8 +732,8 @@ function buildTools(): AppToolDefinition[] {
       }
     },
 
-    // ==================== Editor Output Tools ====================
-    // These tools are used by the Editor Agent to format and insert content
+    // ==================== Formatter Output Tools ====================
+    // These tools are used by the Formatter Agent to format and insert content
     ...createEditorOutputTools(
       () => currentTaskIdGetter?.() ?? null
     )
@@ -942,12 +942,12 @@ async function syncPrivateAgents(): Promise<void> {
       writingAgentId = writingInfo.agentId
       console.log('[Notes SDK] Writing agent synced:', writingAgentId)
 
-      // Sync Editor Agent for output formatting
-      const editorAgent = agents[2]
-      if (editorAgent) {
-        const editorInfo = await client!.createAgent(editorAgent)
-        editorAgentId = editorInfo.agentId
-        console.log('[Notes SDK] Editor agent synced:', editorAgentId)
+      // Sync Formatter Agent for output formatting
+      const formatterAgent = agents[2]
+      if (formatterAgent) {
+        const formatterInfo = await client!.createAgent(formatterAgent)
+        formatterAgentId = formatterInfo.agentId
+        console.log('[Notes SDK] Formatter agent synced:', formatterAgentId)
       }
     } catch (e) {
       console.error('[Notes SDK] Failed to sync agents:', e)
@@ -998,7 +998,7 @@ export async function initializeSanqianSDK(): Promise<void> {
     console.log('[Notes SDK] Disconnected from Sanqian')
     assistantAgentId = null
     writingAgentId = null
-    editorAgentId = null
+    formatterAgentId = null
   })
 
   client.on('error', (error) => {
@@ -1028,7 +1028,7 @@ export async function stopSanqianSDK(): Promise<void> {
     await client.disconnect()
     assistantAgentId = null
     writingAgentId = null
-    editorAgentId = null
+    formatterAgentId = null
     syncingPromise = null
   }
 }
@@ -1091,10 +1091,10 @@ export function getWritingAgentId(): string | null {
 }
 
 /**
- * Get the editor agent ID (for output formatting)
+ * Get the formatter agent ID (for output formatting)
  */
-export function getEditorAgentId(): string | null {
-  return editorAgentId
+export function getFormatterAgentId(): string | null {
+  return formatterAgentId
 }
 
 /**

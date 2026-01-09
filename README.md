@@ -4055,3 +4055,128 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - 修复副本编号逻辑：复制 "Title 副本" 不会叠加成 "Title 副本 副本"，而是正确生成 "Title 副本 2"
 - 使用正则表达式精确匹配，避免 "Test" 误匹配 "Testing"
 - 空标题处理：直接生成 "副本" 或 "Copy"
+
+
+### 2026-01-09: 多标签页与分屏系统
+
+**功能需求**：
+- 参考 Obsidian 实现多标签页 + 分屏功能
+- 支持 Tab 管理和 Pane 分屏
+
+**技术实现**：
+
+1. **Tab 系统** (`TabContext.tsx`)
+   - 创建 `TabProvider` 管理多标签状态
+   - 支持 Tab 的创建、关闭、切换、固定
+   - 使用 localStorage 持久化 Tab 状态
+
+2. **分屏布局** (`PaneLayout.tsx`)
+   - 使用 `react-mosaic-component` 处理分屏拖拽调整大小
+   - 支持水平/垂直分屏
+   - 空 pane 使用唯一 ID（`__empty_pane_xxx`）避免 Mosaic 重复 ID 错误
+
+3. **TabBar 拖拽排序** (`TabBar.tsx`)
+   - 使用 `@dnd-kit/sortable` 实现 Tab 拖拽排序
+   - 支持右键菜单：固定、关闭、关闭其他、关闭全部
+   - 中键点击快速关闭 Tab
+
+4. **快捷键支持** (`App.tsx`)
+   - `Cmd+T`: 新建 Tab
+   - `Cmd+W`: 关闭当前 Tab
+   - `Cmd+\`: 垂直分屏
+   - `Cmd+Shift+\`: 水平分屏
+
+5. **UI 优化**
+   - 分屏控制按钮移至 Editor 标题栏右侧
+   - 标题始终显示在标题栏（移除正文内标题）
+   - 滚动时显示标题栏分隔线
+
+
+5. **Pane 拖拽交换** (`PaneLayout.tsx`)
+   - 使用 `@dnd-kit` 实现 pane 拖拽
+   - 拖拽标题栏区域可交换两个 pane 的位置
+   - 拖拽时显示半透明指示器和目标高亮
+
+
+
+### 2026-01-09: paneId + noteId 分离架构重构
+
+**功能需求**：
+- 参考 Obsidian，允许同一个 Tab 的不同 pane 加载同一个 note
+- 之前架构使用 noteId 直接作为 layout 标识，无法支持此功能
+
+**调研**：
+- **Obsidian**: WorkspaceLeaf 是独立容器（有唯一 ID），TFile 是内容标识
+- **VSCode**: EditorInput 是视图，TextModel 是内容，多个视图可共享同一 TextModel
+- 选择 Obsidian 的架构模式
+
+**技术实现**：
+
+1. **新的数据结构** (`TabContext.tsx`)
+   - `PaneState { noteId: string | null }` - pane 内容状态
+   - `Tab.layout` 现在存储 paneId（如 `pane_xxx`）而非 noteId
+   - `Tab.panes: Record<string, PaneState>` 映射 paneId -> noteId
+   - `getPaneNoteId(paneId)` 方法查询 pane 对应的 noteId
+
+2. **数据迁移** (`TabContext.tsx`)
+   - 存储 key 从 `sanqian_notes_tabs` 升级为 `sanqian_notes_tabs_v2`
+   - 自动检测并迁移旧格式数据
+   - 迁移时为每个旧的 noteId 生成新的 paneId
+
+3. **组件更新**
+   - `PaneLayout.tsx`: renderPane 签名变为 `(paneId, noteId, isFocused, panelCount)`
+   - `App.tsx`: 使用 paneId 调用 focusPane 和 closePane
+
+4. **测试覆盖**
+   - PaneLayout.test.tsx: 更新为新的 Tab 结构
+   - TabContext.test.tsx: 添加 `getPaneNoteId` 和同笔记多 pane 测试
+
+
+
+### 2026-01-09: Agent Block 功能优化
+
+**问题修复**：
+
+1. **重命名 Editor Agent → Formatter**
+   - `EDITOR_AGENT_ID` → `FORMATTER_AGENT_ID`
+   - `editorAgentConfig` → `formatterAgentConfig`
+   - 更新相关注释和变量名
+
+2. **默认使用 auto 格式**
+   - 移除 `outputFormat` 的 `none` 选项
+   - 默认值从 `none` 改为 `auto`
+   - 始终启用两步流程（内容生成 + Formatter 格式化）
+
+3. **支持多选 block**
+   - 选中多个 block 时，合并它们的内容发送给 Agent
+   - 使用第一个 block 的 ID 关联任务
+   - 输出仍然按照 processMode（append/replace）处理第一个 block
+
+
+**追加修复：多选 block 的正确行为**
+
+修改输出处理逻辑以支持正确的多选 block 行为：
+- **append 模式**：在最后一个选中 block 后面插入
+- **replace 模式**：删除所有选中的 blocks，在原位置插入新内容
+
+修改的文件：
+- `EditorContextMenu.tsx` - 传递 blockIds 数组
+- `AgentTaskPanel.tsx` - props 改为 blockIds
+- `Editor.tsx` - 状态改为 blockIds 数组
+- `AgentTaskIndicators.tsx` - 回调签名更新
+- `editorOutputHandler.ts` - 多 block 处理逻辑
+- `shared/types.ts` - EditorOutputContext 添加 blockIds
+- 各类型定义文件更新
+
+
+### 2026-01-10: 代码质量优化
+
+**批量关闭 Tabs 优化**：
+- `TabContext.tsx`: 添加 `closeTabs(tabIds: string[])` 批量关闭方法
+- `TabBar.tsx`: Close Others / Close All 使用批量关闭，避免多次状态更新和 localStorage 写入
+- 优化性能：从 N 次 setTabs 调用减少为 1 次
+
+**Select 组件视口边界检测**：
+- 下拉菜单现在会自动检测视口空间
+- 当底部空间不足时，自动向上展开
+- 修复了 trigger 在视口底部时 dropdown 超出屏幕的问题

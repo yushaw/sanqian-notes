@@ -1113,7 +1113,7 @@ app.whenReady().then(() => {
     return { success: false }
   })
 
-  // Set up getter for Editor Agent output tools
+  // Set up getter for Formatter Agent output tools
   setCurrentTaskIdGetter(() => getCurrentTaskId())
 
   // Initialize Sanqian SDK

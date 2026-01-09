@@ -8,7 +8,7 @@
  *
  * 两步执行流程：
  * 1. 内容 Agent：生成原始文本内容
- * 2. Editor Agent：使用 output tools 格式化并输出到编辑器
+ * 2. Formatter Agent：使用 output tools 格式化并输出到编辑器
  */
 
 import type { WebContents } from 'electron'
@@ -16,7 +16,7 @@ import { getClient } from './sanqian-sdk'
 import { updateAgentTask } from './database'
 import type { AgentCapability } from '@yushaw/sanqian-chat/main'
 import {
-  EDITOR_AGENT_ID,
+  FORMATTER_AGENT_ID,
   initTaskOutput,
   commitTaskOutput,
   clearTaskOutput,
@@ -47,7 +47,7 @@ export interface AgentTaskStep {
 }
 
 export interface AgentTaskOptions {
-  /** 是否使用两步执行流程（内容 Agent + Editor Agent） */
+  /** 是否使用两步执行流程（内容 Agent + Formatter Agent） */
   useTwoStepFlow?: boolean
   /** 输出上下文（两步流程必需） */
   outputContext?: EditorOutputContext
@@ -271,7 +271,7 @@ export async function* runAgentTask(
       }
     }
 
-    // ========== Step 2: Editor Agent (if two-step flow enabled) ==========
+    // ========== Step 2: Formatter Agent (if two-step flow enabled) ==========
     if (options?.useTwoStepFlow && options.outputContext && resultText) {
       yield { type: 'phase', phase: 'editor' }
 
@@ -280,7 +280,7 @@ export async function* runAgentTask(
       currentExecutingTaskId = taskId
 
       try {
-        // Build Editor Agent prompt based on format preference
+        // Build Formatter Agent prompt based on format preference
         let editorPrompt: string
         const format = options.outputFormat
 
@@ -296,11 +296,11 @@ export async function* runAgentTask(
           const formatName = formatMap[format] || format
           editorPrompt = `请将以下内容以【${formatName}】格式输出到编辑器中。必须使用指定的格式工具，不要使用其他格式。\n\n${resultText}`
         } else {
-          // Auto format - let Editor Agent decide
+          // Auto format - let Formatter Agent decide
           editorPrompt = `请将以下内容格式化并输出到编辑器中：\n\n${resultText}`
         }
 
-        const editorStream = client.chatStream(EDITOR_AGENT_ID, [
+        const editorStream = client.chatStream(FORMATTER_AGENT_ID, [
           { role: 'user', content: editorPrompt }
         ])
 
@@ -317,7 +317,7 @@ export async function* runAgentTask(
             return
           }
 
-          // Editor Agent events (mainly tool calls for output)
+          // Formatter Agent events (mainly tool calls for output)
           switch (event.type) {
             case 'tool_call': {
               const toolName = event.tool_call?.function.name

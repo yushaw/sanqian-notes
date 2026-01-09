@@ -6,6 +6,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from '../i18n'
 import { AgentSelect } from './AgentSelect'
+import { Select } from './Select'
 import {
   getTaskAsync,
   createTask,
@@ -17,7 +18,7 @@ import type { AgentTaskRecord, AgentTaskStatus, AgentTaskOutputFormat } from '..
 interface AgentTaskPanelProps {
   isOpen: boolean
   onClose: () => void
-  blockId: string
+  blockIds: string[]
   taskId: string | null
   blockContent: string
   pageId: string
@@ -91,7 +92,7 @@ function Tooltip({ children, text }: { children: React.ReactNode; text: string }
 export function AgentTaskPanel({
   isOpen,
   onClose,
-  blockId,
+  blockIds,
   taskId,
   blockContent,
   pageId,
@@ -100,6 +101,8 @@ export function AgentTaskPanel({
   onTaskRemoved,
   onTaskUpdated,
 }: AgentTaskPanelProps) {
+  // 第一个 blockId 用于关联任务
+  const primaryBlockId = blockIds[0] || ''
   const t = useTranslations()
 
   const [task, setTask] = useState<AgentTaskRecord | null>(null)
@@ -123,8 +126,8 @@ export function AgentTaskPanel({
   // Process mode (append below or replace block)
   const [processMode, setProcessMode] = useState<'append' | 'replace'>('append')
 
-  // Output format type (default 'none' - raw text, no formatting)
-  const [outputFormat, setOutputFormat] = useState<AgentTaskOutputFormat>('none')
+  // Output format type (default 'auto' - let Formatter decide)
+  const [outputFormat, setOutputFormat] = useState<AgentTaskOutputFormat>('auto')
 
   // Load agents list
   useEffect(() => {
@@ -251,7 +254,7 @@ export function AgentTaskPanel({
       // Create or update task
       if (!currentTask) {
         currentTask = await createTask({
-          blockId,
+          blockId: primaryBlockId,
           pageId,
           notebookId,
           content: blockContent,
@@ -348,7 +351,7 @@ export function AgentTaskPanel({
             break
 
           case 'editor_content':
-            // Formatted content from editor agent's pending operations
+            // Formatted content from formatter agent's pending operations
             if (event.content) {
               setEditorOutput(event.content)
             }
@@ -387,22 +390,21 @@ export function AgentTaskPanel({
         }
       })
 
-      // Start execution - only pass outputContext when format is not 'none'
+      // Start execution with outputContext for Formatter Agent
       await window.electron.agent.run(
         currentTask.id,
         selectedAgentId,
         selectedAgent.name,
         blockContent,
         additionalPrompt || undefined,
-        outputFormat !== 'none'
-          ? {
-              targetBlockId: blockId,
-              pageId,
-              notebookId,
-              processMode,
-              outputFormat,
-            }
-          : undefined
+        {
+          targetBlockId: primaryBlockId,
+          blockIds,
+          pageId,
+          notebookId,
+          processMode,
+          outputFormat,
+        }
       )
 
       onTaskUpdated?.()
@@ -412,7 +414,8 @@ export function AgentTaskPanel({
     }
   }, [
     task,
-    blockId,
+    primaryBlockId,
+    blockIds,
     pageId,
     notebookId,
     blockContent,
@@ -452,12 +455,15 @@ export function AgentTaskPanel({
   const status = task?.status ?? 'idle'
   const hasOutput = status === 'running' || status === 'completed' || status === 'failed'
 
-  // Config panel (left side) - reusable content
-  const ConfigPanel = () => (
+  // Config panel (left side) - use JSX variable instead of inline function component to avoid re-mount on state change
+  const configPanel = (
     <div className="flex flex-col h-full">
-      {/* Top: Block content (vertically centered, left-aligned) */}
-      <div className="flex-1 flex items-center overflow-hidden">
-        <div className="pl-2 border-l-[1.5px] border-[var(--color-accent)]/30 text-xs leading-relaxed text-[var(--color-text)] overflow-y-auto max-h-full w-full">
+      {/* Top: Block content preview */}
+      <div className="mb-3 pb-3 border-b border-black/5 dark:border-white/5">
+        <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)] mb-1.5">
+          {t.agentTask?.sourceContent ?? 'Source'}
+        </div>
+        <div className="pl-2 border-l-[1.5px] border-[var(--color-accent)]/30 text-xs leading-relaxed text-[var(--color-text)] max-h-20 overflow-y-auto">
           {blockContent || (
             <span className="text-[var(--color-muted)] italic">
               {t.agentTask?.emptyContent ?? '(empty)'}
@@ -466,22 +472,23 @@ export function AgentTaskPanel({
         </div>
       </div>
 
-      {/* Bottom: Config controls + textarea (fixed) */}
-      <div className="mt-auto space-y-2 pt-3 border-t border-black/5 dark:border-white/5">
+      {/* Bottom: Config controls + textarea */}
+      <div className="flex-1 flex flex-col space-y-3">
         {/* Additional prompt - expands upward */}
         <textarea
-          className="w-full text-xs bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-md p-2 text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]/20 resize-none max-h-24"
+          className="w-full text-[13px] bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-md p-2.5 text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]/20 resize-none max-h-24"
           placeholder={t.agentTask?.additionalPromptPlaceholder ?? 'Instructions (optional)...'}
           value={additionalPrompt}
           onChange={(e) => setAdditionalPrompt(e.target.value)}
+          onMouseDown={(e) => e.stopPropagation()}
           rows={2}
         />
 
         {/* Agent selector */}
-        <div className="flex items-center gap-1 text-[11px]">
+        <div className="flex items-center gap-2 text-[13px]">
           <span className="text-[var(--color-muted)]">{t.agentTask?.useAgent ?? 'Use'}</span>
           {agentsLoading ? (
-            <div className="w-2 h-2 border border-[var(--color-muted)] border-t-transparent rounded-full animate-spin" />
+            <div className="w-3 h-3 border border-[var(--color-muted)] border-t-transparent rounded-full animate-spin" />
           ) : agents.length === 0 ? (
             <span className="text-[var(--color-muted)] italic">{t.agentTask?.noAgents ?? 'No agents'}</span>
           ) : (
@@ -494,26 +501,25 @@ export function AgentTaskPanel({
         </div>
 
         {/* Format selector */}
-        <div className="flex items-center gap-1 text-[11px]">
+        <div className="flex items-center gap-2 text-[13px]">
           <span className="text-[var(--color-muted)]">{t.agentTask?.formatLabel ?? 'Format'}</span>
-          <select
+          <Select
+            options={[
+              { value: 'auto', label: t.agentTask?.formatAuto ?? 'Auto' },
+              { value: 'paragraph', label: t.agentTask?.formatParagraph ?? 'Paragraph' },
+              { value: 'list', label: t.agentTask?.formatList ?? 'List' },
+              { value: 'table', label: t.agentTask?.formatTable ?? 'Table' },
+              { value: 'code', label: t.agentTask?.formatCode ?? 'Code' },
+              { value: 'quote', label: t.agentTask?.formatQuote ?? 'Quote' },
+            ]}
             value={outputFormat}
-            onChange={(e) => setOutputFormat(e.target.value as AgentTaskOutputFormat)}
-            className="flex-1 bg-transparent border-none text-[var(--color-text)] focus:outline-none cursor-pointer"
-          >
-            <option value="none">-</option>
-            <option value="auto">{t.agentTask?.formatAuto ?? 'Auto'}</option>
-            <option value="paragraph">{t.agentTask?.formatParagraph ?? 'Paragraph'}</option>
-            <option value="list">{t.agentTask?.formatList ?? 'List'}</option>
-            <option value="table">{t.agentTask?.formatTable ?? 'Table'}</option>
-            <option value="code">{t.agentTask?.formatCode ?? 'Code'}</option>
-            <option value="quote">{t.agentTask?.formatQuote ?? 'Quote'}</option>
-          </select>
+            onChange={(v) => setOutputFormat(v as AgentTaskOutputFormat)}
+          />
         </div>
 
         {/* Process mode + Run button row */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-0.5 p-0.5 rounded bg-black/[0.03] dark:bg-white/[0.03] text-[10px]">
+          <div className="flex items-center gap-0.5 p-0.5 rounded bg-black/[0.03] dark:bg-white/[0.03] text-[12px]">
             <Tooltip text={t.agentTask?.modeAppendTip ?? 'Insert below current block'}>
               <button
                 onClick={() => setProcessMode('append')}
@@ -544,7 +550,7 @@ export function AgentTaskPanel({
           <button
             onClick={handleExecute}
             disabled={loading || !selectedAgentId || agents.length === 0}
-            className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-white bg-[var(--color-accent)] hover:opacity-90 rounded-md transition-all disabled:opacity-50 select-none"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[13px] font-medium text-white bg-[var(--color-accent)] hover:opacity-90 rounded-md transition-all disabled:opacity-50 select-none"
           >
             {Icons.play}
             <span>{status === 'idle' ? (t.agentTask?.execute ?? 'Run') : (t.agentTask?.reExecute ?? 'Retry')}</span>
@@ -559,11 +565,11 @@ export function AgentTaskPanel({
   const displayOutput = selectedPhase === 'editor' ? editorOutput : contentOutput
   const isCurrentPhaseSelected = selectedPhase === currentPhase
 
-  const OutputPanel = () => (
+  // Use JSX variable instead of inline function component to avoid re-mount on state change
+  const outputPanel = (
     <div className="flex flex-col h-full">
       {/* Phase indicator - minimal tabs */}
-      {outputFormat !== 'none' && (
-        <div className="flex items-center gap-2.5 pb-2.5 mb-3 border-b border-black/5 dark:border-white/5">
+      <div className="flex items-center gap-2.5 pb-2.5 mb-3 border-b border-black/5 dark:border-white/5">
           <button
             onClick={() => setSelectedPhase('content')}
             className="flex items-center gap-1 hover:opacity-80 transition-opacity"
@@ -591,8 +597,7 @@ export function AgentTaskPanel({
               {t.agentTask?.phaseEditor ?? 'Formatting'}
             </span>
           </button>
-        </div>
-      )}
+      </div>
 
       {/* Content area */}
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -712,9 +717,13 @@ export function AgentTaskPanel({
       />
 
       {/* Panel - dynamic width based on output presence */}
-      <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--color-card)] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] overflow-hidden z-[1001] ${
-        hasOutput ? 'w-full max-w-2xl h-[420px]' : 'w-full max-w-xs'
-      }`}>
+      <div
+        className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--color-card)] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] overflow-hidden z-[1001] transition-all duration-200 ${
+          hasOutput ? 'w-[680px] h-[400px]' : 'w-[320px]'
+        }`}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Close button - absolute positioned */}
         <button
           onClick={onClose}
@@ -724,22 +733,22 @@ export function AgentTaskPanel({
         </button>
 
         {/* Body - split layout when has output */}
-        <div className={`flex h-full ${hasOutput ? 'divide-x divide-black/5 dark:divide-white/5' : ''}`}>
+        <div className={`flex h-full ${hasOutput ? '' : ''}`}>
           {/* Left: Config */}
-          <div className={`p-4 flex flex-col ${hasOutput ? 'w-56 flex-shrink-0 h-full' : 'w-full'}`}>
+          <div className={`p-4 flex flex-col ${hasOutput ? 'w-[240px] flex-shrink-0 h-full border-r border-black/5 dark:border-white/5' : 'w-full'}`}>
             {loading && !task ? (
               <div className="flex items-center justify-center flex-1">
                 <div className="w-4 h-4 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
               </div>
             ) : (
-              <ConfigPanel />
+              configPanel
             )}
           </div>
 
           {/* Right: Output (only when running/completed/failed) */}
           {hasOutput && (
             <div className="flex-1 p-4 min-w-0 flex flex-col overflow-hidden">
-              <OutputPanel />
+              {outputPanel}
             </div>
           )}
         </div>

@@ -1,9 +1,9 @@
 /**
- * Editor Agent - 用于将内容格式化并插入到编辑器中
+ * Formatter Agent - 用于将内容格式化并插入到编辑器中
  *
  * 工作流程：
  * 1. 内容 Agent 生成原始文本结果
- * 2. Editor Agent 接收文本并使用 output tools 格式化输出
+ * 2. Formatter Agent 接收文本并使用 output tools 格式化输出
  * 3. Output tools 的 handler 将内容插入到编辑器中
  *
  * Output Tools:
@@ -38,15 +38,15 @@ export interface PendingOutputOps {
 const pendingOps = new Map<string, PendingOutputOps>()
 
 // ============================================
-// Editor Agent Definition
+// Formatter Agent Definition
 // ============================================
 
-export const EDITOR_AGENT_ID = 'sanqian-notes:editor-agent'
-export const EDITOR_AGENT_NAME = 'Editor Agent'
+export const FORMATTER_AGENT_ID = 'sanqian-notes:formatter'
+export const FORMATTER_AGENT_NAME = 'Formatter'
 
-export const editorAgentConfig: AppAgentConfig = {
-  agentId: 'editor-agent',
-  name: 'Editor Agent',
+export const formatterAgentConfig: AppAgentConfig = {
+  agentId: 'formatter',
+  name: 'Formatter',
   description: '将内容格式化并插入到笔记编辑器中',
   systemPrompt: `你是一个编辑器助手，负责将内容格式化并插入到笔记编辑器中。
 
@@ -293,7 +293,7 @@ export function clearTaskOutput(taskId: string): void {
 
 /**
  * Finalize and commit pending operations to the editor
- * Called after Editor Agent completes
+ * Called after Formatter Agent completes
  */
 export function commitTaskOutput(
   taskId: string,

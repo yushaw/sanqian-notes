@@ -333,6 +333,7 @@ declare global {
           additionalPrompt?: string,
           outputContext?: {
             targetBlockId: string
+            blockIds?: string[]
             pageId: string
             notebookId: string | null
             processMode: 'append' | 'replace'
@@ -353,6 +354,7 @@ declare global {
           taskId: string
           context: {
             targetBlockId: string
+            blockIds?: string[]
             pageId: string
             notebookId: string | null
             processMode: 'append' | 'replace'

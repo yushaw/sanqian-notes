@@ -13,6 +13,7 @@ interface DailyViewProps {
   onCreateDaily: (date: string) => void
   onToggleFavorite: (id: string) => void
   onDeleteNote: (id: string) => void
+  onOpenInNewTab?: (id: string) => void
   isSidebarCollapsed?: boolean
 }
 
@@ -31,6 +32,7 @@ export function DailyView({
   onCreateDaily,
   onToggleFavorite,
   onDeleteNote,
+  onOpenInNewTab,
   isSidebarCollapsed = false
 }: DailyViewProps) {
   const { isZh } = useI18n()
@@ -100,6 +102,16 @@ export function DailyView({
     if (!contextMenu.noteId) return []
 
     return [
+      // Open in new tab
+      ...(onOpenInNewTab ? [{
+        label: t.noteList.openInNewTab,
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          </svg>
+        ),
+        onClick: () => onOpenInNewTab(contextMenu.noteId!)
+      }] : []),
       // Favorite/Unfavorite
       {
         label: contextMenu.isFavorite ? t.noteList.unfavorite : t.noteList.favorite,
@@ -124,7 +136,7 @@ export function DailyView({
         onClick: () => onDeleteNote(contextMenu.noteId!)
       }
     ]
-  }, [contextMenu.noteId, contextMenu.isFavorite, t, onToggleFavorite, onDeleteNote])
+  }, [contextMenu.noteId, contextMenu.isFavorite, t, onToggleFavorite, onDeleteNote, onOpenInNewTab])
 
   return (
     <div className="daily-view">

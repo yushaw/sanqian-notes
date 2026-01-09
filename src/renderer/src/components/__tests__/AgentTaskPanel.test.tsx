@@ -121,7 +121,7 @@ const mockTaskIdle: AgentTaskRecord = {
   error: null,
   outputBlockId: null,
   processMode: 'append',
-  outputFormat: 'none',
+  outputFormat: 'auto',
   runTiming: 'manual',
   scheduleConfig: null,
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -151,7 +151,7 @@ const mockTaskFailed: AgentTaskRecord = {
 const defaultProps = {
   isOpen: true,
   onClose: vi.fn(),
-  blockId: 'block-1',
+  blockIds: ['block-1'],
   taskId: null,
   blockContent: 'Test block content',
   pageId: 'page-1',
@@ -233,7 +233,7 @@ describe('AgentTaskPanel', () => {
       })
     })
 
-    it('格式为 none 时不传递 outputContext', async () => {
+    it('默认格式为 auto 时传递 outputContext', async () => {
       mockCreateTask.mockResolvedValue(mockTaskIdle)
       mockAgentRun.mockResolvedValue(undefined)
 
@@ -243,18 +243,22 @@ describe('AgentTaskPanel', () => {
         expect(screen.getByText('Test Agent')).toBeInTheDocument()
       })
 
-      // 默认格式为 none，直接运行
+      // 默认格式为 auto，直接运行
       fireEvent.click(screen.getByText('运行'))
 
       await waitFor(() => {
-        // 检查 agent.run 最后一个参数为 undefined
+        // 检查 agent.run 传递了 outputContext
         expect(mockAgentRun).toHaveBeenCalledWith(
           expect.anything(),
           expect.anything(),
           expect.anything(),
           expect.anything(),
           undefined,
-          undefined
+          expect.objectContaining({
+            targetBlockId: 'block-1',
+            processMode: 'append',
+            outputFormat: 'auto',
+          })
         )
       })
     })
@@ -265,13 +269,31 @@ describe('AgentTaskPanel', () => {
 
       render(<AgentTaskPanel {...defaultProps} />)
 
+      // 等待组件完全渲染
       await waitFor(() => {
         expect(screen.getByText('Test Agent')).toBeInTheDocument()
+        // 确保格式选择器也已渲染（中文环境下显示 "自动"）
+        const buttons = screen.getAllByRole('button')
+        expect(buttons.some(btn => btn.textContent?.includes('自动'))).toBe(true)
       })
 
-      // 选择列表格式（现在只有一个 combobox - 格式选择器）
-      const formatSelect = screen.getByRole('combobox')
-      fireEvent.change(formatSelect, { target: { value: 'list' } })
+      // 找到格式选择器按钮（包含 "自动" 文本的按钮）
+      const buttons = screen.getAllByRole('button')
+      const formatButton = buttons.find(btn => btn.textContent?.includes('自动'))
+      expect(formatButton).toBeDefined()
+
+      // 点击打开格式下拉菜单
+      fireEvent.click(formatButton!)
+
+      // 等待下拉菜单出现
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument()
+      })
+
+      // 选择 "列表" 格式（中文）
+      const listOption = screen.getAllByRole('option').find(opt => opt.textContent?.includes('列表'))
+      expect(listOption).toBeDefined()
+      fireEvent.click(listOption!)
 
       // 点击运行
       fireEvent.click(screen.getByText('运行'))
@@ -306,9 +328,7 @@ describe('AgentTaskPanel', () => {
         expect(screen.getByText('运行')).toBeInTheDocument()
       })
 
-      // 选择格式（phase 指示器只在格式非 none 时显示）
-      const formatSelect = screen.getByRole('combobox')
-      fireEvent.change(formatSelect, { target: { value: 'auto' } })
+      // 格式默认就是 "Auto"，不需要改变
 
       // 点击运行
       fireEvent.click(screen.getByText('运行'))
@@ -336,9 +356,15 @@ describe('AgentTaskPanel', () => {
         expect(screen.getByText('运行')).toBeInTheDocument()
       })
 
-      // 选择格式（phase 指示器只在格式非 none 时显示）
-      const formatSelect = screen.getByRole('combobox')
-      fireEvent.change(formatSelect, { target: { value: 'list' } })
+      // 找到格式选择器按钮（中文环境下显示 "自动"）
+      const buttons = screen.getAllByRole('button')
+      const formatButton = buttons.find(btn => btn.textContent?.includes('自动'))
+      if (formatButton) {
+        fireEvent.click(formatButton)
+        // 选择 "列表" 格式（中文）
+        const listOption = screen.getAllByRole('option').find(opt => opt.textContent?.includes('列表'))
+        if (listOption) fireEvent.click(listOption)
+      }
 
       // 点击运行
       fireEvent.click(screen.getByText('运行'))
@@ -424,14 +450,16 @@ describe('AgentTaskPanel', () => {
 
       await waitFor(() => {
         // AgentSelect 显示选中的 agent 名称
-        expect(screen.getByTestId('agent-select-trigger')).toHaveTextContent('Test Agent')
+        expect(screen.getByRole('button', { name: /Test Agent/i })).toBeInTheDocument()
       })
 
       // 点击打开 agent 下拉菜单
-      fireEvent.click(screen.getByTestId('agent-select-trigger'))
+      fireEvent.click(screen.getByRole('button', { name: /Test Agent/i }))
 
       // 选择另一个 agent
-      fireEvent.click(screen.getByTestId('agent-option-agent-2'))
+      const options = screen.getAllByRole('option')
+      const anotherAgentOption = options.find(opt => opt.textContent?.includes('Another Agent'))
+      if (anotherAgentOption) fireEvent.click(anotherAgentOption)
 
       // 运行
       fireEvent.click(screen.getByText('运行'))

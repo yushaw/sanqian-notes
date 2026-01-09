@@ -25,6 +25,7 @@ interface TiptapNode {
   attrs?: Record<string, unknown>
   content?: TiptapNode[]
   text?: string
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
 }
 
 /**
@@ -195,14 +196,48 @@ function convertTable(
 
 /**
  * Convert note reference operation to Tiptap nodes
+ *
+ * 支持两种模式：
+ * 1. 有 noteId：生成带 noteLink mark 的实际链接
+ * 2. 无 noteId：生成 [[displayText]] 占位符文本
  */
 function convertNoteRef(
-  content: { noteTitle: string; displayText?: string },
+  content: { noteTitle: string; displayText?: string; noteId?: string },
   managerBlockId: string
 ): TiptapNode[] {
-  // Note: This creates a placeholder paragraph with the note reference
-  // The actual note linking would require looking up the note ID
   const displayText = content.displayText || content.noteTitle
+
+  // 如果有 noteId，生成实际的 noteLink mark
+  if (content.noteId) {
+    return [
+      {
+        type: 'paragraph',
+        attrs: {
+          blockId: generateBlockId(),
+          managedBy: managerBlockId,
+        },
+        content: [
+          {
+            type: 'text',
+            text: displayText,
+            marks: [
+              {
+                type: 'noteLink',
+                attrs: {
+                  noteId: content.noteId,
+                  noteTitle: content.noteTitle,
+                  targetType: 'note',
+                  targetValue: null,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]
+  }
+
+  // 无 noteId 时，生成 [[displayText]] 占位符（用户可手动转换）
   return [
     {
       type: 'paragraph',
@@ -214,7 +249,6 @@ function convertNoteRef(
         {
           type: 'text',
           text: `[[${displayText}]]`,
-          // TODO: Convert to actual noteLink mark when note lookup is available
         },
       ],
     },
@@ -252,7 +286,7 @@ function convertOperation(operation: OutputOperation, managerBlockId: string): T
       )
     case 'noteRef':
       return convertNoteRef(
-        operation.content as { noteTitle: string; displayText?: string },
+        operation.content as { noteTitle: string; displayText?: string; noteId?: string },
         managerBlockId
       )
     case 'html':
@@ -271,6 +305,10 @@ function convertOperation(operation: OutputOperation, managerBlockId: string): T
 /**
  * Handle output insertion from Agent task
  *
+ * Supports multi-block operations:
+ * - append: insert after the last selected block
+ * - replace: delete all selected blocks and insert at the first position
+ *
  * @param editor Tiptap editor instance
  * @param data Output data from main process
  * @returns The block ID of the first inserted output block (for tracking)
@@ -282,29 +320,31 @@ export function handleOutputInsertion(editor: Editor, data: InsertOutputData): s
     return null
   }
 
+  // Get all block IDs to process (use blockIds if available, otherwise fall back to targetBlockId)
+  const blockIds = context.blockIds?.length ? context.blockIds : [context.targetBlockId]
+  const primaryBlockId = blockIds[0]
+
   // First, delete any existing managed blocks (for retry scenarios)
   // This ensures old output is replaced with new output
-  editor.commands.deleteManagedBlocks(context.targetBlockId)
+  editor.commands.deleteManagedBlocks(primaryBlockId)
 
-  // Find the target block position (after deletion, positions may have changed)
-  let targetPos: number | null = null
-  let targetNodeSize = 0
+  // Find positions of all target blocks
+  const blockPositions: Array<{ blockId: string; pos: number; nodeSize: number }> = []
 
   editor.state.doc.descendants((node, pos) => {
-    if (node.attrs.blockId === context.targetBlockId && targetPos === null) {
-      targetPos = pos
-      targetNodeSize = node.nodeSize
+    const nodeBlockId = node.attrs.blockId
+    if (nodeBlockId && blockIds.includes(nodeBlockId)) {
+      blockPositions.push({ blockId: nodeBlockId, pos, nodeSize: node.nodeSize })
     }
   })
 
-  if (targetPos === null) {
-    console.error(`[EditorOutput] Target block not found: ${context.targetBlockId}`)
+  // Sort by position to maintain document order
+  blockPositions.sort((a, b) => a.pos - b.pos)
+
+  if (blockPositions.length === 0) {
+    console.error(`[EditorOutput] No target blocks found for: ${blockIds.join(', ')}`)
     return null
   }
-
-  // Calculate insert position
-  const insertPos =
-    context.processMode === 'replace' ? targetPos : targetPos + targetNodeSize
 
   // Convert operations to Tiptap nodes
   const nodes: TiptapNode[] = []
@@ -316,7 +356,7 @@ export function handleOutputInsertion(editor: Editor, data: InsertOutputData): s
       continue
     }
 
-    const converted = convertOperation(operation, context.targetBlockId)
+    const converted = convertOperation(operation, primaryBlockId)
     if (converted.length > 0) {
       // Track first output block ID
       if (firstOutputBlockId === null && converted[0].attrs?.blockId) {
@@ -326,18 +366,38 @@ export function handleOutputInsertion(editor: Editor, data: InsertOutputData): s
     }
   }
 
-  // Insert nodes
+  // Insert nodes based on process mode
   if (nodes.length > 0) {
     if (context.processMode === 'replace') {
-      // Replace mode: delete target block and insert new content
-      editor
-        .chain()
-        .focus()
-        .deleteRange({ from: targetPos, to: targetPos + targetNodeSize })
-        .insertContentAt(targetPos, nodes)
-        .run()
+      // Replace mode: delete selected blocks and insert at the first position
+      // Check if blocks are contiguous to avoid deleting unselected content
+      const firstBlock = blockPositions[0]
+      const lastBlock = blockPositions[blockPositions.length - 1]
+      const totalRange = lastBlock.pos + lastBlock.nodeSize - firstBlock.pos
+      const selectedSize = blockPositions.reduce((sum, b) => sum + b.nodeSize, 0)
+
+      if (blockPositions.length > 1 && totalRange !== selectedSize) {
+        // Blocks are not contiguous - delete each block individually (from end to start)
+        // This preserves unselected content between selected blocks
+        console.warn('[EditorOutput] Selected blocks are not contiguous, deleting individually')
+        const chain = editor.chain().focus()
+        // Delete from end to start to maintain correct positions
+        for (let i = blockPositions.length - 1; i >= 0; i--) {
+          const block = blockPositions[i]
+          chain.deleteRange({ from: block.pos, to: block.pos + block.nodeSize })
+        }
+        // Insert at first block position
+        chain.insertContentAt(firstBlock.pos, nodes).run()
+      } else {
+        // Blocks are contiguous - delete entire range
+        const deleteFrom = firstBlock.pos
+        const deleteTo = lastBlock.pos + lastBlock.nodeSize
+        editor.chain().focus().deleteRange({ from: deleteFrom, to: deleteTo }).insertContentAt(deleteFrom, nodes).run()
+      }
     } else {
-      // Append mode: insert after target block
+      // Append mode: insert after the last target block
+      const lastBlock = blockPositions[blockPositions.length - 1]
+      const insertPos = lastBlock.pos + lastBlock.nodeSize
       editor.chain().focus().insertContentAt(insertPos, nodes).run()
     }
   }

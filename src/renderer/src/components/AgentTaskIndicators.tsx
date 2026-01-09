@@ -14,7 +14,7 @@ import type { AgentTaskStatus } from '../../../shared/types'
 interface AgentTaskIndicatorsProps {
   editor: Editor | null
   containerRef: React.RefObject<HTMLElement>
-  onOpenPanel: (blockId: string, taskId: string | null, blockContent: string) => void
+  onOpenPanel: (blockIds: string[], taskId: string | null, blockContent: string) => void
 }
 
 interface IndicatorData {
@@ -187,7 +187,7 @@ export function AgentTaskIndicators({
             key={blockId}
             className="agent-task-indicator"
             data-status={status}
-            onClick={() => onOpenPanel(blockId, task?.id ?? null, blockContent)}
+            onClick={() => onOpenPanel([blockId], task?.id ?? null, blockContent)}
             style={{
               position: 'absolute',
               // Position relative to block (like H1 indicator)

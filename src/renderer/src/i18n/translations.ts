@@ -52,6 +52,8 @@ export interface Translations {
     bulkFavorite: string
     bulkMove: string
     bulkDelete: string
+    // Tab operations
+    openInNewTab: string
   }
   editor: {
     selectNote: string
@@ -60,6 +62,21 @@ export interface Translations {
     createNewNote: string
     titlePlaceholder: string
     contentPlaceholder: string
+    untitled: string
+  }
+  tabBar: {
+    pin: string
+    unpin: string
+    close: string
+    closeOthers: string
+    closeAll: string
+    newTab: string
+  }
+  paneControls: {
+    close: string
+    splitHorizontal: string
+    splitVertical: string
+    dragSwap: string
   }
   toolbar: {
     bold: string
@@ -563,6 +580,7 @@ export interface Translations {
     title: string
     loading: string
     inputContent: string
+    sourceContent: string
     emptyContent: string
     selectAgent: string
     loadingAgents: string
@@ -785,7 +803,8 @@ const zh: Translations = {
     allNotes: '全部笔记',
     bulkFavorite: '收藏 {n} 篇',
     bulkMove: '移动 {n} 篇',
-    bulkDelete: '删除 {n} 篇'
+    bulkDelete: '删除 {n} 篇',
+    openInNewTab: '在新标签页打开'
   },
   editor: {
     selectNote: '选择一篇笔记开始编辑',
@@ -793,7 +812,22 @@ const zh: Translations = {
     or: '或',
     createNewNote: '创建新笔记',
     titlePlaceholder: '无标题',
-    contentPlaceholder: '开始输入...'
+    contentPlaceholder: '开始输入...',
+    untitled: '无标题'
+  },
+  tabBar: {
+    pin: '固定',
+    unpin: '取消固定',
+    close: '关闭',
+    closeOthers: '关闭其他',
+    closeAll: '关闭全部',
+    newTab: '新标签页'
+  },
+  paneControls: {
+    close: '关闭',
+    splitHorizontal: '向右分屏',
+    splitVertical: '向下分屏',
+    dragSwap: '拖拽交换',
   },
   toolbar: {
     bold: '加粗',
@@ -1294,6 +1328,7 @@ const zh: Translations = {
     title: 'Agent 任务',
     loading: '加载中...',
     inputContent: '输入',
+    sourceContent: '内容',
     emptyContent: '（空）',
     selectAgent: 'Agent',
     loadingAgents: '加载 Agent 列表...',
@@ -1516,7 +1551,8 @@ const en: Translations = {
     allNotes: 'All Notes',
     bulkFavorite: 'Favorite {n} notes',
     bulkMove: 'Move {n} notes',
-    bulkDelete: 'Delete {n} notes'
+    bulkDelete: 'Delete {n} notes',
+    openInNewTab: 'Open in New Tab'
   },
   editor: {
     selectNote: 'Select a note to start editing',
@@ -1524,7 +1560,22 @@ const en: Translations = {
     or: 'or',
     createNewNote: 'Create a New Note',
     titlePlaceholder: 'Untitled',
-    contentPlaceholder: 'Start typing...'
+    contentPlaceholder: 'Start typing...',
+    untitled: 'Untitled'
+  },
+  tabBar: {
+    pin: 'Pin',
+    unpin: 'Unpin',
+    close: 'Close',
+    closeOthers: 'Close Others',
+    closeAll: 'Close All',
+    newTab: 'New Tab'
+  },
+  paneControls: {
+    close: 'Close',
+    splitHorizontal: 'Split Right',
+    splitVertical: 'Split Down',
+    dragSwap: 'Swap',
   },
   toolbar: {
     bold: 'Bold',
@@ -2025,6 +2076,7 @@ const en: Translations = {
     title: 'Agent Task',
     loading: 'Loading...',
     inputContent: 'Input',
+    sourceContent: 'Source',
     emptyContent: '(empty)',
     selectAgent: 'Agent',
     loadingAgents: 'Loading agents...',

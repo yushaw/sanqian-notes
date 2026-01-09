@@ -182,6 +182,7 @@ contextBridge.exposeInMainWorld('electron', {
       additionalPrompt?: string,
       outputContext?: {
         targetBlockId: string
+        blockIds?: string[]
         pageId: string
         notebookId: string | null
         processMode: 'append' | 'replace'
@@ -210,6 +211,7 @@ contextBridge.exposeInMainWorld('electron', {
       taskId: string
       context: {
         targetBlockId: string
+        blockIds?: string[]
         pageId: string
         notebookId: string | null
         processMode: 'append' | 'replace'

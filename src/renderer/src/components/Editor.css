@@ -10,7 +10,6 @@
   background: var(--color-card-solid);
   position: relative;
   overflow: hidden;
-  animation: fadeIn 0.3s ease;
 }
 
 /* ============================================
@@ -22,7 +21,7 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 46px;
+  height: 42px;
   z-index: 10;
   -webkit-app-region: drag;
   pointer-events: none;
@@ -34,14 +33,22 @@
   background: var(--color-card-solid);
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid transparent;
   /* 和内容区域对齐：zen-content 是 max-width: 720px（内容624px + padding 48px*2），居中，padding-left: 48px */
   /* 顶栏标题左边距 = (容器宽度 - 720px) / 2 + 48px */
-  padding: 0 48px 0 max(48px, calc((100% - 720px) / 2 + 48px));
+  /* 右侧留出空间给分屏按钮 */
+  padding: 0 12px 0 max(48px, calc((100% - 720px) / 2 + 48px));
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  transition: border-color 0.15s ease;
+}
+
+.zen-header-bar.with-title.scrolled {
+  border-bottom-color: var(--color-border);
 }
 
 .zen-header-title {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   font-weight: 600;
   color: var(--color-text);
   overflow: hidden;
@@ -51,11 +58,20 @@
   border: none;
   outline: none;
   font-family: inherit;
-  width: auto;
-  max-width: 100%;
-  letter-spacing: -0.02em;
+  width: 100%;
+  letter-spacing: -0.01em;
   -webkit-app-region: no-drag;
   pointer-events: auto;
+  cursor: text;
+}
+
+/* 编辑模式下的标题输入框 */
+input.zen-header-title {
+  cursor: text;
+}
+
+/* 非编辑模式下的标题显示 */
+span.zen-header-title {
   cursor: text;
 }
 
@@ -70,6 +86,7 @@
   flex: 1;
   overflow-y: overlay;
   overflow-x: hidden;
+  padding-top: 42px; /* 为顶栏留出空间 */
 }
 
 .zen-scroll-wrapper::-webkit-scrollbar {
@@ -313,43 +330,11 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-width: 720px; /* 容器宽度，内部 .zen-title 和 .zen-editor 各自有 48px 水平 padding */
+  max-width: 720px; /* 容器宽度，内部 .zen-editor 有 48px 水平 padding */
   min-width: 320px; /* 最小宽度，保证文字可读 */
   width: 100%;
   margin: 0 auto;
-  padding: 56px 0 160px;
-}
-
-/* ============================================
-   Title
-   ============================================ */
-
-.zen-title {
-  width: 100%;
-  border: none;
-  background: transparent;
-  outline: none;
-  resize: none;
-  padding: 0 48px; /* 水平 padding 与编辑器对齐 */
-  font-size: 1.5rem;
-  font-weight: 600;
-  line-height: 1.2;
-  color: var(--color-text);
-  margin-bottom: 16px;
-  font-family: var(--font-sans);
-  letter-spacing: -0.02em;
-  overflow-y: hidden;
-  overflow-x: hidden;
-  caret-color: var(--color-accent);
-}
-
-.zen-title::placeholder {
-  color: var(--color-muted) !important;
-  opacity: 1 !important;
-}
-
-.zen-title:placeholder-shown {
-  color: var(--color-muted);
+  padding: 0 0 160px; /* 顶部 padding 已移至 scroll wrapper */
 }
 
 /* ============================================
@@ -977,7 +962,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   cursor: pointer;
   transition: background var(--transition-fast);
 }
@@ -1003,6 +988,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .note-link-popup-item.create .note-link-popup-title {
@@ -1091,7 +1078,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--color-divider);
 }
 
@@ -1138,19 +1125,18 @@
 /* Note info container (title + notebook) */
 .note-link-popup-note-info {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
 
 /* Notebook label */
 .note-link-popup-notebook {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--color-muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 /* Transclusion mode popup - slightly larger */

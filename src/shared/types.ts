@@ -330,7 +330,7 @@ export type AgentMode = 'auto' | 'specified'
 export type AgentTaskProcessMode = 'append' | 'replace'
 
 /** Agent Task 输出格式 */
-export type AgentTaskOutputFormat = 'none' | 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+export type AgentTaskOutputFormat = 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
 
 /** Agent Task 运行时机 */
 export type AgentTaskRunTiming = 'manual' | 'immediate' | 'scheduled'
@@ -405,17 +405,19 @@ export interface AgentTaskAPI {
   deleteByBlockId: (blockId: string) => Promise<boolean>
 }
 
-// ============ Editor Output Types ============
+// ============ Formatter Output Types ============
 
-/** Editor output context for agent task output */
+/** Formatter output context for agent task output */
 export interface EditorOutputContext {
-  /** Target block ID (agent block) */
+  /** Target block ID (primary block for task association) */
   targetBlockId: string
+  /** All selected block IDs (for multi-block operations) */
+  blockIds?: string[]
   /** Page ID */
   pageId: string
   /** Notebook ID */
   notebookId: string | null
-  /** Process mode: append (insert below) or replace (replace agent block) */
+  /** Process mode: append (insert after last block) or replace (replace all blocks) */
   processMode: 'append' | 'replace'
   /** Output format preference */
   outputFormat?: AgentTaskOutputFormat
@@ -426,7 +428,7 @@ export interface EditorOutputContext {
 /** Output operation type */
 export type OutputOperationType = 'paragraph' | 'list' | 'table' | 'html' | 'heading' | 'codeBlock' | 'blockquote' | 'noteRef'
 
-/** Output operation from editor agent */
+/** Output operation from formatter agent */
 export interface OutputOperation {
   type: OutputOperationType
   content: unknown

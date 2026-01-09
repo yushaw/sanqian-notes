@@ -180,6 +180,61 @@ body {
   background: var(--color-border);
 }
 
+/* AgentSelect dropdown list - overlay scrollbar */
+.agent-select-list {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.agent-select-list:hover {
+  scrollbar-color: var(--color-scrollbar) transparent;
+}
+
+.agent-select-list::-webkit-scrollbar {
+  width: 3px;
+  background: transparent;
+}
+
+.agent-select-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.agent-select-list::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.agent-select-list:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+/* TabBar horizontal scrollbar - overlay style */
+.tabbar-scroll {
+  overflow-x: overlay;
+}
+
+.tabbar-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tabbar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabbar-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.tabbar-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+.tabbar-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
+}
+
 /* ============================================
    Selection
    ============================================ */
@@ -539,4 +594,98 @@ html.text-extra-large {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ============================================
+   Mosaic Split Pane Styles
+   ============================================ */
+
+/* Override react-mosaic default styles */
+.sanqian-notes-mosaic.mosaic-resize-only {
+  background: transparent;
+}
+
+.sanqian-notes-mosaic .mosaic-tile {
+  margin: 0;
+}
+
+.sanqian-notes-mosaic .mosaic-window {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.sanqian-notes-mosaic .mosaic-window-body {
+  background: transparent;
+}
+
+.sanqian-notes-mosaic .mosaic-window-toolbar {
+  display: none;
+}
+
+/* Split separator (drag handle) */
+.sanqian-notes-mosaic .mosaic-split {
+  background: transparent;
+  z-index: 50;
+  pointer-events: auto;
+}
+
+.sanqian-notes-mosaic .mosaic-split.-row {
+  width: 8px;
+  margin: 0 -4px;
+  cursor: col-resize;
+}
+
+.sanqian-notes-mosaic .mosaic-split.-column {
+  height: 8px;
+  margin: -4px 0;
+  cursor: row-resize;
+}
+
+/* Drag handle visual indicator */
+.sanqian-notes-mosaic .mosaic-split::before {
+  content: '';
+  position: absolute;
+  background: var(--color-border);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.sanqian-notes-mosaic .mosaic-split:hover::before,
+.sanqian-notes-mosaic .mosaic-split:active::before {
+  opacity: 1;
+}
+
+.sanqian-notes-mosaic .mosaic-split.-row::before {
+  width: 3px;
+  height: 32px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.sanqian-notes-mosaic .mosaic-split.-column::before {
+  height: 3px;
+  width: 32px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Active state */
+.sanqian-notes-mosaic .mosaic-split:active::before {
+  background: var(--color-accent);
+}
+
+/* Remove default preview styling */
+.sanqian-notes-mosaic .mosaic-preview,
+.sanqian-notes-mosaic .mosaic-root,
+.sanqian-notes-mosaic .mosaic-tile {
+  background: transparent;
+}
+
+.sanqian-notes-mosaic .drop-target-container,
+.sanqian-notes-mosaic .drop-target {
+  display: none;
 }

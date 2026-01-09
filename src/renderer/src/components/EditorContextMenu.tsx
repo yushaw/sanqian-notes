@@ -24,7 +24,7 @@ interface EditorContextMenuProps {
   position: ContextMenuPosition | null
   onClose: () => void
   hasSelection: boolean
-  onOpenAgentTask?: (blockId: string, taskId: string | null, blockContent: string) => void
+  onOpenAgentTask?: (blockIds: string[], taskId: string | null, blockContent: string) => void
 }
 
 // SVG 图标
@@ -481,48 +481,90 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
   const handleAgentTask = useCallback(() => {
     if (!editor) return
 
-    // 获取当前光标所在的 block
-    const { $from } = editor.state.selection
-    const resolvedPos = editor.state.doc.resolve($from.pos)
+    const { from, to } = editor.state.selection
+    const hasSelection = from !== to
 
-    // 向上查找最近的块级节点（可能没有 blockId）
-    let blockNode = null
-    let blockPos = -1
-    for (let d = resolvedPos.depth; d >= 0; d--) {
-      const node = resolvedPos.node(d)
-      // 检查是否是块级节点（有 blockId 属性定义，即使值为 null）
-      if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs) {
-        blockNode = node
-        blockPos = resolvedPos.before(d)
-        break
+    // 收集选中范围内的所有 block 节点
+    interface BlockInfo {
+      node: NonNullable<typeof editor.state.doc.firstChild>
+      pos: number
+    }
+    const selectedBlocks: BlockInfo[] = []
+
+    if (hasSelection) {
+      // 有选区时，遍历选区内的所有 block
+      editor.state.doc.nodesBetween(from, to, (node, pos) => {
+        // 检查是否是块级节点（有 blockId 属性定义）
+        if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs) {
+          selectedBlocks.push({ node, pos })
+          return false // 不递归进入子节点
+        }
+        return true
+      })
+    }
+
+    // 如果没有选中 block，回退到光标所在的 block
+    if (selectedBlocks.length === 0) {
+      const { $from } = editor.state.selection
+      const resolvedPos = editor.state.doc.resolve($from.pos)
+
+      // 向上查找最近的块级节点
+      for (let d = resolvedPos.depth; d >= 0; d--) {
+        const node = resolvedPos.node(d)
+        if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs) {
+          selectedBlocks.push({ node, pos: resolvedPos.before(d) })
+          break
+        }
       }
     }
 
-    if (!blockNode) {
+    if (selectedBlocks.length === 0) {
       console.warn('No block node found at cursor position')
       return
     }
 
-    // 如果节点没有 blockId，生成一个并设置到节点上
-    let blockId = blockNode.attrs.blockId
-    if (!blockId) {
-      blockId = generateBlockId()
-      // 使用事务设置 blockId
-      const tr = editor.state.tr.setNodeMarkup(blockPos, undefined, {
-        ...blockNode.attrs,
-        blockId,
-      })
+    // 使用事务批量更新没有 blockId 的节点，并收集所有 blockId
+    let tr = editor.state.tr
+    const blockIds: string[] = []
+    let taskId: string | null = null
+
+    for (const { node, pos } of selectedBlocks) {
+      let blockId = node.attrs.blockId
+      if (!blockId) {
+        blockId = generateBlockId()
+        try {
+          tr = tr.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            blockId,
+          })
+        } catch (e) {
+          // 某些节点类型（如包含特殊内联节点的 paragraph）可能不支持 setNodeMarkup
+          console.warn('Failed to set blockId for node:', node.type.name, e)
+        }
+      }
+      blockIds.push(blockId)
+      // 只取第一个 block 的 taskId（用于关联任务）
+      if (taskId === null) {
+        taskId = node.attrs.agentTaskId ?? null
+      }
+    }
+
+    // 如果有更新，一次性 dispatch
+    if (tr.docChanged) {
       editor.view.dispatch(tr)
     }
 
-    const taskId = blockNode.attrs.agentTaskId ?? null
-    const blockContent = blockNode.textContent || ''
+    // 合并所有选中 block 的内容
+    const blockContent = selectedBlocks
+      .map(({ node }) => node.textContent || '')
+      .filter(text => text.trim())
+      .join('\n\n')
 
     setShowAISubmenu(false)
     onClose()
 
-    // 调用回调打开面板
-    onOpenAgentTask?.(blockId, taskId, blockContent)
+    // 调用回调打开面板（传递所有 blockId）
+    onOpenAgentTask?.(blockIds, taskId, blockContent)
   }, [editor, onClose, onOpenAgentTask])
 
   // 点击外部关闭菜单

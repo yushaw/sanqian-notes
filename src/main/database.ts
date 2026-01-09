@@ -344,7 +344,7 @@ function runMigrations(): void {
   const hasOutputFormat = agentTaskColumns.some(col => col.name === 'output_format')
   if (!hasOutputFormat) {
     console.log('Adding output_format column to agent_tasks table...')
-    db.exec("ALTER TABLE agent_tasks ADD COLUMN output_format TEXT DEFAULT 'none'")
+    db.exec("ALTER TABLE agent_tasks ADD COLUMN output_format TEXT DEFAULT 'auto'")
     console.log('Migration completed: output_format column added to agent_tasks.')
   }
 
@@ -2156,7 +2156,7 @@ function rowToAgentTask(row: AgentTaskRow): AgentTaskRecord {
     error: row.error,
     outputBlockId: row.output_block_id,
     processMode: (row.process_mode || 'append') as 'append' | 'replace',
-    outputFormat: (row.output_format || 'none') as 'none' | 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote',
+    outputFormat: (row.output_format || 'auto') as 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote',
     runTiming: (row.run_timing || 'manual') as 'manual' | 'immediate' | 'scheduled',
     scheduleConfig: row.schedule_config,
     createdAt: row.created_at,
@@ -2206,7 +2206,7 @@ export function createAgentTask(input: AgentTaskInput): AgentTaskRecord {
     input.agentId ?? null,
     input.agentName ?? null,
     input.processMode ?? 'append',
-    input.outputFormat ?? 'none',
+    input.outputFormat ?? 'auto',
     input.runTiming ?? 'manual',
     input.scheduleConfig ?? null,
     now,

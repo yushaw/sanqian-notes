@@ -574,8 +574,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             })
           } else if (node.type.name === 'listItem') {
             const prefix = listType === 'ordered' ? `${listIndex}. ` : '• '
-            const text = node.textContent || ''
-            lines.push(indentStr + prefix + text)
+            // Only get text from non-list children (paragraphs etc.), exclude nested lists
+            const textParts: string[] = []
+            node.content.forEach((child) => {
+              if (!['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
+                const childText = child.textContent
+                if (childText) textParts.push(childText)
+              }
+            })
+            const text = textParts.join(' ')
+            if (text) {
+              lines.push(indentStr + prefix + text)
+            }
             // Handle nested lists
             node.content.forEach((child) => {
               if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
@@ -584,8 +594,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             })
           } else if (node.type.name === 'taskItem') {
             const checked = node.attrs?.checked ? '☑' : '☐'
-            const text = node.textContent || ''
-            lines.push(indentStr + checked + ' ' + text)
+            // Only get text from non-list children (paragraphs etc.), exclude nested lists
+            const textParts: string[] = []
+            node.content.forEach((child) => {
+              if (!['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
+                const childText = child.textContent
+                if (childText) textParts.push(childText)
+              }
+            })
+            const text = textParts.join(' ')
+            if (text) {
+              lines.push(indentStr + checked + ' ' + text)
+            }
             // Handle nested lists
             node.content.forEach((child) => {
               if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {

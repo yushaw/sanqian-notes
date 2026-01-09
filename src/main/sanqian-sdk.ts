@@ -44,6 +44,89 @@ import { t } from './i18n'
 import { jsonToMarkdown, markdownToTiptapString, countWords } from './markdown'
 
 /**
+ * Normalize quotes and punctuation for fuzzy matching
+ * Converts Chinese quotes to English quotes, etc.
+ */
+function normalizeForMatching(str: string): string {
+  return str
+    .replace(/[\u201C\u201D]/g, '"')  // Chinese double quotes "" → "
+    .replace(/[\u2018\u2019]/g, "'")  // Chinese single quotes '' → '
+    .replace(/\uFF1A/g, ':')          // Chinese colon ： → :
+    .replace(/\uFF1B/g, ';')          // Chinese semicolon ； → ;
+    .replace(/\uFF0C/g, ',')          // Chinese comma ， → ,
+}
+
+/**
+ * Find the original string in content that matches the normalized search string
+ */
+function findOriginalMatch(content: string, normalizedContent: string, normalizedSearch: string): string {
+  const index = normalizedContent.indexOf(normalizedSearch)
+  if (index === -1) return ''
+
+  // We need to find the corresponding position in the original content
+  // Since normalization is char-to-char (same length), index maps directly
+  return content.slice(index, index + normalizedSearch.length)
+}
+
+/**
+ * Multi-layer string matching for edit operations
+ * Layer 1: Exact match
+ * Layer 2: Normalized match (quotes, punctuation)
+ */
+function findWithNormalization(
+  content: string,
+  search: string
+): {
+  found: boolean
+  matchedString: string
+  normalizedMatch: boolean
+  occurrences: number
+} {
+  // Layer 1: Exact match
+  if (content.includes(search)) {
+    const occurrences = content.split(search).length - 1
+    return { found: true, matchedString: search, normalizedMatch: false, occurrences }
+  }
+
+  // Layer 2: Normalized match
+  const normalizedContent = normalizeForMatching(content)
+  const normalizedSearch = normalizeForMatching(search)
+
+  if (normalizedContent.includes(normalizedSearch)) {
+    const occurrences = normalizedContent.split(normalizedSearch).length - 1
+    const matchedString = findOriginalMatch(content, normalizedContent, normalizedSearch)
+    return { found: true, matchedString, normalizedMatch: true, occurrences }
+  }
+
+  return { found: false, matchedString: '', normalizedMatch: false, occurrences: 0 }
+}
+
+/**
+ * Find similar content for better error messages
+ */
+function findSimilarContent(content: string, search: string, maxLength: number = 80): string | null {
+  // Try to find a line that contains the beginning of the search string
+  const searchStart = normalizeForMatching(search.slice(0, 30))
+  const lines = content.split('\n')
+
+  for (const line of lines) {
+    if (normalizeForMatching(line).includes(searchStart)) {
+      return line.length > maxLength ? line.slice(0, maxLength) + '...' : line
+    }
+  }
+
+  // Fallback: try even shorter prefix
+  const shortPrefix = normalizeForMatching(search.slice(0, 15))
+  for (const line of lines) {
+    if (normalizeForMatching(line).includes(shortPrefix)) {
+      return line.length > maxLength ? line.slice(0, maxLength) + '...' : line
+    }
+  }
+
+  return null
+}
+
+/**
  * Safely truncate text without breaking multi-byte characters (emoji, CJK, etc.)
  */
 function truncateText(text: string, maxLength: number): string {
@@ -439,22 +522,36 @@ function buildTools(): AppToolDefinition[] {
               throw new Error(tools.updateNote.editEmptyString)
             }
 
-            if (!currentMarkdown.includes(old_string)) {
+            // Multi-layer matching: exact → normalized (quotes, punctuation)
+            const matchResult = findWithNormalization(currentMarkdown, old_string)
+
+            if (!matchResult.found) {
+              // Try to find similar content for better error message
+              const similar = findSimilarContent(currentMarkdown, old_string)
+              if (similar) {
+                throw new Error(`${tools.updateNote.editNotFound} ${tools.updateNote.editSimilarFound}: "${similar}"`)
+              }
               throw new Error(tools.updateNote.editNotFound)
             }
 
-            const occurrences = currentMarkdown.split(old_string).length - 1
+            const { matchedString, normalizedMatch, occurrences } = matchResult
 
             if (occurrences > 1 && !replace_all) {
               throw new Error(tools.updateNote.editMultipleFound.replace('{count}', String(occurrences)))
             }
 
+            // Use the actual matched string for replacement
             const newMarkdown = replace_all
-              ? currentMarkdown.split(old_string).join(new_string)
-              : currentMarkdown.replace(old_string, new_string)
+              ? currentMarkdown.split(matchedString).join(new_string)
+              : currentMarkdown.replace(matchedString, new_string)
 
             updates.content = markdownToTiptapString(newMarkdown)
             replacements = replace_all ? occurrences : 1
+
+            // Log if normalized match was used (for debugging)
+            if (normalizedMatch) {
+              console.log(`[update_note] Used normalized matching for edit operation`)
+            }
           }
 
           if (Object.keys(updates).length === 0) {

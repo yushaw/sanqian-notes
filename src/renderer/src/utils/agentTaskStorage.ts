@@ -4,7 +4,7 @@
  * 提供内存缓存以减少 IPC 调用
  */
 
-import type { AgentTaskRecord, AgentTaskStatus, AgentMode } from '../../../shared/types'
+import type { AgentTaskRecord, AgentTaskStatus, AgentMode, AgentTaskOutputFormat } from '../../../shared/types'
 
 export interface AgentTaskCache {
   id: string
@@ -26,6 +26,8 @@ export interface AgentTaskCreateParams {
   agentMode?: AgentMode
   agentId?: string
   agentName?: string
+  processMode?: 'append' | 'replace'
+  outputFormat?: AgentTaskOutputFormat
 }
 
 // Cache configuration

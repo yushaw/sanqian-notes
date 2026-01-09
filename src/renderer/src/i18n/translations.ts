@@ -507,6 +507,26 @@ export interface Translations {
     interrupted: string
     unknownError: string
     thinking: string
+    // Phase display
+    phaseContent: string
+    phaseEditor: string
+    // Process mode
+    modeAppend: string
+    modeAppendTip: string
+    modeReplace: string
+    modeReplaceTip: string
+    // Output status
+    outputLinked: string
+    outputPending: string
+    // Format options
+    formatLabel: string
+    formatAuto: string
+    formatParagraph: string
+    formatList: string
+    formatTable: string
+    formatCode: string
+    formatQuote: string
+    formattingDone: string
   }
   fileError: {
     tooLarge: string
@@ -1134,7 +1154,27 @@ const zh: Translations = {
     placeholderResult: '这是一个示例结果。Agent 执行功能将在后续版本中实现。',
     interrupted: '任务已中断',
     unknownError: '未知错误',
-    thinking: '思考中'
+    thinking: '思考中',
+    // Phase display
+    phaseContent: '生成内容',
+    phaseEditor: '格式化输出',
+    // Process mode
+    modeAppend: '追加',
+    modeAppendTip: '在当前块下方插入',
+    modeReplace: '替换',
+    modeReplaceTip: '替换当前块内容',
+    // Output status
+    outputLinked: '已输出',
+    outputPending: '待输出',
+    // Format options
+    formatLabel: '格式',
+    formatAuto: '自动',
+    formatParagraph: '段落',
+    formatList: '列表',
+    formatTable: '表格',
+    formatCode: '代码',
+    formatQuote: '引用',
+    formattingDone: '内容已格式化，可以插入'
   },
   fileError: {
     tooLarge: '文件过大',
@@ -1762,7 +1802,27 @@ const en: Translations = {
     placeholderResult: 'This is a placeholder result. Agent execution will be implemented in a future version.',
     interrupted: 'Task was interrupted',
     unknownError: 'Unknown error',
-    thinking: 'Thinking'
+    thinking: 'Thinking',
+    // Phase display
+    phaseContent: 'Generating',
+    phaseEditor: 'Formatting',
+    // Process mode
+    modeAppend: 'Append',
+    modeAppendTip: 'Insert below current block',
+    modeReplace: 'Replace',
+    modeReplaceTip: 'Replace current block',
+    // Output status
+    outputLinked: 'Output ready',
+    outputPending: 'Pending',
+    // Format options
+    formatLabel: 'Format',
+    formatAuto: 'Auto',
+    formatParagraph: 'Paragraph',
+    formatList: 'List',
+    formatTable: 'Table',
+    formatCode: 'Code',
+    formatQuote: 'Quote',
+    formattingDone: 'Content formatted and ready to insert'
   },
   fileError: {
     tooLarge: 'File too large',

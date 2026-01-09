@@ -323,6 +323,63 @@ declare global {
         delete: (id: string) => Promise<boolean>
         deleteByBlockId: (blockId: string) => Promise<boolean>
       }
+      agent: {
+        list: () => Promise<Array<{ id: string; name: string; description?: string }>>
+        run: (
+          taskId: string,
+          agentId: string,
+          agentName: string,
+          content: string,
+          additionalPrompt?: string,
+          outputContext?: {
+            targetBlockId: string
+            pageId: string
+            notebookId: string | null
+            processMode: 'append' | 'replace'
+            outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+          }
+        ) => Promise<void>
+        cancel: (taskId: string) => Promise<boolean>
+        onEvent: (callback: (taskId: string, event: {
+          type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'phase'
+          content?: string
+          toolName?: string
+          toolArgs?: Record<string, unknown>
+          result?: unknown
+          error?: string
+          phase?: 'content' | 'editor'
+        }) => void) => () => void
+        onInsertOutput: (callback: (data: {
+          taskId: string
+          context: {
+            targetBlockId: string
+            pageId: string
+            notebookId: string | null
+            processMode: 'append' | 'replace'
+            outputBlockId: string | null
+          }
+          operations: Array<{
+            type: 'paragraph' | 'list' | 'table' | 'html' | 'heading' | 'codeBlock' | 'blockquote' | 'noteRef'
+            content: unknown
+          }>
+        }) => void) => () => void
+      }
+      chatWindow: {
+        show: () => Promise<void>
+        showWithContext: (context: string) => Promise<void>
+        hide: () => Promise<void>
+        toggle: () => Promise<void>
+        isVisible: () => Promise<boolean>
+      }
+      context: {
+        sync: (context: {
+          currentNotebookId: string | null
+          currentNotebookName: string | null
+          currentNoteId: string | null
+          currentNoteTitle: string | null
+        }) => Promise<void>
+        get: () => Promise<{ context: string }>
+      }
     }
     api: unknown
   }

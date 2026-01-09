@@ -24,6 +24,10 @@ import {
 } from '@yushaw/sanqian-chat/main'
 import { app } from 'electron'
 import {
+  editorAgentConfig,
+  createEditorOutputTools,
+} from './editor-agent'
+import {
   getNoteById,
   getNotes,
   searchNotes,
@@ -69,8 +73,17 @@ function getLaunchCommand(): string | undefined {
 let client: SanqianAppClient | null = null
 let assistantAgentId: string | null = null
 let writingAgentId: string | null = null
+let editorAgentId: string | null = null
 let syncingPromise: Promise<void> | null = null
 let onDataChangeCallback: (() => void) | null = null
+let currentTaskIdGetter: (() => string | null) | null = null
+
+/**
+ * Set current task ID getter for output tools
+ */
+export function setCurrentTaskIdGetter(getter: () => string | null): void {
+  currentTaskIdGetter = getter
+}
 
 export function setOnSdkDataChange(callback: () => void): void {
   onDataChangeCallback = callback
@@ -112,7 +125,9 @@ function buildAgentConfigs(): AppAgentConfig[] {
       description: sdk.writingDescription,
       systemPrompt: sdk.writingSystemPrompt,
       tools: []
-    }
+    },
+    // Editor Agent for formatting output
+    editorAgentConfig
   ]
 }
 
@@ -618,7 +633,13 @@ function buildTools(): AppToolDefinition[] {
         // 实际抓取由 SDK 内置实现，这里只是声明工具
         return { url, prompt, message: 'Web fetch executed by SDK' }
       }
-    }
+    },
+
+    // ==================== Editor Output Tools ====================
+    // These tools are used by the Editor Agent to format and insert content
+    ...createEditorOutputTools(
+      () => currentTaskIdGetter?.() ?? null
+    )
   ]
 }
 
@@ -823,6 +844,14 @@ async function syncPrivateAgents(): Promise<void> {
       const writingInfo = await client!.createAgent(writingAgent)
       writingAgentId = writingInfo.agentId
       console.log('[Notes SDK] Writing agent synced:', writingAgentId)
+
+      // Sync Editor Agent for output formatting
+      const editorAgent = agents[2]
+      if (editorAgent) {
+        const editorInfo = await client!.createAgent(editorAgent)
+        editorAgentId = editorInfo.agentId
+        console.log('[Notes SDK] Editor agent synced:', editorAgentId)
+      }
     } catch (e) {
       console.error('[Notes SDK] Failed to sync agents:', e)
     }
@@ -872,6 +901,7 @@ export async function initializeSanqianSDK(): Promise<void> {
     console.log('[Notes SDK] Disconnected from Sanqian')
     assistantAgentId = null
     writingAgentId = null
+    editorAgentId = null
   })
 
   client.on('error', (error) => {
@@ -901,6 +931,7 @@ export async function stopSanqianSDK(): Promise<void> {
     await client.disconnect()
     assistantAgentId = null
     writingAgentId = null
+    editorAgentId = null
     syncingPromise = null
   }
 }
@@ -960,6 +991,13 @@ export function getAssistantAgentId(): string | null {
  */
 export function getWritingAgentId(): string | null {
   return writingAgentId
+}
+
+/**
+ * Get the editor agent ID (for output formatting)
+ */
+export function getEditorAgentId(): string | null {
+  return editorAgentId
 }
 
 /**

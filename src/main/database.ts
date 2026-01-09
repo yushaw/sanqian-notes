@@ -327,6 +327,27 @@ function runMigrations(): void {
     console.log('Migration completed: source column added to note_tags.')
   }
 
+  // Migration: Add output columns to agent_tasks table
+  const agentTaskColumns = db.prepare("PRAGMA table_info(agent_tasks)").all() as { name: string }[]
+  const hasOutputBlockId = agentTaskColumns.some(col => col.name === 'output_block_id')
+
+  if (!hasOutputBlockId) {
+    console.log('Adding output columns to agent_tasks table...')
+    db.exec("ALTER TABLE agent_tasks ADD COLUMN output_block_id TEXT DEFAULT NULL")
+    db.exec("ALTER TABLE agent_tasks ADD COLUMN process_mode TEXT DEFAULT 'append'")
+    db.exec("ALTER TABLE agent_tasks ADD COLUMN run_timing TEXT DEFAULT 'manual'")
+    db.exec("ALTER TABLE agent_tasks ADD COLUMN schedule_config TEXT DEFAULT NULL")
+    console.log('Migration completed: output columns added to agent_tasks.')
+  }
+
+  // Migration: Add output_format column to agent_tasks table
+  const hasOutputFormat = agentTaskColumns.some(col => col.name === 'output_format')
+  if (!hasOutputFormat) {
+    console.log('Adding output_format column to agent_tasks table...')
+    db.exec("ALTER TABLE agent_tasks ADD COLUMN output_format TEXT DEFAULT 'none'")
+    console.log('Migration completed: output_format column added to agent_tasks.')
+  }
+
   // Always update builtin actions with latest descriptions (ensures updates after code changes)
   const aiActions = t().aiActions
   const builtinDescriptions: Record<string, string> = {
@@ -2106,6 +2127,11 @@ interface AgentTaskRow {
   steps: string | null
   result: string | null
   error: string | null
+  output_block_id: string | null
+  process_mode: string
+  output_format: string
+  run_timing: string
+  schedule_config: string | null
   created_at: string
   updated_at: string
 }
@@ -2128,6 +2154,11 @@ function rowToAgentTask(row: AgentTaskRow): AgentTaskRecord {
     steps: row.steps,
     result: row.result,
     error: row.error,
+    outputBlockId: row.output_block_id,
+    processMode: (row.process_mode || 'append') as 'append' | 'replace',
+    outputFormat: (row.output_format || 'none') as 'none' | 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote',
+    runTiming: (row.run_timing || 'manual') as 'manual' | 'immediate' | 'scheduled',
+    scheduleConfig: row.schedule_config,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -2161,8 +2192,9 @@ export function createAgentTask(input: AgentTaskInput): AgentTaskRecord {
   db.prepare(`
     INSERT INTO agent_tasks (
       id, block_id, page_id, notebook_id, content, additional_prompt,
-      agent_mode, agent_id, agent_name, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+      agent_mode, agent_id, agent_name, status, process_mode, output_format,
+      run_timing, schedule_config, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.blockId,
@@ -2173,6 +2205,10 @@ export function createAgentTask(input: AgentTaskInput): AgentTaskRecord {
     input.agentMode ?? 'auto',
     input.agentId ?? null,
     input.agentName ?? null,
+    input.processMode ?? 'append',
+    input.outputFormat ?? 'none',
+    input.runTiming ?? 'manual',
+    input.scheduleConfig ?? null,
     now,
     now
   )
@@ -2202,7 +2238,12 @@ export function updateAgentTask(id: string, updates: Partial<AgentTaskRecord>): 
     agentName: 'agent_name',
     startedAt: 'started_at',
     completedAt: 'completed_at',
-    durationMs: 'duration_ms'
+    durationMs: 'duration_ms',
+    outputBlockId: 'output_block_id',
+    processMode: 'process_mode',
+    outputFormat: 'output_format',
+    runTiming: 'run_timing',
+    scheduleConfig: 'schedule_config'
   }
 
   for (const [key, value] of Object.entries(updates)) {

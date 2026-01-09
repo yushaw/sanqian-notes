@@ -61,6 +61,11 @@ const mockTaskRecord: AgentTaskRecord = {
   steps: null,
   result: null,
   error: null,
+  outputBlockId: null,
+  processMode: 'append',
+  outputFormat: 'none',
+  runTiming: 'manual',
+  scheduleConfig: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }

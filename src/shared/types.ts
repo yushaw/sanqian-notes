@@ -326,6 +326,15 @@ export type AgentTaskStatus = 'idle' | 'running' | 'completed' | 'failed'
 /** Agent 模式 */
 export type AgentMode = 'auto' | 'specified'
 
+/** Agent Task 处理模式 */
+export type AgentTaskProcessMode = 'append' | 'replace'
+
+/** Agent Task 输出格式 */
+export type AgentTaskOutputFormat = 'none' | 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+
+/** Agent Task 运行时机 */
+export type AgentTaskRunTiming = 'manual' | 'immediate' | 'scheduled'
+
 /** Agent Task 完整类型（数据库存储） */
 export interface AgentTaskRecord {
   id: string
@@ -356,6 +365,16 @@ export interface AgentTaskRecord {
   result: string | null
   /** 错误信息 */
   error: string | null
+  /** 输出 Block ID（关联的输出 block） */
+  outputBlockId: string | null
+  /** 处理模式：append（在下方插入）或 replace（替换自身） */
+  processMode: AgentTaskProcessMode
+  /** 输出格式 */
+  outputFormat: AgentTaskOutputFormat
+  /** 运行时机 */
+  runTiming: AgentTaskRunTiming
+  /** 定时运行配置 JSON（当 runTiming 为 scheduled 时） */
+  scheduleConfig: string | null
   createdAt: string
   updatedAt: string
 }
@@ -370,6 +389,10 @@ export interface AgentTaskInput {
   agentMode?: AgentMode
   agentId?: string
   agentName?: string
+  processMode?: AgentTaskProcessMode
+  outputFormat?: AgentTaskOutputFormat
+  runTiming?: AgentTaskRunTiming
+  scheduleConfig?: string
 }
 
 /** Agent Task API 接口 */
@@ -380,4 +403,38 @@ export interface AgentTaskAPI {
   update: (id: string, updates: Partial<AgentTaskRecord>) => Promise<AgentTaskRecord | null>
   delete: (id: string) => Promise<boolean>
   deleteByBlockId: (blockId: string) => Promise<boolean>
+}
+
+// ============ Editor Output Types ============
+
+/** Editor output context for agent task output */
+export interface EditorOutputContext {
+  /** Target block ID (agent block) */
+  targetBlockId: string
+  /** Page ID */
+  pageId: string
+  /** Notebook ID */
+  notebookId: string | null
+  /** Process mode: append (insert below) or replace (replace agent block) */
+  processMode: 'append' | 'replace'
+  /** Output format preference */
+  outputFormat?: AgentTaskOutputFormat
+  /** Output block ID (if existing output block should be updated) */
+  outputBlockId?: string | null
+}
+
+/** Output operation type */
+export type OutputOperationType = 'paragraph' | 'list' | 'table' | 'html' | 'heading' | 'codeBlock' | 'blockquote' | 'noteRef'
+
+/** Output operation from editor agent */
+export interface OutputOperation {
+  type: OutputOperationType
+  content: unknown
+}
+
+/** Data for inserting output to editor */
+export interface InsertOutputData {
+  taskId: string
+  context: EditorOutputContext
+  operations: OutputOperation[]
 }

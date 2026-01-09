@@ -174,22 +174,55 @@ contextBridge.exposeInMainWorld('electron', {
   // Agent execution API
   agent: {
     list: () => ipcRenderer.invoke('agent:list'),
-    run: (taskId: string, agentId: string, agentName: string, content: string, additionalPrompt?: string) =>
-      ipcRenderer.invoke('agent:run', taskId, agentId, agentName, content, additionalPrompt),
+    run: (
+      taskId: string,
+      agentId: string,
+      agentName: string,
+      content: string,
+      additionalPrompt?: string,
+      outputContext?: {
+        targetBlockId: string
+        pageId: string
+        notebookId: string | null
+        processMode: 'append' | 'replace'
+        outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+      }
+    ) =>
+      ipcRenderer.invoke('agent:run', taskId, agentId, agentName, content, additionalPrompt, outputContext),
     cancel: (taskId: string) => ipcRenderer.invoke('agent:cancel', taskId),
     onEvent: (callback: (taskId: string, event: {
-      type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error'
+      type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'phase' | 'editor_content'
       content?: string
       toolName?: string
       toolArgs?: Record<string, unknown>
       result?: unknown
       error?: string
+      phase?: 'content' | 'editor'
     }) => void) => {
       const handler = (_: unknown, taskId: string, event: unknown) => callback(taskId, event as Parameters<typeof callback>[1])
       ipcRenderer.on('agent:event', handler)
       return () => {
         ipcRenderer.removeListener('agent:event', handler)
       }
+    },
+    // Listen for editor output insertion events
+    onInsertOutput: (callback: (data: {
+      taskId: string
+      context: {
+        targetBlockId: string
+        pageId: string
+        notebookId: string | null
+        processMode: 'append' | 'replace'
+        outputBlockId: string | null
+      }
+      operations: Array<{
+        type: 'paragraph' | 'list' | 'table' | 'html' | 'heading' | 'codeBlock' | 'blockquote' | 'noteRef'
+        content: unknown
+      }>
+    }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data)
+      ipcRenderer.on('editor:insert-output', handler)
+      return () => ipcRenderer.removeListener('editor:insert-output', handler)
     },
   },
   chatWindow: {

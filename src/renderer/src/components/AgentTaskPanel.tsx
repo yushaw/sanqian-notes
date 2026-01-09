@@ -5,13 +5,14 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from '../i18n'
+import { AgentSelect } from './AgentSelect'
 import {
   getTaskAsync,
   createTask,
   updateTask,
   deleteTask,
 } from '../utils/agentTaskStorage'
-import type { AgentTaskRecord, AgentTaskStatus } from '../../../shared/types'
+import type { AgentTaskRecord, AgentTaskStatus, AgentTaskOutputFormat } from '../../../shared/types'
 
 interface AgentTaskPanelProps {
   isOpen: boolean
@@ -24,7 +25,6 @@ interface AgentTaskPanelProps {
   onTaskCreated?: (taskId: string) => void
   onTaskRemoved?: () => void
   onTaskUpdated?: () => void
-  onInsertResult?: (content: string) => void
 }
 
 // Agent step for display
@@ -39,15 +39,53 @@ interface ExecutionStep {
 // Simple icon components
 const Icons = {
   close: (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
     </svg>
   ),
   play: (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none" />
     </svg>
   ),
+}
+
+// Instant tooltip component using Portal to avoid clipping
+function Tooltip({ children, text }: { children: React.ReactNode; text: string }) {
+  const [show, setShow] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLDivElement>(null)
+
+  const handleMouseEnter = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      setPosition({
+        top: rect.top - 6, // 6px gap above trigger
+        left: rect.left + rect.width / 2
+      })
+    }
+    setShow(true)
+  }
+
+  return (
+    <div ref={triggerRef} className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={() => setShow(false)}>
+      {children}
+      {show && createPortal(
+        <div
+          className="fixed px-2 py-1 text-[10px] whitespace-nowrap rounded bg-neutral-800 dark:bg-neutral-700 text-white shadow-lg pointer-events-none"
+          style={{
+            top: position.top,
+            left: position.left,
+            transform: 'translate(-50%, -100%)',
+            zIndex: 9999
+          }}
+        >
+          {text}
+        </div>,
+        document.body
+      )}
+    </div>
+  )
 }
 
 export function AgentTaskPanel({
@@ -61,7 +99,6 @@ export function AgentTaskPanel({
   onTaskCreated,
   onTaskRemoved,
   onTaskUpdated,
-  onInsertResult,
 }: AgentTaskPanelProps) {
   const t = useTranslations()
 
@@ -74,13 +111,20 @@ export function AgentTaskPanel({
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [agentsLoading, setAgentsLoading] = useState(false)
 
-  // Streaming execution state
-  const [streamingOutput, setStreamingOutput] = useState('')
+  // Streaming execution state - separate outputs for each phase
+  const [contentOutput, setContentOutput] = useState('')
+  const [editorOutput, setEditorOutput] = useState('')
   const [executionSteps, setExecutionSteps] = useState<ExecutionStep[]>([])
+  const [currentPhase, setCurrentPhase] = useState<'content' | 'editor' | null>(null)
+  const [selectedPhase, setSelectedPhase] = useState<'content' | 'editor'>('content') // User-selected tab
   const unsubscribeRef = useRef<(() => void) | null>(null)
+  const executingTaskIdRef = useRef<string | null>(null) // Track currently executing task
 
-  // UI state
-  const [showConfig, setShowConfig] = useState(false)
+  // Process mode (append below or replace block)
+  const [processMode, setProcessMode] = useState<'append' | 'replace'>('append')
+
+  // Output format type (default 'none' - raw text, no formatting)
+  const [outputFormat, setOutputFormat] = useState<AgentTaskOutputFormat>('none')
 
   // Load agents list
   useEffect(() => {
@@ -106,15 +150,29 @@ export function AgentTaskPanel({
   useEffect(() => {
     if (!isOpen) return
 
-    // Always reset streaming state when panel opens
+    // Skip everything if this task is currently being executed by this component
+    // This prevents database state from overwriting the running UI state
+    if (taskId && executingTaskIdRef.current === taskId) {
+      return
+    }
+
+    // Reset streaming state when panel opens or taskId changes
     // (previous streaming data is stale if panel was closed during execution)
-    setStreamingOutput('')
+    setContentOutput('')
+    setEditorOutput('')
     setExecutionSteps([])
+    setCurrentPhase(null)
+    setSelectedPhase('content')
 
     if (taskId) {
       setLoading(true)
       getTaskAsync(taskId)
         .then(async (data) => {
+          // Double-check: if task started executing while we were loading, don't overwrite
+          if (executingTaskIdRef.current === taskId) {
+            return
+          }
+
           // If task is stuck in 'running' status (from interrupted execution), reset to 'failed'
           if (data?.status === 'running') {
             const updatedData = await updateTask(data.id, {
@@ -130,6 +188,14 @@ export function AgentTaskPanel({
           // Restore agent selection if task has one
           if (data?.agentId) {
             setSelectedAgentId(data.agentId)
+          }
+          // Restore process mode
+          if (data?.processMode) {
+            setProcessMode(data.processMode)
+          }
+          // Restore output format
+          if (data?.outputFormat) {
+            setOutputFormat(data.outputFormat)
           }
         })
         .finally(() => setLoading(false))
@@ -174,8 +240,11 @@ export function AgentTaskPanel({
 
     try {
       setLoading(true)
-      setStreamingOutput('')
+      setContentOutput('')
+      setEditorOutput('')
       setExecutionSteps([])
+      setCurrentPhase(null)
+      setSelectedPhase('content')
 
       let currentTask = task
 
@@ -190,11 +259,13 @@ export function AgentTaskPanel({
           agentMode: 'specified',
           agentId: selectedAgentId,
           agentName: selectedAgent.name,
+          processMode,
+          outputFormat,
         })
         setTask(currentTask)
         onTaskCreated?.(currentTask.id)
       } else {
-        // Update task with new prompt/agent if changed
+        // Update task with new prompt/agent/processMode/outputFormat if changed
         const updates: Partial<AgentTaskRecord> = {}
         if (additionalPrompt !== currentTask.additionalPrompt) {
           updates.additionalPrompt = additionalPrompt || null
@@ -202,6 +273,12 @@ export function AgentTaskPanel({
         if (selectedAgentId !== currentTask.agentId) {
           updates.agentId = selectedAgentId
           updates.agentName = selectedAgent.name
+        }
+        if (processMode !== currentTask.processMode) {
+          updates.processMode = processMode
+        }
+        if (outputFormat !== currentTask.outputFormat) {
+          updates.outputFormat = outputFormat
         }
         if (Object.keys(updates).length > 0) {
           currentTask = await updateTask(currentTask.id, updates)
@@ -212,6 +289,10 @@ export function AgentTaskPanel({
       if (!currentTask) {
         throw new Error('Failed to create task')
       }
+
+      // Immediately set to running state to avoid showing old failed state
+      setTask({ ...currentTask, status: 'running' as AgentTaskStatus })
+      executingTaskIdRef.current = currentTask.id
 
       // Clean up previous event listener if exists
       if (unsubscribeRef.current) {
@@ -229,8 +310,27 @@ export function AgentTaskPanel({
             // Task started
             break
 
+          case 'phase':
+            // Execution phase changed (content → editor)
+            if (event.phase) {
+              setCurrentPhase(event.phase)
+              setSelectedPhase(event.phase) // Auto-select new phase
+            }
+            break
+
           case 'text':
-            setStreamingOutput((prev) => prev + (event.content || ''))
+            // Append text to the current phase output
+            if (event.content) {
+              setCurrentPhase((phase) => {
+                const targetPhase = phase || 'content'
+                if (targetPhase === 'editor') {
+                  setEditorOutput((prev) => prev + event.content)
+                } else {
+                  setContentOutput((prev) => prev + event.content)
+                }
+                return phase
+              })
+            }
             break
 
           case 'thinking':
@@ -247,6 +347,13 @@ export function AgentTaskPanel({
             ])
             break
 
+          case 'editor_content':
+            // Formatted content from editor agent's pending operations
+            if (event.content) {
+              setEditorOutput(event.content)
+            }
+            break
+
           case 'tool_result':
             setExecutionSteps((prev) => [
               ...prev,
@@ -256,6 +363,7 @@ export function AgentTaskPanel({
 
           case 'done':
             // Reload task to get final state from database
+            executingTaskIdRef.current = null
             getTaskAsync(taskIdForListener).then((updatedTask) => {
               if (updatedTask) {
                 setTask(updatedTask)
@@ -267,6 +375,7 @@ export function AgentTaskPanel({
 
           case 'error':
             // Reload task to get error state
+            executingTaskIdRef.current = null
             getTaskAsync(taskIdForListener).then((updatedTask) => {
               if (updatedTask) {
                 setTask(updatedTask)
@@ -278,19 +387,24 @@ export function AgentTaskPanel({
         }
       })
 
-      // Start execution
+      // Start execution - only pass outputContext when format is not 'none'
       await window.electron.agent.run(
         currentTask.id,
         selectedAgentId,
         selectedAgent.name,
         blockContent,
-        additionalPrompt || undefined
+        additionalPrompt || undefined,
+        outputFormat !== 'none'
+          ? {
+              targetBlockId: blockId,
+              pageId,
+              notebookId,
+              processMode,
+              outputFormat,
+            }
+          : undefined
       )
 
-      // Update local state to running
-      setTask((prev) =>
-        prev ? { ...prev, status: 'running' as AgentTaskStatus } : prev
-      )
       onTaskUpdated?.()
     } catch (error) {
       console.error('Failed to execute agent task:', error)
@@ -305,6 +419,8 @@ export function AgentTaskPanel({
     additionalPrompt,
     selectedAgentId,
     agents,
+    processMode,
+    outputFormat,
     onTaskCreated,
     onTaskUpdated,
   ])
@@ -324,303 +440,306 @@ export function AgentTaskPanel({
   }, [task, onTaskRemoved, onClose])
 
   const handleCopyResult = useCallback(() => {
-    if (task?.result) {
-      navigator.clipboard.writeText(task.result)
+    // Prioritize formatted output (editorOutput) over raw content
+    const contentToCopy = editorOutput || task?.result
+    if (contentToCopy) {
+      navigator.clipboard.writeText(contentToCopy)
     }
-  }, [task])
-
-  const handleInsertResult = useCallback(() => {
-    if (task?.result) {
-      onInsertResult?.(task.result)
-      onClose()
-    }
-  }, [task, onInsertResult, onClose])
+  }, [task, editorOutput])
 
   if (!isOpen) return null
 
   const status = task?.status ?? 'idle'
+  const hasOutput = status === 'running' || status === 'completed' || status === 'failed'
+
+  // Config panel (left side) - reusable content
+  const ConfigPanel = () => (
+    <div className="flex flex-col h-full">
+      {/* Top: Block content (vertically centered, left-aligned) */}
+      <div className="flex-1 flex items-center overflow-hidden">
+        <div className="pl-2 border-l-[1.5px] border-[var(--color-accent)]/30 text-xs leading-relaxed text-[var(--color-text)] overflow-y-auto max-h-full w-full">
+          {blockContent || (
+            <span className="text-[var(--color-muted)] italic">
+              {t.agentTask?.emptyContent ?? '(empty)'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom: Config controls + textarea (fixed) */}
+      <div className="mt-auto space-y-2 pt-3 border-t border-black/5 dark:border-white/5">
+        {/* Additional prompt - expands upward */}
+        <textarea
+          className="w-full text-xs bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-md p-2 text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]/20 resize-none max-h-24"
+          placeholder={t.agentTask?.additionalPromptPlaceholder ?? 'Instructions (optional)...'}
+          value={additionalPrompt}
+          onChange={(e) => setAdditionalPrompt(e.target.value)}
+          rows={2}
+        />
+
+        {/* Agent selector */}
+        <div className="flex items-center gap-1 text-[11px]">
+          <span className="text-[var(--color-muted)]">{t.agentTask?.useAgent ?? 'Use'}</span>
+          {agentsLoading ? (
+            <div className="w-2 h-2 border border-[var(--color-muted)] border-t-transparent rounded-full animate-spin" />
+          ) : agents.length === 0 ? (
+            <span className="text-[var(--color-muted)] italic">{t.agentTask?.noAgents ?? 'No agents'}</span>
+          ) : (
+            <AgentSelect
+              agents={agents}
+              value={selectedAgentId}
+              onChange={setSelectedAgentId}
+            />
+          )}
+        </div>
+
+        {/* Format selector */}
+        <div className="flex items-center gap-1 text-[11px]">
+          <span className="text-[var(--color-muted)]">{t.agentTask?.formatLabel ?? 'Format'}</span>
+          <select
+            value={outputFormat}
+            onChange={(e) => setOutputFormat(e.target.value as AgentTaskOutputFormat)}
+            className="flex-1 bg-transparent border-none text-[var(--color-text)] focus:outline-none cursor-pointer"
+          >
+            <option value="none">-</option>
+            <option value="auto">{t.agentTask?.formatAuto ?? 'Auto'}</option>
+            <option value="paragraph">{t.agentTask?.formatParagraph ?? 'Paragraph'}</option>
+            <option value="list">{t.agentTask?.formatList ?? 'List'}</option>
+            <option value="table">{t.agentTask?.formatTable ?? 'Table'}</option>
+            <option value="code">{t.agentTask?.formatCode ?? 'Code'}</option>
+            <option value="quote">{t.agentTask?.formatQuote ?? 'Quote'}</option>
+          </select>
+        </div>
+
+        {/* Process mode + Run button row */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 p-0.5 rounded bg-black/[0.03] dark:bg-white/[0.03] text-[10px]">
+            <Tooltip text={t.agentTask?.modeAppendTip ?? 'Insert below current block'}>
+              <button
+                onClick={() => setProcessMode('append')}
+                className={`px-1.5 py-0.5 rounded transition-all ${
+                  processMode === 'append'
+                    ? 'bg-white dark:bg-white/10 text-[var(--color-text)] shadow-sm'
+                    : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                }`}
+              >
+                {t.agentTask?.modeAppend ?? 'Append'}
+              </button>
+            </Tooltip>
+            <Tooltip text={t.agentTask?.modeReplaceTip ?? 'Replace current block'}>
+              <button
+                onClick={() => setProcessMode('replace')}
+                className={`px-1.5 py-0.5 rounded transition-all ${
+                  processMode === 'replace'
+                    ? 'bg-white dark:bg-white/10 text-[var(--color-text)] shadow-sm'
+                    : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                }`}
+              >
+                {t.agentTask?.modeReplace ?? 'Replace'}
+              </button>
+            </Tooltip>
+          </div>
+
+          {/* Run button */}
+          <button
+            onClick={handleExecute}
+            disabled={loading || !selectedAgentId || agents.length === 0}
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-white bg-[var(--color-accent)] hover:opacity-90 rounded-md transition-all disabled:opacity-50 select-none"
+          >
+            {Icons.play}
+            <span>{status === 'idle' ? (t.agentTask?.execute ?? 'Run') : (t.agentTask?.reExecute ?? 'Retry')}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // Output panel (right side) - shows running/completed/failed state
+  // Get the output to display based on selected phase
+  const displayOutput = selectedPhase === 'editor' ? editorOutput : contentOutput
+  const isCurrentPhaseSelected = selectedPhase === currentPhase
+
+  const OutputPanel = () => (
+    <div className="flex flex-col h-full">
+      {/* Phase indicator - minimal tabs */}
+      {outputFormat !== 'none' && (
+        <div className="flex items-center gap-2.5 pb-2.5 mb-3 border-b border-black/5 dark:border-white/5">
+          <button
+            onClick={() => setSelectedPhase('content')}
+            className="flex items-center gap-1 hover:opacity-80 transition-opacity"
+          >
+            <span className={`w-1 h-1 rounded-full transition-colors ${
+              currentPhase === 'content' || currentPhase === 'editor' || status === 'completed' ? 'bg-[var(--color-accent)]' : 'bg-black/10 dark:bg-white/10'
+            } ${currentPhase === 'content' && status === 'running' ? 'animate-pulse' : ''}`} />
+            <span className={`text-[11px] transition-colors ${
+              selectedPhase === 'content' ? 'text-[var(--color-text)]' : 'text-[var(--color-muted)]'
+            }`}>
+              {t.agentTask?.phaseContent ?? 'Generating'}
+            </span>
+          </button>
+          <span className="text-[var(--color-muted)]/30">→</span>
+          <button
+            onClick={() => setSelectedPhase('editor')}
+            className="flex items-center gap-1 hover:opacity-80 transition-opacity"
+          >
+            <span className={`w-1 h-1 rounded-full transition-colors ${
+              currentPhase === 'editor' || status === 'completed' ? 'bg-[var(--color-accent)]' : 'bg-black/10 dark:bg-white/10'
+            } ${currentPhase === 'editor' && status === 'running' ? 'animate-pulse' : ''}`} />
+            <span className={`text-[11px] transition-colors ${
+              selectedPhase === 'editor' ? 'text-[var(--color-text)]' : 'text-[var(--color-muted)]'
+            }`}>
+              {t.agentTask?.phaseEditor ?? 'Formatting'}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {/* Running state */}
+        {status === 'running' && (
+          <>
+            {displayOutput ? (
+              <div className="text-[13px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+                {displayOutput}
+                {isCurrentPhaseSelected && (
+                  <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-[var(--color-accent)] animate-pulse" />
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-[var(--color-muted)]">
+                {isCurrentPhaseSelected ? (
+                  <>
+                    <div className="w-3 h-3 border-[1.5px] border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
+                    <span className="text-xs">{t.agentTask?.executingMessage ?? 'Processing...'}</span>
+                  </>
+                ) : (
+                  <span className="text-xs italic">{t.agentTask?.emptyContent ?? '(empty)'}</span>
+                )}
+              </div>
+            )}
+            {isCurrentPhaseSelected && executionSteps.length > 0 && (
+              <div className="mt-2 text-[10px] text-[var(--color-muted)]">
+                {executionSteps.slice(-1).map((step, i) => (
+                  <span key={i}>
+                    {step.type === 'tool_call' && <>→ {step.toolName}</>}
+                    {step.type === 'thinking' && <>{t.agentTask?.thinking ?? 'Thinking'}...</>}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Completed state */}
+        {status === 'completed' && (
+          <div className="text-[13px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+            {selectedPhase === 'content' ? (
+              contentOutput || task?.result || ''
+            ) : (
+              editorOutput || (
+                <span className="text-[var(--color-muted)] italic text-xs">
+                  {t.agentTask?.formattingDone ?? 'Content formatted and ready to insert'}
+                </span>
+              )
+            )}
+          </div>
+        )}
+
+        {/* Failed state */}
+        {status === 'failed' && (
+          <div className="text-xs text-red-600 dark:text-red-400">
+            {task?.error || (t.agentTask?.unknownError ?? 'Unknown error')}
+          </div>
+        )}
+      </div>
+
+      {/* Footer actions */}
+      <div className="pt-3 mt-auto border-t border-black/5 dark:border-white/5">
+        {status === 'running' && (
+          <button
+            onClick={handleCancel}
+            className="text-xs text-[var(--color-muted)] hover:text-red-500 transition-colors select-none"
+          >
+            {t.agentTask?.cancel ?? 'Cancel'}
+          </button>
+        )}
+
+        {status === 'completed' && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-muted)]">
+              {task?.agentName && <span>{task.agentName}</span>}
+              {task?.durationMs && <span>· {(task.durationMs / 1000).toFixed(1)}s</span>}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleRemove}
+                className="px-2 py-1 text-[11px] text-[var(--color-muted)] hover:text-red-500 transition-colors select-none"
+              >
+                {t.agentTask?.remove ?? 'Remove'}
+              </button>
+              <button
+                onClick={handleCopyResult}
+                className="px-2 py-1 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors select-none"
+              >
+                {t.agentTask?.copy ?? 'Copy'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {status === 'failed' && (
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-[var(--color-muted)]">{task?.agentName}</span>
+            <button
+              onClick={handleRemove}
+              className="text-[11px] text-[var(--color-muted)] hover:text-red-500 transition-colors select-none"
+            >
+              {t.agentTask?.remove ?? 'Remove'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 
   return createPortal(
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/30 backdrop-blur-[2px] z-[1000]"
+        className="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-[1000]"
         onClick={onClose}
       />
 
-      {/* Panel */}
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[var(--color-card)] rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] overflow-hidden z-[1001]">
-        {/* Header - minimal */}
-        <div className="flex items-center justify-end px-4 py-3">
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-all"
-          >
-            {Icons.close}
-          </button>
-        </div>
+      {/* Panel - dynamic width based on output presence */}
+      <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--color-card)] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] overflow-hidden z-[1001] ${
+        hasOutput ? 'w-full max-w-2xl h-[420px]' : 'w-full max-w-xs'
+      }`}>
+        {/* Close button - absolute positioned */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-all z-10"
+        >
+          {Icons.close}
+        </button>
 
-        {/* Body */}
-        <div className="max-h-[60vh] overflow-y-auto">
-          {loading && !task ? (
-            <div className="flex items-center justify-center py-16 gap-3 text-[var(--color-muted)]">
-              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : (
-            <>
-              {/* ===== COMPLETED STATE ===== */}
-              {status === 'completed' && task?.result && (
-                <div className="p-6">
-                  {/* Result as main content */}
-                  <div className="text-[0.9375rem] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
-                    {task.result}
-                  </div>
-
-                  {/* Meta info */}
-                  <div className="mt-4 flex items-center gap-3 text-xs text-[var(--color-muted)]">
-                    {task.agentName && <span>{task.agentName}</span>}
-                    {task.agentName && task.durationMs && <span>·</span>}
-                    {task.durationMs && <span>{(task.durationMs / 1000).toFixed(1)}s</span>}
-                    <button
-                      onClick={() => setShowConfig(!showConfig)}
-                      className="ml-auto hover:text-[var(--color-text)] transition-colors"
-                    >
-                      {showConfig ? (t.agentTask?.collapse ?? 'Collapse') : (t.agentTask?.configure ?? 'Configure')}
-                    </button>
-                  </div>
-
-                  {/* Collapsible config */}
-                  {showConfig && (
-                    <div className="mt-4 pt-4 border-t border-black/5 dark:border-white/5 space-y-4">
-                      {/* Input preview */}
-                      <div className="text-xs text-[var(--color-muted)] line-clamp-2">
-                        {blockContent}
-                      </div>
-
-                      {/* Agent + Instructions in one row */}
-                      <div className="flex gap-3">
-                        <select
-                          className="flex-1 text-sm bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-lg h-9 px-3 text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
-                          value={selectedAgentId || ''}
-                          onChange={(e) => setSelectedAgentId(e.target.value)}
-                        >
-                          {agents.map((agent) => (
-                            <option key={agent.id} value={agent.id}>{agent.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <textarea
-                        className="w-full text-sm bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-lg p-3 text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20 resize-none"
-                        placeholder={t.agentTask?.additionalPromptPlaceholder ?? 'Optional instructions...'}
-                        value={additionalPrompt}
-                        onChange={(e) => setAdditionalPrompt(e.target.value)}
-                        rows={2}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ===== FAILED STATE ===== */}
-              {status === 'failed' && (
-                <div className="p-6">
-                  <div className="text-sm text-red-600 dark:text-red-400">
-                    {task?.error || (t.agentTask?.unknownError ?? 'Unknown error')}
-                  </div>
-
-                  <div className="mt-4 flex items-center gap-3 text-xs text-[var(--color-muted)]">
-                    {task?.agentName && <span>{task.agentName}</span>}
-                    <button
-                      onClick={() => setShowConfig(!showConfig)}
-                      className="ml-auto hover:text-[var(--color-text)] transition-colors"
-                    >
-                      {showConfig ? (t.agentTask?.collapse ?? 'Collapse') : (t.agentTask?.reconfigure ?? 'Reconfigure')}
-                    </button>
-                  </div>
-
-                  {showConfig && (
-                    <div className="mt-4 pt-4 border-t border-black/5 dark:border-white/5 space-y-4">
-                      <div className="text-xs text-[var(--color-muted)] line-clamp-2">{blockContent}</div>
-                      <select
-                        className="w-full text-sm bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-lg h-9 px-3"
-                        value={selectedAgentId || ''}
-                        onChange={(e) => setSelectedAgentId(e.target.value)}
-                      >
-                        {agents.map((agent) => (
-                          <option key={agent.id} value={agent.id}>{agent.name}</option>
-                        ))}
-                      </select>
-                      <textarea
-                        className="w-full text-sm bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-lg p-3 resize-none"
-                        placeholder={t.agentTask?.additionalPromptPlaceholder ?? 'Optional instructions...'}
-                        value={additionalPrompt}
-                        onChange={(e) => setAdditionalPrompt(e.target.value)}
-                        rows={2}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ===== RUNNING STATE ===== */}
-              {status === 'running' && (
-                <div className="p-6">
-                  {/* Streaming output or placeholder */}
-                  {streamingOutput ? (
-                    <div className="text-[0.9375rem] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
-                      {streamingOutput}
-                      <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--color-accent)] animate-pulse" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3 text-[var(--color-muted)]">
-                      <div className="w-4 h-4 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
-                      <span className="text-sm">{t.agentTask?.executingMessage ?? 'Processing...'}</span>
-                    </div>
-                  )}
-
-                  {/* Steps indicator */}
-                  {executionSteps.length > 0 && (
-                    <div className="mt-4 flex items-center gap-2 text-xs text-[var(--color-muted)]">
-                      {executionSteps.slice(-1).map((step, i) => (
-                        <span key={i} className="flex items-center gap-1">
-                          {step.type === 'tool_call' && <>→ {step.toolName}</>}
-                          {step.type === 'thinking' && <>💭 {t.agentTask?.thinking ?? 'Thinking'}...</>}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ===== IDLE STATE ===== */}
-              {status === 'idle' && (
-                <div className="p-6">
-                  {/* Context block */}
-                  <div className="pl-3 border-l-2 border-[var(--color-accent)]/30 text-sm leading-relaxed text-[var(--color-text)] line-clamp-3 mb-6">
-                    {blockContent || (
-                      <span className="text-[var(--color-muted)] italic">
-                        {t.agentTask?.emptyContent ?? '(empty)'}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Agent selector - inline style */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="text-sm text-[var(--color-muted)]">{t.agentTask?.useAgent ?? 'Use'}</span>
-                    {agentsLoading ? (
-                      <div className="w-3 h-3 border border-[var(--color-muted)] border-t-transparent rounded-full animate-spin" />
-                    ) : agents.length === 0 ? (
-                      <span className="text-sm text-[var(--color-muted)] italic">{t.agentTask?.noAgents ?? 'No agents'}</span>
-                    ) : (
-                      <select
-                        className="text-sm font-medium bg-transparent border-none text-[var(--color-text)] focus:outline-none cursor-pointer pr-1 -ml-1"
-                        value={selectedAgentId || ''}
-                        onChange={(e) => setSelectedAgentId(e.target.value)}
-                      >
-                        {agents.map((agent) => (
-                          <option key={agent.id} value={agent.id}>
-                            {agent.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <span className="text-sm text-[var(--color-muted)]">{t.agentTask?.processContent ?? 'to process'}</span>
-                  </div>
-
-                  {/* Instructions - simple input */}
-                  <input
-                    type="text"
-                    className="w-full text-sm bg-black/[0.02] dark:bg-white/[0.02] border-none rounded-lg h-10 px-3 text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
-                    placeholder={t.agentTask?.additionalPromptPlaceholder ?? 'Instructions (optional)...'}
-                    value={additionalPrompt}
-                    onChange={(e) => setAdditionalPrompt(e.target.value)}
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Footer - context-aware */}
-        <div className="px-6 py-4">
-          {/* Idle: just run button */}
-          {status === 'idle' && (
-            <div className="flex justify-end">
-              <button
-                onClick={handleExecute}
-                disabled={loading || !selectedAgentId || agents.length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-[var(--color-accent)] hover:opacity-90 rounded-xl transition-all disabled:opacity-50 select-none"
-              >
-                {Icons.play}
-                <span>{t.agentTask?.execute ?? 'Run'}</span>
-              </button>
-            </div>
-          )}
-
-          {/* Running: cancel button */}
-          {status === 'running' && (
-            <div className="flex justify-end">
-              <button
-                onClick={handleCancel}
-                className="px-4 py-2 text-sm text-[var(--color-muted)] hover:text-red-500 transition-colors select-none"
-              >
-                {t.agentTask?.cancel ?? 'Cancel'}
-              </button>
-            </div>
-          )}
-
-          {/* Completed: actions */}
-          {status === 'completed' && (
-            <div className="flex items-center justify-between">
-              <button
-                onClick={handleRemove}
-                className="text-xs text-[var(--color-muted)] hover:text-red-500 transition-colors select-none"
-              >
-                {t.agentTask?.remove ?? 'Remove'}
-              </button>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyResult}
-                  className="px-3 py-1.5 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors select-none"
-                >
-                  {t.agentTask?.copy ?? 'Copy'}
-                </button>
-                {showConfig && (
-                  <button
-                    onClick={handleExecute}
-                    disabled={loading || !selectedAgentId}
-                    className="px-4 py-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors select-none disabled:opacity-50"
-                  >
-                    {t.agentTask?.reExecute ?? 'Retry'}
-                  </button>
-                )}
-                <button
-                  onClick={handleInsertResult}
-                  className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:opacity-90 rounded-xl transition-all select-none"
-                >
-                  {t.agentTask?.insertBelow ?? 'Insert'}
-                </button>
+        {/* Body - split layout when has output */}
+        <div className={`flex h-full ${hasOutput ? 'divide-x divide-black/5 dark:divide-white/5' : ''}`}>
+          {/* Left: Config */}
+          <div className={`p-4 flex flex-col ${hasOutput ? 'w-56 flex-shrink-0 h-full' : 'w-full'}`}>
+            {loading && !task ? (
+              <div className="flex items-center justify-center flex-1">
+                <div className="w-4 h-4 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
               </div>
-            </div>
-          )}
+            ) : (
+              <ConfigPanel />
+            )}
+          </div>
 
-          {/* Failed: retry */}
-          {status === 'failed' && (
-            <div className="flex items-center justify-between">
-              <button
-                onClick={handleRemove}
-                className="text-xs text-[var(--color-muted)] hover:text-red-500 transition-colors select-none"
-              >
-                {t.agentTask?.remove ?? 'Remove'}
-              </button>
-              <button
-                onClick={handleExecute}
-                disabled={loading}
-                className="px-5 py-2.5 text-sm font-medium text-white bg-[var(--color-accent)] hover:opacity-90 rounded-xl transition-all disabled:opacity-50 select-none"
-              >
-                {t.agentTask?.retry ?? 'Retry'}
-              </button>
+          {/* Right: Output (only when running/completed/failed) */}
+          {hasOutput && (
+            <div className="flex-1 p-4 min-w-0 flex flex-col overflow-hidden">
+              <OutputPanel />
             </div>
           )}
         </div>

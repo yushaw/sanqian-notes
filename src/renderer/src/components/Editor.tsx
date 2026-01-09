@@ -52,7 +52,8 @@ import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
 import { AgentTaskPanel } from './AgentTaskPanel'
 import { AgentTaskIndicators } from './AgentTaskIndicators'
-import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlockIds } from '../utils/agentTaskStorage'
+import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlockIds, updateTask } from '../utils/agentTaskStorage'
+import { setupOutputListener } from '../utils/editorOutputHandler'
 import { useAIActions } from '../hooks/useAIActions'
 import { useAIWriting } from '../hooks/useAIWriting'
 import { getAIContext } from '../utils/aiContext'
@@ -894,6 +895,58 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // Track blocks with agentTaskId for cleanup
   const previousAgentBlocksRef = useRef<Set<string>>(new Set())
 
+  // Track content of blocks with managedBy for edit disconnect
+  const managedBlockContentRef = useRef<Map<string, string>>(new Map())
+  const checkManagedBlocksTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear managedBy when output blocks are edited by user
+  useEffect(() => {
+    if (!editor) return
+
+    const checkManagedBlocks = () => {
+      const currentContent = new Map<string, string>()
+
+      editor.state.doc.descendants((node) => {
+        if (node.attrs.managedBy && node.attrs.blockId) {
+          const textContent = node.textContent
+          const blockId = node.attrs.blockId
+          currentContent.set(blockId, textContent)
+
+          // Check if content changed from previous snapshot
+          const previousContent = managedBlockContentRef.current.get(blockId)
+          if (previousContent !== undefined && previousContent !== textContent) {
+            // Content changed, user edited the block - clear managedBy
+            // Use setTimeout to avoid modifying during update handler
+            setTimeout(() => {
+              editor.commands.clearManagedBy(blockId)
+            }, 0)
+          }
+        }
+      })
+
+      managedBlockContentRef.current = currentContent
+    }
+
+    // Debounced version to avoid performance issues on large documents
+    const debouncedCheckManagedBlocks = () => {
+      if (checkManagedBlocksTimeoutRef.current) {
+        clearTimeout(checkManagedBlocksTimeoutRef.current)
+      }
+      checkManagedBlocksTimeoutRef.current = setTimeout(checkManagedBlocks, 100)
+    }
+
+    // Initialize immediately
+    checkManagedBlocks()
+
+    editor.on('update', debouncedCheckManagedBlocks)
+    return () => {
+      editor.off('update', debouncedCheckManagedBlocks)
+      if (checkManagedBlocksTimeoutRef.current) {
+        clearTimeout(checkManagedBlocksTimeoutRef.current)
+      }
+    }
+  }, [editor])
+
   // Clean up orphan agent tasks when blocks are deleted
   useEffect(() => {
     if (!editor) return
@@ -913,8 +966,12 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         (blockId) => !currentAgentBlocks.has(blockId)
       )
 
-      // Clean up tasks for deleted blocks
+      // Clean up tasks and managed blocks for deleted agent blocks
       for (const blockId of deletedBlocks) {
+        // Delete all blocks that were managed by this agent block
+        editor.commands.deleteManagedBlocks(blockId)
+
+        // Clean up the task in database
         deleteTaskByBlockId(blockId).catch((err) => {
           console.error('Failed to clean up agent task for deleted block:', blockId, err)
         })
@@ -932,6 +989,25 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     return () => {
       editor.off('update', checkDeletedBlocks)
     }
+  }, [editor])
+
+  // Set up listener for agent output insertion
+  useEffect(() => {
+    if (!editor) return
+
+    const cleanup = setupOutputListener(
+      () => editor,
+      async (taskId, outputBlockId) => {
+        // Update task with outputBlockId
+        if (outputBlockId) {
+          await updateTask(taskId, { outputBlockId })
+          // Refresh decorations after output is inserted
+          editor.commands.refreshAgentTaskDecorations()
+        }
+      }
+    )
+
+    return cleanup
   }, [editor])
 
   // Auto-focus title for new (empty) notes
@@ -1131,6 +1207,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
   const handleAgentTaskRemoved = useCallback(() => {
     if (!editor) return
+    // 先删除被此 agent block 管理的所有输出 blocks
+    editor.commands.deleteManagedBlocks(agentTaskBlockId)
     // 移除 block 的 agentTaskId 属性
     editor.commands.removeAgentTask(agentTaskBlockId)
     setAgentTaskId(null)
@@ -1145,24 +1223,6 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       editor.commands.refreshAgentTaskDecorations()
     })
   }, [editor])
-
-  const handleInsertAgentResult = useCallback((content: string) => {
-    if (!editor) return
-    // 在当前 block 后插入结果
-    // 找到 block 的位置
-    let insertPos: number | null = null
-    editor.state.doc.descendants((node, pos) => {
-      if (node.attrs.blockId === agentTaskBlockId && insertPos === null) {
-        insertPos = pos + node.nodeSize
-      }
-    })
-    if (insertPos !== null) {
-      editor.chain().focus().insertContentAt(insertPos, {
-        type: 'paragraph',
-        content: [{ type: 'text', text: content }],
-      }).run()
-    }
-  }, [editor, agentTaskBlockId])
 
   // 持续追踪最后的光标位置（即使焦点离开编辑器也能记住）
   const lastCursorInfo = useRef<CursorInfo | null>(null)
@@ -1544,7 +1604,6 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         onTaskCreated={handleAgentTaskCreated}
         onTaskRemoved={handleAgentTaskRemoved}
         onTaskUpdated={handleAgentTaskUpdated}
-        onInsertResult={handleInsertAgentResult}
       />
     </div>
   )

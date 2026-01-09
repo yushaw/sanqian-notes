@@ -401,10 +401,31 @@ interface Window {
         agentId: string,
         agentName: string,
         content: string,
-        additionalPrompt?: string
+        additionalPrompt?: string,
+        outputContext?: {
+          targetBlockId: string
+          pageId: string
+          notebookId: string | null
+          processMode: 'append' | 'replace'
+          outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+        }
       ) => Promise<void>
       cancel: (taskId: string) => Promise<boolean>
       onEvent: (callback: (taskId: string, event: AgentTaskEvent) => void) => () => void
+      onInsertOutput: (callback: (data: {
+        taskId: string
+        context: {
+          targetBlockId: string
+          pageId: string
+          notebookId: string | null
+          processMode: 'append' | 'replace'
+          outputBlockId: string | null
+        }
+        operations: Array<{
+          type: 'paragraph' | 'list' | 'table' | 'html' | 'heading' | 'codeBlock' | 'blockquote' | 'noteRef'
+          content: unknown
+        }>
+      }) => void) => () => void
     }
   }
 }
@@ -421,12 +442,13 @@ interface AgentCapability {
 }
 
 interface AgentTaskEvent {
-  type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error'
+  type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'phase' | 'editor_content'
   content?: string
   toolName?: string
   toolArgs?: Record<string, unknown>
   result?: unknown
   error?: string
+  phase?: 'content' | 'editor'
 }
 
 // Note types are imported from shared/types

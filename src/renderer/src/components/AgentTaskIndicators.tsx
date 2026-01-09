@@ -22,6 +22,7 @@ interface IndicatorData {
   taskId: string
   task: AgentTaskCache | null
   top: number
+  left: number
   blockContent: string
 }
 
@@ -72,6 +73,8 @@ export function AgentTaskIndicators({
       const nodeRect = domNode.getBoundingClientRect()
       // Vertically center the dot (6px) with the block
       const top = nodeRect.top - containerRect.top + scrollTop + (nodeRect.height / 2) - 3
+      // Position to the left of block content (like H1 indicator)
+      const left = nodeRect.left - containerRect.left - 16 // 16px to the left of content
 
       // Get task from cache
       const task = getTaskByBlockId(blockId)
@@ -84,6 +87,7 @@ export function AgentTaskIndicators({
         taskId,
         task,
         top,
+        left,
         blockContent,
       })
     })
@@ -168,13 +172,13 @@ export function AgentTaskIndicators({
         position: 'absolute',
         top: 0,
         left: 0,
-        width: '48px', // Same as editor padding
+        width: '100%',
         height: '100%',
         pointerEvents: 'none',
         zIndex: 5,
       }}
     >
-      {indicators.map(({ blockId, task, top, blockContent }) => {
+      {indicators.map(({ blockId, task, top, left, blockContent }) => {
         const status = task?.status ?? 'idle'
         const isRunning = status === 'running'
 
@@ -186,8 +190,8 @@ export function AgentTaskIndicators({
             onClick={() => onOpenPanel(blockId, task?.id ?? null, blockContent)}
             style={{
               position: 'absolute',
-              // Position: 12px from left edge of container
-              left: '12px',
+              // Position relative to block (like H1 indicator)
+              left: `${left}px`,
               top: `${top}px`,
               width: '6px',
               height: '6px',

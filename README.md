@@ -1853,6 +1853,46 @@ IPC 通信层 (Preload)
 
 ## 更新日志
 
+### 2026-01-08
+
+#### Agent Block 输出机制实现
+
+实现了 Agent Block 的输出机制，支持将 Agent 执行结果格式化插入到编辑器中。
+
+**核心设计：**
+- **输出位置**：独立 block（agent block 下方或替换）
+- **关系追踪**：双向 ID 引用（agent block 的 `outputBlockId`，output block 的 `managedBy`）
+- **编辑断开**：用户编辑 output block 时自动清除 `managedBy`，下次执行生成新 block
+- **执行流程**：串行两步执行（内容 Agent → Editor Agent）
+
+**文件变更：**
+- `src/shared/types.ts` - 添加 `AgentTaskProcessMode`、`AgentTaskRunTiming` 类型，扩展 `AgentTaskRecord`
+- `src/main/database.ts` - 数据库迁移，添加 `output_block_id`、`process_mode`、`run_timing`、`schedule_config` 字段
+- `src/renderer/src/components/extensions/AgentTask.ts` - 添加 `managedBy` 全局属性和 `setManagedBy`、`clearManagedBy` 命令
+- `src/renderer/src/components/Editor.tsx` - 实现编辑断开机制、集成 setupOutputListener
+- `src/main/editor-agent.ts` - 新增 Editor Agent 定义和 output tools
+- `src/main/agent-task-service.ts` - 支持两步执行流程（content agent + editor agent），添加 `phase` 事件
+- `src/main/sanqian-sdk.ts` - 注册 Editor Agent 和 output tools，添加 mainWindowGetter/currentTaskIdGetter
+- `src/main/index.ts` - 设置 Editor Agent 所需的 getters
+- `src/renderer/src/utils/editorOutputHandler.ts` - 新增输出插入处理器，将 output tools 操作转换为 Tiptap 节点
+- `src/preload/index.ts` - 添加 `agent.onInsertOutput` 监听器，更新 `onEvent` 支持 `phase` 类型
+- `src/preload/index.d.ts` - 添加 `agent` 命名空间类型定义
+
+**Output Tools（8 个）：**
+- `insert_paragraph` - 插入段落
+- `insert_list` - 插入列表（bullet/ordered/task）
+- `insert_heading` - 插入标题
+- `insert_code_block` - 插入代码块
+- `insert_blockquote` - 插入引用块
+- `insert_table` - 插入表格
+- `insert_html` - 插入 HTML
+- `create_note_ref` - 创建笔记引用链接
+
+**SDK 集成：**
+- Editor Agent 自动注册到 Sanqian SDK
+- Output tools 作为 SDK tools 注册
+- mainWindowGetter 和 currentTaskIdGetter 用于 output 通信
+
 ### 2025-12-22
 
 #### 系统托盘与窗口管理
@@ -3635,3 +3675,323 @@ src/main/import-export/
 - 调大弹窗尺寸估算值（400x180），与 CSS max-width 一致
 - 添加滚动/resize 监听，滚动或窗口大小变化时自动关闭弹窗
 - Tooltip 暂不改动（显示在上方，内容短，遮挡概率低）
+
+
+## 2026-01-08: 多租户/多应用 Agent 系统 ID 命名与权限控制最佳实践调研
+
+### 调研背景
+为 Agent 系统设计 ID 命名规范，需区分系统内置、用户自定义、第三方插件的 agents，并实现权限隔离。
+
+### 业界实践总结
+
+#### 1. OpenAI Assistants API - 前缀式 ID 规范
+**模式：** `{type_prefix}_{unique_id}`
+
+| 资源类型 | ID 格式示例 |
+|---------|------------|
+| Assistant | `asst_abc123` |
+| Thread | `thread_abc123` |
+| Message | `msg_abc123` |
+| Run | `run_abc123` |
+| Project | `proj_abc` |
+| API Key | `key_abc` |
+
+**特点：**
+- 短前缀（3-7字符）标识资源类型
+- 后缀为随机唯一标识符
+- 一目了然，便于调试和日志分析
+
+#### 2. AutoGen - Agent ID 双组件结构
+**模式：** `(agent_type, agent_key)`
+
+**规则：**
+- 仅允许字母数字和下划线 `[a-zA-Z0-9_]`
+- 不能以数字开头，不能包含空格
+- agent_type: 代码定义的代理类型（如 `code_reviewer`）
+- agent_key: 实例标识符，通常由运行时数据生成
+
+**示例：** `("code_reviewer", "review_request_123")`
+
+#### 3. MCP (Model Context Protocol) - 命名空间前缀
+**模式：** `{namespace}__{tool_name}` 或 `{namespace}/{tool_name}`
+
+**规则：**
+- 工具名 1-64 字符，大小写敏感
+- 允许字符：`A-Za-z0-9_-./`
+- 双下划线 `__` 作为命名空间分隔符（兼容 LLM API 限制）
+- 支持嵌套：`OuterServer__InnerServer__my_tool`
+
+**示例：** `WebSearch__search`, `FileSystem__read_file`
+
+#### 4. Kubernetes Namespace - 分层命名规范
+**模式：** `{team}-{project}-{environment}`
+
+**规则：**
+- 符合 RFC 1123 DNS 标签规范
+- 最大 253 字符，仅小写字母、数字、连字符
+- 不能以连字符开头
+- 系统保留前缀：`kube-`（如 `kube-system`, `kube-public`）
+
+**最佳实践：**
+- 避免使用 default namespace
+- 命名应自解释，反映用途
+- 统一命名约定，跨团队一致
+
+#### 5. AWS ARN - 层级化资源标识
+**模式：** `arn:{partition}:{service}:{region}:{account}:{resource_type}/{resource_id}`
+
+**示例：** `arn:aws:s3:::my-bucket/folder/*`
+
+**特点：**
+- 完整的层级结构，支持精确的权限控制
+- 支持通配符用于批量授权
+
+#### 6. MCP Gateway Registry - 作用域权限模型
+**特点：**
+- 基于 OAuth2 scope 的细粒度权限
+- 用户组到权限的映射
+- 支持层级 scope 验证
+- 默认拒绝策略
+
+---
+
+### 推荐方案
+
+#### ID 命名规范
+
+```
+{scope}:{type}:{identifier}
+
+scope:
+  - system   → 系统内置（不可修改/删除）
+  - user     → 用户自定义
+  - plugin   → 第三方插件
+  - org      → 组织级别共享
+
+type:
+  - agent    → AI 代理
+  - tool     → 工具/能力
+  - workflow → 工作流
+  - template → 模板
+
+identifier:
+  - 唯一标识符（可含命名空间前缀）
+```
+
+**示例：**
+- `system:agent:summarizer` - 系统内置摘要代理
+- `user:agent:my-research-bot` - 用户自定义代理
+- `plugin:agent:github__code-reviewer` - 第三方 GitHub 插件的代码审查代理
+- `plugin:tool:slack__send-message` - Slack 插件的发消息工具
+
+#### 权限控制策略
+
+1. **层级隔离：**
+   - system 资源：所有用户只读
+   - user 资源：仅创建者可 CRUD
+   - plugin 资源：安装后只读，可配置
+   - org 资源：组织成员按角色访问
+
+2. **命名空间保护：**
+   - `system:` 前缀保留，用户无法创建
+   - 第三方插件必须使用 `plugin:{vendor}:` 前缀
+   - 防止命名冲突和权限绕过
+
+3. **默认拒绝 + 显式授权：**
+   - 新注册的 agent/tool 默认无权限
+   - 必须通过策略显式授权才能被调用
+
+4. **向后兼容：**
+   - 无前缀的旧 ID 解析为 `user:agent:{id}`
+   - 迁移脚本自动添加前缀
+
+#### 实现建议
+
+```typescript
+interface AgentId {
+  scope: 'system' | 'user' | 'plugin' | 'org';
+  type: 'agent' | 'tool' | 'workflow' | 'template';
+  namespace?: string;  // 插件 vendor 或组织 ID
+  name: string;        // 资源名称
+}
+
+// 解析 ID 字符串
+function parseAgentId(id: string): AgentId {
+  const [scope, type, ...rest] = id.split(':');
+  const identifier = rest.join(':');
+  const [namespace, name] = identifier.includes('__')
+    ? identifier.split('__')
+    : [undefined, identifier];
+  return { scope, type, namespace, name };
+}
+
+// 权限检查
+function canAccess(userId: string, agentId: AgentId, action: 'read' | 'write' | 'execute'): boolean {
+  if (agentId.scope === 'system') {
+    return action === 'read' || action === 'execute';
+  }
+  if (agentId.scope === 'user') {
+    return agentId.namespace === userId || action === 'read';
+  }
+  // ... 其他规则
+}
+```
+
+### 参考资料
+- [OpenAI Assistants API](https://platform.openai.com/docs/api-reference/assistants)
+- [AutoGen Agent Identity](https://microsoft.github.io/autogen/stable//user-guide/core-user-guide/core-concepts/agent-identity-and-lifecycle.html)
+- [MCP Namespace SEP-993](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/993)
+- [Kubernetes Namespace Best Practices](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/)
+- [AWS ARN Format](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html)
+- [MCP Gateway Access Control](https://agentic-community.github.io/mcp-gateway-registry/scopes/)
+
+---
+
+## 开发日志
+
+### 2026-01-08: 修复 SDK API Agent ID 查找逻辑
+
+**问题**：SDK app 调用 Sanqian 内置 agents（如 `researcher`）时报错：
+```
+Agent 'sanqian-notes:researcher' not found or not accessible
+```
+
+**根本原因**：
+`/Users/yushaw/dev/sanqian/backend/api/sdk_api.py` 的 `handle_chat` 函数中，如果 agent_id 不包含 `:`，会直接加上 app 前缀，然后只在 CustomAgent 表中查找 `is_private=True` 的记录，完全跳过了 builtin agents 的查找。
+
+**修复方案**（基于业界最佳实践）：
+修改查找逻辑，支持分层查找：
+1. 如果 agent_id 包含 `:`，按现有逻辑处理（SDK private agent）
+2. 如果 agent_id 不包含 `:`，先尝试查找 builtin agent（AgentRegistry）
+3. 如果 builtin 找不到，再尝试添加前缀查找 SDK private agent
+
+**修改文件**：
+- `/Users/yushaw/dev/sanqian/backend/api/sdk_api.py` (line 1834-1873)
+
+**参考**：
+- 正确的查找逻辑见 `subagent.py:641-680` 的 `_resolve_agent` 方法
+- 业界实践：MCP 使用命名空间前缀，OpenAI 使用 `{type}_{id}` 格式
+
+**更新（同日）**：改为 SDK 优先策略
+- 无前缀时：先查 SDK private，找不到再 fallback 到 builtin
+- `builtin:xxx`：显式指定 builtin agent
+- `app:xxx`：显式指定 SDK private agent
+
+### 2026-01-09: AgentTaskPanel UI 左右分栏布局
+
+**改进内容**：
+重新设计 AgentTaskPanel 弹窗为左右分栏布局，提升用户体验：
+- **左侧面板**（w-72）：配置区，包含上下文内容、Agent 选择器、格式选择、处理模式（追加/替换）、附加指令、运行按钮
+- **右侧面板**（仅在运行/完成/失败时显示）：输出区，包含阶段指示器（生成内容 → 格式化输出）、流式输出内容、操作按钮
+- **动态宽度**：空闲时 max-w-sm，有输出时 max-w-3xl
+
+**技术细节**：
+- 使用 `hasOutput` 变量判断是否显示右侧面板
+- 阶段指示器（phase tabs）仅在 `outputFormat !== 'none'` 时显示
+- 移除了 `showConfig` 状态，改为始终显示左侧配置区
+- 修复测试用例以匹配新 UI 结构
+
+**Bug 修复**：任务执行时显示旧结果
+- **问题**：创建新任务后 `onTaskCreated` 触发 `taskId` 变化，useEffect 从数据库加载任务（可能是 idle 状态），覆盖了当前运行的 task 状态
+- **修复**：在 useEffect 开头检查 `executingTaskIdRef.current === taskId`，如果是当前执行的任务则跳过整个加载流程
+
+**数据持久化**：新增 `outputFormat` 字段
+- 新增 `AgentTaskOutputFormat` 类型：`'none' | 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'`
+- 数据库 migration：`ALTER TABLE agent_tasks ADD COLUMN output_format TEXT DEFAULT 'none'`
+- AgentTaskPanel 创建/更新任务时保存 `outputFormat`，加载任务时恢复
+- 解决了重新打开面板后 phase indicator 不显示的问题（之前 outputFormat 未持久化，默认为 'none'）
+
+**UI 优化**：可点击的阶段标签
+- 阶段指示器（Generating / Formatting）改为可点击的标签按钮
+- 用户可点击切换查看不同阶段的输出内容
+- 默认显示最新的阶段（新阶段开始时自动切换）
+- 已选中的标签显示加粗样式
+- 完成状态下也支持切换查看不同阶段输出
+
+**Bug 修复**：Formatting 阶段显示内容
+- **问题**：Editor Agent 不发送 text 事件，只发送 tool_call 事件，导致 Formatting 标签页内容为空
+- **修复**：添加 `extractToolContent()` 函数，从 `insert_*` 工具的参数中提取可读内容
+  - insert_paragraph → 段落文本
+  - insert_list → 列表项（带序号或圆点）
+  - insert_heading → 标题（带 # 前缀）
+  - insert_code_block → 代码块（带语言标记）
+  - insert_blockquote → 引用（带 > 前缀）
+  - insert_table → Markdown 表格格式
+  - insert_html → HTML 原文
+
+### 2026-01-09: Agent Block 与输出内容强关联
+
+**功能需求**：
+- Agent 任务产生的输出内容与发起任务的 block 建立强关联关系
+- 重试时：自动删除旧的输出内容，插入新的输出
+- 删除 agent block 时：级联删除所有关联的输出内容
+
+**技术实现**：
+
+1. **AgentTask Extension** (`src/renderer/src/components/extensions/AgentTask.ts`)
+   - 新增 `deleteManagedBlocks` 命令：删除所有被指定 agent block 管理的 blocks
+   - 按逆序删除以保持 position 正确性
+   - `keepOnSplit: false` 配置：按回车创建新 block 时不复制 agentTaskId/managedBy 属性
+
+2. **editorOutputHandler** (`src/renderer/src/utils/editorOutputHandler.ts`)
+   - `handleOutputInsertion()` 在插入新内容前先调用 `deleteManagedBlocks()`
+   - 支持重试场景：清除旧输出后再插入新输出
+
+3. **Editor.tsx** (`src/renderer/src/components/Editor.tsx`)
+   - 监听 agent block 删除事件
+   - 删除 agent block 时自动清理所有被其管理的 blocks
+
+**测试覆盖**：
+- `AgentTask.test.ts`：9 个测试用例
+  - deleteManagedBlocks：正确删除、无 blocks 返回 false、不影响其他 agent 的 blocks
+  - setAgentTask / removeAgentTask
+  - setManagedBy / clearManagedBy
+- `editorOutputHandler.test.ts`：4 个测试用例
+  - 重试场景删除已有 managed blocks
+  - 空操作返回 null
+  - 目标 block 不存在返回 null
+
+### 2026-01-09: Agent 功能优化
+
+**流式输出实时显示**：
+- **问题**：Editor Agent 格式化输出的内容完全跑完后才显示
+- **修复**：在 `agent-task-service.ts` 中，每次 `tool_result` 事件后立即发送 `editor_content` 事件
+- 前端实时更新 `editorOutput` 状态
+
+**删除 Agent 级联删除输出**：
+- **问题**：移除 agent 时，关联的输出 blocks 没有一起删除
+- **修复**：在 `Editor.tsx` 的 `handleAgentTaskRemoved` 中先调用 `deleteManagedBlocks()`
+- 扩展 `managedBy` 属性到更多节点类型：`bulletList`, `orderedList`, `taskList`, `table`
+
+**Tooltip 优化**：
+- 使用 Portal 渲染到 body，避免被父容器裁剪
+- 主题适配：使用 neutral 颜色适配 light/dark 模式
+
+**Agent 选择器增强**：
+- 自定义 `AgentSelect` 组件替换原生 `<select>`
+- 下拉菜单向上展开
+- hover 选项时在右侧显示 agent 描述
+
+**SDK `appName` 参数支持**：
+- **问题**：获取 agent 列表时私有 agents 被过滤掉
+- **原因**：SDK 未传递 `appName` 参数，后端只返回公开的 agents
+- **修复**（sanqian SDK）：
+  - `ListCapabilitiesOptions` 接口添加 `appName?: string`
+  - `listCapabilities()` 方法传递 `appName` 参数
+  - `listAvailableAgents()` 自动使用 `this.config.appName`
+
+### 2026-01-09: 代码质量优化
+
+**性能优化：managed block 检测 debounce**
+- **问题**：每次编辑器 update 都遍历整个文档检测 managed blocks，大文档可能卡顿
+- **修复**：在 `Editor.tsx` 中给 `checkManagedBlocks` 加了 100ms debounce
+- 首次加载仍立即执行，后续更新使用防抖
+
+**Bug 修复：HTML 插入位置**
+- **问题**：`editorOutputHandler.ts` 中 HTML 操作使用 `insertContent` 位置不确定
+- **修复**：改用 `insertContentAt(docEndPos, ...)` 在文档末尾插入，确保位置正确
+
+**组件抽取：AgentSelect**
+- 从 `AgentTaskPanel.tsx` 抽取为独立组件 `AgentSelect.tsx`
+- 新增 14 个单元测试覆盖
+- 支持 ESC 关闭、disabled 状态、hover 显示描述

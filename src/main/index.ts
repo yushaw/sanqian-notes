@@ -81,11 +81,13 @@ import {
   stopSanqianSDK,
   getClient,
   getAssistantAgentId,
+  setCurrentTaskIdGetter,
 } from './sanqian-sdk'
 import {
   listAgents,
   runAgentTask,
   cancelAgentTask,
+  getCurrentTaskId,
 } from './agent-task-service'
 import {
   getSanqianApiUrl,
@@ -1111,6 +1113,9 @@ app.whenReady().then(() => {
     return { success: false }
   })
 
+  // Set up getter for Editor Agent output tools
+  setCurrentTaskIdGetter(() => getCurrentTaskId())
+
   // Initialize Sanqian SDK
   initializeSanqianSDK()
     .then(async () => {
@@ -1212,11 +1217,39 @@ app.whenReady().then(() => {
     return listAgents()
   })
 
-  ipcMain.handle('agent:run', async (event, taskId: string, agentId: string, agentName: string, content: string, additionalPrompt?: string) => {
+  ipcMain.handle('agent:run', async (
+    event,
+    taskId: string,
+    agentId: string,
+    agentName: string,
+    content: string,
+    additionalPrompt?: string,
+    outputContext?: {
+      targetBlockId: string
+      pageId: string
+      notebookId: string | null
+      processMode: 'append' | 'replace'
+      outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+    }
+  ) => {
     const webContents = event.sender
 
     try {
-      for await (const taskEvent of runAgentTask(taskId, agentId, agentName, content, additionalPrompt)) {
+      // Prepare options for two-step flow if outputContext is provided
+      const options = outputContext ? {
+        useTwoStepFlow: true,
+        outputContext: {
+          targetBlockId: outputContext.targetBlockId,
+          pageId: outputContext.pageId,
+          notebookId: outputContext.notebookId,
+          processMode: outputContext.processMode,
+          outputBlockId: null // Will be set after output is inserted
+        },
+        outputFormat: outputContext.outputFormat,
+        webContents
+      } : undefined
+
+      for await (const taskEvent of runAgentTask(taskId, agentId, agentName, content, additionalPrompt, options)) {
         // Check if webContents is still valid (window not closed)
         if (!webContents.isDestroyed()) {
           webContents.send('agent:event', taskId, taskEvent)

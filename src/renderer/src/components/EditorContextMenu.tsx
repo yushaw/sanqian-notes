@@ -9,6 +9,7 @@ import { getAIContext, type AIContext, formatAIPrompt } from '../utils/aiContext
 import { createPopup, updatePopupContent, updatePopupStreaming, deletePopup } from '../utils/popupStorage'
 import { toast } from '../utils/toast'
 import { v4 as uuidv4 } from 'uuid'
+import { generateBlockId } from './extensions/BlockId'
 
 // 时间常量
 const CLEANUP_DELAY_MS = 300
@@ -484,22 +485,36 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
     const { $from } = editor.state.selection
     const resolvedPos = editor.state.doc.resolve($from.pos)
 
-    // 向上查找最近的带 blockId 的节点
+    // 向上查找最近的块级节点（可能没有 blockId）
     let blockNode = null
+    let blockPos = -1
     for (let d = resolvedPos.depth; d >= 0; d--) {
       const node = resolvedPos.node(d)
-      if (node.attrs.blockId) {
+      // 检查是否是块级节点（有 blockId 属性定义，即使值为 null）
+      if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs) {
         blockNode = node
+        blockPos = resolvedPos.before(d)
         break
       }
     }
 
-    if (!blockNode || !blockNode.attrs.blockId) {
-      console.warn('No block found at cursor position')
+    if (!blockNode) {
+      console.warn('No block node found at cursor position')
       return
     }
 
-    const blockId = blockNode.attrs.blockId
+    // 如果节点没有 blockId，生成一个并设置到节点上
+    let blockId = blockNode.attrs.blockId
+    if (!blockId) {
+      blockId = generateBlockId()
+      // 使用事务设置 blockId
+      const tr = editor.state.tr.setNodeMarkup(blockPos, undefined, {
+        ...blockNode.attrs,
+        blockId,
+      })
+      editor.view.dispatch(tr)
+    }
+
     const taskId = blockNode.attrs.agentTaskId ?? null
     const blockContent = blockNode.textContent || ''
 

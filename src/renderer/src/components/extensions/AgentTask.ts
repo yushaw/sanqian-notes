@@ -25,6 +25,20 @@ declare module '@tiptap/core' {
   }
 }
 
+// 支持 Agent Task 的节点类型
+export const AGENT_TASK_SUPPORTED_TYPES = [
+  'paragraph',
+  'heading',
+  'blockquote',
+  'codeBlock',
+  'listItem',
+  'taskItem',
+  'bulletList',
+  'orderedList',
+  'taskList',
+  'table',
+] as const
+
 // Extension options
 export interface AgentTaskOptions {
   onOpenPanel: (blockId: string, taskId: string | null, blockContent: string) => void
@@ -53,18 +67,7 @@ export const AgentTask = Extension.create<AgentTaskOptions>({
     return [
       {
         // Apply to common block nodes
-        types: [
-          'paragraph',
-          'heading',
-          'blockquote',
-          'codeBlock',
-          'listItem',
-          'taskItem',
-          'bulletList',
-          'orderedList',
-          'taskList',
-          'table',
-        ],
+        types: [...AGENT_TASK_SUPPORTED_TYPES],
         attributes: {
           agentTaskId: {
             default: null,

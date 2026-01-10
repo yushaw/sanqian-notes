@@ -24,9 +24,40 @@ interface TiptapDoc {
   content?: TiptapNode[]
 }
 
+/** Heading 匹配模式 */
+type HeadingMatch = 'exact' | 'contains' | 'startsWith'
+
+/** 文档 heading 信息 */
+export interface DocumentHeading {
+  /** Heading 级别 (1-6) */
+  level: number
+  /** Heading 文本 */
+  text: string
+  /** 所在行号（从 1 开始，近似值） */
+  line: number
+}
+
 interface ConvertOptions {
   /** 只提取指定章节（如 "## 第一章"） */
   heading?: string
+  /** Heading 匹配模式，默认 'exact' */
+  headingMatch?: HeadingMatch
+  /** 起始行号（从 1 开始） */
+  offset?: number
+  /** 返回行数限制 */
+  limit?: number
+}
+
+/** 转换结果（带分页信息） */
+export interface ConvertResult {
+  /** Markdown 内容 */
+  content: string
+  /** 总行数 */
+  totalLines: number
+  /** 返回的行范围 */
+  returnedLines?: { from: number; to: number }
+  /** 是否还有更多内容 */
+  hasMore?: boolean
 }
 
 interface ConvertContext {
@@ -373,19 +404,53 @@ function convertTableRow(node: TiptapNode, ctx: ConvertContext): string {
 }
 
 /**
+ * 检查标题文本是否匹配
+ */
+function matchHeadingText(text: string, pattern: string, mode: HeadingMatch): boolean {
+  const normalizedText = text.toLowerCase()
+  const normalizedPattern = pattern.toLowerCase()
+
+  switch (mode) {
+    case 'contains':
+      return normalizedText.includes(normalizedPattern)
+    case 'startsWith':
+      return normalizedText.startsWith(normalizedPattern)
+    case 'exact':
+    default:
+      return text === pattern
+  }
+}
+
+/**
  * 提取指定章节的内容
  */
-function extractSection(nodes: TiptapNode[], headingPattern: string): TiptapNode[] {
+function extractSection(
+  nodes: TiptapNode[],
+  headingPattern: string,
+  matchMode: HeadingMatch = 'exact'
+): TiptapNode[] {
   // 解析 heading pattern（如 "## 第一章"）
   const match = headingPattern.match(/^(#{1,6})\s+(.+)$/)
-  if (!match) return []
 
-  const targetLevel = match[1].length
-  const targetText = match[2]
+  // 如果没有 # 前缀，尝试作为纯文本搜索（自动使用 contains 模式）
+  let targetLevel: number | null = null
+  let targetText: string
+
+  if (match) {
+    targetLevel = match[1].length
+    targetText = match[2]
+  } else {
+    // 纯文本模式：搜索任意级别包含该文本的 heading
+    targetText = headingPattern
+    if (matchMode === 'exact') {
+      matchMode = 'contains' // 纯文本默认使用 contains
+    }
+  }
 
   let foundStart = false
   let startIndex = -1
   let endIndex = nodes.length
+  let foundLevel = 0
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]
@@ -396,13 +461,15 @@ function extractSection(nodes: TiptapNode[], headingPattern: string): TiptapNode
 
       if (!foundStart) {
         // 寻找匹配的标题
-        if (level === targetLevel && text === targetText) {
+        const levelMatch = targetLevel === null || level === targetLevel
+        if (levelMatch && matchHeadingText(text, targetText, matchMode)) {
           foundStart = true
           startIndex = i
+          foundLevel = level
         }
       } else {
         // 找到下一个同级或更高级别的标题，结束
-        if (level <= targetLevel) {
+        if (level <= foundLevel) {
           endIndex = i
           break
         }
@@ -441,7 +508,7 @@ export function tiptapToMarkdown(
 
   // 如果指定了章节，只提取该章节
   if (options?.heading && nodes.length > 0) {
-    nodes = extractSection(nodes, options.heading)
+    nodes = extractSection(nodes, options.heading, options.headingMatch)
     if (nodes.length === 0) return ''
   }
 
@@ -459,7 +526,109 @@ export function tiptapToMarkdown(
   }
 
   // 块级元素之间用两个换行分隔
-  return parts.join('\n\n')
+  let content = parts.join('\n\n')
+
+  // 应用 offset/limit 分页
+  if (options?.offset || options?.limit) {
+    const lines = content.split('\n')
+    const offset = Math.max(0, (options.offset || 1) - 1) // 转为 0-based
+    const limit = options.limit || lines.length
+
+    content = lines.slice(offset, offset + limit).join('\n')
+  }
+
+  return content
+}
+
+/**
+ * 将 TipTap JSON 转换为 Markdown（带分页信息）
+ */
+export function tiptapToMarkdownWithMeta(
+  doc: TiptapDoc | Record<string, unknown> | null | undefined,
+  options?: ConvertOptions
+): ConvertResult {
+  if (!doc || typeof doc !== 'object') return { content: '', totalLines: 0 }
+  if (doc.type !== 'doc') return { content: '', totalLines: 0 }
+
+  let nodes = (doc as TiptapDoc).content || []
+
+  // 如果指定了章节，只提取该章节
+  if (options?.heading && nodes.length > 0) {
+    nodes = extractSection(nodes, options.heading, options.headingMatch)
+    if (nodes.length === 0) return { content: '', totalLines: 0 }
+  }
+
+  const ctx: ConvertContext = {
+    listDepth: 0,
+    orderedListIndex: 1,
+    inBlockquote: false
+  }
+
+  const parts: string[] = []
+  for (const node of nodes) {
+    parts.push(convertNode(node, ctx))
+  }
+
+  const fullContent = parts.join('\n\n')
+  const allLines = fullContent.split('\n')
+  const totalLines = allLines.length
+
+  // 应用 offset/limit 分页
+  if (options?.offset || options?.limit) {
+    const offset = Math.max(0, (options.offset || 1) - 1) // 转为 0-based
+    const limit = options.limit || totalLines
+
+    const slicedLines = allLines.slice(offset, offset + limit)
+    const from = offset + 1 // 转回 1-based
+    const to = Math.min(offset + limit, totalLines)
+
+    return {
+      content: slicedLines.join('\n'),
+      totalLines,
+      returnedLines: { from, to },
+      hasMore: to < totalLines
+    }
+  }
+
+  return { content: fullContent, totalLines }
+}
+
+/**
+ * 获取文档中所有的 headings
+ */
+export function getAllHeadings(
+  doc: TiptapDoc | Record<string, unknown> | null | undefined
+): DocumentHeading[] {
+  if (!doc || typeof doc !== 'object') return []
+  if (doc.type !== 'doc') return []
+
+  const nodes = (doc as TiptapDoc).content || []
+  const headings: DocumentHeading[] = []
+  let lineCount = 1
+
+  for (const node of nodes) {
+    if (node.type === 'heading') {
+      const level = (node.attrs?.level as number) || 1
+      const text = extractPlainText(node)
+      headings.push({ level, text, line: lineCount })
+    }
+    // 估算行号（每个块约占 2 行）
+    lineCount += 2
+  }
+
+  return headings
+}
+
+/**
+ * 从 JSON 字符串获取所有 headings
+ */
+export function getAllHeadingsFromJson(jsonString: string): DocumentHeading[] {
+  try {
+    const doc = JSON.parse(jsonString)
+    return getAllHeadings(doc)
+  } catch {
+    return []
+  }
 }
 
 /**

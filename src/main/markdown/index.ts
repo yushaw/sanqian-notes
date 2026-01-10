@@ -5,8 +5,9 @@
  * 用于 SDK Tools API，让 AI 能够使用 Markdown 格式操作笔记内容
  */
 
-import { tiptapToMarkdown, jsonToMarkdown } from './tiptap-to-markdown'
-export { tiptapToMarkdown, jsonToMarkdown }
+import { tiptapToMarkdown, jsonToMarkdown, tiptapToMarkdownWithMeta, getAllHeadings, getAllHeadingsFromJson } from './tiptap-to-markdown'
+export { tiptapToMarkdown, jsonToMarkdown, tiptapToMarkdownWithMeta, getAllHeadings, getAllHeadingsFromJson }
+export type { DocumentHeading, ConvertResult } from './tiptap-to-markdown'
 export { markdownToTiptap, markdownToTiptapString } from './markdown-to-tiptap'
 
 /**

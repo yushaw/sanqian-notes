@@ -128,11 +128,20 @@ const translations = {
       getNote: {
         description: '获取笔记内容（Markdown 格式）。支持单个 ID 或 ID 数组批量获取。单个时可指定章节；批量时若某 ID 不存在则该项返回 {id, error}。',
         idDesc: '笔记 ID，支持单个字符串或 ID 数组',
-        headingDesc: '章节标题（可选，仅单个 ID 时有效），如 "## 第一章"，只返回该章节内容',
+        headingDesc: '章节标题（可选，仅单个 ID 时有效），如 "## 第一章" 或 "2.3"（会模糊匹配包含该文本的标题）',
+        headingMatchDesc: '匹配模式：exact（精确）、contains（包含，默认）、startsWith（前缀）',
+        offsetDesc: '起始行号（从 1 开始，可选）',
+        limitDesc: '返回行数限制（可选）',
         notFound: '笔记不存在',
         headingNotFound: '章节不存在',
         headingIgnoredInBatch: '注意：批量获取模式下 heading 参数被忽略，如需获取特定章节请逐个查询',
         error: '获取笔记失败',
+      },
+      getNoteOutline: {
+        description: '获取笔记的大纲结构（所有标题列表）',
+        idDesc: '笔记 ID',
+        notFound: '笔记不存在',
+        error: '获取大纲失败',
       },
       createNote: {
         description: '创建新笔记。content 使用 Markdown 格式。',
@@ -338,11 +347,20 @@ Your job:
       getNote: {
         description: 'Get note content (Markdown format). Supports single ID or array of IDs for batch fetch. Can specify heading when single; batch mode returns {id, error} for missing IDs.',
         idDesc: 'Note ID, supports single string or array of IDs',
-        headingDesc: 'Heading (optional, only for single ID), e.g. "## Chapter 1", returns only that section content',
+        headingDesc: 'Heading (optional, only for single ID), e.g. "## Chapter 1" or "2.3" (will fuzzy match headings containing this text)',
+        headingMatchDesc: 'Match mode: exact, contains (default), startsWith',
+        offsetDesc: 'Starting line number (1-based, optional)',
+        limitDesc: 'Number of lines to return (optional)',
         notFound: 'Note not found',
         headingNotFound: 'Heading not found',
         headingIgnoredInBatch: 'Note: heading parameter is ignored in batch mode. Use individual queries for specific sections.',
         error: 'Failed to get note',
+      },
+      getNoteOutline: {
+        description: 'Get note outline structure (list of all headings)',
+        idDesc: 'Note ID',
+        notFound: 'Note not found',
+        error: 'Failed to get outline',
       },
       createNote: {
         description: 'Create a new note. Use Markdown format for content.',

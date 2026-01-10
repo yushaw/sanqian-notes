@@ -41,7 +41,7 @@ import {
 } from './database'
 import { hybridSearch } from './embedding/semantic-search'
 import { t } from './i18n'
-import { jsonToMarkdown, markdownToTiptapString, countWords } from './markdown'
+import { jsonToMarkdown, markdownToTiptapString, countWords, getAllHeadingsFromJson, type DocumentHeading } from './markdown'
 
 /**
  * Normalize quotes and punctuation for fuzzy matching
@@ -192,6 +192,7 @@ function buildAgentConfigs(): AppAgentConfig[] {
       tools: [
         'search_notes',
         'get_note',
+        'get_note_outline',
         'create_note',
         'update_note',
         'delete_note',
@@ -304,6 +305,19 @@ function buildTools(): AppToolDefinition[] {
           heading: {
             type: 'string',
             description: tools.getNote.headingDesc
+          },
+          headingMatch: {
+            type: 'string',
+            enum: ['exact', 'contains', 'startsWith'],
+            description: tools.getNote.headingMatchDesc
+          },
+          offset: {
+            type: 'number',
+            description: tools.getNote.offsetDesc
+          },
+          limit: {
+            type: 'number',
+            description: tools.getNote.limitDesc
           }
         },
         required: ['id']
@@ -312,6 +326,9 @@ function buildTools(): AppToolDefinition[] {
         try {
           const idArg = args.id as string | string[]
           const heading = args.heading as string | undefined
+          const headingMatch = (args.headingMatch as 'exact' | 'contains' | 'startsWith') || 'contains'
+          const offset = args.offset as number | undefined
+          const limit = args.limit as number | undefined
           const isBatch = Array.isArray(idArg)
           const ids = isBatch ? idArg : [idArg]
 
@@ -321,7 +338,7 @@ function buildTools(): AppToolDefinition[] {
 
           // Error markers for single mode (avoid re-querying)
           const NOT_FOUND = Symbol('not_found')
-          const HEADING_NOT_FOUND = Symbol('heading_not_found')
+          type HeadingNotFoundResult = { marker: 'heading_not_found'; availableHeadings: DocumentHeading[] }
 
           const results = ids.map(id => {
             const note = getNoteById(id)
@@ -339,17 +356,25 @@ function buildTools(): AppToolDefinition[] {
             // heading only applies to single note
             let content = ''
             if (note.content) {
-              content = jsonToMarkdown(note.content, (!isBatch && heading) ? { heading } : undefined)
+              const convertOptions = (!isBatch && heading)
+                ? { heading, headingMatch, offset, limit }
+                : { offset, limit }
+              content = jsonToMarkdown(note.content, convertOptions)
               if (!isBatch && heading && !content) {
-                // Single mode with heading not found: return marker
-                return HEADING_NOT_FOUND
+                // Single mode with heading not found: return marker with available headings
+                const availableHeadings = getAllHeadingsFromJson(note.content)
+                return { marker: 'heading_not_found', availableHeadings } as HeadingNotFoundResult
               }
             }
+
+            // Count total lines for pagination info
+            const totalLines = content.split('\n').length
 
             return {
               id: note.id,
               title: note.title,
               content,
+              totalLines,
               summary: note.ai_summary || undefined,
               tags: note.tags?.map(t => t.name) || [],
               notebook_id: note.notebook_id,
@@ -368,8 +393,17 @@ function buildTools(): AppToolDefinition[] {
             if (result === NOT_FOUND) {
               throw new Error(`${tools.getNote.notFound}: ${ids[0]}`)
             }
-            if (result === HEADING_NOT_FOUND) {
-              throw new Error(`${tools.getNote.headingNotFound}: ${heading}`)
+            // Return structured error with available headings
+            if (result && typeof result === 'object' && 'marker' in result && result.marker === 'heading_not_found') {
+              const headingResult = result as HeadingNotFoundResult
+              const formattedHeadings = headingResult.availableHeadings.map(
+                h => `${'#'.repeat(h.level)} ${h.text}`
+              )
+              return {
+                error: `${tools.getNote.headingNotFound}: ${heading}`,
+                hint: 'Available headings in this note:',
+                availableHeadings: formattedHeadings
+              }
             }
             return result
           }
@@ -385,6 +419,47 @@ function buildTools(): AppToolDefinition[] {
           return results
         } catch (error) {
           throw new Error(`${tools.getNote.error}: ${error instanceof Error ? error.message : common.unknownError}`)
+        }
+      }
+    },
+
+    // ==================== get_note_outline ====================
+    {
+      name: 'get_note_outline',
+      description: tools.getNoteOutline.description,
+      parameters: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            description: tools.getNoteOutline.idDesc
+          }
+        },
+        required: ['id']
+      },
+      handler: async (args: Record<string, unknown>) => {
+        try {
+          const id = args.id as string
+          const note = getNoteById(id)
+
+          if (!note || note.deleted_at) {
+            throw new Error(`${tools.getNoteOutline.notFound}: ${id}`)
+          }
+
+          const headings = note.content ? getAllHeadingsFromJson(note.content) : []
+
+          return {
+            id: note.id,
+            title: note.title,
+            headings: headings.map(h => ({
+              level: h.level,
+              text: h.text,
+              formatted: `${'#'.repeat(h.level)} ${h.text}`,
+              line: h.line
+            }))
+          }
+        } catch (error) {
+          throw new Error(`${tools.getNoteOutline.error}: ${error instanceof Error ? error.message : common.unknownError}`)
         }
       }
     },

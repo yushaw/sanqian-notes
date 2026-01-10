@@ -755,6 +755,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const editorContentRef = useRef<string | null>(null)
   // 用于取消过时的 queueMicrotask（防止快速切换笔记时竞态条件）
   const syncVersionRef = useRef(0)
+  // 跟踪上次的 note.id，用于检测切换笔记
+  const prevSyncNoteIdRef = useRef<string | null>(null)
 
   // 同步外部内容变化到编辑器（长期主义方案：避免重建编辑器）
   // 场景：从打字机模式退出后，note.content 已更新，需要同步到编辑器
@@ -764,11 +766,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     // 递增版本号，使之前的 microtask 失效
     const version = ++syncVersionRef.current
 
-    // 获取当前编辑器内容的 JSON 字符串
-    const currentContent = JSON.stringify(editor.getJSON())
+    // 检测是否是切换笔记（排除首次渲染）
+    const isNoteSwitch = prevSyncNoteIdRef.current !== null && prevSyncNoteIdRef.current !== note.id
+    prevSyncNoteIdRef.current = note.id
 
     // 如果这是编辑器自己刚刚产生的更新，跳过同步
     if (editorContentRef.current === note.content) {
+      return
+    }
+
+    // 如果编辑器有焦点且不是切换笔记，说明用户正在输入，跳过同步
+    // 这避免了异步数据库更新导致的竞态条件
+    if (editor.isFocused && !isNoteSwitch) {
       return
     }
 
@@ -814,9 +823,21 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       return
     }
 
+    // 切换笔记时直接 setContent，跳过内容比较（性能优化）
+    if (isNoteSwitch) {
+      const contentToSync = note.content
+      queueMicrotask(() => {
+        if (syncVersionRef.current !== version || editor.isDestroyed) return
+        editor.commands.setContent(externalContent, { emitUpdate: false })
+        editorContentRef.current = contentToSync
+      })
+      return
+    }
+
+    // 同一笔记的外部更新，需要比较内容避免不必要的 setContent
+    const currentContent = JSON.stringify(editor.getJSON())
     const externalContentStr = JSON.stringify(externalContent)
 
-    // 只有当外部内容真正不同时才同步
     if (currentContent !== externalContentStr) {
       const contentToSync = note.content
       // 使用 queueMicrotask 避免 flushSync 警告
@@ -828,7 +849,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         editorContentRef.current = contentToSync
       })
     }
-  }, [editor, note.content])
+  }, [editor, note.content, note.id])
 
   // 在 onUpdate 中记录编辑器产生的内容
   useEffect(() => {

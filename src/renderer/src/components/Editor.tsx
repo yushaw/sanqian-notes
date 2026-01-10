@@ -1674,7 +1674,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
               }}
               onBlur={() => setIsEditingHeaderTitle(false)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault()
                   setIsEditingHeaderTitle(false)
                   editor?.commands.focus('start')
                 } else if (e.key === 'Escape') {

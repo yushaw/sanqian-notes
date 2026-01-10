@@ -12,12 +12,31 @@ export function getPreview(content: string): string {
     // Handle Tiptap JSON format
     if (parsed.type === 'doc' && parsed.content) {
       const texts: string[] = []
-      const extractText = (node: { type?: string; text?: string; content?: unknown[] }) => {
+      const extractText = (node: { type?: string; text?: string; content?: unknown[]; attrs?: Record<string, unknown> }) => {
+        // Handle special atom nodes that don't have text content
+        if (node.type === 'dataviewBlock') {
+          texts.push('[Dataview]')
+          return
+        }
+        if (node.type === 'embedBlock') {
+          texts.push('[Embed]')
+          return
+        }
+        if (node.type === 'transclusionBlock') {
+          const noteName = node.attrs?.noteName as string
+          texts.push(noteName ? `[${noteName}]` : '[Transclusion]')
+          return
+        }
+        if (node.type === 'mermaidBlock') {
+          texts.push('[Mermaid]')
+          return
+        }
+
         if (node.text) {
           texts.push(node.text)
         }
         if (node.content && Array.isArray(node.content)) {
-          node.content.forEach(child => extractText(child as { type?: string; text?: string; content?: unknown[] }))
+          node.content.forEach(child => extractText(child as { type?: string; text?: string; content?: unknown[]; attrs?: Record<string, unknown> }))
         }
       }
       extractText(parsed)

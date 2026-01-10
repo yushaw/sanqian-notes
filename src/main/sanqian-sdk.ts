@@ -846,7 +846,17 @@ function buildContextProviders(): AppContextProvider[] {
           parts.push(`Summary: ${note.ai_summary}`)
         }
 
-        // Cursor context (heading + paragraph) - selected text is pushed via Session Resource
+        // Selected text (fallback for when Session Resource is not available)
+        // Session Resource is only pushed when Chat is visible + setting enabled
+        // This ensures AI can always access selectedText via editor-state context
+        if (ctx.selectedText) {
+          const truncated = ctx.selectedText.length > 500
+            ? ctx.selectedText.slice(0, 500) + '...'
+            : ctx.selectedText
+          parts.push(`Selected text: "${truncated}"`)
+        }
+
+        // Cursor context (heading + paragraph)
         if (ctx.cursorContext) {
           if (ctx.cursorContext.nearestHeading) {
             parts.push(`Cursor near heading: "${ctx.cursorContext.nearestHeading}"`)

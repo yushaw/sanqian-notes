@@ -328,9 +328,14 @@ function formatSelectionContent(
     parts.push(`<section heading="${escapeXmlAttr(cursorContext.nearestHeading)}">`)
   }
 
-  // Add selected text (escape closing tag to prevent XML structure breakage)
+  // Add selected text (escape XML special chars to prevent structure breakage)
+  // Using CDATA would be cleaner but some LLMs handle escaped content better
+  const escapedText = selectedText
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
   parts.push(`<selected_text>`)
-  parts.push(selectedText.replace(/<\/selected_text>/gi, '&lt;/selected_text&gt;'))
+  parts.push(escapedText)
   parts.push(`</selected_text>`)
 
   // Close tags
@@ -2026,13 +2031,17 @@ app.whenReady().then(() => {
   const askAiRegistered = globalShortcut.register('CommandOrControl+Shift+A', () => {
     if (!chatPanel) return
 
-    // If Chat is already visible, explicitly push selection (show() would return early)
+    // If Chat is already visible, explicitly push pinned selection
     if (chatPanel.isVisible()) {
       if (userContext.selectedText) {
-        pushSelectionResource()
+        // Use pinned resource (same as right-click Ask AI) for consistency
+        pushPinnedSelectionResource()
       }
     } else {
-      // show() will trigger onLayoutChange which pushes selection
+      // Push pinned selection first, then show (same as right-click Ask AI)
+      if (userContext.selectedText) {
+        pushPinnedSelectionResource()
+      }
       chatPanel.show()
     }
   })

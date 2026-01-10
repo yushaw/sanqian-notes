@@ -929,47 +929,32 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setTitle(note.title)
   }, [note.id, note.title])
 
-  // Initialize agent task cache when note changes
-  useEffect(() => {
-    if (!editor) return
-
-    initTaskCache().then(async () => {
-      // Scan document for blocks with agentTaskId and preload their tasks
-      const blockIds: string[] = []
-      editor.state.doc.descendants((node) => {
-        if (node.attrs.agentTaskId && node.attrs.blockId) {
-          blockIds.push(node.attrs.blockId)
-        }
-      })
-
-      if (blockIds.length > 0) {
-        await preloadTasksByBlockIds(blockIds)
-      }
-
-      // Refresh decorations after cache is ready
-      editor.commands.refreshAgentTaskDecorations()
-    })
-  }, [note.id, editor])
-
-  // Track blocks for cleanup and edit detection
+  // Track blocks for cleanup, edit detection, and agent task caching
   const previousAgentBlocksRef = useRef<Set<string>>(new Set())
   const managedBlockContentRef = useRef<Map<string, string>>(new Map())
   const blockScanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isInitialScanRef = useRef(true)
 
-  // Combined: Check managed blocks edits AND cleanup deleted agent blocks
+  // Combined: Agent task cache init, managed blocks edit detection, and deleted blocks cleanup
   // Uses single document traversal for better performance on large documents
   useEffect(() => {
     if (!editor) return
 
-    // Reset refs when note changes to avoid false "deleted" detection
+    // Reset state when note changes
     previousAgentBlocksRef.current = new Set()
     managedBlockContentRef.current = new Map()
+    isInitialScanRef.current = true
+    initTaskCache() // Clear old cache for new note
 
-    const scanBlocks = () => {
+    const scanBlocks = async () => {
+      // Skip if editor was destroyed (e.g., quick note switch)
+      if (editor.isDestroyed) return
+
       const currentAgentBlocks = new Set<string>()
       const currentManagedContent = new Map<string, string>()
+      const agentBlockIds: string[] = []
 
-      // Single traversal for both purposes
+      // Single traversal for all purposes
       editor.state.doc.descendants((node) => {
         const blockId = node.attrs.blockId
         if (!blockId) return
@@ -977,6 +962,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         // Collect agent task blocks
         if (node.attrs.agentTaskId) {
           currentAgentBlocks.add(blockId)
+          agentBlockIds.push(blockId)
         }
 
         // Collect managed blocks and check for edits
@@ -984,29 +970,39 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           const textContent = node.textContent
           currentManagedContent.set(blockId, textContent)
 
-          // Check if content changed from previous snapshot
-          const previousContent = managedBlockContentRef.current.get(blockId)
-          if (previousContent !== undefined && previousContent !== textContent) {
-            // Content changed, user edited the block - clear managedBy
-            // Use setTimeout to avoid modifying during update handler
-            setTimeout(() => {
-              editor.commands.clearManagedBy(blockId)
-            }, 0)
+          // Check if content changed from previous snapshot (skip on initial scan)
+          if (!isInitialScanRef.current) {
+            const previousContent = managedBlockContentRef.current.get(blockId)
+            if (previousContent !== undefined && previousContent !== textContent) {
+              // Content changed, user edited the block - clear managedBy
+              setTimeout(() => {
+                editor.commands.clearManagedBy(blockId)
+              }, 0)
+            }
           }
         }
       })
 
-      // Check for deleted agent blocks
-      const deletedBlocks = Array.from(previousAgentBlocksRef.current).filter(
-        (blockId) => !currentAgentBlocks.has(blockId)
-      )
-
-      // Clean up tasks and managed blocks for deleted agent blocks
-      for (const blockId of deletedBlocks) {
-        editor.commands.deleteManagedBlocks(blockId)
-        deleteTaskByBlockId(blockId).catch((err) => {
-          console.error('Failed to clean up agent task for deleted block:', blockId, err)
-        })
+      // On initial scan: preload agent tasks and refresh decorations
+      if (isInitialScanRef.current) {
+        isInitialScanRef.current = false
+        if (agentBlockIds.length > 0) {
+          await preloadTasksByBlockIds(agentBlockIds)
+        }
+        if (!editor.isDestroyed) {
+          editor.commands.refreshAgentTaskDecorations()
+        }
+      } else {
+        // On subsequent scans: check for deleted agent blocks
+        const deletedBlocks = Array.from(previousAgentBlocksRef.current).filter(
+          (blockId) => !currentAgentBlocks.has(blockId)
+        )
+        for (const blockId of deletedBlocks) {
+          editor.commands.deleteManagedBlocks(blockId)
+          deleteTaskByBlockId(blockId).catch((err) => {
+            console.error('Failed to clean up agent task for deleted block:', blockId, err)
+          })
+        }
       }
 
       // Update refs
@@ -1014,7 +1010,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       managedBlockContentRef.current = currentManagedContent
     }
 
-    // Debounced version to avoid performance issues on large documents
+    // Debounced version for edit events
     const debouncedScanBlocks = () => {
       if (blockScanTimeoutRef.current) {
         clearTimeout(blockScanTimeoutRef.current)
@@ -1022,8 +1018,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       blockScanTimeoutRef.current = setTimeout(scanBlocks, 200)
     }
 
-    // Initial scan
-    scanBlocks()
+    // Initial scan - delayed to let UI render first
+    blockScanTimeoutRef.current = setTimeout(scanBlocks, 100)
 
     editor.on('update', debouncedScanBlocks)
     return () => {

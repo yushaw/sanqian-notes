@@ -4180,3 +4180,9 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - 下拉菜单现在会自动检测视口空间
 - 当底部空间不足时，自动向上展开
 - 修复了 trigger 在视口底部时 dropdown 超出屏幕的问题
+
+**长文档编辑性能优化**：
+- 合并 `checkManagedBlocks` 和 `checkDeletedBlocks` 为单次 `descendants()` 遍历
+- 原问题：每次按键触发 2 次全文档遍历（其中一个无防抖）
+- 优化后：单次遍历 + 200ms 防抖
+- 修复切换笔记时 refs 未重置导致的潜在误删 bug

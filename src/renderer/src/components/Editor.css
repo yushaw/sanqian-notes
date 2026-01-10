@@ -81,14 +81,11 @@ span.zen-header-title {
 }
 
 /* Scroll wrapper - scrollbar at right edge, show on hover (overlay style) */
-/* 使用负 margin 技巧让滚动条浮动不占空间 */
 .zen-scroll-wrapper {
   flex: 1;
-  overflow-y: scroll;
+  overflow-y: overlay;
   overflow-x: hidden;
   padding-top: 42px; /* 为顶栏留出空间 */
-  margin-right: -8px; /* 滚动条宽度的负值 */
-  padding-right: 8px; /* 补回内容区域 */
 }
 
 .zen-scroll-wrapper::-webkit-scrollbar {
@@ -2747,17 +2744,34 @@ span.zen-header-title {
 
 .math-node-wrapper {
   display: inline;
+  vertical-align: middle;
   cursor: pointer;
 }
 
-.math-node-wrapper.selected .math-render {
+.math-node-wrapper.selected .math-render,
+.math-node-wrapper.ProseMirror-selectednode .math-render {
   background: var(--color-accent-bg);
   border-radius: 2px;
 }
 
+/* Math 选中边框 - 与图片一致 */
+.zen-editor .math-node-wrapper.ProseMirror-selectednode,
+.zen-editor .math-node-wrapper.selected {
+  display: inline-block;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
 .math-render {
-  display: inline;
+  display: inline-block;
+  vertical-align: middle;
   transition: background var(--transition-fast);
+}
+
+/* 覆盖 katex-display 的默认样式，去掉额外的 margin */
+.math-render .katex-display {
+  margin: 0;
 }
 
 .math-render:hover {

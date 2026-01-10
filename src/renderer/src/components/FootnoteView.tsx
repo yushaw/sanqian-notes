@@ -13,7 +13,7 @@ interface PopupPosition {
   left: number
 }
 
-export function FootnoteView({ node, updateAttributes, selected, deleteNode }: NodeViewProps) {
+export function FootnoteView({ node, updateAttributes, selected, deleteNode, editor }: NodeViewProps) {
   const { t } = useI18n()
   const attrs = node.attrs as FootnoteAttrs
   // 空内容时自动进入编辑模式（从斜杠菜单插入的新脚注）
@@ -76,6 +76,8 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
       // 如果内容为空，删除脚注
       if (!attrs.content?.trim()) {
         deleteNode()
+        // 删除后将焦点还给编辑器，确保可以 undo
+        editor.commands.focus()
       }
     }
 
@@ -87,7 +89,7 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
       window.removeEventListener('scroll', handleScrollOrResize, true)
       window.removeEventListener('resize', handleScrollOrResize)
     }
-  }, [isEditing, attrs.content, deleteNode])
+  }, [isEditing, attrs.content, deleteNode, editor])
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -100,6 +102,8 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
     // 如果内容为空，删除这个脚注（使用可选链防止 undefined）
     if (!attrs.content?.trim()) {
       deleteNode()
+      // 删除后将焦点还给编辑器，确保可以 undo
+      editor.commands.focus()
     }
   }
 
@@ -110,6 +114,8 @@ export function FootnoteView({ node, updateAttributes, selected, deleteNode }: N
       // Escape 时如果内容为空也删除
       if (!attrs.content?.trim()) {
         deleteNode()
+        // 删除后将焦点还给编辑器，确保可以 undo
+        editor.commands.focus()
       }
     } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()

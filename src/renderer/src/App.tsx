@@ -162,10 +162,9 @@ function AppContent() {
 
   // Tab system
   const {
-    activeTabId,
     focusedNoteId: tabFocusedNoteId,
+    focusedPaneId,
     createTab,
-    closeTab,
     openNoteInPane,
     closePane,
     splitPane,
@@ -1291,11 +1290,11 @@ function AppContent() {
         e.preventDefault()
         createTab()
       }
-      // Cmd/Ctrl + W: Close current Tab
+      // Cmd/Ctrl + W: Close current pane (or tab if only one pane)
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') {
         e.preventDefault()
-        if (activeTabId) {
-          closeTab(activeTabId)
+        if (focusedPaneId) {
+          closePane(focusedPaneId)
         }
       }
       // Cmd/Ctrl + \: Split vertical
@@ -1337,7 +1336,7 @@ function AppContent() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [createTab, closeTab, activeTabId, splitPane])
+  }, [createTab, closePane, focusedPaneId, splitPane])
 
   // Bulk delete notes
   const handleBulkDelete = useCallback(async (ids: string[]) => {

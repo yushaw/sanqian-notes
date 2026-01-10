@@ -646,3 +646,20 @@ export function jsonToMarkdown(
     return jsonString
   }
 }
+
+/**
+ * 从 JSON 字符串解析并转换为 Markdown（带分页信息）
+ */
+export function jsonToMarkdownWithMeta(
+  jsonString: string,
+  options?: ConvertOptions
+): ConvertResult {
+  try {
+    const doc = JSON.parse(jsonString)
+    return tiptapToMarkdownWithMeta(doc, options)
+  } catch {
+    // 如果不是有效的 JSON，返回原字符串
+    const lines = jsonString.split('\n')
+    return { content: jsonString, totalLines: lines.length }
+  }
+}

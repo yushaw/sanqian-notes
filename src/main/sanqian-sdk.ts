@@ -41,7 +41,7 @@ import {
 } from './database'
 import { hybridSearch } from './embedding/semantic-search'
 import { t } from './i18n'
-import { jsonToMarkdown, markdownToTiptapString, countWords, getAllHeadingsFromJson, type DocumentHeading } from './markdown'
+import { jsonToMarkdown, jsonToMarkdownWithMeta, markdownToTiptapString, countWords, getAllHeadingsFromJson, type DocumentHeading, type ConvertResult } from './markdown'
 
 /**
  * Normalize quotes and punctuation for fuzzy matching
@@ -352,29 +352,28 @@ function buildTools(): AppToolDefinition[] {
               return NOT_FOUND
             }
 
-            // Convert TipTap JSON to Markdown
+            // Convert TipTap JSON to Markdown with pagination info
             // heading only applies to single note
-            let content = ''
+            let convertResult: ConvertResult = { content: '', totalLines: 0 }
             if (note.content) {
               const convertOptions = (!isBatch && heading)
                 ? { heading, headingMatch, offset, limit }
                 : { offset, limit }
-              content = jsonToMarkdown(note.content, convertOptions)
-              if (!isBatch && heading && !content) {
+              convertResult = jsonToMarkdownWithMeta(note.content, convertOptions)
+              if (!isBatch && heading && !convertResult.content) {
                 // Single mode with heading not found: return marker with available headings
                 const availableHeadings = getAllHeadingsFromJson(note.content)
                 return { marker: 'heading_not_found', availableHeadings } as HeadingNotFoundResult
               }
             }
 
-            // Count total lines for pagination info
-            const totalLines = content.split('\n').length
-
             return {
               id: note.id,
               title: note.title,
-              content,
-              totalLines,
+              content: convertResult.content,
+              totalLines: convertResult.totalLines,
+              ...(convertResult.returnedLines && { returnedLines: convertResult.returnedLines }),
+              ...(convertResult.hasMore !== undefined && { hasMore: convertResult.hasMore }),
               summary: note.ai_summary || undefined,
               tags: note.tags?.map(t => t.name) || [],
               notebook_id: note.notebook_id,

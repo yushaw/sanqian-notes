@@ -753,6 +753,25 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
   )
 
   // ============================================================================
+  // Event Listeners
+  // ============================================================================
+
+  // 监听 transclusion 打开笔记事件
+  useEffect(() => {
+    const handleOpenInNewTab = (e: CustomEvent<{ noteId: string }>) => {
+      const { noteId } = e.detail
+      if (noteId) {
+        createTab(noteId)
+      }
+    }
+
+    window.addEventListener('note:open-in-new-tab', handleOpenInNewTab as EventListener)
+    return () => {
+      window.removeEventListener('note:open-in-new-tab', handleOpenInNewTab as EventListener)
+    }
+  }, [createTab])
+
+  // ============================================================================
   // Context Value
   // ============================================================================
 

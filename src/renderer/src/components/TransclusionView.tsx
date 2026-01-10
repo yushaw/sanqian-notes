@@ -1,6 +1,6 @@
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { ChevronRight, ChevronDown, RefreshCw, AlertTriangle, Pencil, ExternalLink } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { ChevronRight, ChevronDown, RefreshCw, AlertTriangle, Pencil, FileSymlink } from 'lucide-react'
 import { useTranslations } from '../i18n'
 import type { Note } from '../types/note'
 
@@ -275,7 +275,6 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
   const { noteId, noteName, targetType, targetValue, collapsed, maxHeight } = attrs
 
   const t = useTranslations()
-  const contentRef = useRef<HTMLDivElement>(null)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -392,9 +391,9 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
     const handleMouseMove = (moveEvent: MouseEvent) => {
       moveEvent.preventDefault()
       const delta = moveEvent.clientY - startY
-      // 限制范围: 100-800px
+      // 限制范围: 100-800px，取整
       const maxAllowed = Math.min(800, window.innerHeight * 0.8)
-      currentHeight = Math.max(100, Math.min(maxAllowed, startHeight + delta))
+      currentHeight = Math.round(Math.max(100, Math.min(maxAllowed, startHeight + delta)))
       setResizeHeight(currentHeight)
     }
 
@@ -517,7 +516,7 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
               onClick={handleOpen}
               title="Open in new tab"
             >
-              <ExternalLink size={12} />
+              <FileSymlink size={12} />
             </button>
           </div>
         </div>
@@ -546,12 +545,8 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
             ) : (
               <>
                 <div
-                  ref={contentRef}
                   className="transclusion-content ProseMirror"
-                  style={{
-                    maxHeight: `${resizeHeight}px`,
-                    overflow: 'auto',
-                  }}
+                  style={{ maxHeight: `${resizeHeight}px` }}
                   dangerouslySetInnerHTML={{ __html: content }}
                 />
                 <div

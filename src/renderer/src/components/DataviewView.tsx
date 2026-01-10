@@ -128,6 +128,14 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
       event.preventDefault()
       event.stopPropagation()
 
+      // Clear hover state first to avoid interference
+      if (hoverTimerRef.current) {
+        window.clearTimeout(hoverTimerRef.current)
+        hoverTimerRef.current = null
+      }
+      setHoveredNote(null)
+      setHoverAnchor(null)
+
       // Dispatch event to open note in new tab
       window.dispatchEvent(
         new CustomEvent('note:open-in-new-tab', {

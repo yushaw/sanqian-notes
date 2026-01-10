@@ -499,6 +499,7 @@ function AppContent() {
   }, [notes, effectiveNoteId])
 
   // Check if a note is empty (no title and no content)
+  // Atom nodes (dataview, embed, transclusion, mermaid) count as content
   const isNoteEmpty = useCallback((note: Note | null): boolean => {
     if (!note) return false
     const hasTitle = note.title && note.title.trim() !== ''
@@ -508,16 +509,26 @@ function AppContent() {
         const parsed = JSON.parse(note.content)
         // Check Tiptap format
         if (parsed.type === 'doc' && parsed.content) {
-          const extractText = (node: { text?: string; content?: unknown[] }): string => {
-            let text = node.text || ''
-            if (node.content && Array.isArray(node.content)) {
-              node.content.forEach(child => {
-                text += extractText(child as { text?: string; content?: unknown[] })
-              })
+          // Atom node types that count as content even without text
+          const atomNodeTypes = ['dataviewBlock', 'embedBlock', 'transclusionBlock', 'mermaidBlock']
+          const checkContent = (node: { type?: string; text?: string; content?: unknown[] }): boolean => {
+            // Atom nodes count as content
+            if (node.type && atomNodeTypes.includes(node.type)) {
+              return true
             }
-            return text
+            // Text nodes count as content
+            if (node.text && node.text.trim() !== '') {
+              return true
+            }
+            // Recursively check children
+            if (node.content && Array.isArray(node.content)) {
+              return node.content.some(child =>
+                checkContent(child as { type?: string; text?: string; content?: unknown[] })
+              )
+            }
+            return false
           }
-          hasContent = extractText(parsed).trim() !== ''
+          hasContent = checkContent(parsed)
         }
       } catch {
         hasContent = note.content.trim() !== ''

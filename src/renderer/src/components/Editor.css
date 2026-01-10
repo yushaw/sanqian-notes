@@ -81,12 +81,14 @@ span.zen-header-title {
 }
 
 /* Scroll wrapper - scrollbar at right edge, show on hover (overlay style) */
-/* Note: 'overlay' is non-standard but works in Chromium/Electron */
+/* 使用负 margin 技巧让滚动条浮动不占空间 */
 .zen-scroll-wrapper {
   flex: 1;
-  overflow-y: overlay;
+  overflow-y: scroll;
   overflow-x: hidden;
   padding-top: 42px; /* 为顶栏留出空间 */
+  margin-right: -8px; /* 滚动条宽度的负值 */
+  padding-right: 8px; /* 补回内容区域 */
 }
 
 .zen-scroll-wrapper::-webkit-scrollbar {
@@ -3658,6 +3660,36 @@ span.zen-header-title {
   line-height: 1.6;
   color: var(--color-text);
   position: relative;
+  /* 使用负 margin 技巧让滚动条浮动不占空间 */
+  overflow-y: scroll;
+  margin-right: -6px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.transclusion-content::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+.transclusion-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transclusion-content::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+/* hover 时显示滚动条 */
+.transclusion-content:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+.transclusion-content:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
 }
 
 /* Embedded headings should be smaller */
@@ -3737,36 +3769,43 @@ span.zen-header-title {
   padding: 0;
 }
 
-/* Overflow mask - minimal */
-.transclusion-overflow-mask {
+/* Resize handle for transclusion content */
+.transclusion-resize-handle {
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  opacity: 0;
+  transition: opacity 0.2s, background-color 0.2s;
   position: relative;
-  margin-top: -24px;
-  padding-top: 24px;
-  background: linear-gradient(to bottom, transparent, var(--color-card, #fff) 60%);
-  display: flex;
-  justify-content: center;
+  user-select: none;
 }
 
-.transclusion-overflow-mask button,
-.transclusion-collapse-btn button {
-  padding: 2px 8px;
-  border: none;
-  background: transparent;
+.transclusion-block:hover .transclusion-resize-handle {
+  opacity: 1;
+}
+
+.transclusion-resize-bar {
+  width: 60px;
+  height: 4px;
+  background: var(--color-border);
+  border-radius: 2px;
+  transition: background-color 0.2s;
+}
+
+.transclusion-resize-handle:hover .transclusion-resize-bar {
+  background: var(--color-primary, #2196f3);
+}
+
+.transclusion-resize-value {
+  position: absolute;
+  right: 8px;
+  font-size: 11px;
   color: var(--color-muted);
-  font-size: 0.7rem;
-  cursor: pointer;
-}
-
-.transclusion-overflow-mask button:hover,
-.transclusion-collapse-btn button:hover {
-  color: var(--color-text);
-  text-decoration: underline;
-}
-
-.transclusion-collapse-btn {
-  display: flex;
-  justify-content: center;
-  margin-top: 4px;
+  background: var(--color-card, #fff);
+  padding: 0 4px;
+  border-radius: 2px;
 }
 
 /* Nested block placeholders (inside transclusion content) */

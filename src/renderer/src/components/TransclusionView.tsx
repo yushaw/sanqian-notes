@@ -1,6 +1,6 @@
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { ChevronRight, ChevronDown, RefreshCw, AlertTriangle, Pencil } from 'lucide-react'
+import { ChevronRight, ChevronDown, RefreshCw, AlertTriangle, Pencil, ExternalLink } from 'lucide-react'
 import { useTranslations } from '../i18n'
 import type { Note } from '../types/note'
 
@@ -281,8 +281,8 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
   const [error, setError] = useState<string | null>(null)
   const [content, setContent] = useState<string>('')
   const [sourceNote, setSourceNote] = useState<Note | null>(null)
-  const [isOverflowing, setIsOverflowing] = useState(false)
-  const [showAll, setShowAll] = useState(false)
+  const [resizeHeight, setResizeHeight] = useState(maxHeight)
+  const [isResizing, setIsResizing] = useState(false)
 
   // 加载源笔记内容
   const loadContent = useCallback(async () => {
@@ -370,13 +370,47 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
     }
   }, [debouncedLoadContent])
 
-  // 检查内容是否超出
+  // 同步 maxHeight 属性变化到本地状态
   useEffect(() => {
-    if (contentRef.current && !collapsed) {
-      const isOver = contentRef.current.scrollHeight > maxHeight
-      setIsOverflowing(isOver)
+    setResizeHeight(maxHeight)
+  }, [maxHeight])
+
+  // 拖拽调整高度
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsResizing(true)
+
+    const startY = e.clientY
+    const startHeight = resizeHeight
+    let currentHeight = startHeight
+
+    // 禁用文本选择
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'ns-resize'
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault()
+      const delta = moveEvent.clientY - startY
+      // 限制范围: 100-800px
+      const maxAllowed = Math.min(800, window.innerHeight * 0.8)
+      currentHeight = Math.max(100, Math.min(maxAllowed, startHeight + delta))
+      setResizeHeight(currentHeight)
     }
-  }, [content, collapsed, maxHeight])
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+      // 恢复文本选择
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+      updateAttributes({ maxHeight: currentHeight })
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }, [resizeHeight, updateAttributes])
 
   // 切换折叠状态
   const toggleCollapsed = (e?: React.MouseEvent | React.KeyboardEvent) => {
@@ -413,6 +447,21 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
     // 派发事件，让 Editor.tsx 打开选择弹窗
     window.dispatchEvent(new CustomEvent('transclusion:edit', {
       detail: { updateAttributes }
+    }))
+  }
+
+  // 在新标签页打开笔记
+  const handleOpen = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!noteId) return
+    // 派发事件，在新标签页打开笔记
+    window.dispatchEvent(new CustomEvent('note:open-in-new-tab', {
+      detail: {
+        noteId,
+        targetType,
+        targetValue
+      }
     }))
   }
 
@@ -463,6 +512,13 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
             >
               <Pencil size={12} />
             </button>
+            <button
+              className="transclusion-action"
+              onClick={handleOpen}
+              title="Open in new tab"
+            >
+              <ExternalLink size={12} />
+            </button>
           </div>
         </div>
 
@@ -493,25 +549,18 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
                   ref={contentRef}
                   className="transclusion-content ProseMirror"
                   style={{
-                    maxHeight: showAll ? 'none' : `${maxHeight}px`,
-                    overflow: showAll ? 'visible' : 'hidden',
+                    maxHeight: `${resizeHeight}px`,
+                    overflow: 'auto',
                   }}
                   dangerouslySetInnerHTML={{ __html: content }}
                 />
-                {isOverflowing && !showAll && (
-                  <div className="transclusion-overflow-mask">
-                    <button onClick={() => setShowAll(true)}>
-                      {t.transclusion?.showMore || 'Show more'} ({stats.chars} {t.transclusion?.chars || 'chars'})
-                    </button>
-                  </div>
-                )}
-                {showAll && isOverflowing && (
-                  <div className="transclusion-collapse-btn">
-                    <button onClick={() => setShowAll(false)}>
-                      {t.transclusion?.showLess || 'Show less'}
-                    </button>
-                  </div>
-                )}
+                <div
+                  className="transclusion-resize-handle"
+                  onMouseDown={handleResizeStart}
+                >
+                  <div className="transclusion-resize-bar" />
+                  {isResizing && <span className="transclusion-resize-value">{resizeHeight}px</span>}
+                </div>
               </>
             )}
           </div>

@@ -4187,6 +4187,11 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - 优化后：单次遍历 + 200ms 防抖
 - 修复切换笔记时 refs 未重置导致的潜在误删 bug
 
+**切换笔记性能优化**：
+- 合并 Agent Task 缓存初始化和 block 扫描为单次遍历（原来是 2 次）
+- 延迟初始扫描 100ms，让 UI 先渲染，提升感知速度
+- 添加 `editor.isDestroyed` 检查防止快速切换时的竞态条件
+
 
 ### 2026-01-10: Session Resources 集成
 

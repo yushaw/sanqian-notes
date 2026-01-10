@@ -771,14 +771,7 @@ function buildContextProviders(): AppContextProvider[] {
           parts.push(`Summary: ${note.ai_summary}`)
         }
 
-        if (ctx.selectedText) {
-          const truncated = ctx.selectedText.length > 300
-            ? ctx.selectedText.slice(0, 300) + '...'
-            : ctx.selectedText
-          parts.push(`Selected text:\n"${truncated}"`)
-        }
-
-        // Cursor context (heading + paragraph) instead of block ID
+        // Cursor context (heading + paragraph) - selected text is pushed via Session Resource
         if (ctx.cursorContext) {
           if (ctx.cursorContext.nearestHeading) {
             parts.push(`Cursor near heading: "${ctx.cursorContext.nearestHeading}"`)

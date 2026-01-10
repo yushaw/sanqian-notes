@@ -83,6 +83,10 @@ declare global {
       platform: {
         get: () => Promise<NodeJS.Platform>
       }
+      appSettings: {
+        get: (key: string) => Promise<string | null>
+        set: (key: string, value: string) => Promise<void>
+      }
       attachment: AttachmentAPI
       chat: ChatAPI
       popup: {

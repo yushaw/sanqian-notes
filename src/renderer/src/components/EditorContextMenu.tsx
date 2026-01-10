@@ -174,6 +174,11 @@ const Icons = {
       <line x1="16" y1="16" x2="16" y2="16" strokeWidth="3" strokeLinecap="round" />
     </svg>
   ),
+  chat: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  ),
 }
 
 // 将导入的数组转为 Set 以提高查找效率
@@ -511,6 +516,14 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
       onClose()
     }
   }, [executeAction, aiContext, editor, onClose, handlePopupAction])
+
+  // 处理 Ask AI (打开 Chat，选区通过 Session Resource 推送，输入框预填引导语)
+  const handleAskAI = useCallback(() => {
+    // Open Chat with a prompt - selection is pushed as Session Resource via onLayoutChange
+    // The prompt guides user to ask about the selection
+    window.electron.chatWindow.showWithContext(t.ai.askAboutSelection ?? '请帮我分析一下这段内容')
+    onClose()
+  }, [onClose, t.ai.askAboutSelection])
 
   // 处理 Agent 任务
   const handleAgentTask = useCallback(() => {
@@ -1032,6 +1045,19 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
             <span className="context-menu-arrow">{Icons.chevronRight}</span>
           </button>
         </div>
+
+        {/* Ask AI - 打开 Chat 带选中内容 */}
+        {hasSelection && (
+          <div className="context-menu-group">
+            <button
+              className="context-menu-item"
+              onClick={handleAskAI}
+            >
+              <span className="context-menu-icon">{Icons.chat}</span>
+              <span className="context-menu-label">{t.contextMenu.askAI}</span>
+            </button>
+          </div>
+        )}
 
         {/* Agent 任务 - 仅当选中的 block 支持时显示 */}
         {onOpenAgentTask && hasAgentTaskSupportedBlock && (

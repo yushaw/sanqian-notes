@@ -41,6 +41,27 @@ export function Settings({ onClose }: SettingsProps) {
     progress: 0,
     error: null
   })
+  const [syncSelectionToChat, setSyncSelectionToChat] = useState<boolean>(true)
+
+  // Load sync selection setting
+  useEffect(() => {
+    let mounted = true
+    window.electron?.appSettings?.get('syncSelectionToChat').then((value) => {
+      // Default to true if not set
+      if (mounted) setSyncSelectionToChat(value !== 'false')
+    })
+    return () => { mounted = false }
+  }, [])
+
+  const handleSyncSelectionChange = async (enabled: boolean) => {
+    setSyncSelectionToChat(enabled)
+    try {
+      await window.electron?.appSettings?.set('syncSelectionToChat', enabled ? 'true' : 'false')
+    } catch {
+      // Rollback UI state on error
+      setSyncSelectionToChat(!enabled)
+    }
+  }
 
   // Fetch app version and setup updater status listener
   useEffect(() => {
@@ -272,6 +293,37 @@ export function Settings({ onClose }: SettingsProps) {
                         {lang === 'zh' ? t.language.chinese : lang === 'en' ? t.language.english : t.language.system}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Sync Selection to Chat */}
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium text-[var(--color-text)] mb-1">
+                        {t.settings.syncSelectionToChat}
+                      </h4>
+                      <p className="text-xs text-[var(--color-muted)]">{t.settings.syncSelectionToChatDesc}</p>
+                    </div>
+                    <button
+                      role="switch"
+                      aria-checked={syncSelectionToChat}
+                      onClick={() => handleSyncSelectionChange(!syncSelectionToChat)}
+                      className={`
+                        relative w-11 h-6 rounded-full transition-colors
+                        ${syncSelectionToChat
+                          ? 'bg-[var(--color-accent)]'
+                          : 'bg-black/10 dark:bg-white/10'
+                        }
+                      `}
+                    >
+                      <span
+                        className={`
+                          absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform
+                          ${syncSelectionToChat ? 'left-6' : 'left-1'}
+                        `}
+                      />
+                    </button>
                   </div>
                 </div>
               </div>

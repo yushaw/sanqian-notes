@@ -67,14 +67,34 @@ export default function ChatApp() {
     const chatWindow = (window as { chatWindow?: { onSetContext: (cb: (context: string) => void) => () => void } }).chatWindow
     if (!chatWindow) return
 
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+
     const cleanup = chatWindow.onSetContext((context: string) => {
-      if (context && chatSetTextRef.current) {
-        chatSetTextRef.current(context)
-        chatFocusInputRef.current?.()
+      if (!context) return
+
+      // Clear any pending retry
+      if (retryTimeout) {
+        clearTimeout(retryTimeout)
+        retryTimeout = null
       }
+
+      const trySetContext = (retriesLeft: number): void => {
+        if (chatSetTextRef.current) {
+          chatSetTextRef.current(context)
+          chatFocusInputRef.current?.()
+        } else if (retriesLeft > 0) {
+          // Retry with exponential backoff (50ms, 100ms, 200ms)
+          retryTimeout = setTimeout(() => trySetContext(retriesLeft - 1), 50 * (4 - retriesLeft))
+        }
+      }
+
+      trySetContext(3)
     })
 
-    return cleanup
+    return () => {
+      cleanup()
+      if (retryTimeout) clearTimeout(retryTimeout)
+    }
   }, [])
 
   // Handle close button

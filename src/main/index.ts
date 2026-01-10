@@ -1,4 +1,4 @@
-import { app, shell, BaseWindow, WebContentsView, ipcMain, nativeTheme, screen, protocol, net, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BaseWindow, WebContentsView, ipcMain, nativeTheme, screen, protocol, net, Tray, Menu, nativeImage, globalShortcut } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
@@ -56,6 +56,9 @@ import {
   updateAgentTask,
   deleteAgentTask,
   deleteAgentTaskByBlockId,
+  // App Settings
+  getAppSetting,
+  setAppSetting,
 } from './database'
 import type { AgentTaskInput, AgentTaskRecord } from '../shared/types'
 import {
@@ -233,6 +236,253 @@ function setUserContext(context: Partial<UserContext>): void {
  */
 export function getRawUserContext(): UserContext {
   return { ...userContext }
+}
+
+// ============ Session Resources for Chat Context ============
+
+/** Current selection resource ID (null if no selection pushed) */
+let currentSelectionResourceId: string | null = null
+
+/** Debounce timer for selection changes */
+let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Previous selected text (for change detection) */
+let previousSelectedText: string | null = null
+
+/** Shared TextEncoder instance (avoid creating new instance on each call) */
+const textEncoder = new TextEncoder()
+
+/** Max content size for session resources (100KB) */
+const MAX_RESOURCE_SIZE = 100 * 1024
+
+/**
+ * Truncate text to fit within byte size limit using binary search
+ */
+function truncateText(text: string, maxSize: number = MAX_RESOURCE_SIZE): string {
+  if (textEncoder.encode(text).length <= maxSize) return text
+
+  // Binary search to find the right character length that fits within byte limit
+  let low = 0
+  let high = text.length
+  const targetSize = Math.floor(maxSize * 0.9)
+
+  while (low < high) {
+    const mid = Math.floor((low + high + 1) / 2)
+    if (textEncoder.encode(text.slice(0, mid)).length <= targetSize) {
+      low = mid
+    } else {
+      high = mid - 1
+    }
+  }
+  return text.slice(0, low) + '\n\n[内容已截断...]'
+}
+
+/**
+ * Setup SDK event listeners for session resources
+ * Called after SDK is initialized
+ */
+function setupSessionResourceListeners(): void {
+  const client = getClient()
+  if (!client) return
+
+  // Listen for resourceRemoved events (e.g., when Chat clears resources after sending)
+  client.on('resourceRemoved', (resourceId: string) => {
+    console.log('[SessionResource] Resource removed by external:', resourceId)
+    // Clear local state if our selection resource was removed
+    if (currentSelectionResourceId === resourceId) {
+      currentSelectionResourceId = null
+      // Also reset previousSelectedText so next selection change will push again
+      previousSelectedText = null
+    }
+  })
+}
+
+/**
+ * Escape special characters for XML attribute values
+ */
+function escapeXmlAttr(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/**
+ * Format selection content for Session Resource
+ */
+function formatSelectionContent(
+  selectedText: string,
+  noteTitle: string | null,
+  cursorContext: CursorContext | null
+): string {
+  const parts: string[] = []
+
+  // Add note context
+  if (noteTitle) {
+    parts.push(`<note title="${escapeXmlAttr(noteTitle)}">`)
+  }
+
+  // Add section context if available
+  if (cursorContext?.nearestHeading) {
+    parts.push(`<section heading="${escapeXmlAttr(cursorContext.nearestHeading)}">`)
+  }
+
+  // Add selected text (escape closing tag to prevent XML structure breakage)
+  parts.push(`<selected_text>`)
+  parts.push(selectedText.replace(/<\/selected_text>/gi, '&lt;/selected_text&gt;'))
+  parts.push(`</selected_text>`)
+
+  // Close tags
+  if (cursorContext?.nearestHeading) {
+    parts.push(`</section>`)
+  }
+  if (noteTitle) {
+    parts.push(`</note>`)
+  }
+
+  return parts.join('\n')
+}
+
+/**
+ * Push or update selection as Session Resource
+ */
+async function pushSelectionResource(): Promise<void> {
+  const client = getClient()
+  if (!client) return
+
+  const { selectedText, currentNoteTitle, cursorContext } = userContext
+  if (!selectedText) return
+
+  try {
+    // Truncate if needed (100KB limit)
+    const truncatedText = truncateText(selectedText)
+    const content = formatSelectionContent(truncatedText, currentNoteTitle, cursorContext)
+
+    // Show first 30 chars of selected text as title (replace newlines with spaces)
+    const titlePreview = (selectedText.length > 30 ? selectedText.slice(0, 30) + '...' : selectedText)
+      .replace(/[\r\n]+/g, ' ')
+    const resource = await client.pushResource({
+      id: 'editor-selection', // Fixed ID for single selection resource
+      title: titlePreview,
+      content,
+      summary: currentNoteTitle || undefined, // Note title as tooltip
+      icon: '📝',
+      type: 'selection',
+    })
+
+    currentSelectionResourceId = resource.fullId
+    console.log('[SessionResource] Pushed selection:', currentSelectionResourceId)
+  } catch (error) {
+    console.warn('[SessionResource] Failed to push selection:', error)
+  }
+}
+
+/**
+ * Remove selection Session Resource
+ */
+async function removeSelectionResource(): Promise<void> {
+  if (!currentSelectionResourceId) return
+
+  const client = getClient()
+  if (!client) return
+
+  try {
+    await client.removeResource(currentSelectionResourceId)
+    console.log('[SessionResource] Removed selection:', currentSelectionResourceId)
+    currentSelectionResourceId = null
+  } catch (error) {
+    console.warn('[SessionResource] Failed to remove selection:', error)
+  }
+}
+
+/**
+ * Push pinned selection as Session Resource (for Ask AI action)
+ * Uses unique ID so it accumulates and won't be auto-cleared
+ */
+async function pushPinnedSelectionResource(): Promise<string | null> {
+  const client = getClient()
+  if (!client) return null
+
+  const { selectedText, currentNoteTitle, cursorContext } = userContext
+  if (!selectedText) return null
+
+  try {
+    // If there's an existing editor-selection with the same content, remove it first
+    // to avoid duplicating the same selection
+    if (currentSelectionResourceId) {
+      await removeSelectionResource()
+    }
+
+    // Truncate if needed (100KB limit)
+    const truncatedText = truncateText(selectedText)
+    const content = formatSelectionContent(truncatedText, currentNoteTitle, cursorContext)
+
+    // Use unique ID with timestamp so resources accumulate
+    const uniqueId = `pinned-selection-${Date.now()}`
+    // Show first 30 chars of selected text as title (replace newlines with spaces)
+    const titlePreview = (selectedText.length > 30 ? selectedText.slice(0, 30) + '...' : selectedText)
+      .replace(/[\r\n]+/g, ' ')
+    const resource = await client.pushResource({
+      id: uniqueId,
+      title: titlePreview,
+      content,
+      summary: currentNoteTitle || undefined, // Note title as tooltip
+      icon: '📌', // Pin icon to distinguish from auto-tracked selection
+      type: 'selection',
+    })
+
+    console.log('[SessionResource] Pushed pinned selection:', resource.fullId)
+    return resource.fullId
+  } catch (error) {
+    console.warn('[SessionResource] Failed to push pinned selection:', error)
+    return null
+  }
+}
+
+/**
+ * Handle selection change with debounce
+ * Only pushes when Chat is visible and setting is enabled
+ */
+function handleSelectionChange(newSelectedText: string | null): void {
+  // Skip if selection hasn't changed
+  if (newSelectedText === previousSelectedText) return
+  previousSelectedText = newSelectedText
+
+  // Clear pending debounce
+  if (selectionDebounceTimer) {
+    clearTimeout(selectionDebounceTimer)
+    selectionDebounceTimer = null
+  }
+
+  // Check if sync selection setting is enabled (default: true)
+  const syncEnabled = getAppSetting('syncSelectionToChat') !== 'false'
+  if (!syncEnabled) {
+    // Setting disabled, just clear local state
+    if (!newSelectedText) {
+      currentSelectionResourceId = null
+    }
+    return
+  }
+
+  // Check if Chat is visible
+  const isChatVisible = chatPanel?.isVisible() ?? false
+  if (!isChatVisible) {
+    // Chat not visible, just clear local state (don't call SDK as it may be disconnected)
+    if (!newSelectedText) {
+      currentSelectionResourceId = null
+    }
+    return
+  }
+
+  // Debounce the push/remove
+  selectionDebounceTimer = setTimeout(async () => {
+    if (newSelectedText) {
+      await pushSelectionResource()
+    } else {
+      await removeSelectionResource()
+    }
+  }, 300) // 300ms debounce
 }
 
 function sendUpdateStatus(): void {
@@ -940,13 +1190,17 @@ app.whenReady().then(() => {
     return { success: true }
   })
 
-  ipcMain.handle('chatWindow:showWithContext', (_, context: string) => {
+  ipcMain.handle('chatWindow:showWithContext', async (_, context: string) => {
     if (!chatPanel) {
       return { success: false, error: 'ChatPanel not initialized' }
     }
     try {
+      // Push pinned selection resource (accumulates, won't be auto-cleared)
+      // This is user-initiated action, so we push a persistent resource
+      await pushPinnedSelectionResource()
+
       chatPanel.show()
-      // Send context after window is ready
+      // Send context (prompt) after window is ready
       const webContents = chatPanel?.getWebContents()
       if (!webContents || webContents.isDestroyed()) {
         return { success: false, error: 'Chat window not available' }
@@ -958,6 +1212,8 @@ app.whenReady().then(() => {
           if (!webContents.isDestroyed()) {
             try {
               webContents.send('chatWindow:setContext', context)
+              // Focus input after a short delay to ensure window is fully shown
+              setTimeout(() => chatPanel?.focusInput(), 50)
             } catch {
               // Window may have been destroyed during load
             }
@@ -966,6 +1222,8 @@ app.whenReady().then(() => {
       } else {
         // Window is already loaded, send immediately
         webContents.send('chatWindow:setContext', context)
+        // Focus input after a short delay to ensure window is fully shown
+        setTimeout(() => chatPanel?.focusInput(), 50)
       }
       return { success: true }
     } catch (err) {
@@ -1119,6 +1377,8 @@ app.whenReady().then(() => {
   // Initialize Sanqian SDK
   initializeSanqianSDK()
     .then(async () => {
+      // Setup session resource event listeners
+      setupSessionResourceListeners()
       // After SDK init, try to sync embedding config if source is 'sanqian'
       await syncEmbeddingConfigFromSanqian()
     })
@@ -1178,6 +1438,10 @@ app.whenReady().then(() => {
   // IPC handlers for user context (for agent tools)
   ipcMain.handle('context:sync', (_, context: Partial<UserContext>) => {
     setUserContext(context)
+    // Handle selection change for Session Resources
+    if ('selectedText' in context) {
+      handleSelectionChange(context.selectedText ?? null)
+    }
   })
   ipcMain.handle('context:get', () => getUserContext())
 
@@ -1582,6 +1846,12 @@ app.whenReady().then(() => {
   // Platform info
   ipcMain.handle('platform:get', () => process.platform)
 
+  // App Settings
+  ipcMain.handle('appSettings:get', (_, key: string) => getAppSetting(key))
+  ipcMain.handle('appSettings:set', (_, key: string, value: string) => {
+    setAppSetting(key, value)
+  })
+
   // Sanqian API URL
   ipcMain.handle('sanqian:getApiUrl', () => getSanqianApiUrl())
 
@@ -1732,13 +2002,43 @@ app.whenReady().then(() => {
     },
     stateKey: 'sanqian-notes',
     // Layout change callback - update mainView bounds when chat panel is shown/hidden
-    onLayoutChange: ({ mainWidth }) => {
+    onLayoutChange: ({ mainWidth, chatVisible }) => {
       if (mainView && mainWindow) {
         const { height } = mainWindow.contentView.getBounds()
         mainView.setBounds({ x: 0, y: 0, width: mainWidth, height })
       }
+
+      // Handle Session Resource based on Chat visibility
+      if (chatVisible) {
+        // Chat became visible - push current selection if any
+        if (userContext.selectedText) {
+          pushSelectionResource()
+        }
+      } else {
+        // Chat became hidden - remove selection resource
+        removeSelectionResource()
+      }
     },
   })
+
+  // Register "Ask AI" shortcut (Cmd+Shift+A / Ctrl+Shift+A)
+  // Opens Chat and pushes selection as Session Resource
+  const askAiRegistered = globalShortcut.register('CommandOrControl+Shift+A', () => {
+    if (!chatPanel) return
+
+    // If Chat is already visible, explicitly push selection (show() would return early)
+    if (chatPanel.isVisible()) {
+      if (userContext.selectedText) {
+        pushSelectionResource()
+      }
+    } else {
+      // show() will trigger onLayoutChange which pushes selection
+      chatPanel.show()
+    }
+  })
+  if (!askAiRegistered) {
+    console.warn('[GlobalShortcut] Failed to register Cmd+Shift+A - may be in use by another app')
+  }
 
   setupTray()
   setupAutoUpdater()
@@ -1775,7 +2075,14 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  // Unregister all global shortcuts
+  globalShortcut.unregisterAll()
   stopPortWatcher()
+  // Clear selection debounce timer
+  if (selectionDebounceTimer) {
+    clearTimeout(selectionDebounceTimer)
+    selectionDebounceTimer = null
+  }
   // Stop indexing service (sync cleanup)
   indexingService.stop()
   // Close vector database

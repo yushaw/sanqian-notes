@@ -111,6 +111,10 @@ contextBridge.exposeInMainWorld('electron', {
   platform: {
     get: () => ipcRenderer.invoke('platform:get'),
   },
+  appSettings: {
+    get: (key: string) => ipcRenderer.invoke('appSettings:get', key),
+    set: (key: string, value: string) => ipcRenderer.invoke('appSettings:set', key, value),
+  },
   window: {
     setFullScreen: (isFullScreen: boolean) => ipcRenderer.invoke('window:setFullScreen', isFullScreen),
     isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),

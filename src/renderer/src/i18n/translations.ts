@@ -105,6 +105,8 @@ export interface Translations {
     data: string
     language: string
     languageDesc: string
+    syncSelectionToChat: string
+    syncSelectionToChatDesc: string
     themeColor: string
     themeColorDesc: string
     theme: string
@@ -309,6 +311,7 @@ export interface Translations {
     errorDisconnected: string
     // Context message
     continueContextTemplate: string
+    askAboutSelection: string
     // Preview actions
     previewAccept: string
     previewReject: string
@@ -574,6 +577,7 @@ export interface Translations {
     aiProcessing: string
     aiError: string
     aiContinueInChat: string
+    askAI: string
     agentTask: string
   }
   agentTask: {
@@ -856,6 +860,8 @@ const zh: Translations = {
     data: '导入/导出',
     language: '语言',
     languageDesc: '选择界面显示语言',
+    syncSelectionToChat: '实时同步选中内容',
+    syncSelectionToChatDesc: '打开 Chat 时自动将编辑器选中内容同步为上下文',
     themeColor: '主题色',
     themeColorDesc: '选择界面主题颜色',
     theme: '外观模式',
@@ -1060,6 +1066,7 @@ const zh: Translations = {
     errorDisconnected: '连接已断开，请重试',
     // Context message
     continueContextTemplate: '我选中了以下文本：\n\n> {selectedText}\n\nAI 给出的解释是：\n\n{explanation}\n\n请继续帮我深入理解这个内容。',
+    askAboutSelection: '请帮我分析一下这段内容',
     // Preview actions
     previewAccept: '接受',
     previewReject: '拒绝',
@@ -1322,6 +1329,7 @@ const zh: Translations = {
     aiProcessing: 'AI 处理中...',
     aiError: 'AI 处理失败',
     aiContinueInChat: '继续对话',
+    askAI: '询问 AI',
     agentTask: 'Agent 任务'
   },
   agentTask: {
@@ -1604,6 +1612,8 @@ const en: Translations = {
     data: 'Import/Export',
     language: 'Language',
     languageDesc: 'Choose display language',
+    syncSelectionToChat: 'Sync selection to Chat',
+    syncSelectionToChatDesc: 'Automatically sync editor selection as context when Chat is open',
     themeColor: 'Theme Color',
     themeColorDesc: 'Choose accent color',
     theme: 'Appearance',
@@ -1808,6 +1818,7 @@ const en: Translations = {
     errorDisconnected: 'Connection lost, please retry',
     // Context message
     continueContextTemplate: 'I selected the following text:\n\n> {selectedText}\n\nAI explanation:\n\n{explanation}\n\nPlease help me understand this further.',
+    askAboutSelection: 'Please help me analyze this content',
     // Preview actions
     previewAccept: 'Accept',
     previewReject: 'Reject',
@@ -2070,6 +2081,7 @@ const en: Translations = {
     aiProcessing: 'AI processing...',
     aiError: 'AI processing failed',
     aiContinueInChat: 'Continue in chat',
+    askAI: 'Ask AI',
     agentTask: 'Agent Task'
   },
   agentTask: {

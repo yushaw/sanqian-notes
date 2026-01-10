@@ -4186,3 +4186,48 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - 原问题：每次按键触发 2 次全文档遍历（其中一个无防抖）
 - 优化后：单次遍历 + 200ms 防抖
 - 修复切换笔记时 refs 未重置导致的潜在误删 bug
+
+
+### 2026-01-10: Session Resources 集成
+
+**功能概述**：
+集成 Sanqian SDK 的 Session Resources 功能，实现划选内容与 Chat 的实时上下文同步。
+
+**实现内容**：
+
+1. **选区自动推送**（`src/main/index.ts`）
+   - Chat 打开时，划选文本自动推送为 Session Resource
+   - 选区变化时更新，取消选择时移除
+   - 300ms 防抖避免频繁推送
+   - 100KB 大小限制，超出自动截断
+
+2. **右键菜单 Ask AI**（`EditorContextMenu.tsx`）
+   - 有选区时显示 "询问 AI / Ask AI" 菜单项
+   - 点击打开 Chat 并带上选区内容
+
+3. **快捷键支持**
+   - `⌘⇧A` / `Ctrl+Shift+A` 打开 Chat 带选区
+
+4. **ChatPanel 生命周期集成**
+   - 通过 `onLayoutChange` 回调监听 Chat 可见性
+   - 显示时推送当前选区，隐藏时清理资源
+
+**修改文件**：
+- `src/main/index.ts` - Session Resource 管理函数、context:sync 集成、快捷键注册
+- `src/renderer/src/components/EditorContextMenu.tsx` - Ask AI 菜单项
+- `src/renderer/src/i18n/translations.ts` - 添加 askAI 翻译
+
+**设计文档**：`docs/session-resources-integration-plan.md`
+
+
+### 2026-01-11: Ask AI 焦点优化
+
+**问题修复**：
+- 点击 Ask AI 后 Chat 窗口/面板正确获得焦点
+- 输入框自动聚焦，用户可直接开始输入
+
+**实现方式**：
+- `chatWindow:showWithContext` 处理器中调用 `chatPanel.focusInput()`
+- 延迟 50ms 确保窗口显示完成后再聚焦
+- `ChatApp.tsx` 的 `onSetContext` 添加 retry 机制（100ms）应对 ref 未就绪情况
+

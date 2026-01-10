@@ -67,6 +67,20 @@ export interface NoteLink {
 
 export type SmartViewId = 'all' | 'daily' | 'recent' | 'favorites' | 'trash'
 
+/** "最近" 视图的天数阈值 */
+export const RECENT_DAYS = 7
+
+/**
+ * 笔记搜索过滤选项
+ * 用于在搜索时根据当前视图过滤结果
+ */
+export interface NoteSearchFilter {
+  /** 笔记本 ID（仅搜索该笔记本内的笔记） */
+  notebookId?: string
+  /** 智能视图类型 */
+  viewType?: SmartViewId
+}
+
 // ============ Attachment Types ============
 
 /**

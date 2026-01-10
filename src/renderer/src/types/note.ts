@@ -2,6 +2,7 @@
 export type {
   Note,
   NoteInput,
+  NoteSearchFilter,
   Notebook,
   NotebookInput,
   Tag,
@@ -10,3 +11,6 @@ export type {
   NoteLink,
   SmartViewId
 } from '../../../shared/types'
+
+// Re-export constants
+export { RECENT_DAYS } from '../../../shared/types'

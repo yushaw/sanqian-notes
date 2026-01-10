@@ -19,7 +19,7 @@ import { I18nProvider, useTranslations, useI18n } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext } from './utils/cursor'
 import { formatDailyDate } from './utils/dateFormat'
 import { toast } from './utils/toast'
-import type { Note, Notebook, SmartViewId } from './types/note'
+import { RECENT_DAYS, type Note, type Notebook, type NoteSearchFilter, type SmartViewId } from './types/note'
 
 // 全局 Lightbox 组件
 function ImageLightbox() {
@@ -463,9 +463,9 @@ function AppContent() {
           .filter(n => n.is_daily)
           .sort((a, b) => (b.daily_date || '').localeCompare(a.daily_date || ''))
       case 'recent':
-        // Notes updated in the last 7 days (excluding daily notes)
-        const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-        return notes.filter(n => !n.is_daily && new Date(n.updated_at).getTime() > weekAgo)
+        // Notes updated in the last N days (excluding daily notes)
+        const recentThreshold = Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000
+        return notes.filter(n => !n.is_daily && new Date(n.updated_at).getTime() > recentThreshold)
       case 'favorites':
         // Favorites can include daily notes (user explicitly favorited them)
         return notes.filter(n => n.is_favorite)
@@ -476,12 +476,12 @@ function AppContent() {
 
   // Get note counts
   const noteCounts = useMemo(() => {
-    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const recentThreshold = Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000
     const regularNotes = notes.filter(n => !n.is_daily)
     return {
       all: regularNotes.length,
       daily: notes.filter(n => n.is_daily).length,
-      recent: regularNotes.filter(n => new Date(n.updated_at).getTime() > weekAgo).length,
+      recent: regularNotes.filter(n => new Date(n.updated_at).getTime() > recentThreshold).length,
       favorites: notes.filter(n => n.is_favorite).length,
       trash: trashNotes.length,
       notebooks: notebooks.reduce((acc, nb) => {
@@ -997,14 +997,21 @@ function AppContent() {
   }, [notes, isZh, selectSingleNote])
 
   // Handle search - merge hybrid search (indexed) and keyword search (all notes)
+  // Results are filtered based on current view (notebook, daily, favorites, etc.)
   const handleSearch = useCallback(async (query: string): Promise<Note[]> => {
+    // Build filter based on current view
+    const filter: NoteSearchFilter = selectedNotebookId
+      ? { notebookId: selectedNotebookId }
+      : { viewType: selectedSmartView || 'all' }
+
     try {
       // Parallel search: hybrid (indexed notes) + keyword (all notes including unindexed)
+      // Both use the same filter, so results are consistent
       const [hybridResults, keywordResults] = await Promise.all([
         kbEnabled
-          ? window.electron.knowledgeBase.hybridSearch(query, { limit: 20 })
+          ? window.electron.knowledgeBase.hybridSearch(query, { limit: 20, filter })
           : Promise.resolve([]),
-        window.electron.note.search(query)
+        window.electron.note.search(query, filter)
       ])
 
       // Merge results: hybrid first (already ranked by RRF), then unindexed notes
@@ -1023,7 +1030,7 @@ function AppContent() {
         }
       }
 
-      // Add keyword search results (catches unindexed notes)
+      // Add keyword search results (already filtered by database)
       for (const note of keywordResults) {
         if (!noteIds.has(note.id)) {
           noteIds.add(note.id)
@@ -1035,9 +1042,9 @@ function AppContent() {
     } catch (error) {
       console.error('Search failed:', error)
       // Fall back to keyword search on error
-      return window.electron.note.search(query)
+      return window.electron.note.search(query, filter)
     }
-  }, [kbEnabled])
+  }, [kbEnabled, selectedNotebookId, selectedSmartView])
 
   // Handle restore note from trash
   const handleRestoreNote = useCallback(async (id: string) => {

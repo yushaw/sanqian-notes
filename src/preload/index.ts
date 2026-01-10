@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { NoteSearchFilter } from '../shared/types'
 
 // Expose APIs to renderer
 contextBridge.exposeInMainWorld('electron', {
@@ -23,7 +24,7 @@ contextBridge.exposeInMainWorld('electron', {
     add: (note: unknown) => ipcRenderer.invoke('note:add', note),
     update: (id: string, updates: unknown) => ipcRenderer.invoke('note:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('note:delete', id),
-    search: (query: string) => ipcRenderer.invoke('note:search', query),
+    search: (query: string, filter?: NoteSearchFilter) => ipcRenderer.invoke('note:search', query, filter),
     createDemo: () => ipcRenderer.invoke('note:createDemo'),
     // 笔记失焦时触发增量索引检查（摘要由 indexing-service 根据 chunk 变化率自动触发）
     checkIndex: (noteId: string, notebookId: string, content: string) =>
@@ -94,7 +95,7 @@ contextBridge.exposeInMainWorld('electron', {
     },
     semanticSearch: (query: string, options?: { limit?: number; notebookId?: string }) =>
       ipcRenderer.invoke('knowledgeBase:semanticSearch', query, options),
-    hybridSearch: (query: string, options?: { limit?: number; notebookId?: string }) =>
+    hybridSearch: (query: string, options?: { limit?: number; filter?: NoteSearchFilter }) =>
       ipcRenderer.invoke('knowledgeBase:hybridSearch', query, options),
   },
   theme: {

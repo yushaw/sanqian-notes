@@ -13,6 +13,8 @@ import {
   searchEmbeddingsInNotebook,
   searchKeyword
 } from './database'
+import { getNotesByIds } from '../database'
+import { RECENT_DAYS, type NoteSearchFilter, type Note } from '../../shared/types'
 
 // RRF 常数，通常使用 60
 const RRF_K = 60
@@ -156,11 +158,12 @@ export async function hybridSearch(
   query: string,
   options: {
     limit?: number
-    notebookId?: string
+    filter?: NoteSearchFilter
     threshold?: number
   } = {}
 ): Promise<SemanticSearchResult[]> {
-  const { limit = 10, notebookId, threshold = 2.0 } = options
+  const { limit = 10, filter, threshold = 2.0 } = options
+  const notebookId = filter?.notebookId
 
   const config = getEmbeddingConfig()
   if (!query.trim()) {
@@ -168,6 +171,19 @@ export async function hybridSearch(
   }
 
   const searchLimit = limit * 3
+
+  // 辅助函数：应用 filter 过滤并返回最终结果
+  const applyFilterAndFinalize = (results: SemanticSearchResult[]): SemanticSearchResult[] => {
+    const needsFiltering = filter?.viewType || filter?.notebookId
+    const expandedLimit = needsFiltering ? limit * 5 : limit
+    const limitedResults = results.length > expandedLimit ? results.slice(0, expandedLimit) : results
+    const filtered = filter?.viewType
+      ? filterByViewType(limitedResults, filter.viewType)
+      : filter?.notebookId
+        ? filterByViewType(limitedResults, 'all')
+        : limitedResults
+    return applyAutoCut(filtered).slice(0, limit)
+  }
 
   // 并行执行向量搜索和关键词搜索
   const [vectorPromise, keywordPromise] = await Promise.allSettled([
@@ -228,8 +244,8 @@ export async function hybridSearch(
       chunkText: r.chunkText,
       score: 1 / (RRF_K + index + 1)
     }))
-    const results = aggregateByNote(mapped, limit)
-    return applyAutoCut(results)
+    const aggregated = aggregateByNote(mapped, limit * 5)
+    return applyFilterAndFinalize(aggregated)
   }
   if (keywordResults.length === 0) {
     // 单源质量检查：向量搜索最高分必须达到阈值
@@ -241,8 +257,8 @@ export async function hybridSearch(
       )
       return []
     }
-    const results = aggregateByNote(vectorResults, limit)
-    return applyAutoCut(results)
+    const aggregated = aggregateByNote(vectorResults, limit * 5)
+    return applyFilterAndFinalize(aggregated)
   }
 
   // RRF 融合
@@ -277,16 +293,56 @@ export async function hybridSearch(
       return { ...data, score }
     })
 
-  const aggregated = aggregateByNote(sortedChunks, limit)
+  // 获取更多结果以便过滤后仍有足够数量（5 倍以应对极端情况如收藏很少）
+  const aggregated = aggregateByNote(sortedChunks, limit * 5)
 
-  // 应用 AutoCut：检测分数跳跃，自动截断不相关结果
-  const results = applyAutoCut(aggregated)
+  // 应用 filter 过滤并返回最终结果
+  const results = applyFilterAndFinalize(aggregated)
 
   console.log(
     `[HybridSearch] RRF fusion: vector=${vectorResults.length}, keyword=${keywordResults.length}, chunks=${sortedChunks.length}, notes=${results.length}`
   )
 
   return results
+}
+
+/**
+ * 根据 viewType 过滤搜索结果
+ * 通过查询 notes 表获取笔记属性，然后过滤
+ */
+function filterByViewType(
+  results: SemanticSearchResult[],
+  viewType: NoteSearchFilter['viewType']
+): SemanticSearchResult[] {
+  if (!viewType || viewType === 'trash' || results.length === 0) {
+    return results
+  }
+
+  // 获取所有 noteIds 对应的笔记
+  const noteIds = results.map((r) => r.noteId)
+  const notes = getNotesByIds(noteIds)
+  const noteMap = new Map<string, Note>(notes.map((n) => [n.id, n]))
+
+  // 根据 viewType 过滤
+  const recentThreshold = Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000
+
+  return results.filter((result) => {
+    const note = noteMap.get(result.noteId)
+    // 排除不存在或已删除的笔记
+    if (!note || note.deleted_at) return false
+
+    switch (viewType) {
+      case 'daily':
+        return note.is_daily
+      case 'favorites':
+        return note.is_favorite
+      case 'recent':
+        return !note.is_daily && new Date(note.updated_at).getTime() > recentThreshold
+      case 'all':
+      default:
+        return !note.is_daily
+    }
+  })
 }
 
 /**

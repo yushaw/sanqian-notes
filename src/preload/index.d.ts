@@ -6,7 +6,8 @@ import type {
   ChatMessage,
   ChatStreamEvent,
   ConversationInfo,
-  ConversationDetail
+  ConversationDetail,
+  NoteSearchFilter
 } from '../shared/types'
 
 export {
@@ -40,7 +41,7 @@ declare global {
         add: (note: unknown) => Promise<unknown>
         update: (id: string, updates: unknown) => Promise<unknown | null>
         delete: (id: string) => Promise<boolean>
-        search: (query: string) => Promise<unknown[]>
+        search: (query: string, filter?: NoteSearchFilter) => Promise<unknown[]>
         createDemo: () => Promise<void>
         checkIndex: (noteId: string, notebookId: string, content: string) => Promise<boolean>
         onDataChanged: (callback: () => void) => () => void
@@ -168,7 +169,7 @@ declare global {
         }>>
         hybridSearch: (query: string, options?: {
           limit?: number
-          notebookId?: string
+          filter?: NoteSearchFilter
         }) => Promise<Array<{
           noteId: string
           notebookId: string

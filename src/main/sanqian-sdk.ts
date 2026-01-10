@@ -251,7 +251,7 @@ function buildTools(): AppToolDefinition[] {
           const limit = (args.limit as number) || 10
           const results = await hybridSearch(query, {
             limit,
-            notebookId: notebook_id
+            filter: notebook_id ? { notebookId: notebook_id } : undefined
           })
 
           // Get notebooks map for names
@@ -886,7 +886,7 @@ function buildContextProviders(): AppContextProvider[] {
         // Get notes with database-level pagination
         // Fetch limit + 1 to check if there are more results
         const notes = query
-          ? searchNotes(query, limit + 1, offset)
+          ? searchNotes(query, undefined, limit + 1, offset)
           : getNotes(limit + 1, offset)
 
         // Check hasMore and trim to limit

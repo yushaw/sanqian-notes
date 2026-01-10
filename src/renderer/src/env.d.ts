@@ -6,6 +6,7 @@ type AgentTaskInput = import('../../shared/types').AgentTaskInput
 type AttachmentResult = import('../../shared/types').AttachmentResult
 type AttachmentSelectOptions = import('../../shared/types').AttachmentSelectOptions
 type AttachmentAPI = import('../../shared/types').AttachmentAPI
+type NoteSearchFilter = import('../../shared/types').NoteSearchFilter
 // Simplified ChatAPI for AI actions only (FloatingWindow uses separate sanqian-chat:* handlers)
 interface ChatAPI {
   acquireReconnect: () => Promise<void>
@@ -43,7 +44,7 @@ interface Window {
       add: (note: NoteInput) => Promise<Note>
       update: (id: string, updates: Partial<NoteInput>) => Promise<Note | null>
       delete: (id: string) => Promise<boolean>
-      search: (query: string) => Promise<Note[]>
+      search: (query: string, filter?: NoteSearchFilter) => Promise<Note[]>
       // 笔记失焦时触发增量索引检查（摘要由 indexing-service 根据 chunk 变化率自动触发）
       checkIndex: (noteId: string, notebookId: string, content: string) => Promise<boolean>
       onDataChanged: (callback: () => void) => () => void
@@ -239,7 +240,7 @@ interface Window {
       }>>
       hybridSearch: (query: string, options?: {
         limit?: number
-        notebookId?: string
+        filter?: NoteSearchFilter
       }) => Promise<Array<{
         noteId: string
         notebookId: string

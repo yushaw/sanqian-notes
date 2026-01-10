@@ -42,6 +42,7 @@ import {
   reorderAIActions,
   resetAIActionsToDefaults,
   type AIActionInput,
+  type NoteSearchFilter,
   // AI Popups
   getPopup,
   createPopup,
@@ -1420,7 +1421,7 @@ app.whenReady().then(() => {
     }
     return result
   })
-  ipcMain.handle('note:search', (_, query) => searchNotes(query))
+  ipcMain.handle('note:search', (_, query: string, filter?: NoteSearchFilter) => searchNotes(query, filter))
   ipcMain.handle('note:createDemo', () => createDemoNote())
 
   // IPC handlers for daily notes
@@ -1591,7 +1592,7 @@ app.whenReady().then(() => {
   ipcMain.handle('knowledgeBase:semanticSearch', async (_, query: string, options?: { limit?: number; notebookId?: string }) => {
     return semanticSearch(query, options)
   })
-  ipcMain.handle('knowledgeBase:hybridSearch', async (_, query: string, options?: { limit?: number; notebookId?: string }) => {
+  ipcMain.handle('knowledgeBase:hybridSearch', async (_, query: string, options?: { limit?: number; filter?: NoteSearchFilter }) => {
     return hybridSearch(query, options)
   })
 

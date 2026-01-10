@@ -3,18 +3,20 @@ import { app } from 'electron'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import { t, getSystemLang } from './i18n'
-import type {
-  AIAction,
-  AIActionInput,
-  AIActionMode,
-  Note,
-  NoteInput,
-  Tag,
-  TagWithSource,
-  Notebook,
-  NotebookInput,
-  AgentTaskRecord,
-  AgentTaskInput
+import {
+  RECENT_DAYS,
+  type AIAction,
+  type AIActionInput,
+  type AIActionMode,
+  type Note,
+  type NoteInput,
+  type NoteSearchFilter,
+  type Tag,
+  type TagWithSource,
+  type Notebook,
+  type NotebookInput,
+  type AgentTaskRecord,
+  type AgentTaskInput
 } from '../shared/types'
 
 // Re-export for backward compatibility
@@ -24,6 +26,7 @@ export type {
   AIActionMode,
   Note,
   NoteInput,
+  NoteSearchFilter,
   Tag,
   TagWithSource,
   Notebook,
@@ -1364,7 +1367,12 @@ export function cleanupOldTrash(): number {
   return result.changes
 }
 
-export function searchNotes(query: string, limit = 100, offset = 0): Note[] {
+export function searchNotes(
+  query: string,
+  filter?: NoteSearchFilter,
+  limit = 100,
+  offset = 0
+): Note[] {
   if (!query.trim()) return []
 
   // Use LIKE search for better CJK support
@@ -1375,19 +1383,53 @@ export function searchNotes(query: string, limit = 100, offset = 0): Note[] {
   // Enforce maximum limit to prevent performance issues with large datasets
   const actualLimit = Math.min(limit, 100)
 
-  const stmt = db.prepare(`
+  // Build WHERE conditions based on filter
+  const conditions: string[] = [
+    'n.deleted_at IS NULL',
+    `(n.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\' OR n.ai_summary LIKE ? ESCAPE '\\')`
+  ]
+  const params: (string | number)[] = [likeQuery, likeQuery, likeQuery]
+
+  // Apply filter conditions
+  if (filter?.notebookId) {
+    // Notebook filter: only notes from this notebook (excluding daily notes)
+    conditions.push('n.notebook_id = ?')
+    conditions.push('n.is_daily = 0')
+    params.push(filter.notebookId)
+  } else if (filter?.viewType) {
+    switch (filter.viewType) {
+      case 'daily':
+        conditions.push('n.is_daily = 1')
+        break
+      case 'favorites':
+        conditions.push('n.is_favorite = 1')
+        break
+      case 'recent': {
+        const recentThreshold = new Date(Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000).toISOString()
+        conditions.push('n.is_daily = 0')
+        conditions.push('n.updated_at > ?')
+        params.push(recentThreshold)
+        break
+      }
+      case 'all':
+      default:
+        // All notes excludes daily notes
+        conditions.push('n.is_daily = 0')
+        break
+    }
+  }
+
+  const sql = `
     SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
-    WHERE n.deleted_at IS NULL AND (
-      n.title LIKE ? ESCAPE '\\'
-      OR n.content LIKE ? ESCAPE '\\'
-      OR n.ai_summary LIKE ? ESCAPE '\\'
-    )
+    WHERE ${conditions.join(' AND ')}
     ORDER BY n.is_pinned DESC, n.updated_at DESC
     LIMIT ? OFFSET ?
-  `)
+  `
+  params.push(actualLimit, offset)
 
-  return stmt.all(likeQuery, likeQuery, likeQuery, actualLimit, offset).map(row =>
+  const stmt = db.prepare(sql)
+  return stmt.all(...params).map(row =>
     rowToNote(row as Record<string, unknown>)
   )
 }

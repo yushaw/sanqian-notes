@@ -175,6 +175,20 @@ const Icons = {
   ),
 }
 
+// 支持 Agent Task 的节点类型（与 AgentTask.ts 中的 types 保持一致）
+const AGENT_TASK_SUPPORTED_TYPES = new Set([
+  'paragraph',
+  'heading',
+  'blockquote',
+  'codeBlock',
+  'listItem',
+  'taskItem',
+  'bulletList',
+  'orderedList',
+  'taskList',
+  'table',
+])
+
 // 插入项配置 - 来自斜杠命令中常用的
 const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
   { id: 'bulletList', label: t.contextMenu.bulletList, icon: '•', insert: (editor: Editor) => editor.chain().focus().toggleBulletList().run() },
@@ -261,6 +275,37 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
 
   // Check if cursor is in a table
   const isInTable = editor?.isActive('table') ?? false
+
+  // Check if any selected block supports Agent Task
+  const hasAgentTaskSupportedBlock = (() => {
+    if (!editor) return false
+
+    const { from, to } = editor.state.selection
+    const hasSelection = from !== to
+
+    if (hasSelection) {
+      // 有选区时，检查选区内是否有支持的 block
+      let found = false
+      editor.state.doc.nodesBetween(from, to, (node) => {
+        if (AGENT_TASK_SUPPORTED_TYPES.has(node.type.name)) {
+          found = true
+          return false // 停止遍历
+        }
+        return true
+      })
+      return found
+    } else {
+      // 无选区时，检查光标所在的 block
+      const { $from } = editor.state.selection
+      for (let d = $from.depth; d >= 0; d--) {
+        const node = $from.node(d)
+        if (AGENT_TASK_SUPPORTED_TYPES.has(node.type.name)) {
+          return true
+        }
+      }
+      return false
+    }
+  })()
 
   // 重置子菜单状态当菜单关闭或位置变化时
   useEffect(() => {
@@ -998,8 +1043,8 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
           </button>
         </div>
 
-        {/* Agent 任务 - 独立菜单项 */}
-        {onOpenAgentTask && (
+        {/* Agent 任务 - 仅当选中的 block 支持时显示 */}
+        {onOpenAgentTask && hasAgentTaskSupportedBlock && (
           <div className="context-menu-group">
             <button
               className="context-menu-item"

@@ -122,15 +122,15 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
     }
   }, [parseResult, executeQuery])
 
-  // Navigate to note
+  // Open note in new tab
   const handleNoteClick = useCallback(
     (noteId: string, event: React.MouseEvent) => {
       event.preventDefault()
       event.stopPropagation()
 
-      // Dispatch event to navigate to note
+      // Dispatch event to open note in new tab
       window.dispatchEvent(
-        new CustomEvent('note:navigate', {
+        new CustomEvent('note:open-in-new-tab', {
           detail: { noteId },
         })
       )

@@ -6,6 +6,8 @@ import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting }
 import { AIActionsSettings } from './AIActionsSettings'
 import { KnowledgeBaseSettings } from './KnowledgeBaseSettings'
 import { DataSettings } from './DataSettings'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emerald', 'cyan', 'cobalt', 'indigo', 'magenta']
 
@@ -18,6 +20,7 @@ interface UpdateState {
   version: string | null
   progress: number
   error: string | null
+  releaseNotes: string | null
 }
 
 // Resizable modal constants
@@ -39,7 +42,8 @@ export function Settings({ onClose }: SettingsProps) {
     status: 'idle',
     version: null,
     progress: 0,
-    error: null
+    error: null,
+    releaseNotes: null
   })
   const [syncSelectionToChat, setSyncSelectionToChat] = useState<boolean>(true)
 
@@ -536,6 +540,29 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                 </div>
+
+                {/* Release Notes */}
+                {updateState.releaseNotes && (updateState.status === 'available' || updateState.status === 'downloading' || updateState.status === 'ready') && (
+                  <div className="p-4 rounded-xl bg-black/5 dark:bg-white/5">
+                    <p className="text-xs text-[var(--color-muted)] mb-2">{t.settings.updating.releaseNotes}</p>
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none max-h-64 overflow-y-auto text-[var(--color-text)]/80"
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement
+                        if (target.tagName === 'A') {
+                          e.preventDefault()
+                          const href = target.getAttribute('href')
+                          if (href) {
+                            window.electron?.shell?.openExternal(href)
+                          }
+                        }
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(marked.parse(updateState.releaseNotes, { async: false }) as string)
+                      }}
+                    />
+                  </div>
+                )}
 
                 {/* Links */}
                 <div className="flex justify-center gap-4 pt-2">

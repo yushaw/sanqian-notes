@@ -133,6 +133,7 @@ export interface Translations {
       ready: string
       upToDate: string
       error: string
+      releaseNotes: string
     }
     buttons: {
       download: string
@@ -959,7 +960,8 @@ const zh: Translations = {
       downloading: (progress: number) => `正在下载更新 ${progress}%`,
       ready: '更新已就绪，重启后生效',
       upToDate: '当前已是最新版本',
-      error: '检查更新失败'
+      error: '检查更新失败',
+      releaseNotes: '更新内容'
     },
     buttons: {
       download: '下载更新',
@@ -1783,7 +1785,8 @@ const en: Translations = {
       downloading: (progress: number) => `Downloading update ${progress}%`,
       ready: 'Update ready, restart to apply',
       upToDate: 'You are up to date',
-      error: 'Update check failed'
+      error: 'Update check failed',
+      releaseNotes: 'Release Notes'
     },
     buttons: {
       download: 'Download',

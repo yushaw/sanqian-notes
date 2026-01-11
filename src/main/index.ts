@@ -169,6 +169,7 @@ let updateStatus: UpdateStatus = 'idle'
 let updateVersion: string | null = null
 let updateProgress = 0
 let updateError: string | null = null
+let updateReleaseNotes: string | null = null
 
 // ============ User Context for Agent ============
 interface CursorContext {
@@ -534,7 +535,8 @@ function sendUpdateStatus(): void {
         status: updateStatus,
         version: updateVersion,
         progress: updateProgress,
-        error: updateError
+        error: updateError,
+        releaseNotes: updateReleaseNotes
       })
     } catch (err) {
       // Window may be closing, ignore send errors
@@ -560,6 +562,19 @@ function setupAutoUpdater(): void {
     updateStatus = 'available'
     updateVersion = info.version
     updateError = null
+    // Extract release notes - can be string, array of ReleaseNoteInfo, or null
+    if (typeof info.releaseNotes === 'string') {
+      updateReleaseNotes = info.releaseNotes || null
+    } else if (Array.isArray(info.releaseNotes)) {
+      // ReleaseNoteInfo[] format - join all notes
+      const notes = info.releaseNotes
+        .map(n => n.note || '')
+        .filter(Boolean)
+        .join('\n\n')
+      updateReleaseNotes = notes || null
+    } else {
+      updateReleaseNotes = null
+    }
     sendUpdateStatus()
   })
 
@@ -568,6 +583,7 @@ function setupAutoUpdater(): void {
     console.log('No update available')
     updateStatus = 'not-available'
     updateError = null
+    updateReleaseNotes = null
     sendUpdateStatus()
   })
 
@@ -593,6 +609,7 @@ function setupAutoUpdater(): void {
     console.error('Auto-updater error:', err.message)
     updateStatus = 'error'
     updateError = err.message
+    updateReleaseNotes = null
     mainWindow?.setProgressBar(-1)
     sendUpdateStatus()
   })
@@ -2115,7 +2132,8 @@ app.whenReady().then(() => {
       status: updateStatus,
       version: updateVersion,
       progress: updateProgress,
-      error: updateError
+      error: updateError,
+      releaseNotes: updateReleaseNotes
     }
   })
 

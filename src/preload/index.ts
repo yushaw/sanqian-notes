@@ -11,8 +11,8 @@ contextBridge.exposeInMainWorld('electron', {
     download: () => ipcRenderer.invoke('updater:download'),
     install: () => ipcRenderer.invoke('updater:install'),
     getStatus: () => ipcRenderer.invoke('updater:getStatus'),
-    onStatus: (callback: (status: { status: string; version: string | null; progress: number; error: string | null }) => void) => {
-      const handler = (_: Electron.IpcRendererEvent, status: { status: string; version: string | null; progress: number; error: string | null }) => callback(status)
+    onStatus: (callback: (status: { status: string; version: string | null; progress: number; error: string | null; releaseNotes: string | null }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, status: { status: string; version: string | null; progress: number; error: string | null; releaseNotes: string | null }) => callback(status)
       ipcRenderer.on('updater:status', handler)
       return () => ipcRenderer.removeListener('updater:status', handler)
     }

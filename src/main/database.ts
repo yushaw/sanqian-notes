@@ -584,34 +584,6 @@ export function createDemoNotes(): void {
         { type: 'text', text: '返回 ' },
         { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
       ] },
-      { type: 'heading', attrs: { level: 1, blockId: 'callouts' }, content: [{ type: 'text', text: '提示块 Callout' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: '在行首输入 ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/提示' },
-        { type: 'text', text: ' 或 ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
-        { type: 'text', text: ' 选择不同类型：' }
-      ] },
-      { type: 'callout', attrs: { type: 'note', collapsed: false }, content: [
-        { type: 'paragraph', content: [{ type: 'text', text: '📝 这是一个 Note 提示块，适合记录普通信息。' }] }
-      ] },
-      { type: 'callout', attrs: { type: 'tip', collapsed: false }, content: [
-        { type: 'paragraph', content: [{ type: 'text', text: '💡 这是一个 Tip 提示块，适合分享小技巧。' }] }
-      ] },
-      {
-        type: 'callout',
-        attrs: { type: 'warning', collapsed: false },
-        content: [
-          { type: 'paragraph', content: [{ type: 'text', text: '⚠️ 这是一个 Warning 提示块，提醒注意事项。' }] }
-        ]
-      },
-      {
-        type: 'callout',
-        attrs: { type: 'danger', collapsed: false },
-        content: [
-          { type: 'paragraph', content: [{ type: 'text', text: '🚨 这是一个 Danger 提示块，警示危险操作。' }] }
-        ]
-      },
       {
         type: 'heading',
         attrs: { level: 1, blockId: 'toggle' },
@@ -725,6 +697,94 @@ export function createDemoNotes(): void {
       },
       {
         type: 'heading',
+        attrs: { level: 1, blockId: 'dataview' },
+        content: [{ type: 'text', text: 'Dataview 数据查询' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/dataview' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/查询' },
+          { type: 'text', text: ' 创建数据查询块，支持 LIST 和 TABLE 两种输出格式：' }
+        ]
+      },
+      {
+        type: 'dataviewBlock',
+        attrs: { code: 'LIST\nFROM ""\nWHERE is_favorite = true\nLIMIT 5', blockId: 'dvblk1' }
+      },
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'transclusion' },
+        content: [{ type: 'text', text: '内容引用 Transclusion' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/transclusion' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/引用' },
+          { type: 'text', text: ' 嵌入其他笔记的内容，支持实时同步更新。' }
+        ]
+      },
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'embed' },
+        content: [{ type: 'text', text: '网页嵌入 Embed' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/embed' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/嵌入' },
+          { type: 'text', text: ' 嵌入网页、视频等外部内容。' }
+        ]
+      },
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'importexport' },
+        content: [{ type: 'text', text: '导入导出' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '点击编辑器右上角的 ' },
+          { type: 'text', marks: [{ type: 'bold' }], text: '⋯' },
+          { type: 'text', text: ' 菜单：' }
+        ]
+      },
+      {
+        type: 'bulletList',
+        content: [
+          { type: 'listItem', content: [{ type: 'paragraph', content: [
+            { type: 'text', marks: [{ type: 'bold' }], text: '导出' },
+            { type: 'text', text: '：支持 PDF 和 Markdown 格式' }
+          ] }] },
+          { type: 'listItem', content: [{ type: 'paragraph', content: [
+            { type: 'text', marks: [{ type: 'bold' }], text: '导入' },
+            { type: 'text', text: '：支持 Markdown、PDF 解析、arXiv 论文导入' }
+          ] }] }
+        ]
+      },
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'callouts' },
+        content: [{ type: 'text', text: '提示块 Callout' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
+          { type: 'text', text: ' 选择不同类型（note/tip/warning/danger）。' }
+        ]
+      },
+      {
+        type: 'heading',
         attrs: { level: 1, blockId: 'tblsec' },
         content: [{ type: 'text', text: '表格' }]
       },
@@ -800,24 +860,6 @@ export function createDemoNotes(): void {
         { type: 'text', text: 'Back to ' },
         { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
       ] },
-      { type: 'heading', attrs: { level: 1, blockId: 'callouts' }, content: [{ type: 'text', text: 'Callout Blocks' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
-        { type: 'text', text: ' to choose different types:' }
-      ] },
-      { type: 'callout', attrs: { type: 'note', collapsed: false }, content: [
-        { type: 'paragraph', content: [{ type: 'text', text: '📝 This is a Note callout, great for general information.' }] }
-      ] },
-      { type: 'callout', attrs: { type: 'tip', collapsed: false }, content: [
-        { type: 'paragraph', content: [{ type: 'text', text: '💡 This is a Tip callout, perfect for sharing tips.' }] }
-      ] },
-      { type: 'callout', attrs: { type: 'warning', collapsed: false }, content: [
-        { type: 'paragraph', content: [{ type: 'text', text: '⚠️ This is a Warning callout for important notices.' }] }
-      ] },
-      { type: 'callout', attrs: { type: 'danger', collapsed: false }, content: [
-        { type: 'paragraph', content: [{ type: 'text', text: '🚨 This is a Danger callout for critical warnings.' }] }
-      ] },
       { type: 'heading', attrs: { level: 1, blockId: 'toggle' }, content: [{ type: 'text', text: 'Toggle Blocks' }] },
       { type: 'paragraph', content: [
         { type: 'text', text: 'Type ' },
@@ -867,6 +909,47 @@ export function createDemoNotes(): void {
         { type: 'text', text: ' to create a code block:' }
       ] },
       { type: 'codeBlock', attrs: { language: 'javascript', blockId: 'codex1' }, content: [{ type: 'text', text: '// Syntax highlighting\nfunction greet(name) {\n  console.log(`Hello, ${name}!`);\n}\n\ngreet("Flow");' }] },
+      { type: 'heading', attrs: { level: 1, blockId: 'dataview' }, content: [{ type: 'text', text: 'Dataview Queries' }] },
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Type ' },
+        { type: 'text', marks: [{ type: 'code' }], text: '/dataview' },
+        { type: 'text', text: ' to create data query blocks with LIST and TABLE output:' }
+      ] },
+      { type: 'dataviewBlock', attrs: { code: 'LIST\nFROM ""\nWHERE is_favorite = true\nLIMIT 5', blockId: 'dvblk1' } },
+      { type: 'heading', attrs: { level: 1, blockId: 'transclusion' }, content: [{ type: 'text', text: 'Transclusion' }] },
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Type ' },
+        { type: 'text', marks: [{ type: 'code' }], text: '/transclusion' },
+        { type: 'text', text: ' to embed content from other notes with live sync.' }
+      ] },
+      { type: 'heading', attrs: { level: 1, blockId: 'embed' }, content: [{ type: 'text', text: 'Web Embeds' }] },
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Type ' },
+        { type: 'text', marks: [{ type: 'code' }], text: '/embed' },
+        { type: 'text', text: ' to embed web pages, videos, and external content.' }
+      ] },
+      { type: 'heading', attrs: { level: 1, blockId: 'importexport' }, content: [{ type: 'text', text: 'Import & Export' }] },
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Click the ' },
+        { type: 'text', marks: [{ type: 'bold' }], text: '⋯' },
+        { type: 'text', text: ' menu in the top-right corner:' }
+      ] },
+      { type: 'bulletList', content: [
+        { type: 'listItem', content: [{ type: 'paragraph', content: [
+          { type: 'text', marks: [{ type: 'bold' }], text: 'Export' },
+          { type: 'text', text: ': PDF and Markdown formats' }
+        ] }] },
+        { type: 'listItem', content: [{ type: 'paragraph', content: [
+          { type: 'text', marks: [{ type: 'bold' }], text: 'Import' },
+          { type: 'text', text: ': Markdown, PDF parsing, arXiv papers' }
+        ] }] }
+      ] },
+      { type: 'heading', attrs: { level: 1, blockId: 'callouts' }, content: [{ type: 'text', text: 'Callout Blocks' }] },
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Type ' },
+        { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
+        { type: 'text', text: ' to choose types (note/tip/warning/danger).' }
+      ] },
       { type: 'heading', attrs: { level: 1, blockId: 'tblsec' }, content: [{ type: 'text', text: 'Tables' }] },
       { type: 'paragraph', content: [
         { type: 'text', text: 'Type ' },

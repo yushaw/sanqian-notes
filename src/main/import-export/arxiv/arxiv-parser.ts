@@ -384,7 +384,8 @@ function processFigure(
     markdownParts.push(`*${caption}*`)
   }
 
-  return markdownParts.join('\n')
+  // 用双换行分隔，确保每个图片成为独立的段落
+  return markdownParts.join('\n\n')
 }
 
 /**

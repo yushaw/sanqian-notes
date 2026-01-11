@@ -85,12 +85,15 @@ function PdfIcon() {
   )
 }
 
-// arXiv 图标
+// arXiv 官方 logo 风格
 function ArxivIcon() {
   return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-      <path d="M7 9.5v7M17 9.5v7M12 12v7" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+    <svg className="h-6" viewBox="0 0 50 18" fill="currentColor">
+      <text x="0" y="15" fontFamily="Arial, sans-serif" fontSize="16" fontWeight="normal">
+        <tspan>ar</tspan>
+        <tspan fill="#B31B1B" fontWeight="bold">X</tspan>
+        <tspan>iv</tspan>
+      </text>
     </svg>
   )
 }

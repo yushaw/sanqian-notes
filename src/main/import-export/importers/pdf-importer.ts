@@ -151,6 +151,63 @@ export class PdfImporter extends BaseImporter {
   }
 
   /**
+   * Parse a PDF file and return raw markdown content
+   * Used for inline import (insert at cursor)
+   */
+  async parseFile(sourcePath: string): Promise<{ content: string }> {
+    // 获取配置
+    let serviceId: string
+    let serviceConfig: Record<string, string>
+    let onProgress: ((p: PdfParseProgress) => void) | undefined
+    let abortSignal: AbortSignal | undefined
+
+    if (this.runtimeConfig) {
+      serviceId = this.runtimeConfig.serviceId
+      serviceConfig = this.runtimeConfig.serviceConfig
+      onProgress = this.runtimeConfig.onProgress
+      abortSignal = this.runtimeConfig.abortSignal
+    } else {
+      // 回退到存储的配置
+      serviceId = 'textin'
+      const stored = getServiceConfig(serviceId)
+      if (!stored) {
+        throw new Error('PDF service not configured. Please set App ID and Secret Code first.')
+      }
+      serviceConfig = stored
+    }
+
+    // 获取服务
+    const service = getPdfService(serviceId) || getDefaultPdfService()
+
+    // 验证文件
+    if (!existsSync(sourcePath)) {
+      throw new Error(`File not found: ${sourcePath}`)
+    }
+
+    const stat = statSync(sourcePath)
+    if (stat.size > MAX_FILE_SIZE) {
+      throw new Error(
+        `File too large: ${sourcePath} (${Math.round(stat.size / 1024 / 1024)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`
+      )
+    }
+
+    // 读取并解析 PDF
+    const pdfBuffer = readFileSync(sourcePath)
+    try {
+      const result = await service.parse(pdfBuffer, serviceConfig, onProgress, abortSignal)
+
+      if (!result.success) {
+        throw new Error(result.error || 'PDF parsing failed')
+      }
+
+      return { content: result.markdown }
+    } finally {
+      // 清理 runtimeConfig（parseFile 不使用 tempDir，所以只清理配置）
+      this.runtimeConfig = null
+    }
+  }
+
+  /**
    * 清理运行时配置和临时文件
    */
   cleanup(): void {

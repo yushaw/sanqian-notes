@@ -535,6 +535,132 @@ export class ArxivImporter {
   }
 
   /**
+   * Fetch arXiv paper as Markdown (without creating a note)
+   * Used for inline import at cursor position
+   */
+  async fetchAsMarkdown(
+    input: string,
+    onPdfProgress?: (progress: { stage: string; message: string }) => void
+  ): Promise<{ markdown: string; title: string }> {
+    this.abortController = new AbortController()
+    const signal = this.abortController.signal
+
+    try {
+      // 1. Parse input
+      const parsed = parseArxivInput(input)
+      if (!parsed) {
+        throw new Error(`Invalid arXiv ID or URL: ${input}`)
+      }
+      const { id, version } = parsed
+
+      // 2. Fetch metadata
+      const metadata = await fetchMetadata(id, version, signal)
+
+      // 3. Try HTML import
+      const htmlResult = await fetchHtml(id, version, signal)
+
+      if (htmlResult) {
+        try {
+          // 4. Parse HTML
+          const content = parseArxivHtml(htmlResult.html)
+
+          // 5. Download figures
+          let figures = content.figures
+          if (figures.length > 0) {
+            figures = await this.downloadFigures(figures, htmlResult.baseUrl, signal)
+          }
+
+          // 6. Convert to markdown (with local image paths)
+          let markdown = this.contentToMarkdown(
+            metadata,
+            { ...content, figures },
+            { inputs: [], includeAbstract: true, includeReferences: true }
+          )
+
+          // 7. Copy images to attachments directory and update paths in markdown
+          const attachments = figures
+            .filter((f) => f.localPath)
+            .map((f) => ({
+              originalRef: `![${f.caption || f.id}](${f.localPath})`,
+              sourcePath: f.localPath!,
+            }))
+
+          if (attachments.length > 0) {
+            const copyResult = await copyAttachmentsAndUpdateContent(markdown, attachments)
+            markdown = copyResult.updatedContent
+          }
+
+          return { markdown, title: metadata.title }
+        } catch (htmlError) {
+          console.warn(`[ArXiv] HTML parsing failed for ${id}, falling back to PDF:`, htmlError)
+          // Fall through to PDF
+        }
+      }
+
+      // 8. Fallback to PDF
+      return await this.fetchAsMarkdownViaPdf(id, version, metadata, onPdfProgress)
+    } catch (error) {
+      console.error('[ArXiv] fetchAsMarkdown failed:', error)
+      // Re-throw with more context for better error messages
+      throw error
+    } finally {
+      this.cleanup()
+    }
+  }
+
+  /**
+   * Fetch as markdown via PDF (fallback path)
+   */
+  private async fetchAsMarkdownViaPdf(
+    id: string,
+    version: number | undefined,
+    metadata: ArxivMetadata,
+    onPdfProgress?: (progress: { stage: string; message: string }) => void
+  ): Promise<{ markdown: string; title: string }> {
+    const signal = this.abortController?.signal
+
+    // Check if PDF service is configured
+    const serviceConfig = getServiceConfig('textin')
+    if (!serviceConfig) {
+      throw new Error('PDF service not configured. Please configure TextIn API first.')
+    }
+
+    // Download PDF
+    onPdfProgress?.({ stage: 'downloading', message: 'Downloading PDF...' })
+    const pdfBuffer = await fetchPdf(id, version, signal)
+
+    // Save to temp file
+    const tempPdfDir = join(app.getPath('temp'), 'sanqian-arxiv-pdf', Date.now().toString())
+    mkdirSync(tempPdfDir, { recursive: true })
+    const tempPdfPath = join(tempPdfDir, `${id.replace('/', '_')}.pdf`)
+    writeFileSync(tempPdfPath, pdfBuffer)
+
+    try {
+      // Configure PDF importer
+      pdfImporter.setRuntimeConfig({
+        serviceId: 'textin',
+        serviceConfig,
+        onProgress: onPdfProgress,
+        abortSignal: signal
+      })
+
+      // Parse PDF to get markdown content
+      const parseResult = await pdfImporter.parseFile(tempPdfPath)
+
+      // Add metadata header
+      const metadataMarkdown = this.generateMetadataHeader(metadata)
+      const markdown = metadataMarkdown + '\n\n' + parseResult.content
+
+      return { markdown, title: metadata.title }
+    } finally {
+      pdfImporter.cleanup()
+      if (existsSync(tempPdfDir)) {
+        rmSync(tempPdfDir, { recursive: true, force: true })
+      }
+    }
+  }
+
+  /**
    * Cancel ongoing import
    */
   cancel(): void {

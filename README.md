@@ -4351,3 +4351,27 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - 代码块连续换行规范化：添加 `.replace(/\n{3,}/g, '\n\n')` 避免多余空行
 - PDF 导出 finally 异常处理：用 try-catch 包裹 `win.close()` 防止阻塞临时文件清理
 - SDK 断开连接状态清理：监听 `disconnected` 事件清理 session resource 状态
+
+### 2025-01-11: 顶栏更多菜单添加导入功能
+
+在顶栏"更多"菜单（三点图标）中添加 Import 功能，支持在当前光标位置插入内容：
+
+**功能**：
+- 导入 Markdown 文件：选择 .md 文件，内容直接插入编辑器
+- 导入 PDF 文件：选择 .pdf 文件，通过 TextIn 服务解析为 Markdown 后插入
+- 导入 arXiv 论文：输入 arXiv ID 或 URL，获取论文全文并插入
+
+**UI 设计**：
+- 统一的导入弹窗，使用 tabs 切换不同导入类型（复用 Export 弹窗样式）
+- 导入和导出作为一组，之间无分隔线
+
+**修改文件**：
+- `src/renderer/src/components/ExportMenu.tsx` - 添加 Import 菜单项和导入弹窗
+- `src/renderer/src/components/Editor.tsx` - 传递 onInsertContent 回调
+- `src/renderer/src/i18n/translations.ts` - 添加导入相关翻译
+- `src/preload/index.ts` - 添加 importInline API
+- `src/preload/index.d.ts` - 类型定义
+- `src/renderer/src/env.d.ts` - 类型定义
+- `src/main/index.ts` - 添加 IPC handlers (importInline:selectMarkdown, importInline:selectAndParsePdf, importInline:arxiv)
+- `src/main/import-export/arxiv/arxiv-importer.ts` - 添加 fetchAsMarkdown 方法
+- `src/main/import-export/importers/pdf-importer.ts` - 添加 parseFile 方法

@@ -1889,6 +1889,76 @@ app.whenReady().then(() => {
     return true
   })
 
+  // ============ Inline Import (insert at cursor) ============
+  ipcMain.handle('importInline:selectMarkdown', async () => {
+    const { dialog } = await import('electron')
+    const { readFile } = await import('fs/promises')
+
+    const result = await dialog.showOpenDialog({
+      filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+      properties: ['openFile'],
+    })
+
+    if (result.canceled || !result.filePaths[0]) return null
+
+    const content = await readFile(result.filePaths[0], 'utf-8')
+    return { content, path: result.filePaths[0] }
+  })
+
+  ipcMain.handle('importInline:selectAndParsePdf', async () => {
+    const { dialog } = await import('electron')
+    const win = mainView
+
+    const result = await dialog.showOpenDialog({
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      properties: ['openFile'],
+    })
+
+    if (result.canceled || !result.filePaths[0]) return null
+
+    const pdfPath = result.filePaths[0]
+
+    // Get PDF service config
+    const config = getPdfConfig()
+    const serviceConfig = getServiceConfig(config.activeService)
+
+    if (!serviceConfig) {
+      throw new Error('PDF service not configured')
+    }
+
+    // Set up progress callback
+    const onProgress = (progress: PdfParseProgress) => {
+      win?.webContents.send('pdf:importProgress', progress)
+    }
+
+    // Parse PDF to markdown
+    pdfImporter.setRuntimeConfig({
+      serviceId: config.activeService,
+      serviceConfig,
+      onProgress,
+    })
+
+    try {
+      const parseResult = await pdfImporter.parseFile(pdfPath)
+      return { content: parseResult.content, path: pdfPath }
+    } finally {
+      pdfImporter.cleanup()
+    }
+  })
+
+  ipcMain.handle('importInline:arxiv', async (_, arxivId: string) => {
+    const win = mainView
+
+    // Set up progress callback for PDF fallback
+    const onPdfProgress = (progress: { stage: string; message: string }) => {
+      win?.webContents.send('pdf:importProgress', progress)
+    }
+
+    // fetchAsMarkdown throws on error, which will be propagated to renderer
+    const result = await arxivImporter.fetchAsMarkdown(arxivId, onPdfProgress)
+    return { content: result.markdown, title: result.title }
+  })
+
   ipcMain.handle('app:getDataPath', () => {
     return app.getPath('userData')
   })

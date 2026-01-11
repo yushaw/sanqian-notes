@@ -370,6 +370,11 @@ declare global {
         getPath: () => Promise<string>
         openPath: () => Promise<string>
       }
+      importInline: {
+        selectMarkdown: () => Promise<{ content: string; path: string } | null>
+        selectAndParsePdf: () => Promise<{ content: string; path: string } | null>
+        arxiv: (arxivId: string) => Promise<{ content: string; title: string }>
+      }
       agentTask: {
         get: (id: string) => Promise<unknown | null>
         getByBlockId: (blockId: string) => Promise<unknown | null>

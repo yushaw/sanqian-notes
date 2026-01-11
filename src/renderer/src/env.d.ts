@@ -441,6 +441,11 @@ interface Window {
       getPath: () => Promise<string>
       openPath: () => Promise<string>
     }
+    importInline: {
+      selectMarkdown: () => Promise<{ content: string; path: string } | null>
+      selectAndParsePdf: () => Promise<{ content: string; path: string } | null>
+      arxiv: (arxivId: string) => Promise<{ content: string; title: string }>
+    }
     agentTask: {
       get: (id: string) => Promise<AgentTaskRecord | null>
       getByBlockId: (blockId: string) => Promise<AgentTaskRecord | null>

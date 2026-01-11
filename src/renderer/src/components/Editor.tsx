@@ -775,6 +775,15 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // 跟踪上次的 note.id，用于检测切换笔记
   const prevSyncNoteIdRef = useRef<string | null>(null)
 
+  // 处理导入内容插入（用于 ExportMenu 的 Import 功能）
+  const handleInsertContent = useCallback((content: string) => {
+    if (!editor) return
+    const html = markdownToHtml(content)
+    editor.commands.insertContent(html, {
+      parseOptions: { preserveWhitespace: false },
+    })
+  }, [editor])
+
   // 同步外部内容变化到编辑器（长期主义方案：避免重建编辑器）
   // 场景：从打字机模式退出后，note.content 已更新，需要同步到编辑器
   useEffect(() => {
@@ -1666,6 +1675,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
                 noteId={note.id}
                 onSplitHorizontal={onSplitHorizontal}
                 onSplitVertical={onSplitVertical}
+                onInsertContent={handleInsertContent}
               />
             </div>
           )}
@@ -1742,6 +1752,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
                 noteId={note.id}
                 onSplitHorizontal={onSplitHorizontal}
                 onSplitVertical={onSplitVertical}
+                onInsertContent={handleInsertContent}
               />
             )}
             {showPaneControls && onClosePane && (

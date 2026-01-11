@@ -348,4 +348,10 @@ contextBridge.exposeInMainWorld('electron', {
     getPath: () => ipcRenderer.invoke('app:getDataPath'),
     openPath: () => ipcRenderer.invoke('app:openDataPath'),
   },
+  // Inline import API (insert content at cursor)
+  importInline: {
+    selectMarkdown: () => ipcRenderer.invoke('importInline:selectMarkdown'),
+    selectAndParsePdf: () => ipcRenderer.invoke('importInline:selectAndParsePdf'),
+    arxiv: (arxivId: string) => ipcRenderer.invoke('importInline:arxiv', arxivId),
+  },
 })

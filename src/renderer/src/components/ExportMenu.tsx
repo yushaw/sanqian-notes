@@ -12,9 +12,11 @@ interface ExportMenuProps {
   noteId?: string
   onSplitHorizontal?: () => void
   onSplitVertical?: () => void
+  onInsertContent?: (content: string) => void
 }
 
 type ExportFormat = 'pdf' | 'markdown'
+type ImportType = 'markdown' | 'pdf' | 'arxiv'
 
 // SVG Icons
 const Icons = {
@@ -23,6 +25,12 @@ const Icons = {
       <circle cx="12" cy="12" r="1" />
       <circle cx="19" cy="12" r="1" />
       <circle cx="5" cy="12" r="1" />
+    </svg>
+  ),
+  close: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   ),
   export: (
@@ -44,14 +52,22 @@ const Icons = {
       <line x1="3" y1="12" x2="21" y2="12" />
     </svg>
   ),
+  import: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  ),
 }
 
-export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: ExportMenuProps) {
+export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInsertContent }: ExportMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [exportModalOpen, setExportModalOpen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [format, setFormat] = useState<ExportFormat>('pdf')
   const menuRef = useRef<HTMLDivElement>(null)
+  const arxivInputRef = useRef<HTMLInputElement>(null)
 
   // PDF 配置
   const [pageSize, setPageSize] = useState<'A4' | 'Letter'>('A4')
@@ -61,7 +77,32 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
   const [includeAttachments, setIncludeAttachments] = useState(true)
   const [includeFrontMatter, setIncludeFrontMatter] = useState(true)
 
+  // Import 状态
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importType, setImportType] = useState<ImportType>('markdown')
+  const [isImporting, setIsImporting] = useState(false)
+  const [arxivInput, setArxivInput] = useState('')
+  const [importProgress, setImportProgress] = useState<string>('')
+
   const t = useTranslations()
+
+  // 监听 PDF 导入进度
+  useEffect(() => {
+    const unsubscribe = window.electron?.pdfImport?.onProgress?.((progress: { message?: string }) => {
+      if (progress.message) {
+        setImportProgress(progress.message)
+      }
+    })
+    return () => unsubscribe?.()
+  }, [])
+
+  // arXiv 输入框聚焦（tab 切换时也生效）
+  useEffect(() => {
+    if (importModalOpen && importType === 'arxiv') {
+      // 延迟聚焦，确保 DOM 已渲染
+      setTimeout(() => arxivInputRef.current?.focus(), 0)
+    }
+  }, [importModalOpen, importType])
 
   // 点击外部关闭菜单（使用 capture 阶段，避免被 drag region 阻止）
   useEffect(() => {
@@ -83,6 +124,8 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
       if (e.key === 'Escape') {
         if (exportModalOpen) {
           setExportModalOpen(false)
+        } else if (importModalOpen) {
+          setImportModalOpen(false)
         } else if (menuOpen) {
           setMenuOpen(false)
         }
@@ -91,11 +134,79 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [menuOpen, exportModalOpen])
+  }, [menuOpen, exportModalOpen, importModalOpen])
 
   const openExportModal = () => {
     setMenuOpen(false)
     setExportModalOpen(true)
+  }
+
+  const openImportModal = () => {
+    setMenuOpen(false)
+    setImportModalOpen(true)
+  }
+
+  // Import handlers
+  const handleImportMarkdown = async () => {
+    if (!onInsertContent) return
+    setIsImporting(true)
+
+    try {
+      const result = await window.electron?.importInline?.selectMarkdown()
+      if (result?.content) {
+        onInsertContent(result.content)
+        setImportModalOpen(false)
+        toast(t.export?.importSuccess || 'Import successful')
+      }
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), { type: 'error' })
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  const handleImportPdf = async () => {
+    if (!onInsertContent) return
+    setIsImporting(true)
+    setImportProgress('')
+
+    try {
+      const result = await window.electron?.importInline?.selectAndParsePdf()
+      if (result?.content) {
+        onInsertContent(result.content)
+        setImportModalOpen(false)
+        toast(t.export?.importSuccess || 'Import successful')
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      if (errorMsg.includes('not configured')) {
+        toast(t.export?.pdfNotConfigured || 'Please configure PDF service in Settings first', { type: 'error' })
+      } else {
+        toast(errorMsg, { type: 'error' })
+      }
+    } finally {
+      setIsImporting(false)
+      setImportProgress('')
+    }
+  }
+
+  const handleImportArxiv = async () => {
+    if (!onInsertContent || !arxivInput.trim()) return
+    setIsImporting(true)
+
+    try {
+      const result = await window.electron?.importInline?.arxiv(arxivInput.trim())
+      if (result) {
+        onInsertContent(result.content)
+        setImportModalOpen(false)
+        setArxivInput('')
+        toast(t.export?.importSuccess || 'Import successful')
+      }
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), { type: 'error' })
+    } finally {
+      setIsImporting(false)
+    }
   }
 
   const handleExport = async () => {
@@ -129,7 +240,7 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
         }
       }
     } catch (error) {
-      toast(String(error), { type: 'error' })
+      toast(error instanceof Error ? error.message : String(error), { type: 'error' })
     } finally {
       setIsExporting(false)
     }
@@ -142,10 +253,10 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
         <button
           className="more-menu-trigger"
           onClick={() => setMenuOpen(!menuOpen)}
-          disabled={isExporting}
+          disabled={isExporting || isImporting}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          {isExporting ? <span className="more-menu-spinner" /> : Icons.more}
+          {(isExporting || isImporting) ? <span className="more-menu-spinner" /> : Icons.more}
         </button>
 
         {menuOpen && (
@@ -164,7 +275,13 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
                   <span>{t.paneControls?.splitVertical || 'Split Down'}</span>
                 </button>
               )}
-              {(onSplitHorizontal || onSplitVertical) && noteId && <div className="more-menu-divider" />}
+              {(onSplitHorizontal || onSplitVertical) && (onInsertContent || noteId) && <div className="more-menu-divider" />}
+              {onInsertContent && (
+                <button className="more-menu-item" onClick={openImportModal}>
+                  {Icons.import}
+                  <span>{t.export?.import || 'Import'}</span>
+                </button>
+              )}
               {noteId && (
                 <button className="more-menu-item" onClick={openExportModal}>
                   {Icons.export}
@@ -180,6 +297,10 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
       {exportModalOpen && (
         <div className="export-overlay" onClick={() => setExportModalOpen(false)}>
           <div className="export-dialog" onClick={(e) => e.stopPropagation()}>
+            {/* 关闭按钮 */}
+            <button className="dialog-close-btn" onClick={() => setExportModalOpen(false)}>
+              {Icons.close}
+            </button>
             {/* 格式切换 */}
             <div className="export-tabs">
               <button
@@ -260,6 +381,113 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导入弹窗 */}
+      {importModalOpen && (
+        <div className="export-overlay" onClick={() => !isImporting && setImportModalOpen(false)}>
+          <div className="export-dialog" onClick={(e) => e.stopPropagation()}>
+            {/* 关闭按钮 */}
+            <button
+              className="dialog-close-btn"
+              onClick={() => setImportModalOpen(false)}
+              disabled={isImporting}
+            >
+              {Icons.close}
+            </button>
+            {/* 类型切换 */}
+            <div className="export-tabs">
+              <button
+                className={`export-tab ${importType === 'markdown' ? 'active' : ''}`}
+                onClick={() => setImportType('markdown')}
+                disabled={isImporting}
+              >
+                Markdown
+              </button>
+              <button
+                className={`export-tab ${importType === 'pdf' ? 'active' : ''}`}
+                onClick={() => setImportType('pdf')}
+                disabled={isImporting}
+              >
+                PDF
+              </button>
+              <button
+                className={`export-tab ${importType === 'arxiv' ? 'active' : ''}`}
+                onClick={() => setImportType('arxiv')}
+                disabled={isImporting}
+              >
+                arXiv
+              </button>
+            </div>
+
+            {/* 导入内容区 */}
+            <div className="export-options import-content">
+              {importType === 'markdown' && (
+                <button
+                  className="import-file-btn"
+                  onClick={handleImportMarkdown}
+                  disabled={isImporting}
+                >
+                  {isImporting ? (
+                    <>
+                      <span className="export-submit-spinner" />
+                      <span>{t.export?.importing || 'Importing...'}</span>
+                    </>
+                  ) : (
+                    t.export?.selectFile || 'Select File'
+                  )}
+                </button>
+              )}
+
+              {importType === 'pdf' && (
+                <button
+                  className="import-file-btn"
+                  onClick={handleImportPdf}
+                  disabled={isImporting}
+                >
+                  {isImporting ? (
+                    <>
+                      <span className="export-submit-spinner" />
+                      {importProgress && <span className="import-progress-text">{importProgress}</span>}
+                    </>
+                  ) : (
+                    t.export?.selectFile || 'Select File'
+                  )}
+                </button>
+              )}
+
+              {importType === 'arxiv' && (
+                <div className="import-arxiv-form">
+                  <input
+                    ref={arxivInputRef}
+                    className="import-arxiv-input"
+                    type="text"
+                    placeholder={t.export?.arxivPlaceholder || 'arXiv ID or URL (e.g. 2301.00001)'}
+                    value={arxivInput}
+                    onChange={(e) => setArxivInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && arxivInput.trim() && !isImporting) {
+                        handleImportArxiv()
+                      }
+                    }}
+                    disabled={isImporting}
+                  />
+                  <button
+                    className="export-submit-btn"
+                    onClick={handleImportArxiv}
+                    disabled={isImporting || !arxivInput.trim()}
+                  >
+                    {isImporting ? (
+                      <span className="export-submit-spinner" />
+                    ) : (
+                      t.export?.importBtn || 'Import'
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -380,11 +608,52 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
         }
 
         .export-dialog {
+          position: relative;
           width: 260px;
           background: var(--color-card);
           border-radius: 10px;
           box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
           padding: 12px;
+          overflow: visible;
+        }
+
+        .dialog-close-btn {
+          position: absolute;
+          top: -12px;
+          right: -12px;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: none;
+          background: rgba(255, 255, 255, 0.9);
+          border-radius: 50%;
+          color: var(--color-text-secondary);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .dialog-close-btn:hover {
+          background: white;
+          color: var(--color-text);
+          transform: scale(1.05);
+        }
+
+        .dialog-close-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        :root[data-theme="dark"] .dialog-close-btn,
+        .dark .dialog-close-btn {
+          background: rgba(60, 60, 60, 0.9);
+        }
+
+        :root[data-theme="dark"] .dialog-close-btn:hover,
+        .dark .dialog-close-btn:hover {
+          background: rgba(80, 80, 80, 1);
         }
 
         .export-tabs {
@@ -417,6 +686,11 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
           background: var(--color-card);
           color: var(--color-text);
           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+
+        .export-tab:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .export-options {
@@ -505,6 +779,77 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical }: Expor
           border-top-color: transparent;
           border-radius: 50%;
           animation: menu-spin 0.6s linear infinite;
+        }
+
+        /* Import styles */
+        .import-content {
+          min-height: 60px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+        }
+
+        .import-file-btn {
+          width: 100%;
+          padding: 10px 16px;
+          border: 1px dashed var(--color-border);
+          background: var(--color-bg);
+          border-radius: 6px;
+          font-size: 12px;
+          color: var(--color-text-secondary);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+        }
+
+        .import-file-btn:hover:not(:disabled) {
+          border-color: var(--color-accent);
+          color: var(--color-accent);
+          background: var(--color-hover);
+        }
+
+        .import-file-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .import-arxiv-form {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .import-arxiv-input {
+          width: 100%;
+          padding: 8px 10px;
+          border: 1px solid var(--color-border);
+          border-radius: 5px;
+          background: var(--color-bg);
+          color: var(--color-text);
+          font-size: 12px;
+          box-sizing: border-box;
+        }
+
+        .import-arxiv-input:focus {
+          outline: none;
+          border-color: var(--color-accent);
+        }
+
+        .import-arxiv-input::placeholder {
+          color: var(--color-text-tertiary);
+        }
+
+        .import-arxiv-input:disabled {
+          opacity: 0.5;
+        }
+
+        .import-progress-text {
+          font-size: 11px;
+          color: var(--color-text-secondary);
+          margin-left: 4px;
         }
 
       `}</style>

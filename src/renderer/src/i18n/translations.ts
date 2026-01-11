@@ -333,6 +333,15 @@ export interface Translations {
     includeBackground: string
     includeAttachments: string
     includeFrontMatter: string
+    // Import related
+    import: string
+    selectFile: string
+    arxivPlaceholder: string
+    importing: string
+    importBtn: string
+    importSuccess: string
+    importFailed: string
+    pdfNotConfigured: string
   }
   tray: {
     show: string
@@ -1136,6 +1145,15 @@ const zh: Translations = {
     includeBackground: '包含背景颜色',
     includeAttachments: '复制附件到导出目录',
     includeFrontMatter: '包含 YAML Front Matter',
+    // 导入相关
+    import: '导入',
+    selectFile: '选择文件',
+    arxivPlaceholder: 'arXiv ID 或 URL (如 2301.00001)',
+    importing: '导入中...',
+    importBtn: '导入',
+    importSuccess: '导入成功',
+    importFailed: '导入失败',
+    pdfNotConfigured: '请先在设置中配置 PDF 服务',
   },
   tray: {
     show: '显示窗口',
@@ -1936,6 +1954,15 @@ const en: Translations = {
     includeBackground: 'Include background colors',
     includeAttachments: 'Copy attachments to export folder',
     includeFrontMatter: 'Include YAML Front Matter',
+    // Import related
+    import: 'Import',
+    selectFile: 'Select File',
+    arxivPlaceholder: 'arXiv ID or URL (e.g. 2301.00001)',
+    importing: 'Importing...',
+    importBtn: 'Import',
+    importSuccess: 'Import successful',
+    importFailed: 'Import failed',
+    pdfNotConfigured: 'Please configure PDF service in Settings first',
   },
   tray: {
     show: 'Show Window',

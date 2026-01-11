@@ -404,6 +404,39 @@ interface Window {
         percent?: number
       }) => void) => () => void
     }
+    arxiv: {
+      parseInput: (input: string) => Promise<{ id: string; version?: number } | null>
+      import: (options: {
+        inputs: string[]
+        notebookId?: string
+        includeAbstract?: boolean
+        includeReferences?: boolean
+        downloadFigures?: boolean
+        preferHtml?: boolean
+      }) => Promise<{
+        success: boolean
+        imported: number
+        failed: number
+        results: Array<{
+          input: string
+          noteId?: string
+          title?: string
+          error?: string
+          source: 'html' | 'pdf'
+        }>
+      }>
+      cancel: () => Promise<boolean>
+      onProgress: (callback: (progress: {
+        current: number
+        total: number
+        currentPaper: {
+          paperId: string
+          stage: string
+          message: string
+          percent: number
+        }
+      }) => void) => () => void
+    }
     appData: {
       getPath: () => Promise<string>
       openPath: () => Promise<string>

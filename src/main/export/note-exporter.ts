@@ -622,7 +622,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
           <div class="transclusion-content">${referencedHTML}</div>
         </div>`
       }
-      return `<div class="transclusion-block"><em>引用: ${escapeHTML(noteName || noteId)}</em></div>`
+      return `<div class="transclusion-block"><em>${t().export.reference}: ${escapeHTML(noteName || noteId)}</em></div>`
     }
 
     case 'dataviewBlock': {
@@ -977,8 +977,12 @@ export async function exportNoteAsPDF(
     console.error('Export PDF failed:', error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   } finally {
-    win.close()
-    // 清理临时文件
+    // 确保窗口关闭不会阻止临时文件清理
+    try {
+      win.close()
+    } catch {
+      // 忽略关闭失败
+    }
     try {
       await unlink(tempFile)
     } catch {

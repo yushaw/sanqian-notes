@@ -8,8 +8,9 @@ import { useI18n } from '../i18n'
 import { ImportDialog } from './ImportDialog'
 import { ExportDialog } from './ExportDialog'
 import { PdfImportDialog } from './PdfImportDialog'
+import { ArxivImportDialog } from './ArxivImportDialog'
 
-type ImporterType = 'markdown' | 'notion' | 'obsidian' | 'pdf'
+type ImporterType = 'markdown' | 'notion' | 'obsidian' | 'pdf' | 'arxiv'
 
 // 导入来源卡片组件
 function ImportSourceCard({
@@ -84,6 +85,16 @@ function PdfIcon() {
   )
 }
 
+// arXiv 图标
+function ArxivIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+      <path d="M7 9.5v7M17 9.5v7M12 12v7" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+    </svg>
+  )
+}
+
 export function DataSettings() {
   const { t } = useI18n()
   const [showImportDialog, setShowImportDialog] = useState(false)
@@ -132,6 +143,12 @@ export function DataSettings() {
             description={t.pdfImport?.description || 'Import PDF files via cloud API (requires API key)'}
             onClick={() => handleImportClick('pdf')}
           />
+          <ImportSourceCard
+            icon={<ArxivIcon />}
+            title={t.arxivImport?.title || 'arXiv'}
+            description={t.importExport?.arxivImportDesc || 'Import papers from arXiv (HTML or PDF)'}
+            onClick={() => handleImportClick('arxiv')}
+          />
         </div>
       </div>
 
@@ -158,6 +175,8 @@ export function DataSettings() {
       {showImportDialog && selectedImporter && (
         selectedImporter === 'pdf' ? (
           <PdfImportDialog onClose={handleCloseImport} />
+        ) : selectedImporter === 'arxiv' ? (
+          <ArxivImportDialog onClose={handleCloseImport} />
         ) : (
           <ImportDialog importerType={selectedImporter} onClose={handleCloseImport} />
         )

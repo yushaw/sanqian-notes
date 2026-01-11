@@ -42,11 +42,20 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&amp;/g, '&') // 必须放在最后，避免二次解码
 }
 
+// Storage for protected math formulas during preprocessing
+let protectedBlockMaths: string[] = []
+let protectedInlineMaths: string[] = []
+
 /**
  * 预处理 Markdown，处理自定义语法
+ * 保护数学公式不被 marked 错误解析（如 LaTeX 的 _ 被误认为斜体）
  */
 function preprocessMarkdown(markdown: string): string {
   let result = markdown
+
+  // 重置保护的数学公式存储
+  protectedBlockMaths = []
+  protectedInlineMaths = []
 
   // 保护代码块
   const codeBlocks: string[] = []
@@ -60,6 +69,20 @@ function preprocessMarkdown(markdown: string): string {
   result = result.replace(/`[^`]+`/g, (match) => {
     inlineCodes.push(match)
     return `\x00INLINE_CODE_${inlineCodes.length - 1}\x00`
+  })
+
+  // 保护块级数学公式 $$...$$（必须在行内公式之前）
+  // 这些占位符会保留到 postProcessMath 阶段
+  result = result.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
+    protectedBlockMaths.push(latex)
+    return `\x00BLOCK_MATH_${protectedBlockMaths.length - 1}\x00`
+  })
+
+  // 保护行内数学公式 $...$（防止 _ 被误解析为斜体）
+  // 这些占位符会保留到 postProcessMath 阶段
+  result = result.replace(/\$([^$\n]+)\$/g, (_, latex) => {
+    protectedInlineMaths.push(latex)
+    return `\x00INLINE_MATH_${protectedInlineMaths.length - 1}\x00`
   })
 
   // 保护 data URI（base64 图片等）
@@ -91,6 +114,8 @@ function preprocessMarkdown(markdown: string): string {
   dataUris.forEach((uri, i) => {
     result = result.replace(`\x00DATA_URI_${i}\x00`, uri)
   })
+
+  // 注意：数学公式占位符不在这里恢复，而是在 postProcessMath 阶段处理
 
   // 恢复行内代码
   inlineCodes.forEach((code, i) => {
@@ -281,7 +306,21 @@ function parseToken(token: Token): TiptapNode[] {
       const paraToken = token as Tokens.Paragraph
       const text = paraToken.raw?.trim() || ''
 
-      // 检查是否是块级数学公式
+      // 检查是否是块级数学公式占位符
+      const blockMathPlaceholder = text.match(/^\x00BLOCK_MATH_(\d+)\x00$/)
+      if (blockMathPlaceholder) {
+        const index = parseInt(blockMathPlaceholder[1], 10)
+        const latex = protectedBlockMaths[index] || ''
+        return [{
+          type: 'paragraph',
+          content: [{
+            type: 'inlineMath',
+            attrs: { latex: latex.trim(), display: 'yes' }
+          }]
+        }]
+      }
+
+      // 检查是否是块级数学公式（向后兼容）
       // 统一使用 inlineMath + display: 'yes'，包裹在 paragraph 中
       // 与用户输入 $$...$$ 创建的节点保持一致
       const mathMatch = text.match(/^\$\$([\s\S]+?)\$\$$/)
@@ -672,7 +711,8 @@ function parseListItemContent(item: Tokens.ListItem): TiptapNode[] {
 }
 
 /**
- * 后处理：处理行内数学公式
+ * 后处理：处理数学公式占位符
+ * 将预处理阶段保护的数学公式占位符转换为 inlineMath 节点
  */
 function postProcessMath(nodes: TiptapNode[]): TiptapNode[] {
   return nodes.map(node => {
@@ -681,24 +721,52 @@ function postProcessMath(nodes: TiptapNode[]): TiptapNode[] {
 
       for (const child of node.content) {
         if (child.type === 'text' && child.text) {
-          // 检查行内数学公式
-          const parts = child.text.split(/(\$[^$\n]+\$)/)
+          // 处理数学公式占位符和原始 $...$ 格式
+          // 使用占位符模式和原始模式
+          const parts = child.text.split(/(\x00INLINE_MATH_\d+\x00|\x00BLOCK_MATH_\d+\x00|\$[^$\n]+\$)/)
           for (const part of parts) {
             if (!part) continue
-            const mathMatch = part.match(/^\$([^$\n]+)\$$/)
-            if (mathMatch) {
+
+            // 检查块级数学公式占位符
+            const blockMathMatch = part.match(/^\x00BLOCK_MATH_(\d+)\x00$/)
+            if (blockMathMatch) {
+              const index = parseInt(blockMathMatch[1], 10)
+              const latex = protectedBlockMaths[index] || ''
               newContent.push({
                 type: 'inlineMath',
-                attrs: { latex: mathMatch[1] }
+                attrs: { latex, display: 'yes' }
               })
-            } else {
-              // 保留原有的 marks
-              newContent.push({
-                type: 'text',
-                text: part,
-                ...(child.marks ? { marks: child.marks } : {})
-              })
+              continue
             }
+
+            // 检查行内数学公式占位符
+            const inlineMathMatch = part.match(/^\x00INLINE_MATH_(\d+)\x00$/)
+            if (inlineMathMatch) {
+              const index = parseInt(inlineMathMatch[1], 10)
+              const latex = protectedInlineMaths[index] || ''
+              newContent.push({
+                type: 'inlineMath',
+                attrs: { latex }
+              })
+              continue
+            }
+
+            // 检查原始的行内数学公式格式 $...$（向后兼容）
+            const rawMathMatch = part.match(/^\$([^$\n]+)\$$/)
+            if (rawMathMatch) {
+              newContent.push({
+                type: 'inlineMath',
+                attrs: { latex: rawMathMatch[1] }
+              })
+              continue
+            }
+
+            // 普通文本，保留原有的 marks
+            newContent.push({
+              type: 'text',
+              text: part,
+              ...(child.marks ? { marks: child.marks } : {})
+            })
           }
         } else {
           newContent.push(child)

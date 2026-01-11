@@ -134,6 +134,8 @@ import {
 import { getPdfConfig, setPdfConfig, getServiceConfig, setServiceConfig, type PdfServiceConfigs } from './import-export/pdf-config'
 import { pdfImporter } from './import-export/importers/pdf-importer'
 import type { PdfParseProgress } from './import-export/pdf-services/types'
+import { arxivImporter, parseArxivInput } from './import-export/arxiv'
+import type { ArxivImportOptions, ArxivBatchProgress } from './import-export/arxiv'
 import {
   type Language,
   type ResolvedLanguage,
@@ -287,7 +289,7 @@ function truncateText(text: string, maxSize: number = MAX_RESOURCE_SIZE): string
       high = mid - 1
     }
   }
-  return text.slice(0, low) + '\n\n[内容已截断...]'
+  return text.slice(0, low) + '\n\n' + t().common.contentTruncated
 }
 
 /**
@@ -307,6 +309,13 @@ function setupSessionResourceListeners(): void {
       // Also reset previousSelectedText so next selection change will push again
       previousSelectedText = null
     }
+  })
+
+  // Listen for disconnected events to clean up state (resources may be lost on reconnect)
+  client.on('disconnected', () => {
+    console.log('[SessionResource] SDK disconnected, clearing resource state')
+    currentSelectionResourceId = null
+    previousSelectedText = null
   })
 }
 
@@ -1854,6 +1863,31 @@ app.whenReady().then(() => {
       }
     }
   )
+
+  // ============ arXiv Import ============
+  ipcMain.handle('arxiv:parseInput', (_, input: string) => {
+    return parseArxivInput(input)
+  })
+
+  ipcMain.handle('arxiv:import', async (_, options: ArxivImportOptions) => {
+    const win = mainView
+
+    const result = await arxivImporter.import(options, (progress: ArxivBatchProgress) => {
+      win?.webContents.send('arxiv:importProgress', progress)
+    })
+
+    // Notify data update
+    if (result.imported > 0) {
+      mainView?.webContents.send('data:changed')
+    }
+
+    return result
+  })
+
+  ipcMain.handle('arxiv:cancel', () => {
+    arxivImporter.cancel()
+    return true
+  })
 
   ipcMain.handle('app:getDataPath', () => {
     return app.getPath('userData')

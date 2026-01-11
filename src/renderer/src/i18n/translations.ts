@@ -689,6 +689,7 @@ export interface Translations {
     obsidianImport: string
     obsidianImportDesc: string
     obsidianImportHint: string
+    arxivImportDesc: string
     // 导出
     export: string
     exportDescription: string
@@ -772,6 +773,36 @@ export interface Translations {
     successCount: string
     failCount: string
     close: string
+  }
+  arxivImport: {
+    title: string
+    inputLabel: string
+    inputPlaceholder: string
+    validCount: string
+    invalidCount: string
+    targetNotebook: string
+    noNotebook: string
+    includeAbstract: string
+    downloadFigures: string
+    includeReferences: string
+    preferHtml: string
+    startImport: string
+    starting: string
+    cancelling: string
+    cancel: string
+    progressCount: string
+    stageFetchingMetadata: string
+    stageFetchingHtml: string
+    stageParsing: string
+    stageDownloadingImages: string
+    stageConverting: string
+    stageFallbackPdf: string
+    stageDone: string
+    importSuccess: string
+    importPartial: string
+    successCount: string
+    failCount: string
+    done: string
   }
 }
 
@@ -1458,6 +1489,7 @@ const zh: Translations = {
     obsidianImport: 'Obsidian',
     obsidianImportDesc: '导入 Obsidian 库文件夹',
     obsidianImportHint: '选择你的 Obsidian vault 文件夹，通常包含 .obsidian 目录',
+    arxivImportDesc: '导入 arXiv 论文（HTML 或 PDF）',
     // 导出
     export: '导出笔记',
     exportDescription: '将笔记导出为 Markdown 文件或 JSON 备份',
@@ -1541,6 +1573,36 @@ const zh: Translations = {
     successCount: '成功导入 {n} 个文件',
     failCount: '{n} 个失败',
     close: '完成'
+  },
+  arxivImport: {
+    title: '导入 arXiv 论文',
+    inputLabel: 'arXiv ID 或 URL',
+    inputPlaceholder: '输入 arXiv ID 或 URL，每行一个\n示例：2301.00001、arxiv:2301.00001、https://arxiv.org/abs/2301.00001',
+    validCount: '{n} 个有效输入',
+    invalidCount: '{n} 个无效：',
+    targetNotebook: '目标笔记本',
+    noNotebook: '不指定',
+    includeAbstract: '包含摘要',
+    downloadFigures: '下载图片',
+    includeReferences: '包含参考文献',
+    preferHtml: '优先使用 HTML 格式（不可用时回退到 PDF）',
+    startImport: '开始导入',
+    starting: '准备中...',
+    cancelling: '正在取消...',
+    cancel: '取消',
+    progressCount: '{current} / {total}',
+    stageFetchingMetadata: '获取元数据...',
+    stageFetchingHtml: '获取 HTML...',
+    stageParsing: '解析内容...',
+    stageDownloadingImages: '下载图片...',
+    stageConverting: '转换为笔记...',
+    stageFallbackPdf: '回退到 PDF...',
+    stageDone: '完成',
+    importSuccess: '导入成功！',
+    importPartial: '导入完成（有错误）',
+    successCount: '成功导入 {n} 篇论文',
+    failCount: '{n} 篇失败',
+    done: '完成'
   }
 }
 
@@ -2227,6 +2289,7 @@ const en: Translations = {
     obsidianImport: 'Obsidian',
     obsidianImportDesc: 'Import Obsidian vault folder',
     obsidianImportHint: 'Select your Obsidian vault folder (contains .obsidian directory)',
+    arxivImportDesc: 'Import papers from arXiv (HTML or PDF)',
     // Export
     export: 'Export Notes',
     exportDescription: 'Export notes as Markdown files or JSON backup',
@@ -2310,6 +2373,36 @@ const en: Translations = {
     successCount: '{n} files imported',
     failCount: '{n} failed',
     close: 'Done'
+  },
+  arxivImport: {
+    title: 'Import from arXiv',
+    inputLabel: 'arXiv IDs or URLs',
+    inputPlaceholder: 'Enter arXiv IDs or URLs, one per line\nExamples: 2301.00001, arxiv:2301.00001, https://arxiv.org/abs/2301.00001',
+    validCount: '{n} valid input(s)',
+    invalidCount: '{n} invalid: ',
+    targetNotebook: 'Target Notebook',
+    noNotebook: 'None (use default)',
+    includeAbstract: 'Include abstract',
+    downloadFigures: 'Download figures',
+    includeReferences: 'Include references',
+    preferHtml: 'Prefer HTML format (falls back to PDF if unavailable)',
+    startImport: 'Start Import',
+    starting: 'Starting...',
+    cancelling: 'Cancelling...',
+    cancel: 'Cancel',
+    progressCount: '{current} / {total}',
+    stageFetchingMetadata: 'Fetching metadata...',
+    stageFetchingHtml: 'Fetching HTML...',
+    stageParsing: 'Parsing content...',
+    stageDownloadingImages: 'Downloading images...',
+    stageConverting: 'Converting to note...',
+    stageFallbackPdf: 'Falling back to PDF...',
+    stageDone: 'Done',
+    importSuccess: 'Import Successful!',
+    importPartial: 'Import Completed with Errors',
+    successCount: '{n} paper(s) imported',
+    failCount: '{n} failed',
+    done: 'Done'
   }
 }
 

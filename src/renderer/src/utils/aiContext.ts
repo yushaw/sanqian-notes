@@ -56,10 +56,12 @@ function marksToMarkdown(marks: readonly Mark[]): [string, string] {
         suffix = suffix + '++'
         break
       case 'link': {
-        // Standard markdown link: [text](url)
+        // Standard markdown link: [text](url) or [text](<url>) for special chars
         const href = mark.attrs.href || ''
+        // Use angle bracket format if URL contains ) or space (would break markdown)
+        const safeHref = href.includes(')') || href.includes(' ') ? `<${href}>` : href
         prefix = '[' + prefix
-        suffix = suffix + `](${href})`
+        suffix = suffix + `](${safeHref})`
         break
       }
       case 'noteLink': {
@@ -87,6 +89,7 @@ function marksToMarkdown(marks: readonly Mark[]): [string, string] {
  */
 export function getMarkdownContent(editor: Editor, from: number, to: number): string {
   const parts: string[] = []
+  const t = getTranslations(getSystemLanguage())
 
   editor.state.doc.nodesBetween(from, to, (node: ProseMirrorNode, pos: number) => {
     // Handle text nodes
@@ -135,8 +138,7 @@ export function getMarkdownContent(editor: Editor, from: number, to: number): st
     // Handle file attachments
     else if (node.type.name === 'fileAttachment') {
       const name = node.attrs.name || ''
-      const t = getTranslations(getSystemLanguage())
-      parts.push(`[${t.media.attachment}${name ? `: ${name}` : ''}]`)
+      parts.push(name ? `[${t.media.attachment}: ${name}]` : `[${t.media.attachment}]`)
     }
     // Handle images - use markdown format for external URLs, placeholder for base64
     else if (node.type.name === 'image') {
@@ -144,8 +146,7 @@ export function getMarkdownContent(editor: Editor, from: number, to: number): st
       const src = node.attrs.src || ''
       if (src.startsWith('data:')) {
         // Base64 image - just use placeholder (too long)
-        const t = getTranslations(getSystemLanguage())
-        parts.push(`[${t.media.image}${alt ? `: ${alt}` : ''}]`)
+        parts.push(alt ? `[${t.media.image}: ${alt}]` : `[${t.media.image}]`)
       } else {
         // External URL or local path - use markdown format
         parts.push(`![${alt}](${src})`)
@@ -166,34 +167,27 @@ export function getMarkdownContent(editor: Editor, from: number, to: number): st
     else if (node.type.name === 'embedBlock') {
       const url = node.attrs.url || ''
       const localFile = node.attrs.localFile || ''
-      const t = getTranslations(getSystemLanguage())
       if (url) {
         parts.push(`[${t.embed.placeholder}: ${url}]`)
       } else if (localFile) {
-        const filename = localFile.split('/').pop() || 'embed'
-        parts.push(`[${t.embed.placeholder}: ${filename}]`)
+        const filename = localFile.split('/').pop() || ''
+        parts.push(filename ? `[${t.embed.placeholder}: ${filename}]` : `[${t.embed.placeholder}]`)
+      } else {
+        parts.push(`[${t.embed.placeholder}]`)
       }
     }
-    // Handle audio - show URL or filename
+    // Handle audio - show title or URL
     else if (node.type.name === 'audio') {
       const title = node.attrs.title || ''
       const src = node.attrs.src || ''
-      const t = getTranslations(getSystemLanguage())
-      if (src && !src.startsWith('data:')) {
-        parts.push(`[${t.media.audio}: ${title || src}]`)
-      } else {
-        parts.push(`[${t.media.audio}${title ? `: ${title}` : ''}]`)
-      }
+      const desc = title || (src && !src.startsWith('data:') ? src : '')
+      parts.push(desc ? `[${t.media.audio}: ${desc}]` : `[${t.media.audio}]`)
     }
     // Handle video - show URL or filename
     else if (node.type.name === 'video') {
       const src = node.attrs.src || ''
-      const t = getTranslations(getSystemLanguage())
-      if (src && !src.startsWith('data:')) {
-        parts.push(`[${t.media.video}: ${src}]`)
-      } else {
-        parts.push(`[${t.media.video}]`)
-      }
+      const desc = src && !src.startsWith('data:') ? src : ''
+      parts.push(desc ? `[${t.media.video}: ${desc}]` : `[${t.media.video}]`)
     }
     // Handle transclusion blocks
     else if (node.type.name === 'transclusionBlock') {
@@ -210,14 +204,12 @@ export function getMarkdownContent(editor: Editor, from: number, to: number): st
         parts.push(`\n\`\`\`dataview\n${query}\n\`\`\`\n`)
       }
     }
-    // Skip AI popup marks - not relevant for context
-    else if (node.type.name === 'aiPopupMark') {
-      // Skip
-    }
+    // Other node types (aiPopupMark, etc.) are implicitly skipped
     return true
   })
 
-  return parts.join('')
+  // Normalize multiple newlines and trim to avoid extra blank lines
+  return parts.join('').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 /**

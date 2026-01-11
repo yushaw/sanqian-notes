@@ -4286,3 +4286,68 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 **追加**：aiContext.ts 中的媒体占位符也已国际化
 - 图片、音频、视频、嵌入的占位符文本
 - 使用 renderer 进程的 i18n 翻译系统
+
+
+### 2026-01-11: arXiv 论文导入功能
+
+**功能**：支持从 arXiv 导入学术论文，优先使用 HTML 格式解析，不可用时回退到 PDF。
+
+**特性**：
+- 支持多种输入格式：arXiv ID (2301.00001)、arXiv URL、ar5iv URL
+- 批量导入，支持每行一个 ID/URL
+- HTML 优先解析：使用 ar5iv (LaTeXML HTML) 格式，保留结构和数学公式
+- PDF 回退：当 HTML 不可用时自动使用现有 PDF 导入逻辑
+- 可选项：包含摘要、下载图片、包含参考文献
+- 进度跟踪和取消支持
+
+**新增文件**：
+- `src/main/import-export/arxiv/types.ts` - 类型定义
+- `src/main/import-export/arxiv/arxiv-fetcher.ts` - 网络请求（元数据、HTML、PDF、图片）
+- `src/main/import-export/arxiv/arxiv-parser.ts` - LaTeXML HTML 解析器（sections、figures、tables、references）
+- `src/main/import-export/arxiv/arxiv-importer.ts` - 导入逻辑和笔记创建
+- `src/main/import-export/arxiv/index.ts` - 模块导出
+- `src/renderer/src/components/ArxivImportDialog.tsx` - 导入对话框 UI
+
+**修改文件**：
+- `src/main/index.ts` - 添加 IPC handlers (arxiv:parseInput, arxiv:import, arxiv:cancel)
+- `src/preload/index.ts` - 添加 arxiv API
+- `src/preload/index.d.ts` - 类型定义
+- `src/renderer/src/env.d.ts` - 渲染进程类型定义
+- `src/renderer/src/components/DataSettings.tsx` - 集成 arXiv 导入选项
+- `src/renderer/src/i18n/translations.ts` - 添加 arXiv 导入相关翻译
+
+**修复 (文档顺序)**：
+- 重写 `arxiv-parser.ts` 递归处理 DOM 树，保持文档顺序
+- 图片和表格现在内联在正确的位置（之前错误地放在文档末尾）
+- 支持所有层级标题（section → subsection → subsubsection）
+- 修复版本号支持 (如 `1706.03762v7`)
+- 添加输入去重（避免重复导入相同论文）
+- 表格中的数学公式正确渲染
+
+**修复 (公式和表格)**：
+- 修复公式重复问题：公式组选择器 `tbody[id], .ltx_equation, .ltx_eqn_row` 匹配重复，改为只使用 `tbody[id]`
+- 修复 inline math 渲染问题：LaTeX 中的 `_{}` 被 marked 误解析为斜体，现在先保护数学公式再解析
+- 修复表格 colspan/rowspan：Markdown 不支持合并单元格，改为展开为独立单元格
+
+**修复 (公式和列表顺序)**：
+- 重写 `ltx_para` 处理逻辑，按 DOM 顺序遍历子元素，确保公式位置正确
+- 添加 `processListElement` 函数专门处理列表，修复列表项与内容分离的问题
+- 添加 `table.ltx_equation` 到公式选择器，支持更多论文格式
+- 添加 `.ltx_font_bold` 和 `.ltx_font_italic` 类的处理，保留文本样式
+- 移除对 `tbody[id]` 的要求，支持没有 id 属性的公式结构
+
+**修复 (表格嵌套结构)**：
+- 修复表格单元格内嵌套 `ltx_tabular` 导致的列数错误：使用直接子选择器 `> tr` 和 `> td` 避免选中嵌套表格的行和单元格
+- 在 `processCellContent` 中添加嵌套表格处理，将内部表格的多行文本合并为单个字符串
+
+**优化 (aiContext 代码质量)**：
+- 修复 `getMarkdownContent` 中重复调用 `getTranslations(getSystemLanguage())`，改为函数开头调用一次
+- 统一媒体占位符格式：有描述时 `[类型: 描述]`，无描述时 `[类型]`
+- 移除冗余的 `aiPopupMark` 空分支，改用注释说明
+- 添加 `trim()` 去除代码块导致的首尾多余空行
+
+**代码质量修复 (Code Review)**：
+- 修复硬编码中文：`[内容已截断...]` 和 `引用:` 改用 i18n (`src/main/i18n.ts`)
+- 代码块连续换行规范化：添加 `.replace(/\n{3,}/g, '\n\n')` 避免多余空行
+- PDF 导出 finally 异常处理：用 try-catch 包裹 `win.close()` 防止阻塞临时文件清理
+- SDK 断开连接状态清理：监听 `disconnected` 事件清理 session resource 状态

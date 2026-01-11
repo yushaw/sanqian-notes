@@ -262,6 +262,7 @@ const translations = {
     // Common
     common: {
       unknownError: '未知错误',
+      contentTruncated: '[内容已截断...]',
     },
     // Export
     export: {
@@ -275,6 +276,7 @@ const translations = {
       exportMarkdown: '导出 Markdown',
       exportPDF: '导出 PDF',
       attachment: '附件',
+      reference: '引用',
     },
   },
   en: {
@@ -494,6 +496,7 @@ Your job:
     // Common
     common: {
       unknownError: 'Unknown error',
+      contentTruncated: '[Content truncated...]',
     },
     // Export
     export: {
@@ -507,6 +510,7 @@ Your job:
       exportMarkdown: 'Export Markdown',
       exportPDF: 'Export PDF',
       attachment: 'Attachment',
+      reference: 'Reference',
     },
   },
 }

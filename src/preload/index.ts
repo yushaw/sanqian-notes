@@ -311,6 +311,38 @@ contextBridge.exposeInMainWorld('electron', {
       return () => ipcRenderer.removeListener('pdf:importProgress', handler)
     },
   },
+  // arXiv Import
+  arxiv: {
+    // 解析 arXiv 输入（URL 或 ID）
+    parseInput: (input: string) => ipcRenderer.invoke('arxiv:parseInput', input),
+    // 导入
+    import: (options: {
+      inputs: string[]
+      notebookId?: string
+      includeAbstract?: boolean
+      includeReferences?: boolean
+      downloadFigures?: boolean
+      preferHtml?: boolean
+    }) => ipcRenderer.invoke('arxiv:import', options),
+    // 取消导入
+    cancel: () => ipcRenderer.invoke('arxiv:cancel'),
+    // 进度监听
+    onProgress: (callback: (progress: {
+      current: number
+      total: number
+      currentPaper: {
+        paperId: string
+        stage: string
+        message: string
+        percent: number
+      }
+    }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]) =>
+        callback(progress)
+      ipcRenderer.on('arxiv:importProgress', handler)
+      return () => ipcRenderer.removeListener('arxiv:importProgress', handler)
+    },
+  },
   // App data path
   appData: {
     getPath: () => ipcRenderer.invoke('app:getDataPath'),

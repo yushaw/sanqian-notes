@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { editorSearchPluginKey, scrollToMatch, type EditorSearchState } from './extensions/EditorSearch'
 import { useTranslations } from '../i18n/context'
 import { Tooltip } from './Tooltip'
+import { isWindows } from '../utils/platform'
 
 interface SearchBarProps {
   editor: Editor
@@ -178,6 +179,22 @@ export function SearchBar({ editor, onClose }: SearchBarProps) {
     >
       {/* 搜索行 */}
       <div className="flex items-center gap-2 px-3 h-[42px]">
+        {/* Windows: 关闭按钮在左边 */}
+        {isWindows() && (
+          <Tooltip content={`${t.search?.close ?? '关闭'} (Esc)`} placement="bottom">
+            <button
+              onClick={handleClose}
+              className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted)]
+                         hover:bg-[var(--color-surface-hover)] transition-colors flex-shrink-0"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </Tooltip>
+        )}
+
         {/* 展开替换按钮 - 替换图标：上下交换箭头 */}
         <Tooltip content={t.search?.toggleReplace ?? '替换'} placement="bottom">
           <button
@@ -248,14 +265,6 @@ export function SearchBar({ editor, onClose }: SearchBarProps) {
           </Tooltip>
         </div>
 
-        {/* 结果计数 */}
-        <span
-          className={`text-xs min-w-[50px] text-center flex-shrink-0
-                     ${hasError ? 'text-red-500' : 'text-[var(--color-muted)]'}`}
-        >
-          {getStatusText()}
-        </span>
-
         {/* 导航按钮 */}
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {/* 上一个 */}
@@ -287,19 +296,29 @@ export function SearchBar({ editor, onClose }: SearchBarProps) {
           </Tooltip>
         </div>
 
-        {/* 关闭按钮 */}
-        <Tooltip content={`${t.search?.close ?? '关闭'} (Esc)`} placement="bottom">
-          <button
-            onClick={handleClose}
-            className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted)]
-                       hover:bg-[var(--color-surface-hover)] transition-colors flex-shrink-0"
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </Tooltip>
+        {/* 结果计数 */}
+        <span
+          className={`text-xs min-w-[50px] text-center flex-shrink-0
+                     ${hasError ? 'text-red-500' : 'text-[var(--color-muted)]'}`}
+        >
+          {getStatusText()}
+        </span>
+
+        {/* macOS: 关闭按钮在右边 */}
+        {!isWindows() && (
+          <Tooltip content={`${t.search?.close ?? '关闭'} (Esc)`} placement="bottom">
+            <button
+              onClick={handleClose}
+              className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted)]
+                         hover:bg-[var(--color-surface-hover)] transition-colors flex-shrink-0"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </Tooltip>
+        )}
       </div>
 
       {/* 替换行 */}

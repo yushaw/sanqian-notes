@@ -333,12 +333,12 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
                     </select>
                   </div>
                   <label className="export-row">
+                    <span>{t.export?.includeBackground || 'Include background'}</span>
                     <input
                       type="checkbox"
                       checked={includeBackground}
                       onChange={(e) => setIncludeBackground(e.target.checked)}
                     />
-                    <span>{t.export?.includeBackground || 'Include background'}</span>
                   </label>
                 </>
               )}
@@ -346,20 +346,20 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
               {format === 'markdown' && (
                 <>
                   <label className="export-row">
+                    <span>{t.export?.includeAttachments || 'Copy attachments'}</span>
                     <input
                       type="checkbox"
                       checked={includeAttachments}
                       onChange={(e) => setIncludeAttachments(e.target.checked)}
                     />
-                    <span>{t.export?.includeAttachments || 'Copy attachments'}</span>
                   </label>
                   <label className="export-row">
+                    <span>{t.export?.includeFrontMatter || 'Include Front Matter'}</span>
                     <input
                       type="checkbox"
                       checked={includeFrontMatter}
                       onChange={(e) => setIncludeFrontMatter(e.target.checked)}
                     />
-                    <span>{t.export?.includeFrontMatter || 'Include Front Matter'}</span>
                   </label>
                 </>
               )}

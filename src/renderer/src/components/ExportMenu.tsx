@@ -75,6 +75,7 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
   const [format, setFormat] = useState<ExportFormat>('pdf')
   const menuRef = useRef<HTMLDivElement>(null)
   const arxivInputRef = useRef<HTMLInputElement>(null)
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null)
 
   // PDF 配置
   const [pageSize, setPageSize] = useState<'A4' | 'Letter'>('A4')
@@ -259,17 +260,29 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
       <div className="more-menu-wrapper" ref={menuRef}>
         <button
           className="more-menu-trigger"
-          onClick={() => setMenuOpen(!menuOpen)}
+          onClick={(e) => {
+            if (!menuOpen) {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setDropdownPos({
+                top: rect.bottom + 4,
+                right: window.innerWidth - rect.right
+              })
+            }
+            setMenuOpen(!menuOpen)
+          }}
           disabled={isExporting || isImporting}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           {(isExporting || isImporting) ? <span className="more-menu-spinner" /> : Icons.more}
         </button>
 
-        {menuOpen && (
+        {menuOpen && dropdownPos && (
           <>
             <div className="more-menu-backdrop" onClick={() => setMenuOpen(false)} />
-            <div className="more-menu-dropdown">
+            <div
+              className="more-menu-dropdown"
+              style={{ top: dropdownPos.top, right: dropdownPos.right }}
+            >
               {onOpenSearch && (
                 <button className="more-menu-item" onClick={() => { setMenuOpen(false); onOpenSearch() }}>
                   {Icons.search}
@@ -560,10 +573,7 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
         }
 
         .more-menu-dropdown {
-          position: absolute;
-          top: 100%;
-          right: 0;
-          margin-top: 4px;
+          position: fixed;
           min-width: 120px;
           background: var(--color-card);
           border: 1px solid var(--color-border);

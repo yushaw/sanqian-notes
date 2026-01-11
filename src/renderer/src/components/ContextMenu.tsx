@@ -166,7 +166,7 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
       {/* Main menu */}
       <div
         ref={menuRef}
-        className="fixed z-50 py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
+        className="fixed z-[200] py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
         style={{ left: x, top: y }}
       >
         {items.map((item, index) => {
@@ -226,7 +226,7 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
       {hoveredSubMenuIndex !== null && subMenuPosition && isSubMenuItem(items[hoveredSubMenuIndex]) && (
         <div
           ref={subMenuRef}
-          className="fixed z-[51] py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
+          className="fixed z-[201] py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
           style={{ left: subMenuPosition.left, top: subMenuPosition.top }}
           onMouseEnter={() => {
             // Cancel hide timer when mouse enters submenu

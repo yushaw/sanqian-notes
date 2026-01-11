@@ -54,6 +54,9 @@ import { slashCommandSuggestion } from './extensions/slashCommandSuggestion'
 import { AIPopupMark } from './extensions/AIPopupMark'
 import { AIPreview } from './extensions/AIPreview'
 import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
+import { TransclusionBlock } from './extensions/TransclusionBlock'
+import { EmbedBlock } from './extensions/EmbedBlock'
+import { DataviewBlock } from './extensions/DataviewBlock'
 import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
@@ -421,6 +424,8 @@ export function TypewriterMode({
         heading: { levels: [1, 2, 3, 4] },
         codeBlock: false,
         horizontalRule: false,
+        link: false, // 使用下面的自定义 Link
+        underline: false, // 使用下面的 CustomUnderline
       }),
       CustomHorizontalRule,
       Placeholder.configure({
@@ -462,6 +467,9 @@ export function TypewriterMode({
       CustomCodeBlock,
       Footnote,
       HtmlComment,
+      TransclusionBlock,
+      EmbedBlock,
+      DataviewBlock,
       MarkdownPaste,
       SlashCommand.configure({
         suggestion: slashCommandSuggestion,

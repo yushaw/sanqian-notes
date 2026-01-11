@@ -71,10 +71,10 @@ export const EmbedBlock = Node.create<EmbedBlockOptions>({
       },
       // 高度（px）
       height: {
-        default: 400,
+        default: 300,
         parseHTML: (element) => {
           const val = element.getAttribute('data-height')
-          return val ? parseInt(val, 10) : 400
+          return val ? parseInt(val, 10) : 300
         },
         renderHTML: (attributes) => ({ 'data-height': String(attributes.height) }),
       },

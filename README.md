@@ -4236,3 +4236,35 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - 延迟 50ms 确保窗口显示完成后再聚焦
 - `ChatApp.tsx` 的 `onSetContext` 添加 retry 机制（100ms）应对 ref 未就绪情况
 
+
+
+### 2026-01-11: 单篇笔记导出功能
+
+**新功能**：在编辑器 Header 添加导出菜单，支持单篇笔记导出为 Markdown 和 PDF 格式。
+
+**功能特点**：
+- **入口位置**：编辑器标题栏右侧 `···` 更多菜单（符合 Notion/Obsidian 等主流笔记软件的交互习惯）
+- **Markdown 导出**：
+  - 使用现有的 `jsonToMarkdown()` 转换逻辑
+  - 支持附件复制到同目录（assets 文件夹）
+  - 弹出系统保存对话框选择保存位置
+- **PDF 导出**：
+  - 使用 Electron `printToPDF` API
+  - 保留编辑器样式（代码高亮、Callout、表格等）
+  - 支持 A4/Letter 页面大小
+  - 包含 KaTeX 数学公式和 Highlight.js 代码高亮
+
+**新增文件**：
+- `src/main/export/note-exporter.ts` - 导出核心逻辑
+- `src/main/export/index.ts` - 模块入口
+- `src/main/export/pdf-preview/index.html` - PDF 预览模板
+- `src/main/export/pdf-preview/styles.css` - PDF 样式（复用编辑器关键样式）
+- `src/renderer/src/components/ExportMenu.tsx` - 导出菜单组件
+
+**修改文件**：
+- `src/main/index.ts` - 添加 `export:noteAsMarkdown` 和 `export:noteAsPDF` IPC handlers
+- `src/preload/index.ts` - 添加 `noteAsMarkdown` 和 `noteAsPDF` API
+- `src/preload/index.d.ts` - 类型定义
+- `src/renderer/src/env.d.ts` - 渲染进程类型定义
+- `src/renderer/src/components/Editor.tsx` - 集成 ExportMenu 组件
+- `src/renderer/src/i18n/translations.ts` - 添加导出相关翻译

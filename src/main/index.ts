@@ -125,6 +125,12 @@ import {
   type ExportOptions,
 } from './import-export'
 import { getPdfServiceInfos } from './import-export/pdf-services'
+import {
+  exportNoteAsMarkdown,
+  exportNoteAsPDF,
+  type MarkdownExportOptions,
+  type PDFExportOptions,
+} from './export'
 import { getPdfConfig, setPdfConfig, getServiceConfig, setServiceConfig, type PdfServiceConfigs } from './import-export/pdf-config'
 import { pdfImporter } from './import-export/importers/pdf-importer'
 import type { PdfParseProgress } from './import-export/pdf-services/types'
@@ -1664,6 +1670,15 @@ app.whenReady().then(() => {
     })
 
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  // ============ Single Note Export ============
+  ipcMain.handle('export:noteAsMarkdown', async (_, noteId: string, options?: MarkdownExportOptions) => {
+    return exportNoteAsMarkdown(noteId, options)
+  })
+
+  ipcMain.handle('export:noteAsPDF', async (_, noteId: string, options?: PDFExportOptions) => {
+    return exportNoteAsPDF(noteId, options)
   })
 
   // ============ PDF Import ============

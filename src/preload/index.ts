@@ -262,9 +262,18 @@ contextBridge.exposeInMainWorld('electron', {
     preview: (options: unknown) => ipcRenderer.invoke('import:preview', options),
     execute: (options: unknown) => ipcRenderer.invoke('import:execute', options),
     selectSource: (importerId?: string) => ipcRenderer.invoke('import:selectSource', importerId),
-    // 导出
+    // 导出（批量）
     export: (options: unknown) => ipcRenderer.invoke('export:execute', options),
     selectTarget: () => ipcRenderer.invoke('export:selectTarget'),
+    // 单篇笔记导出
+    noteAsMarkdown: (noteId: string, options?: {
+      includeAttachments?: boolean
+      includeFrontMatter?: boolean
+    }) => ipcRenderer.invoke('export:noteAsMarkdown', noteId, options),
+    noteAsPDF: (noteId: string, options?: {
+      pageSize?: 'A4' | 'Letter'
+      includeBackground?: boolean
+    }) => ipcRenderer.invoke('export:noteAsPDF', noteId, options),
   },
   // PDF Import API
   pdfImport: {

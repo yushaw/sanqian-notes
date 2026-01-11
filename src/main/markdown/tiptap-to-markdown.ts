@@ -27,6 +27,11 @@ interface TiptapDoc {
 /** Heading 匹配模式 */
 type HeadingMatch = 'exact' | 'contains' | 'startsWith'
 
+/** 转义 HTML 属性值 */
+function escapeAttr(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 /** 文档 heading 信息 */
 export interface DocumentHeading {
   /** Heading 级别 (1-6) */
@@ -114,6 +119,17 @@ function applyMarks(text: string, marks?: TiptapMark[]): string {
       case 'link': {
         const href = mark.attrs?.href as string || ''
         result = `[${result}](${href})`
+        break
+      }
+      case 'noteLink': {
+        const noteTitle = mark.attrs?.noteTitle as string || ''
+        // 使用 wiki-link 格式，转义特殊字符
+        const safeTitle = noteTitle.replace(/\|/g, '\\|').replace(/\]\]/g, '\\]\\]')
+        result = `[[${safeTitle}|${result}]]`
+        break
+      }
+      case 'textColor': {
+        // 文字颜色在 markdown 中无法表示，保持原样
         break
       }
     }
@@ -223,6 +239,79 @@ function convertNode(node: TiptapNode, ctx: ConvertContext): string {
       const summary = (node.attrs?.summary as string) || ''
       const content = convertChildren(node, ctx)
       return `<details>\n<summary>${summary}</summary>\n\n${content}\n</details>`
+    }
+
+    // 视频
+    case 'video': {
+      const src = (node.attrs?.src as string) || ''
+      return `<video src="${escapeAttr(src)}" controls></video>`
+    }
+
+    // 音频
+    case 'audio': {
+      const src = (node.attrs?.src as string) || ''
+      return `<audio src="${escapeAttr(src)}" controls></audio>`
+    }
+
+    // 可调整大小的图片
+    case 'resizableImage': {
+      const src = (node.attrs?.src as string) || ''
+      const alt = (node.attrs?.alt as string) || ''
+      return `![${alt}](${src})`
+    }
+
+    // 文件附件
+    case 'fileAttachment': {
+      const name = (node.attrs?.name as string) || '附件'
+      const src = (node.attrs?.src as string) || ''
+      return `[${name}](${src})`
+    }
+
+    // 脚注
+    case 'footnote': {
+      const content = (node.attrs?.content as string) || ''
+      const id = (node.attrs?.id as string) || ''
+      return `[^${id || 'note'}]: ${content}`
+    }
+
+    // HTML 注释
+    case 'htmlComment': {
+      const content = (node.attrs?.content as string) || ''
+      return `<!-- ${content} -->`
+    }
+
+    // 嵌入块
+    case 'embedBlock': {
+      const mode = (node.attrs?.mode as string) || 'url'
+      const url = (node.attrs?.url as string) || ''
+      const localPath = (node.attrs?.localPath as string) || ''
+      const title = (node.attrs?.title as string) || ''
+
+      if (mode === 'url' && url) {
+        return `<iframe src="${escapeAttr(url)}" title="${escapeAttr(title)}"></iframe>`
+      } else if (mode === 'local' && localPath) {
+        return `![[${localPath}]]`
+      }
+      return ''
+    }
+
+    // 引用块（Transclusion）
+    case 'transclusionBlock': {
+      const noteId = (node.attrs?.noteId as string) || ''
+      const noteName = (node.attrs?.noteName as string) || ''
+      return `![[${noteName || noteId}]]`
+    }
+
+    // 数据视图
+    case 'dataviewBlock': {
+      const query = (node.attrs?.query as string) || ''
+      return `\`\`\`dataview\n${query}\n\`\`\``
+    }
+
+    // AI 任务块
+    case 'agentTask': {
+      const content = convertChildren(node, ctx)
+      return content || ''
     }
 
     default:

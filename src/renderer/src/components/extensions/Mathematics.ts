@@ -266,8 +266,8 @@ export const Mathematics = Node.create<MathOptions>({
                   }
                 })
 
-                if (foundMath) {
-                  const tr = state.tr.setSelection(NodeSelection.create(state.doc, foundMath.pos))
+                if (foundMath !== null) {
+                  const tr = state.tr.setSelection(NodeSelection.create(state.doc, (foundMath as { pos: number; size: number }).pos))
                   view.dispatch(tr)
                   return true
                 }

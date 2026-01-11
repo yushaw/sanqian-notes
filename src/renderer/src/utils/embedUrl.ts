@@ -143,7 +143,7 @@ export const embedUrlConfigs: EmbedUrlConfig[] = [
     name: '哔哩哔哩',
     region: 'cn',
     pattern: /bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/,
-    transform: (match) => `https://player.bilibili.com/player.html?bvid=${match[1]}`,
+    transform: (match) => `https://player.bilibili.com/player.html?bvid=${match[1]}&autoplay=0`,
   },
 
   // 哔哩哔哩: av号视频转 embed (旧格式)
@@ -151,7 +151,7 @@ export const embedUrlConfigs: EmbedUrlConfig[] = [
     name: '哔哩哔哩 (AV)',
     region: 'cn',
     pattern: /bilibili\.com\/video\/av(\d+)/i,
-    transform: (match) => `https://player.bilibili.com/player.html?aid=${match[1]}`,
+    transform: (match) => `https://player.bilibili.com/player.html?aid=${match[1]}&autoplay=0`,
   },
 
   // 优酷 (Youku): 普通链接转 embed
@@ -227,6 +227,76 @@ export function convertToEmbedUrl(url: string): string {
     }
   }
   return url
+}
+
+/**
+ * 处理视频 URL，禁止自动播放
+ * 用于 iframe 渲染时添加 autoplay=0 参数
+ */
+export function disableAutoplay(url: string): string {
+  try {
+    const urlObj = new URL(url)
+    const host = urlObj.hostname.toLowerCase()
+
+    // YouTube
+    if (host.includes('youtube.com') || host.includes('youtu.be')) {
+      urlObj.searchParams.set('autoplay', '0')
+      return urlObj.toString()
+    }
+
+    // Bilibili
+    if (host.includes('bilibili.com')) {
+      urlObj.searchParams.set('autoplay', '0')
+      return urlObj.toString()
+    }
+
+    // Vimeo
+    if (host.includes('vimeo.com')) {
+      urlObj.searchParams.set('autoplay', '0')
+      urlObj.searchParams.set('background', '0')
+      return urlObj.toString()
+    }
+
+    // 腾讯视频
+    if (host.includes('v.qq.com') || host.includes('qq.com')) {
+      urlObj.searchParams.set('autoplay', '0')
+      return urlObj.toString()
+    }
+
+    // 优酷
+    if (host.includes('youku.com')) {
+      urlObj.searchParams.set('autoplay', 'false')
+      return urlObj.toString()
+    }
+
+    // 抖音/TikTok
+    if (host.includes('douyin.com') || host.includes('tiktok.com')) {
+      urlObj.searchParams.set('autoplay', '0')
+      return urlObj.toString()
+    }
+
+    // 西瓜视频
+    if (host.includes('ixigua.com')) {
+      urlObj.searchParams.set('autoplay', '0')
+      return urlObj.toString()
+    }
+
+    // 爱奇艺
+    if (host.includes('iqiyi.com')) {
+      urlObj.searchParams.set('autoplay', '0')
+      return urlObj.toString()
+    }
+
+    // 网易云音乐/视频
+    if (host.includes('163.com')) {
+      urlObj.searchParams.set('auto', '0')
+      return urlObj.toString()
+    }
+
+    return url
+  } catch {
+    return url
+  }
 }
 
 /**

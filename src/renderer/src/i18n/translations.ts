@@ -320,6 +320,20 @@ export interface Translations {
     copied: string
     copyFailed: string
   }
+  export: {
+    title: string
+    format: string
+    markdown: string
+    pdf: string
+    success: string
+    failed: string
+    exporting: string
+    exportBtn: string
+    pageSize: string
+    includeBackground: string
+    includeAttachments: string
+    includeFrontMatter: string
+  }
   tray: {
     show: string
     quit: string
@@ -1075,6 +1089,20 @@ const zh: Translations = {
     copied: '已复制',
     copyFailed: '复制失败',
   },
+  export: {
+    title: '导出',
+    format: '格式',
+    markdown: '导出为 Markdown',
+    pdf: '导出为 PDF',
+    success: '导出成功',
+    failed: '导出失败',
+    exporting: '导出中...',
+    exportBtn: '导出',
+    pageSize: '页面大小',
+    includeBackground: '包含背景颜色',
+    includeAttachments: '复制附件到导出目录',
+    includeFrontMatter: '包含 YAML Front Matter',
+  },
   tray: {
     show: '显示窗口',
     quit: '退出'
@@ -1826,6 +1854,20 @@ const en: Translations = {
     // Popup actions
     copied: 'Copied',
     copyFailed: 'Copy failed',
+  },
+  export: {
+    title: 'Export',
+    format: 'Format',
+    markdown: 'Export as Markdown',
+    pdf: 'Export as PDF',
+    success: 'Export successful',
+    failed: 'Export failed',
+    exporting: 'Exporting...',
+    exportBtn: 'Export',
+    pageSize: 'Page Size',
+    includeBackground: 'Include background colors',
+    includeAttachments: 'Copy attachments to export folder',
+    includeFrontMatter: 'Include YAML Front Matter',
   },
   tray: {
     show: 'Show Window',

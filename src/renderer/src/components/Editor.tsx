@@ -53,6 +53,8 @@ import { EmbedBlock } from './extensions/EmbedBlock'
 import { DataviewBlock } from './extensions/DataviewBlock'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
+import { ExportMenu } from './ExportMenu'
+import { isWindows } from '../utils/platform'
 import { AgentTaskPanel } from './AgentTaskPanel'
 import { AgentTaskIndicators } from './AgentTaskIndicators'
 import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlockIds, updateTask } from '../utils/agentTaskStorage'
@@ -66,6 +68,21 @@ import { convertToEmbedUrl } from '../utils/embedUrl'
 import { ScrollText } from 'lucide-react'
 import 'katex/dist/katex.min.css'
 import './Editor.css'
+
+// 关闭分屏按钮组件
+function PaneCloseButton({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick() }}
+      className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-tertiary)] opacity-50 hover:opacity-100 hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+      title={title}
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+        <path d="M2 2L10 10M10 2L2 10" />
+      </svg>
+    </button>
+  )
+}
 
 // SVG Icons for toolbar
 const ToolbarIcons = {
@@ -1636,8 +1653,30 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       ref={editorContainerRef}
       className={`zen-editor-container ${resolvedColorMode}`}
     >
+      {/* Windows: 左侧竖向控件栏 */}
+      {isWindows() && showPaneControls && (
+        <div
+          className="absolute left-[10px] top-[42px] z-20 flex flex-col gap-0.5"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {note && (
+            <div style={{ marginLeft: -2 }}>
+              <ExportMenu
+                noteId={note.id}
+                onSplitHorizontal={onSplitHorizontal}
+                onSplitVertical={onSplitVertical}
+              />
+            </div>
+          )}
+          {onClosePane && (
+            <PaneCloseButton onClick={onClosePane} title={t.paneControls?.close || 'Close Pane'} />
+          )}
+        </div>
+      )}
+
       {/* Top header bar - always shows title + pane controls */}
       <div className={`zen-header-bar with-title ${isScrolled ? 'scrolled' : ''}`}>
+
         {/* Title - 空白区域可拖动窗口，文字部分不可拖动 */}
         <div
           className="flex-1 min-w-0 overflow-hidden cursor-text"
@@ -1694,43 +1733,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           )}
         </div>
 
-        {/* Pane Controls - 分屏按钮 */}
-        {showPaneControls && (
-          <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-            {onSplitHorizontal && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onSplitHorizontal() }}
-                className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                title={t.paneControls?.splitHorizontal || 'Split Right'}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="12" y1="3" x2="12" y2="21" />
-                </svg>
-              </button>
+        {/* macOS: More Menu + Close Pane - 更多菜单（含导出、分屏）+ 关闭按钮 */}
+        {!isWindows() && (
+          <div className="flex items-center gap-0.5 ml-2 flex-shrink-0">
+            {note && (
+              <ExportMenu
+                noteId={note.id}
+                onSplitHorizontal={onSplitHorizontal}
+                onSplitVertical={onSplitVertical}
+              />
             )}
-            {onSplitVertical && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onSplitVertical() }}
-                className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                title={t.paneControls?.splitVertical || 'Split Down'}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="3" y1="12" x2="21" y2="12" />
-                </svg>
-              </button>
-            )}
-            {onClosePane && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onClosePane() }}
-                className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                title={t.paneControls?.close || 'Close Pane'}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M2 2L10 10M10 2L2 10" />
-                </svg>
-              </button>
+            {showPaneControls && onClosePane && (
+              <PaneCloseButton onClick={onClosePane} title={t.paneControls?.close || 'Close Pane'} />
             )}
           </div>
         )}
@@ -1931,59 +1945,51 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         <div className="flex-1 flex flex-col">
           {/* 空白页的标题栏 */}
           <div
-            className="h-[42px] flex items-center justify-between px-3 flex-shrink-0"
+            className="h-[42px] flex items-center justify-between px-3 flex-shrink-0 relative"
             style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
           >
-            {/* 左边区域 - 为拖拽手柄留出 no-drag 空间 */}
-            {showPaneControls && (
+            {/* macOS: 左边留空，控件在右边 */}
+            {!isWindows() && showPaneControls && (
               <div
                 className="w-8 h-8"
                 style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               />
             )}
-            {showPaneControls && (
+            {/* 中间占位 */}
+            <div className="flex-1" />
+            {/* macOS: 控件在右边 */}
+            {!isWindows() && showPaneControls && (
               <div
-                className="flex items-center gap-1"
+                className="flex items-center gap-0.5"
                 style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               >
-                {onSplitHorizontal && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onSplitHorizontal() }}
-                    className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                    title={t.paneControls?.splitHorizontal || 'Split Right'}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                      <line x1="12" y1="3" x2="12" y2="21" />
-                    </svg>
-                  </button>
-                )}
-                {onSplitVertical && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onSplitVertical() }}
-                    className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                    title={t.paneControls?.splitVertical || 'Split Down'}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                      <line x1="3" y1="12" x2="21" y2="12" />
-                    </svg>
-                  </button>
-                )}
+                <ExportMenu
+                  onSplitHorizontal={onSplitHorizontal}
+                  onSplitVertical={onSplitVertical}
+                />
                 {onClosePane && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onClosePane() }}
-                    className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                    title={t.paneControls?.close || 'Close Pane'}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                      <path d="M2 2L10 10M10 2L2 10" />
-                    </svg>
-                  </button>
+                  <PaneCloseButton onClick={onClosePane} title={t.paneControls?.close || 'Close Pane'} />
                 )}
               </div>
             )}
           </div>
+          {/* Windows: 左侧竖向控件栏 */}
+          {isWindows() && showPaneControls && (
+            <div
+              className="absolute left-[10px] top-[42px] z-20 flex flex-col gap-0.5"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
+              <div style={{ marginLeft: -2 }}>
+                <ExportMenu
+                  onSplitHorizontal={onSplitHorizontal}
+                  onSplitVertical={onSplitVertical}
+                />
+              </div>
+              {onClosePane && (
+                <PaneCloseButton onClick={onClosePane} title={t.paneControls?.close || 'Close Pane'} />
+              )}
+            </div>
+          )}
           {/* 空白页内容 */}
           <div className="flex-1 flex flex-col items-center justify-center text-center">
             <p className="text-lg font-medium text-[var(--color-muted)] mb-2">{t.editor.selectNote}</p>

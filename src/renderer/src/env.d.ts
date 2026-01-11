@@ -331,6 +331,23 @@ interface Window {
         errors: Array<{ noteId: string; title: string; error: string }>
       }>
       selectTarget: () => Promise<string | null>
+      // 单篇笔记导出
+      noteAsMarkdown: (noteId: string, options?: {
+        includeAttachments?: boolean
+        includeFrontMatter?: boolean
+      }) => Promise<{
+        success: boolean
+        path?: string
+        error?: string
+      }>
+      noteAsPDF: (noteId: string, options?: {
+        pageSize?: 'A4' | 'Letter'
+        includeBackground?: boolean
+      }) => Promise<{
+        success: boolean
+        path?: string
+        error?: string
+      }>
     }
     pdfImport: {
       getServices: () => Promise<Array<{

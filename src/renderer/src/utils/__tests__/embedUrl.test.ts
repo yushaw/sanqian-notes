@@ -173,12 +173,12 @@ describe('convertToEmbedUrl', () => {
     describe('哔哩哔哩', () => {
       it('转换 BV 号链接', () => {
         const url = 'https://www.bilibili.com/video/BV1xx411c7mD'
-        expect(convertToEmbedUrl(url)).toBe('https://player.bilibili.com/player.html?bvid=BV1xx411c7mD')
+        expect(convertToEmbedUrl(url)).toBe('https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&autoplay=0')
       })
 
       it('转换 av 号链接', () => {
         const url = 'https://www.bilibili.com/video/av170001'
-        expect(convertToEmbedUrl(url)).toBe('https://player.bilibili.com/player.html?aid=170001')
+        expect(convertToEmbedUrl(url)).toBe('https://player.bilibili.com/player.html?aid=170001&autoplay=0')
       })
     })
 

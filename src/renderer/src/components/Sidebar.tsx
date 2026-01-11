@@ -240,11 +240,11 @@ export function Sidebar({
   if (isCollapsed) {
     return (
       <div className="w-12 flex-shrink-0 h-full bg-[var(--color-card-solid)] flex flex-col select-none">
-        {/* Drag region - top 50px area for window dragging */}
-        <div className="h-[50px] flex-shrink-0 drag-region" />
+        {/* Drag region - top area for window dragging */}
+        <div className="h-[42px] flex-shrink-0 drag-region" />
 
         {/* Smart Views 图标 */}
-        <div className="flex flex-col items-center gap-1 px-2 py-2 no-drag">
+        <div className="flex flex-col items-center gap-1 px-2 pb-2 no-drag">
           {smartViews.map((view) => (
             <Tooltip key={view.id} content={view.label}>
               <button
@@ -328,12 +328,12 @@ export function Sidebar({
 
   return (
     <div className="w-44 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col relative select-none">
-      {/* Drag region - top 50px area for window dragging */}
-      <div className="h-[50px] flex-shrink-0 drag-region" />
+      {/* Drag region - top area for window dragging, aligned with NoteList header */}
+      <div className="h-[42px] flex-shrink-0 drag-region" />
 
       {/* Shortcuts help button - absolute top right in title bar area */}
       <div
-        className="absolute top-[13px] right-2 z-10 no-drag"
+        className="absolute top-[9px] right-2 z-10 no-drag"
         onMouseEnter={() => {
           // Clear any existing timer
           if (shortcutsTimerRef.current) {

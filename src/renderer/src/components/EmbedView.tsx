@@ -2,7 +2,7 @@ import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { RefreshCw, Globe, FolderOpen, AlertTriangle, GripHorizontal, Pencil } from 'lucide-react'
 import { useTranslations } from '../i18n'
-import { convertToEmbedUrl } from '../utils/embedUrl'
+import { convertToEmbedUrl, disableAutoplay } from '../utils/embedUrl'
 import type { EmbedMode } from './extensions/EmbedBlock'
 
 interface EmbedAttrs {
@@ -34,8 +34,8 @@ export function EmbedView({ node, updateAttributes }: NodeViewProps) {
   // 计算显示的源地址
   const displaySource = mode === 'url' ? url : localPath
 
-  // 计算 iframe src
-  const iframeSrc = mode === 'url' ? url : localPath ? `file://${localPath}` : null
+  // 计算 iframe src（视频 URL 添加 autoplay=0）
+  const iframeSrc = mode === 'url' && url ? disableAutoplay(url) : localPath ? `file://${localPath}` : null
 
   // 处理 iframe 加载完成
   const handleLoad = useCallback(() => {

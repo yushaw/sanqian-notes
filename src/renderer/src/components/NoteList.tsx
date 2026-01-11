@@ -114,13 +114,21 @@ export function NoteList({
     return () => clearTimeout(timer)
   }, [searchQuery, performSearch])
 
-  // Cmd+F 快捷键
+  // Cmd+F 快捷键 - 仅在中栏聚焦时生效
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 检查焦点是否在中栏（NoteList 或 Sidebar）
+      const activeEl = document.activeElement
+      const isInNoteList = activeEl?.closest('[data-note-list], [data-sidebar]')
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-        e.preventDefault()
-        setIsSearching(true)
-        setTimeout(() => searchInputRef.current?.focus(), 0)
+        // 只有当焦点在中栏时才激活中栏搜索
+        if (isInNoteList) {
+          e.preventDefault()
+          setIsSearching(true)
+          setTimeout(() => searchInputRef.current?.focus(), 0)
+        }
+        // 否则不处理，让编辑器等其他组件处理
       }
       if (e.key === 'Escape' && isSearching) {
         setIsSearching(false)
@@ -381,7 +389,7 @@ export function NoteList({
   const displayNotes = searchResults !== null ? searchResults : notes
 
   return (
-    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col drag-region">
+    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col drag-region" data-note-list>
       {/* Header */}
       <div className="px-4 h-[42px] flex items-center justify-between flex-shrink-0 border-b border-black/5 dark:border-white/5">
         {isSearching ? (

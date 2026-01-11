@@ -813,6 +813,21 @@ export interface Translations {
     failCount: string
     done: string
   }
+  search: {
+    title: string
+    placeholder: string
+    noResults: string
+    regexError: string
+    caseSensitive: string
+    regex: string
+    previous: string
+    next: string
+    close: string
+    toggleReplace: string
+    replacePlaceholder: string
+    replace: string
+    replaceAll: string
+  }
 }
 
 const zh: Translations = {
@@ -1621,6 +1636,21 @@ const zh: Translations = {
     successCount: '成功导入 {n} 篇论文',
     failCount: '{n} 篇失败',
     done: '完成'
+  },
+  search: {
+    title: '查找',
+    placeholder: '搜索...',
+    noResults: '无结果',
+    regexError: '正则错误',
+    caseSensitive: '大小写敏感',
+    regex: '正则表达式',
+    previous: '上一个',
+    next: '下一个',
+    close: '关闭',
+    toggleReplace: '替换',
+    replacePlaceholder: '替换为...',
+    replace: '替换',
+    replaceAll: '全部'
   }
 }
 
@@ -2430,6 +2460,21 @@ const en: Translations = {
     successCount: '{n} paper(s) imported',
     failCount: '{n} failed',
     done: 'Done'
+  },
+  search: {
+    title: 'Find',
+    placeholder: 'Search...',
+    noResults: 'No results',
+    regexError: 'Invalid regex',
+    caseSensitive: 'Case sensitive',
+    regex: 'Regular expression',
+    previous: 'Previous',
+    next: 'Next',
+    close: 'Close',
+    toggleReplace: 'Replace',
+    replacePlaceholder: 'Replace with...',
+    replace: 'Replace',
+    replaceAll: 'All'
   }
 }
 

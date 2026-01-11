@@ -4727,3 +4727,47 @@ span.zen-header-title {
 .node-view-error svg {
   flex-shrink: 0;
 }
+
+/* ============================================
+   Editor Search - Search & Highlight
+   ============================================ */
+
+/* 搜索结果高亮 - 普通匹配 */
+.search-result {
+  background-color: var(--color-accent-soft, rgba(59, 130, 246, 0.2));
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: background-color 0.15s ease;
+}
+
+/* 搜索结果高亮 - 当前选中 */
+.search-result-current {
+  background-color: var(--color-accent, #3b82f6);
+  color: white;
+  border-radius: 2px;
+  padding: 0 1px;
+  animation: search-pulse 0.3s ease-out;
+}
+
+/* 当前结果脉冲动画 */
+@keyframes search-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-accent, #3b82f6);
+  }
+  50% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* 深色模式适配 */
+[data-theme="dark"] .search-result {
+  background-color: rgba(96, 165, 250, 0.3);
+}
+
+[data-theme="dark"] .search-result-current {
+  background-color: var(--color-accent, #60a5fa);
+  color: #1e293b;
+}

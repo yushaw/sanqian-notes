@@ -51,6 +51,8 @@ import { HtmlComment } from './extensions/HtmlComment'
 import { TransclusionBlock } from './extensions/TransclusionBlock'
 import { EmbedBlock } from './extensions/EmbedBlock'
 import { DataviewBlock } from './extensions/DataviewBlock'
+import { EditorSearch, editorSearchPluginKey } from './extensions/EditorSearch'
+import { SearchBar } from './SearchBar'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
 import { ExportMenu } from './ExportMenu'
@@ -333,6 +335,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [showEmbedPopup, setShowEmbedPopup] = useState(false)
   const [embedUrl, setEmbedUrl] = useState('')
 
+  // 搜索栏状态
+  const [showSearchBar, setShowSearchBar] = useState(false)
+
   const t = useTranslations()
   const { resolvedColorMode } = useTheme()
   const editorContainerRef = useRef<HTMLDivElement>(null)
@@ -561,6 +566,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       }),
       EmbedBlock,
       DataviewBlock,
+      EditorSearch.configure({
+        skipNodeTypes: ['mathematics', 'mermaid', 'codeBlock', 'embed'],
+      }),
       FileHandler.configure({
         // 不限制 MIME 类型，允许所有文件类型
         // 类型检查在 handleFileInsert 中通过 getFileCategory 处理
@@ -784,6 +792,12 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     })
   }, [editor])
 
+  // 打开编辑器内搜索
+  const handleOpenSearch = useCallback(() => {
+    if (!editor) return
+    editor.commands.openSearch()
+  }, [editor])
+
   // 同步外部内容变化到编辑器（长期主义方案：避免重建编辑器）
   // 场景：从打字机模式退出后，note.content 已更新，需要同步到编辑器
   useEffect(() => {
@@ -888,6 +902,26 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     editor.on('update', updateHandler)
     return () => {
       editor.off('update', updateHandler)
+    }
+  }, [editor])
+
+  // 监听搜索状态变化
+  useEffect(() => {
+    if (!editor) return
+
+    const handleTransaction = () => {
+      const state = editorSearchPluginKey.getState(editor.state)
+      if (state) {
+        setShowSearchBar(state.isOpen)
+      }
+    }
+
+    // 初始检查
+    handleTransaction()
+
+    editor.on('transaction', handleTransaction)
+    return () => {
+      editor.off('transaction', handleTransaction)
     }
   }, [editor])
 
@@ -1676,6 +1710,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
                 onSplitHorizontal={onSplitHorizontal}
                 onSplitVertical={onSplitVertical}
                 onInsertContent={handleInsertContent}
+                onOpenSearch={handleOpenSearch}
               />
             </div>
           )}
@@ -1686,12 +1721,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       )}
 
       {/* Top header bar - always shows title + pane controls */}
-      <div className={`zen-header-bar with-title ${isScrolled ? 'scrolled' : ''}`}>
+      <div
+        className={`zen-header-bar with-title ${isScrolled ? 'scrolled' : ''}`}
+        style={showSearchBar ? { pointerEvents: 'none' } : undefined}
+      >
 
         {/* Title - 空白区域可拖动窗口，文字部分不可拖动 */}
         <div
           className="flex-1 min-w-0 overflow-hidden cursor-text"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+          style={{
+            WebkitAppRegion: showSearchBar ? 'no-drag' : 'drag',
+            pointerEvents: showSearchBar ? 'none' : undefined
+          } as React.CSSProperties}
           onClick={(e) => {
             if (!isEditingHeaderTitle) {
               // 使用 caretRangeFromPoint 获取点击位置对应的字符偏移
@@ -1746,13 +1787,17 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
         {/* macOS: More Menu + Close Pane - 更多菜单（含导出、分屏）+ 关闭按钮 */}
         {!isWindows() && (
-          <div className="flex items-center gap-0.5 ml-2 flex-shrink-0">
+          <div
+            className="flex items-center gap-0.5 ml-2 flex-shrink-0"
+            style={showSearchBar ? { pointerEvents: 'none' } : undefined}
+          >
             {note && (
               <ExportMenu
                 noteId={note.id}
                 onSplitHorizontal={onSplitHorizontal}
                 onSplitVertical={onSplitVertical}
                 onInsertContent={handleInsertContent}
+                onOpenSearch={handleOpenSearch}
               />
             )}
             {showPaneControls && onClosePane && (
@@ -1775,6 +1820,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         onAIActionClick={handleAIActionClick}
         isAIProcessing={isAIProcessing}
       />
+
+      {/* Search bar - floating at top */}
+      {showSearchBar && editor && (
+        <SearchBar
+          editor={editor}
+          onClose={() => {
+            editor.commands.closeSearch()
+            setShowSearchBar(false)
+            editor.commands.focus()
+          }}
+        />
+      )}
 
       {/* Scroll wrapper - keeps scrollbar at right edge, click to focus editor */}
       <div

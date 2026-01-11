@@ -327,7 +327,7 @@ export function Sidebar({
   }
 
   return (
-    <div className="w-44 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col relative select-none">
+    <div className="w-44 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col relative select-none" data-sidebar>
       {/* Drag region - top area for window dragging, aligned with NoteList header */}
       <div className="h-[42px] flex-shrink-0 drag-region" />
 

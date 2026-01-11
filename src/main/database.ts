@@ -424,10 +424,10 @@ export function createDemoNotes(): void {
     twIntro1: isZh ? '点击工具栏的打字机图标进入 ' : 'Click the typewriter icon to enter ',
     twIntro2: isZh ? '沉浸式写作模式' : 'immersive writing mode',
     twIntro3: isZh ? '：' : ':',
-    twFeature1: isZh ? '📍 光标固定在屏幕中央，内容随输入滚动' : '📍 Cursor stays centered, content scrolls as you type',
-    twFeature2: isZh ? '👁️ 专注模式（当前段落清晰，周围逐渐淡出）' : '👁️ Focus mode (current paragraph clear, surroundings fade)',
-    twFeature3: isZh ? '🌓 自动跟随系统深色/浅色主题' : '🌓 Auto-follows system dark/light theme',
-    twFeature4: isZh ? '📑 宽屏时右侧显示大纲导航' : '📑 Outline navigation on the right for wide screens',
+    twFeature1: isZh ? '光标固定在屏幕中央，内容随输入滚动' : 'Cursor stays centered, content scrolls as you type',
+    twFeature2: isZh ? '专注模式让当前段落清晰，周围逐渐淡出' : 'Focus mode keeps current paragraph clear, surroundings fade',
+    twFeature3: isZh ? '自动跟随系统深色/浅色主题' : 'Auto-follows system dark/light theme',
+    twFeature4: isZh ? '宽屏时右侧显示大纲导航' : 'Outline navigation on the right for wide screens',
     task1: isZh ? '阅读本指南' : 'Read this guide',
     task2: isZh ? '尝试输入 / 插入块' : 'Try typing / to insert blocks',
     task3: isZh ? '体验打字机模式' : 'Try typewriter mode',
@@ -463,11 +463,13 @@ export function createDemoNotes(): void {
         type: 'callout',
         attrs: { type: 'tip', collapsed: false },
         content: [
-          { type: 'paragraph', content: [
-            { type: 'text', text: t.tipText1 },
-            { type: 'text', marks: [{ type: 'code' }], text: '/' },
-            { type: 'text', text: t.tipText2 }
-          ] }
+          {
+            type: 'paragraph', content: [
+              { type: 'text', text: t.tipText1 },
+              { type: 'text', marks: [{ type: 'code' }], text: '/' },
+              { type: 'text', text: t.tipText2 }
+            ]
+          }
         ]
       },
       {
@@ -525,18 +527,30 @@ export function createDemoNotes(): void {
         type: 'bulletList',
         attrs: { blockId: 'bilink3' },
         content: [
-          { type: 'listItem', content: [{ type: 'paragraph', content: [
-            { type: 'text', marks: [{ type: 'code' }], text: t.bilinkNote },
-            { type: 'text', text: t.bilinkNoteDesc }
-          ] }] },
-          { type: 'listItem', content: [{ type: 'paragraph', content: [
-            { type: 'text', marks: [{ type: 'code' }], text: t.bilinkHeading },
-            { type: 'text', text: t.bilinkHeadingDesc }
-          ] }] },
-          { type: 'listItem', content: [{ type: 'paragraph', content: [
-            { type: 'text', marks: [{ type: 'code' }], text: t.bilinkBlock },
-            { type: 'text', text: t.bilinkBlockDesc }
-          ] }] }
+          {
+            type: 'listItem', content: [{
+              type: 'paragraph', content: [
+                { type: 'text', marks: [{ type: 'code' }], text: t.bilinkNote },
+                { type: 'text', text: t.bilinkNoteDesc }
+              ]
+            }]
+          },
+          {
+            type: 'listItem', content: [{
+              type: 'paragraph', content: [
+                { type: 'text', marks: [{ type: 'code' }], text: t.bilinkHeading },
+                { type: 'text', text: t.bilinkHeadingDesc }
+              ]
+            }]
+          },
+          {
+            type: 'listItem', content: [{
+              type: 'paragraph', content: [
+                { type: 'text', marks: [{ type: 'code' }], text: t.bilinkBlock },
+                { type: 'text', text: t.bilinkBlockDesc }
+              ]
+            }]
+          }
         ]
       },
       {
@@ -576,14 +590,75 @@ export function createDemoNotes(): void {
     ]
   }
 
-  // 笔记 2: 编辑器功能演示 - 中文版
+  // 笔记 2: 编辑器功能演示 - 中文版（按常用程度排序）
   const featuresContentZh = {
     type: 'doc',
     content: [
-      { type: 'paragraph', attrs: { blockId: 'fback1' }, content: [
-        { type: 'text', text: '返回 ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
-      ] },
+      {
+        type: 'paragraph', attrs: { blockId: 'fback1' }, content: [
+          { type: 'text', text: '返回 ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
+        ]
+      },
+      // 1. 引用块 - 非常常用
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'blockquote' },
+        content: [{ type: 'text', text: '引用块' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '> 空格' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/引用' },
+          { type: 'text', text: ' 创建引用块：' }
+        ]
+      },
+      {
+        type: 'blockquote',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: '好的笔记不是记录一切，而是记录能引发思考的内容。' }] }
+        ]
+      },
+      // 2. 提示块 Callout - 强调信息
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'callouts' },
+        content: [{ type: 'text', text: '提示块 Callout' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/提示' },
+          { type: 'text', text: ' 选择不同类型：' }
+        ]
+      },
+      {
+        type: 'callout', attrs: { type: 'note', collapsed: false }, content: [
+          { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'Note' }, { type: 'text', text: '：普通提示信息' }] }
+        ]
+      },
+      {
+        type: 'callout', attrs: { type: 'tip', collapsed: false }, content: [
+          { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'Tip' }, { type: 'text', text: '：实用技巧' }] }
+        ]
+      },
+      {
+        type: 'callout', attrs: { type: 'warning', collapsed: false }, content: [
+          { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'Warning' }, { type: 'text', text: '：注意事项' }] }
+        ]
+      },
+      {
+        type: 'callout', attrs: { type: 'danger', collapsed: false }, content: [
+          { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'Danger' }, { type: 'text', text: '：危险警告' }] }
+        ]
+      },
+      // 3. 折叠块 Toggle
       {
         type: 'heading',
         attrs: { level: 1, blockId: 'toggle' },
@@ -592,89 +667,26 @@ export function createDemoNotes(): void {
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: '在行首输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/折叠' },
-          { type: 'text', text: ' 或 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/toggle' },
-          { type: 'text', text: ' 创建可折叠内容：' }
-        ]
-      },
-      {
-        type: 'toggle',
-        attrs: { summary: '点击展开查看更多内容', collapsed: true },
-        content: [
-          { type: 'paragraph', content: [{ type: 'text', text: '折叠块可以隐藏长内容，让笔记更加整洁。' }] },
-          { type: 'bulletList', content: [
-            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '适合存放详细说明' }] }] },
-            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '适合组织 FAQ 问答' }] }] },
-            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '适合折叠代码示例' }] }] }
-          ] }
-        ]
-      },
-      {
-        type: 'heading',
-        attrs: { level: 1, blockId: 'mermaid' },
-        content: [{ type: 'text', text: 'Mermaid 图表' }]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: '在行首输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/mermaid' },
-          { type: 'text', text: ' 或 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/图表' },
-          { type: 'text', text: ' 插入图表，双击可编辑：' }
-        ]
-      },
-      {
-        type: 'mermaid',
-        attrs: { code: 'graph LR\n    A[想法] --> B{值得记录?}\n    B -->|是| C[写入笔记]\n    B -->|否| D[忽略]\n    C --> E[定期回顾]\n    E --> A' }
-      },
-      {
-        type: 'heading',
-        attrs: { level: 1, blockId: 'imgdemo' },
-        content: [{ type: 'text', text: '图片' }]
-      },
-      {
-        type: 'paragraph',
-        content: [{ type: 'text', text: '支持拖拽调整图片大小，点击选中后显示尺寸信息：' }]
-      },
-      {
-        type: 'image',
-        attrs: {
-          src: 'data:image/png;base64,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',
-          alt: '三千笔记 Logo',
-          width: 64,
-          height: 64,
-          align: 'center'
-        }
-      },
-      {
-        type: 'heading',
-        attrs: { level: 1, blockId: 'math' },
-        content: [{ type: 'text', text: '数学公式' }]
-      },
-      {
-        type: 'paragraph',
-        content: [
           { type: 'text', text: '输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '$公式$' },
-          { type: 'text', text: ' 创建行内公式：' },
-          { type: 'inlineMath', attrs: { latex: 'E = mc^2' } },
-          { type: 'text', text: '，或输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/数学' },
-          { type: 'text', text: ' 插入示例公式。' }
+          { type: 'text', marks: [{ type: 'code' }], text: '/toggle' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/折叠' },
+          { type: 'text', text: ' 创建可展开/收起的内容：' }
         ]
       },
       {
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: '更多示例：' },
-          { type: 'inlineMath', attrs: { latex: '\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}' } },
-          { type: 'text', text: '，' },
-          { type: 'inlineMath', attrs: { latex: '\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}' } }
+        type: 'toggle', attrs: { summary: '点击展开查看详情', collapsed: true }, content: [
+          { type: 'paragraph', content: [{ type: 'text', text: '折叠块可以隐藏长内容，保持笔记整洁。' }] },
+          {
+            type: 'bulletList', content: [
+              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '适合详细说明' }] }] },
+              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '适合 FAQ 常见问题' }] }] },
+              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: '适合代码示例' }] }] }
+            ]
+          }
         ]
       },
+      // 4. 代码块
       {
         type: 'heading',
         attrs: { level: 1, blockId: 'codblk' },
@@ -687,102 +699,46 @@ export function createDemoNotes(): void {
           { type: 'text', marks: [{ type: 'code' }], text: '```' },
           { type: 'text', text: ' 或 ' },
           { type: 'text', marks: [{ type: 'code' }], text: '/代码' },
-          { type: 'text', text: ' 创建代码块，点击左上角可切换语言：' }
+          { type: 'text', text: ' 创建代码块，点击左上角切换语言：' }
         ]
       },
       {
         type: 'codeBlock',
         attrs: { language: 'javascript', blockId: 'codex1' },
-        content: [{ type: 'text', text: '// 支持语法高亮\nfunction greet(name) {\n  console.log(`Hello, ${name}!`);\n}\n\ngreet("三千笔记");' }]
+        content: [{ type: 'text', text: '// 支持 100+ 种语言语法高亮\nfunction greet(name) {\n  console.log(`Hello, ${name}!`);\n}\n\ngreet("心流笔记");' }]
       },
+      // 5. 数学公式
       {
         type: 'heading',
-        attrs: { level: 1, blockId: 'dataview' },
-        content: [{ type: 'text', text: 'Dataview 数据查询' }]
+        attrs: { level: 1, blockId: 'math' },
+        content: [{ type: 'text', text: '数学公式' }]
       },
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: '输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/dataview' },
+          { type: 'text', text: '行内公式：输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '$公式$' },
+          { type: 'text', text: '，如 ' },
+          { type: 'inlineMath', attrs: { latex: 'E = mc^2' } },
+          { type: 'text', text: '、' },
+          { type: 'inlineMath', attrs: { latex: '\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}' } }
+        ]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '块级公式：输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/数学' },
           { type: 'text', text: ' 或 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/查询' },
-          { type: 'text', text: ' 创建数据查询块，支持 LIST 和 TABLE 两种输出格式：' }
+          { type: 'text', marks: [{ type: 'code' }], text: '/math' },
+          { type: 'text', text: ' 插入独立公式块。' }
         ]
       },
       {
-        type: 'dataviewBlock',
-        attrs: { code: 'LIST\nFROM ""\nWHERE is_favorite = true\nLIMIT 5', blockId: 'dvblk1' }
+        type: 'mathematics',
+        attrs: { latex: '\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}' }
       },
-      {
-        type: 'heading',
-        attrs: { level: 1, blockId: 'transclusion' },
-        content: [{ type: 'text', text: '内容引用 Transclusion' }]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: '输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/transclusion' },
-          { type: 'text', text: ' 或 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/引用' },
-          { type: 'text', text: ' 嵌入其他笔记的内容，支持实时同步更新。' }
-        ]
-      },
-      {
-        type: 'heading',
-        attrs: { level: 1, blockId: 'embed' },
-        content: [{ type: 'text', text: '网页嵌入 Embed' }]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: '输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/embed' },
-          { type: 'text', text: ' 或 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/嵌入' },
-          { type: 'text', text: ' 嵌入网页、视频等外部内容。' }
-        ]
-      },
-      {
-        type: 'heading',
-        attrs: { level: 1, blockId: 'importexport' },
-        content: [{ type: 'text', text: '导入导出' }]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: '点击编辑器右上角的 ' },
-          { type: 'text', marks: [{ type: 'bold' }], text: '⋯' },
-          { type: 'text', text: ' 菜单：' }
-        ]
-      },
-      {
-        type: 'bulletList',
-        content: [
-          { type: 'listItem', content: [{ type: 'paragraph', content: [
-            { type: 'text', marks: [{ type: 'bold' }], text: '导出' },
-            { type: 'text', text: '：支持 PDF 和 Markdown 格式' }
-          ] }] },
-          { type: 'listItem', content: [{ type: 'paragraph', content: [
-            { type: 'text', marks: [{ type: 'bold' }], text: '导入' },
-            { type: 'text', text: '：支持 Markdown、PDF 解析、arXiv 论文导入' }
-          ] }] }
-        ]
-      },
-      {
-        type: 'heading',
-        attrs: { level: 1, blockId: 'callouts' },
-        content: [{ type: 'text', text: '提示块 Callout' }]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: '输入 ' },
-          { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
-          { type: 'text', text: ' 选择不同类型（note/tip/warning/danger）。' }
-        ]
-      },
+      // 6. 表格
       {
         type: 'heading',
         attrs: { level: 1, blockId: 'tblsec' },
@@ -795,7 +751,7 @@ export function createDemoNotes(): void {
           { type: 'text', marks: [{ type: 'code' }], text: '/表格' },
           { type: 'text', text: ' 或 ' },
           { type: 'text', marks: [{ type: 'code' }], text: '/table' },
-          { type: 'text', text: ' 插入表格：' }
+          { type: 'text', text: ' 插入表格，支持拖拽调整列宽：' }
         ]
       },
       {
@@ -812,9 +768,17 @@ export function createDemoNotes(): void {
           {
             type: 'tableRow',
             content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '引用块' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '> 空格' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '引用文字' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow',
+            content: [
               { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '提示块' }] }] },
               { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/callout' }] }] },
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '4 种类型可选' }] }] }
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '4 种类型' }] }] }
             ]
           },
           {
@@ -822,33 +786,143 @@ export function createDemoNotes(): void {
             content: [
               { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '折叠块' }] }] },
               { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/toggle' }] }] },
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '可展开/收起' }] }] }
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '展开/收起' }] }] }
             ]
           },
           {
             type: 'tableRow',
             content: [
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '图表' }] }] },
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/mermaid' }] }] },
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '流程图等' }] }] }
-            ]
-          },
-          {
-            type: 'tableRow',
-            content: [
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '脚注' }] }] },
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/footnote' }] }] },
-              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '⌘⇧F' }] }] }
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '代码块' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '```' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '语法高亮' }] }] }
             ]
           }
         ]
       },
+      // 7. 图片
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'imgdemo' },
+        content: [{ type: 'text', text: '图片' }]
+      },
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: '直接粘贴图片或拖拽文件到编辑器，图片会自动保存到本地附件目录，支持调整大小和对齐方式。' }]
+      },
+      { type: 'callout', attrs: { type: 'tip', collapsed: false }, content: [
+        { type: 'paragraph', content: [{ type: 'text', text: '试试粘贴一张图片到这里，或从文件夹拖拽图片进来！' }] }
+      ] },
+      // 8. Mermaid 图表
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'mermaid' },
+        content: [{ type: 'text', text: 'Mermaid 图表' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/mermaid' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/图表' },
+          { type: 'text', text: ' 插入流程图，双击编辑：' }
+        ]
+      },
+      {
+        type: 'mermaid',
+        attrs: { code: 'graph LR\n    A[想法] --> B{值得记录?}\n    B -->|是| C[写入笔记]\n    B -->|否| D[忽略]\n    C --> E[定期回顾]\n    E --> A' }
+      },
+      // 9. Dataview 数据查询
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'dataview' },
+        content: [{ type: 'text', text: 'Dataview 数据查询' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/dataview' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/查询' },
+          { type: 'text', text: ' 创建数据查询块，支持 LIST 和 TABLE 两种输出格式：' }
+        ]
+      },
+      { type: 'dataviewBlock', attrs: { code: 'LIST\nFROM ""\nWHERE is_favorite = true\nLIMIT 5', blockId: 'dvblk1' } },
+      // 10. 内容引用 Transclusion
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'transclusion' },
+        content: [{ type: 'text', text: '内容引用 Transclusion' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/transclusion' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/引用' },
+          { type: 'text', text: ' 嵌入其他笔记的内容，支持实时同步更新。' }
+        ]
+      },
+      // 11. 网页嵌入 Embed
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'embed' },
+        content: [{ type: 'text', text: '网页嵌入 Embed' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '输入 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/embed' },
+          { type: 'text', text: ' 或 ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/嵌入' },
+          { type: 'text', text: ' 嵌入网页、视频等外部内容。' }
+        ]
+      },
+      // 12. 导入导出
+      {
+        type: 'heading',
+        attrs: { level: 1, blockId: 'importexport' },
+        content: [{ type: 'text', text: '导入导出' }]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '点击编辑器右上角的 ' },
+          { type: 'text', marks: [{ type: 'bold' }], text: '⋯' },
+          { type: 'text', text: ' 菜单：' }
+        ]
+      },
+      {
+        type: 'bulletList', content: [
+          {
+            type: 'listItem', content: [{
+              type: 'paragraph', content: [
+                { type: 'text', marks: [{ type: 'bold' }], text: '导出' },
+                { type: 'text', text: '：支持 PDF 和 Markdown 格式' }
+              ]
+            }]
+          },
+          {
+            type: 'listItem', content: [{
+              type: 'paragraph', content: [
+                { type: 'text', marks: [{ type: 'bold' }], text: '导入' },
+                { type: 'text', text: '：支持 Markdown、PDF 解析、arXiv 论文导入' }
+              ]
+            }]
+          }
+        ]
+      },
       { type: 'horizontalRule' },
-      { type: 'paragraph', content: [
-        { type: 'text', text: '查看 ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note3Id, noteTitle: t.note3Title } }], text: t.note3Title },
-        { type: 'text', text: ' 了解更多快捷操作。' }
-      ] }
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: '查看 ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note3Id, noteTitle: t.note3Title } }], text: t.note3Title },
+          { type: 'text', text: ' 了解更多快捷操作。' }
+        ]
+      }
     ]
   }
 
@@ -856,139 +930,229 @@ export function createDemoNotes(): void {
   const featuresContentEn = {
     type: 'doc',
     content: [
-      { type: 'paragraph', attrs: { blockId: 'fback1' }, content: [
-        { type: 'text', text: 'Back to ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
+      {
+        type: 'paragraph', attrs: { blockId: 'fback1' }, content: [
+          { type: 'text', text: 'Back to ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
+        ]
+      },
+      // 1. Blockquote
+      { type: 'heading', attrs: { level: 1, blockId: 'blockquote' }, content: [{ type: 'text', text: 'Blockquotes' }] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '> space' },
+          { type: 'text', text: ' or ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/quote' },
+          { type: 'text', text: ' to create a quote block:' }
+        ]
+      },
+      {
+        type: 'blockquote', content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Good notes are not about recording everything, but capturing what sparks thinking.' }] }
+        ]
+      },
+      // 2. Callouts
+      { type: 'heading', attrs: { level: 1, blockId: 'callouts' }, content: [{ type: 'text', text: 'Callout Blocks' }] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
+          { type: 'text', text: ' to choose types (note/tip/warning/danger):' }
+        ]
+      },
+      { type: 'callout', attrs: { type: 'note', collapsed: false }, content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Note: Default blue style for general information' }] }
       ] },
+      { type: 'callout', attrs: { type: 'tip', collapsed: false }, content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Tip: Green style for helpful suggestions' }] }
+      ] },
+      { type: 'callout', attrs: { type: 'warning', collapsed: false }, content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Warning: Yellow style for important notices' }] }
+      ] },
+      { type: 'callout', attrs: { type: 'danger', collapsed: false }, content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Danger: Red style for critical warnings' }] }
+      ] },
+      // 3. Toggle
       { type: 'heading', attrs: { level: 1, blockId: 'toggle' }, content: [{ type: 'text', text: 'Toggle Blocks' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/toggle' },
-        { type: 'text', text: ' to create collapsible content:' }
-      ] },
-      { type: 'toggle', attrs: { summary: 'Click to expand', collapsed: true }, content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'Toggle blocks hide long content, keeping notes tidy.' }] },
-        { type: 'bulletList', content: [
-          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Great for detailed explanations' }] }] },
-          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Perfect for FAQ sections' }] }] },
-          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ideal for code examples' }] }] }
-        ] }
-      ] },
-      { type: 'heading', attrs: { level: 1, blockId: 'mermaid' }, content: [{ type: 'text', text: 'Mermaid Diagrams' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/mermaid' },
-        { type: 'text', text: ' to insert a diagram. Double-click to edit:' }
-      ] },
-      { type: 'mermaid', attrs: { code: 'graph LR\n    A[Idea] --> B{Worth noting?}\n    B -->|Yes| C[Write it down]\n    B -->|No| D[Skip]\n    C --> E[Review regularly]\n    E --> A' } },
-      { type: 'heading', attrs: { level: 1, blockId: 'imgdemo' }, content: [{ type: 'text', text: 'Images' }] },
-      { type: 'paragraph', content: [{ type: 'text', text: 'Drag to resize images. Click to select and view dimensions:' }] },
-      { type: 'image', attrs: { src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAWXklEQVR4nO1bCXhU1b3/n3O32WcyM5mELIAKRRR3VPrEBloqSPtUtElRKy1q9am1iEspz+IkT1/pe1hxqQuoRVEBkwoutFKwTaLWqtVSLasCISzZJrPP3Hvnbud9/5vEZ/0UJiH47Pv88+Vj5pt7zz3/fTm/C/AlfUmfJ5Ha2loO/8e/mpoaPhqN0v7v/7+pto9xmziOA0qR738gDgXyeQuDHO0HMMYIIfZjGGOMfu97s+/qicVmeNxuMxKJbHA6pTXnn3/h3unTp+c/IQwyZcoUq6GhwfpnFgDpZ5zc+fP6C9t2t807eLBjSiKeANM0IRAIgGkaFsfxBx0O5+sej+sPPl/Juscffzzx8UXQMlpaWkxCCDsaGzwqhEzX19cTcEH5vg/2PK0qytTe3gT09MSMTDpLNV3Hiyy/388H/D5wOJ3AcRQoJT2qWmh2u11/Gjmy6vVHH31yMwprwI2amprQItgXXgCNjbVcXV2TeduCm+9rb2//8fZtO7R8XuYM3eB03YBCoQBqQQVREFl5eRkLBPyM5zmgHOVwU263GyzGgKP8Xwghq48//oTVd999dxeujYFzuFyDwNHzexZdEo20bdm1vaOjy9/Z2UkS8QTFeGBZDAzDANMywbIsexOhcBiCwQAIgsAURbEkycEMw+ApJVASKIFIpLRXFIVfZjLyPU1NTVo0GuXr6xtMQo7MGigcBaqvr7cjvtwj85ZlAiHAUUKJIAj27wz/MWZnAh4zAkeht7cXOju7IJNOE0IopxUKPCUEDN2wZDlvyHI+bFnm4lDI9+cbb7zuXxoaGgxkvj+NfjEsoLbPR22HjUZrxbKyqYG29l23b3l/yw2dHV2QSqU4o9+fVVUFE7VvZwgGBCjohm4LJRIpBZ/XC+gSHMdjXACe55jH4zYlSeJdLrdeWhpe4qkKLGmY35BCa0CB/J9ZQLRfC8j8kiW3uJ988rGvTp889yxR5E4cVT16GzAST6ZStKDpzDBM0A0DzZahhtFVGCPMYhZIogSiIEA2kwNNMwAYAVVRbZexfQeAVwsFK51OC/m8/O+5A6m377orehYy39jY+FGd8blaQE1NDd/a2mrU1tY6x40bM8vhcESqqqo63n//72N0vTDL0I1TTdPiO7s6oLOrh6VTadA0jRQ0DZligA7ST7phGMRilPKczW8oWAK8wKMbgMfjAZfbCV6vFxgDRgiY5SPK+MqKCs3t811/y023PT4USyBHwHuf7QLA9ddfc3Zvb3zmCSeMV7dv33laMp4c5/a6T3Y4RPtCjuch4POBbhqgKArkc7IuSZJACIVcLgeZTAay2bydGTLpNBQ0zTRNk4iCSCNlYWTYvk+SRPD5vBAOh0ByiCDwguV2e0hlZSUBoD+94476/xqsEMiRMI8P++s7by+SnI7afF75kOfIWFlWxuuGiYWO6fN5iNfrJbhZh+SQXS53d0Vl+V8F3vFudXXFK9lsvoRSwdA0WXzvva2xPXt2XZhKpS4pFAonZjNZyOXzpsvl4nx+nx00C6qKsQDCpSEIh0Lg9XqAEMpEUTIrKiow4N4Qjd750GCEQIbIPJ0/f7745pt/WstRbkYymcpSjvNKImqcmZJDIi63i/p8PnA4nEZpaRiTQMLv838Q8AfaAUjM5ws8lkqlei0rz99666L9A4szxvhLLrmorqura1EqnT5eUQoGRynvcrtAQHfQdLtocjolKC8vB58vAAwsJokOKxQOclQgX4/efmczxoS6urq+iDucQbCmpgaDjbl58zuPGIY5o7OrW8vmct5sNmuphQIzLIuzGKMOp2Q5nCIrCfp5wzSpnFdSDGB/Pq8+bFnwC1VVD4hiOkuIK9/YGBUxkGI8IYQYa9e+sOprX5s4OVJW9ruSkgDvdrtNt8sFoVAQwqVhwNChKgVIJlOQzWZAEESiGzpJp9MgcuJTGzc+X4HMF5MiyVDS3Ndrzv2RBfBAd09MlxVFwEhgl7H4RyiEw2ErXBqkaKKhUPAZk9B7v3Phd/42depUYzCBlTHGXXzxrBWEsiscDskoqCqPGUFRVCgUNCgUVPB4vTB69Gg7Nggiz/y+ACkvL3v89NPG3XbSSZNTNpOH6CFoscyjNLEOv/LKK8dZBJak0ml0c9QYEAoY2UHXdXA6nZYoiRjFtwmS87z773v4ew/e++A7yHxtYy1nawXT/iEImcfrcOPr1j0/p7ys/JFIaYSvqKjW/YESFgiUgMfrAY/HDbqmQTweQ+YhHAozZjGQ8+plsVh+PO6tqanpkDzSYgWwbds2O/Bpaj4q8IIDN8dxHOEoBU3T7XQV8AcMl8tFgFkfHnvM2HOfePyJTR8fejTVNZl2DV9E+YrXYRuJVvfww8uv87i8K0LBkOB2eVgwWGKVhkN2DAiGSuws0ra7DVRFY5Lk2EUJcba3H5iB+926dSs7YheI9jcf0Wh0zL59e7Z3dHTSeDxud3SKrKLmLVEULY7jePTTkSNHT1y1atW711xzjbB8+XK9WCEfYo+EUGrddWf9LYTQ/2bMotlcFgMcJ+dl6OrqglhPzJow4SRaVV35R5fLpXncnmmjK6pOmjpjxg6cQxBCrCFbQEtLi31dojc2X1FUvlBQLVEUQBR58HrdptfrpViicjzd7/G4b0DmUXPDwDySXTXesWgRvf32O3957LHHzBw1+pj9lRXVnGUxQxAkVhqOoDXQWG+PZVnWVIfD/RYv8C8n8pmbcYGmpqbPVDQtYgMEfbK5udnjdDsvxmKFMUIDJUGIRMrNUCjElZdHNo8aVT1rwU8WTtiwYdND/fHisCloMELot0B+9uzLfz9q5OhTHA7ni1WV1TxWhiUlJSwYCoHL5UR3JJIkXDhmzLgfS05HZv36teMPlRHo4Z7c2NhoX7P3wN4JoVCozOf3skCJH6s0nRKOK+jaY0uX3j9p/fqXn7/iiisyqPmjNcYaqPnPPffc5NVXX31xpLzs7pEjq03MNm6Pi5UEg5CXc6DpmtzT01MZDnrvdTo9px5qTXq4hw4EEV3RD0gOl+z1+K2qqkoyZuwYQZKkNa+2vP7DCRMmaAMDzWI031hbyzXX1PCNAByrBfszNgXFCAG1id0TAFiz62bfFhlRfn5ZebkZDIbA4XRYDqcD4vFebyRSYkyaNPWAYbDcunXrAp+lFFLMQweqqpVPrVxu6PoPc7lMvFAoPH3rrQtura+vtxcuRusM0x82gADWJ9qJvt8x9RVvPWTZsmX8tddeq697ad3MZG98fTKZILIsg9PhZONPmjBt5nkzm1taWtyCIJDJkydnhywA1j/h2b59u7e7++A04gm8WTNxYufH1mDFroGf37lv4VTHh+/XyQc6RlqaljJc3uZN35y7quHaa2UWBUoaBgR0eFq2bJmAQnjmmWcWSQ5xwf797QWXyx30eX2PXnrp5de88UajUxRL3RMnTu0dsgAOkRrtCA1FaB6nN42bGv3VLRuiwp6t10e0vJRXVGAmA84hQN7l3xoPV13xzQee2zzImZ89UMAPGze+PK+3N3lyMhn7QSRc9sfa786ehkLfsmWLiG76qTfDIAgfhJVVbW2tVeyI2jZ7AHj56fu8gS3vrg7sem+mnM2ACQRHWgTLQmCW5RIlIc7EeKer/PTaplf210eBNBRpCQPW1dzcHHY4HKXvv7d5k9/r/9F3L7vshWErhQcWwlgwmPl8S30Nh9oPvN16U+TgzpnpZELTLYsxy+RN0+RMQ+cMgwlpDbQSaoUiZubnBICduK145fQfvODIzZg0adKHHq/ngYKqGrjP4SqFSbGb+eR9UxpazUbGOE5TL01291g6EJ5ZJmE4G7Qs0AwGumUBEFMwKTAXtaY3RqOeuiYwi80MA244a9YsnKgalkX+6PJ5ji/mRjqYBwyWcIiB2pRWPxY2tEIZJ4mUl0RimtjBI/9WXwcJOP8HYBxHwNT9vgN/Lsf766PRIQk+EolsCwSCf8DP6K6HupYvxreee+65CcFgZtfUqXPVoWyovHS0ATxlzDJAoBxYPAXLxJ4I5+UUp6NgYYuIQjAsUHKF/ra5YbCPshXVf864GT8fzl3poX4c8B9NU06MxdwRFMhg5vD2xBeAnDVtWoJScR9PqGUSjuFkB/sI7CBR9UTgwbII4yywOJdn/77IyZ14X7FB8NOo2H3SYi5ijLpNU/8+MlRfX48SLdo0W6IYBAkjoRGr/OEIJbqmM05kQHmgHADPEZwOA6FUFxmhCuMfnffAA4WWvsnTkKnYNEo/6wfU9kAZ7HSKXYoiX/XSSy+dtXHjxtP7B6JFCW9qQ6uJFZ7jPx+9L1V+3PPBQEBimkoMo2AYpmngKJyZhhVxS1KMk1r+Gj51KRZDU1pbB9NMEaxWcU8DNUHRN8JhCBd8runZNYlUqk4Q+NUBn3/P2HHj/2Pbtm1mXV1dUSe1/cN/nG9wW+/80c+tPX+/kYt3Oi3dsjOATjlmeQO/jp1w+o8vbFguW/3XF8PAkR6U8p/1w2uvvVZiGLsUQoi6cuUTCdM0WCabvEAQBfLmm6+6rr76+psHytDDPcRm3g4JBLW64IO1TyzP/W7NFDOXHmmaLJYWvK9PX7XpbwDvfCSswTCPld4br712QSBU8n2XS6r/9rdnvXuoIcghBcD6I3+hUBA5LoBaK6xb95tNXd1d/6Zrhqunp4eUBAM3rVmz8m+zZ89Z2dwc5adMqT9scdTPFGmsBfqVi3+wGwB2/8Nz+9yRFcs8dp/YHt9//5JjNmz47bMA5ExFU0BySBIAnFdfXw9DigGknxHGmEqp7yz87vcHynRdP1jQVZLJZsx4PM5ysvJE429WXzF1Kp7SkmJjArMLnGiUYgs88Gd3gQBWMczjvOGMM84Q+o/jSjdvfv/3HR0dZ27d+nd9x84dRjKZPmfF6hWj+wcodEguwPrMJ71hw+/GvfHKK1u78pltlZUV7Tt27EBBcPYcUDMYz3Er173QdAZhwqKLLrooW+yJTH/L+7/m2dp6uFs+urV/3mDOnDltfDzRu1KWpbGJRMowTF3w+f0sLOd5M6+gFRRF9FA/ZrOptzvTicUl3pJ2SqiOR1DdXTGGfXc2kyHt7fvM3ljvvFw+9Yfm5ubRAxObgQZoGMk+jeI4js2YMe0bkydPujedzr2ja4WJuXzOUlSZz2Sypq7piDnacdVV133QJ+fDB0f6qU8jxEJGamsve4sxUkgk4i8yxrYJPE9kOQ+JeBJS6RTJ53Pc7t27jXi898w9bTvfWrFi+VV9zVIfMGq4uMfTKEqp9bXJ5zy9Z8/eV+Lx5LxEIunKy7JVUAsUD1gRWeLz+QizYGW/SxZVR9DDXeDxeH+lyPmT0qn0uZTym0eNHEnT6bQVi8VBkRU80eV372kz29r2RtLZzGMPPnjvQ21tbXhuYAfUI+Sd1NaeIKK//+vMmVfn5fzlPM8ZmqYZiqoyRVaoquKQFt2JUVVR9gUCweV4X31Dg3lEAqirqzMR6DRjxoz3dM14UhTFCZIkBSNlpdmq6gqKVrCnrR0OHOiATCrNJZNJtn/ffoMBu27lyseaWHMzjtHoUCAs/SU3xifW1LRNO/vsiZfs7zjwsKqqhmFYXEHTedO0COKMsKFSZdVCfJmqyg8uWLAgixZTbDYhh9mIfTy1fv36s/bvb/9tNpsOMbDMgwcPcjt37IJsNgd4ahsOlQAeYdtat0CTRFHkBe6ppUt/NQeFHI1GP7U0/biF2JA6gIGixr72ygsu8KYFcmsinlwUTyQA532qWiC4bYTP4O55jkOoHfH5fHvHjo2cNmLECdliJ1WH7QYxFqAGv/Wtb729bNnDKwqadms8ngBCeBg5aiTs3r3Hxvr0xhOg6yY4HA6QFVnEYUQg4Lvi2muv5B555HHsIQz7wLOl1fz4sdgnagc2wPjixYtHZzK9s2RFucFIpo7L52WGuABJkggyjvAZPIvkOY4RnuJ0ihdFxzXLlzel+yG51rCWwvX1hJSVPRROphJv9XR3jzYt03S5HFxXdxfs33cAclkZCxC7qXE6HYBAKEWRjYqKct7n9b5yyilnzp03b94BXK9/fI753AGKEuJ4nmS0rMDzUgXH0dMPHOg4X1GVswMBvy+ZSkK8N2Ymk2kuk86AaVqQTmdNRVGwwcKDECsYDFJBEBa2tr72i4+DtIZNAEgDCz+15qnTd27d3hqPx12oCYtZtDfWCz3dMZAVBRASh0visVkKoS6qavr8fq4sUhqvqqz89fjxxy29+eaf2dNkZODZZ58N6rpOTbPwFcMwvpnN5r0dnR3Hp9OZCYxZZelMCq2JZrM5lsvlLUPXORSCYZiW1+vWKaEi4cmC11rfWDIU5pGKjtIDRc7PfrbwYtMyn8tkMkzTNAQzUjwui8V6IZ1BpjUb6YUrI+4vkUiij9IRI8oR+haPlIXXev0lr1ZXVPopBZ8kSU7GLLmnNxb0e73j44nElHQm68EAV1A1K5/LMd0w7JTGcdTgOW4DxwlU1/WRAOzml1/euGmozCMNKk0NCOGee+6py+VSq9r3tXNaQTMJJZwsKzbgKZFIQiabtac9CIxEVBhqkBd40+V08h6PFzieA5cTEV8e8Pt9NjgKUWNOhwNKI2HbnWwcoWHZk6OCpskup6PF5/G97fJ4rD17dvOdnR8sbW19L3UkzCMNOk8PCGHx4sXTcvn0sz093cFUOq0DA16WZZJOZ+1ojYBHLPDRZDFw5vMyTr/xhKDPT4ARvIbhWTfiDDiOCDyPx1sE4XGnnnqK7nF79wqi8GYgEHj12FHHqnvb26ooLz4/f/78nbiXI2UeaUiFyoAQFi5ceDxjxqpYb+y07q5u1KypaxpXUAtgWojqKth52jAN6In12oUT+j6ivxEua2+A2ChQO63xHN8X2QmFUaNHdX33ku/8gHcIIZ7nYrFYx84BMNVwosbJUG8cOC9sbGx0trS0/CSby/yU56kjlUyZqqIQRVEpwuUwMJomosM1hMoDugo+FRmnlOsTAEdtIaBFIBgKQVGI+Bo1atS9DkfHTx94YEOhX/AUR3LD+d4AOZKbPz6NWbjwlgm9vcm7TdOcnrLTV9w0TFtJFJGh2Okj/D2TydroLvsdgP7pIuKEOR5HwgAulwOxwiwYDEJlVUXhlJMnTEgk8m0I0RlmzIFNw9Gw4MtPHNbr+GXO3MsvzaWzN+bz8lfVQgEMXcfChVGOmujugsBTtIbu7h4bE9xnDRQ4isBoCpIkQDAUNKurq6C6uvrDSWefM3HOnDly/7OG/Y0ROgxrsAFUFwpj5YpnVq9d++I5giDMlhyOFwVR7Ha5nMTpdCDeD4sW8Hk9xpjjjjNLS8N4doLB0Y4JHq8LgiG/6fN5yYgR5ZzfF3hozpw5+f7ObtiZPyovTHwyMkeXRgObm/8yzgKYbhpWHUfpiRgTsJzFbBGLxaxUOm05nRIpH1EGY8ccx4VLSzWX0/NEabjspkwmUxhMbf9FeWWG1NbWIk7oo/p+AAY7d+7ckzt7Or/BDGsyY9ZZkiSVI6wlm8lAaSQCp5122qKamm88e9555314lPb2jxuFz+EZKAwcpg7EiQFasWJFYMeOLedohv71jo7OUznCvbBq1Zr7j9YLUl8EIgOYYKxsP+0C/P1IX4P5p3uVtqZPIAi8OKLjsC/pS4JB0/8AZ9zvUKqIRSEAAAAASUVORK5CYII=', alt: 'Flow Logo', width: 64, height: 64, align: 'center' } },
-      { type: 'heading', attrs: { level: 1, blockId: 'math' }, content: [{ type: 'text', text: 'Math Formulas' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '$formula$' },
-        { type: 'text', text: ' for inline math: ' },
-        { type: 'inlineMath', attrs: { latex: 'E = mc^2' } },
-        { type: 'text', text: ', or type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/math' },
-        { type: 'text', text: ' to insert.' }
-      ] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'More examples: ' },
-        { type: 'inlineMath', attrs: { latex: '\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}' } },
-        { type: 'text', text: ', ' },
-        { type: 'inlineMath', attrs: { latex: '\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}' } }
-      ] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/toggle' },
+          { type: 'text', text: ' to create collapsible content:' }
+        ]
+      },
+      {
+        type: 'toggle', attrs: { summary: 'Click to expand', collapsed: true }, content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Toggle blocks hide long content, keeping notes tidy.' }] },
+          {
+            type: 'bulletList', content: [
+              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Great for detailed explanations' }] }] },
+              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Perfect for FAQ sections' }] }] },
+              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ideal for code examples' }] }] }
+            ]
+          }
+        ]
+      },
+      // 4. Code Blocks
       { type: 'heading', attrs: { level: 1, blockId: 'codblk' }, content: [{ type: 'text', text: 'Code Blocks' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '```' },
-        { type: 'text', text: ' or ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/code' },
-        { type: 'text', text: ' to create a code block:' }
-      ] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '```' },
+          { type: 'text', text: ' or ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/code' },
+          { type: 'text', text: ' to create a code block:' }
+        ]
+      },
       { type: 'codeBlock', attrs: { language: 'javascript', blockId: 'codex1' }, content: [{ type: 'text', text: '// Syntax highlighting\nfunction greet(name) {\n  console.log(`Hello, ${name}!`);\n}\n\ngreet("Flow");' }] },
-      { type: 'heading', attrs: { level: 1, blockId: 'dataview' }, content: [{ type: 'text', text: 'Dataview Queries' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/dataview' },
-        { type: 'text', text: ' to create data query blocks with LIST and TABLE output:' }
+      // 5. Math Formulas
+      { type: 'heading', attrs: { level: 1, blockId: 'math' }, content: [{ type: 'text', text: 'Math Formulas' }] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '$formula$' },
+          { type: 'text', text: ' for inline math: ' },
+          { type: 'inlineMath', attrs: { latex: 'E = mc^2' } },
+          { type: 'text', text: ', or type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/math' },
+          { type: 'text', text: ' to insert.' }
+        ]
+      },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'More examples: ' },
+          { type: 'inlineMath', attrs: { latex: '\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}' } },
+          { type: 'text', text: ', ' },
+          { type: 'inlineMath', attrs: { latex: '\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}' } }
+        ]
+      },
+      // 6. Tables (moved here from later position)
+      { type: 'heading', attrs: { level: 1, blockId: 'tblsec' }, content: [{ type: 'text', text: 'Tables' }] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/table' },
+          { type: 'text', text: ' to insert a table:' }
+        ]
+      },
+      {
+        type: 'table', content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Feature' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shortcut' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Description' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Callout' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/callout' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '4 types' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Toggle' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/toggle' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Collapsible' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Diagram' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/mermaid' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Flowcharts' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Footnote' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/footnote' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '⌘⇧F' }] }] }
+            ]
+          }
+        ]
+      },
+      // 7. Images
+      { type: 'heading', attrs: { level: 1, blockId: 'imgdemo' }, content: [{ type: 'text', text: 'Images' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Paste images or drag files into the editor. Images are saved locally. Supports resizing and alignment.' }] },
+      { type: 'callout', attrs: { type: 'tip', collapsed: false }, content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Try pasting an image here, or drag one from your file manager!' }] }
       ] },
+      // 8. Mermaid Diagrams
+      { type: 'heading', attrs: { level: 1, blockId: 'mermaid' }, content: [{ type: 'text', text: 'Mermaid Diagrams' }] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/mermaid' },
+          { type: 'text', text: ' to insert a diagram. Double-click to edit:' }
+        ]
+      },
+      { type: 'mermaid', attrs: { code: 'graph LR\n    A[Idea] --> B{Worth noting?}\n    B -->|Yes| C[Write it down]\n    B -->|No| D[Skip]\n    C --> E[Review regularly]\n    E --> A' } },
+      // 9. Dataview Queries
+      { type: 'heading', attrs: { level: 1, blockId: 'dataview' }, content: [{ type: 'text', text: 'Dataview Queries' }] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/dataview' },
+          { type: 'text', text: ' to create data query blocks with LIST and TABLE output:' }
+        ]
+      },
       { type: 'dataviewBlock', attrs: { code: 'LIST\nFROM ""\nWHERE is_favorite = true\nLIMIT 5', blockId: 'dvblk1' } },
       { type: 'heading', attrs: { level: 1, blockId: 'transclusion' }, content: [{ type: 'text', text: 'Transclusion' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/transclusion' },
-        { type: 'text', text: ' to embed content from other notes with live sync.' }
-      ] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/transclusion' },
+          { type: 'text', text: ' to embed content from other notes with live sync.' }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'embed' }, content: [{ type: 'text', text: 'Web Embeds' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/embed' },
-        { type: 'text', text: ' to embed web pages, videos, and external content.' }
-      ] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Type ' },
+          { type: 'text', marks: [{ type: 'code' }], text: '/embed' },
+          { type: 'text', text: ' to embed web pages, videos, and external content.' }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'importexport' }, content: [{ type: 'text', text: 'Import & Export' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Click the ' },
-        { type: 'text', marks: [{ type: 'bold' }], text: '⋯' },
-        { type: 'text', text: ' menu in the top-right corner:' }
-      ] },
-      { type: 'bulletList', content: [
-        { type: 'listItem', content: [{ type: 'paragraph', content: [
-          { type: 'text', marks: [{ type: 'bold' }], text: 'Export' },
-          { type: 'text', text: ': PDF and Markdown formats' }
-        ] }] },
-        { type: 'listItem', content: [{ type: 'paragraph', content: [
-          { type: 'text', marks: [{ type: 'bold' }], text: 'Import' },
-          { type: 'text', text: ': Markdown, PDF parsing, arXiv papers' }
-        ] }] }
-      ] },
-      { type: 'heading', attrs: { level: 1, blockId: 'callouts' }, content: [{ type: 'text', text: 'Callout Blocks' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/callout' },
-        { type: 'text', text: ' to choose types (note/tip/warning/danger).' }
-      ] },
-      { type: 'heading', attrs: { level: 1, blockId: 'tblsec' }, content: [{ type: 'text', text: 'Tables' }] },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'Type ' },
-        { type: 'text', marks: [{ type: 'code' }], text: '/table' },
-        { type: 'text', text: ' to insert a table:' }
-      ] },
-      { type: 'table', content: [
-        { type: 'tableRow', content: [
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Feature' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shortcut' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Description' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Callout' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/callout' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '4 types' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Toggle' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/toggle' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Collapsible' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Diagram' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/mermaid' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Flowcharts' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Footnote' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/footnote' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '⌘⇧F' }] }] }
-        ] }
-      ] },
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'Click the ' },
+          { type: 'text', marks: [{ type: 'bold' }], text: '⋯' },
+          { type: 'text', text: ' menu in the top-right corner:' }
+        ]
+      },
+      {
+        type: 'bulletList', content: [
+          {
+            type: 'listItem', content: [{
+              type: 'paragraph', content: [
+                { type: 'text', marks: [{ type: 'bold' }], text: 'Export' },
+                { type: 'text', text: ': PDF and Markdown formats' }
+              ]
+            }]
+          },
+          {
+            type: 'listItem', content: [{
+              type: 'paragraph', content: [
+                { type: 'text', marks: [{ type: 'bold' }], text: 'Import' },
+                { type: 'text', text: ': Markdown, PDF parsing, arXiv papers' }
+              ]
+            }]
+          }
+        ]
+      },
       { type: 'horizontalRule' },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'See ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note3Id, noteTitle: t.note3Title } }], text: t.note3Title },
-        { type: 'text', text: ' for more shortcuts.' }
-      ] }
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'See ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note3Id, noteTitle: t.note3Title } }], text: t.note3Title },
+          { type: 'text', text: ' for more shortcuts.' }
+        ]
+      }
     ]
   }
 
@@ -998,119 +1162,218 @@ export function createDemoNotes(): void {
   const shortcutsContentZh = {
     type: 'doc',
     content: [
-      { type: 'paragraph', attrs: { blockId: 'scback1' }, content: [
-        { type: 'text', text: '返回 ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
-      ] },
-      { type: 'callout', attrs: { type: 'tip', collapsed: false, blockId: 'tip001' }, content: [
-        { type: 'paragraph', content: [
-          { type: 'text', marks: [{ type: 'bold' }], text: '提示：' },
-          { type: 'text', text: '这个段落可以被其他笔记引用！语法：' },
-          { type: 'text', marks: [{ type: 'code' }], text: `[[${t.note3Title}#^tip001]]` }
-        ] }
-      ] },
+      {
+        type: 'paragraph', attrs: { blockId: 'scback1' }, content: [
+          { type: 'text', text: '返回 ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
+        ]
+      },
+      {
+        type: 'callout', attrs: { type: 'tip', collapsed: false, blockId: 'tip001' }, content: [
+          {
+            type: 'paragraph', content: [
+              { type: 'text', marks: [{ type: 'bold' }], text: '提示：' },
+              { type: 'text', text: '这个段落可以被其他笔记引用！语法：' },
+              { type: 'text', marks: [{ type: 'code' }], text: `[[${t.note3Title}#^tip001]]` }
+            ]
+          }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'txtfmt' }, content: [{ type: 'text', text: '文字格式' }] },
-      { type: 'table', attrs: { blockId: 'fmttbl' }, content: [
-        { type: 'tableRow', content: [
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '操作' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '快捷键' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '粗体' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ B' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '斜体' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ I' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '下划线' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ U' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '删除线' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ S' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '高亮' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ H' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '行内代码' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ E' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '脚注' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ F' }] }] }
-        ] }
-      ] },
+      {
+        type: 'table', attrs: { blockId: 'fmttbl' }, content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '操作' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '快捷键' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '粗体' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ B' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '斜体' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ I' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '下划线' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ U' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '删除线' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ S' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '高亮' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ H' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '行内代码' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ E' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '脚注' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ F' }] }] }
+            ]
+          }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'editop' }, content: [{ type: 'text', text: '编辑操作' }] },
-      { type: 'table', attrs: { blockId: 'edttbl' }, content: [
-        { type: 'tableRow', content: [
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '操作' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '快捷键' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '撤销' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ Z' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '重做' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ Z' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '保存' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ S' }] }] }
-        ] }
-      ] },
+      {
+        type: 'table', attrs: { blockId: 'edttbl' }, content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '操作' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '快捷键' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '撤销' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ Z' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '重做' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ Z' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '保存' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ S' }] }] }
+            ]
+          }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'qkinpt' }, content: [{ type: 'text', text: '快捷输入' }] },
-      { type: 'table', content: [
-        { type: 'tableRow', content: [
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '输入' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '效果' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '打开命令菜单' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[[' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '插入笔记链接' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '# Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '一级标题' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '- Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '无序列表' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '1. Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '有序列表' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[] Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '任务列表' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '> Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '引用块' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '```' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '代码块' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '---' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '分割线' }] }] }
-        ] }
-      ] },
+      {
+        type: 'table', content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '输入' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '效果' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '打开命令菜单' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[[' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '插入笔记链接' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '# Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '一级标题' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '- Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '无序列表' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '1. Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '有序列表' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[] Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '任务列表' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '> Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '引用块' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '```' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '代码块' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '---' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '分割线' }] }] }
+            ]
+          }
+        ]
+      },
+      { type: 'heading', attrs: { level: 1, blockId: 'navop' }, content: [{ type: 'text', text: '导航操作' }] },
+      {
+        type: 'table', attrs: { blockId: 'navtbl' }, content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '操作' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: '快捷键' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '新建笔记' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ N' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '新建标签页' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ T' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '关闭标签页' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ W' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '搜索笔记' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ P' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: '全局搜索' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ F' }] }] }
+            ]
+          }
+        ]
+      },
       { type: 'horizontalRule' },
-      { type: 'paragraph', content: [
-        { type: 'text', text: '更多功能见 ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note2Id, noteTitle: t.note2Title } }], text: t.note2Title }
-      ] }
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: '更多功能见 ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note2Id, noteTitle: t.note2Title } }], text: t.note2Title }
+        ]
+      }
     ]
   }
 
@@ -1118,120 +1381,219 @@ export function createDemoNotes(): void {
   const shortcutsContentEn = {
     type: 'doc',
     content: [
-      { type: 'paragraph', attrs: { blockId: 'scback1' }, content: [
-        { type: 'text', text: 'Back to ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
-      ] },
-      { type: 'callout', attrs: { type: 'tip', collapsed: false, blockId: 'tip001' }, content: [
-        { type: 'paragraph', content: [
-          { type: 'text', marks: [{ type: 'bold' }], text: 'Tip: ' },
-          { type: 'text', text: 'This paragraph can be referenced by other notes! Syntax: ' },
-          { type: 'text', marks: [{ type: 'code' }], text: `[[${t.note3Title}#^tip001]]` }
-        ] }
-      ] },
+      {
+        type: 'paragraph', attrs: { blockId: 'scback1' }, content: [
+          { type: 'text', text: 'Back to ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note1Id, noteTitle: t.note1Title } }], text: t.note1Title }
+        ]
+      },
+      {
+        type: 'callout', attrs: { type: 'tip', collapsed: false, blockId: 'tip001' }, content: [
+          {
+            type: 'paragraph', content: [
+              { type: 'text', marks: [{ type: 'bold' }], text: 'Tip: ' },
+              { type: 'text', text: 'This paragraph can be referenced by other notes! Syntax: ' },
+              { type: 'text', marks: [{ type: 'code' }], text: `[[${t.note3Title}#^tip001]]` }
+            ]
+          }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'txtfmt' }, content: [{ type: 'text', text: 'Text Formatting' }] },
-      { type: 'table', attrs: { blockId: 'fmttbl' }, content: [
-        { type: 'tableRow', content: [
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Action' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shortcut' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bold' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ B' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Italic' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ I' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Underline' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ U' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Strikethrough' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ S' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Highlight' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ H' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Inline Code' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ E' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Footnote' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ F' }] }] }
-        ] }
-      ] },
+      {
+        type: 'table', attrs: { blockId: 'fmttbl' }, content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Action' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shortcut' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bold' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ B' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Italic' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ I' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Underline' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ U' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Strikethrough' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ S' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Highlight' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ H' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Inline Code' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ E' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Footnote' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ F' }] }] }
+            ]
+          }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'editop' }, content: [{ type: 'text', text: 'Editing' }] },
-      { type: 'table', attrs: { blockId: 'edttbl' }, content: [
-        { type: 'tableRow', content: [
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Action' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shortcut' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Undo' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ Z' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Redo' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ Z' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Save' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ S' }] }] }
-        ] }
-      ] },
+      {
+        type: 'table', attrs: { blockId: 'edttbl' }, content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Action' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shortcut' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Undo' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ Z' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Redo' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ Z' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Save' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ S' }] }] }
+            ]
+          }
+        ]
+      },
       { type: 'heading', attrs: { level: 1, blockId: 'qkinpt' }, content: [{ type: 'text', text: 'Quick Input' }] },
-      { type: 'table', content: [
-        { type: 'tableRow', content: [
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Input' }] }] },
-          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Result' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Open command menu' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[[' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Insert note link' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '# Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Heading 1' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '- Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bullet list' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '1. Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Numbered list' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[] Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task list' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '> Space' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Blockquote' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '```' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Code block' }] }] }
-        ] },
-        { type: 'tableRow', content: [
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '---' }] }] },
-          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Divider' }] }] }
-        ] }
-      ] },
+      {
+        type: 'table', content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Input' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Result' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Open command menu' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[[' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Insert note link' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '# Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Heading 1' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '- Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bullet list' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '1. Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Numbered list' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '[] Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task list' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '> Space' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Blockquote' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '```' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Code block' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '---' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Divider' }] }] }
+            ]
+          }
+        ]
+      },
+      { type: 'heading', attrs: { level: 1, blockId: 'navop' }, content: [{ type: 'text', text: 'Navigation' }] },
+      {
+        type: 'table', attrs: { blockId: 'navtbl' }, content: [
+          {
+            type: 'tableRow', content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Action' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shortcut' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New note' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ N' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New tab' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ T' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Close tab' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ W' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Search notes' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ P' }] }] }
+            ]
+          },
+          {
+            type: 'tableRow', content: [
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Global search' }] }] },
+              { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '⌘ ⇧ F' }] }] }
+            ]
+          }
+        ]
+      },
       { type: 'horizontalRule' },
-      { type: 'paragraph', content: [
-        { type: 'text', text: 'See ' },
-        { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note2Id, noteTitle: t.note2Title } }], text: t.note2Title },
-        { type: 'text', text: ' for more features.' }
-      ] }
+      {
+        type: 'paragraph', content: [
+          { type: 'text', text: 'See ' },
+          { type: 'text', marks: [{ type: 'noteLink', attrs: { noteId: note2Id, noteTitle: t.note2Title } }], text: t.note2Title },
+          { type: 'text', text: ' for more features.' }
+        ]
+      }
     ]
   }
 

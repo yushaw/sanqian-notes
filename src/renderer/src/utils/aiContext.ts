@@ -82,12 +82,13 @@ function marksToMarkdown(marks: readonly Mark[]): [string, string] {
 
 /**
  * Convert a range of Tiptap content to Markdown
- * Preserves bold, italic, strikethrough, and code marks
+ * Preserves marks, math formulas, and other special nodes
  */
-function getMarkdownContent(editor: Editor, from: number, to: number): string {
+export function getMarkdownContent(editor: Editor, from: number, to: number): string {
   const parts: string[] = []
 
   editor.state.doc.nodesBetween(from, to, (node: ProseMirrorNode, pos: number) => {
+    // Handle text nodes
     if (node.isText && node.text) {
       // Calculate the actual text range within this node
       const nodeStart = pos
@@ -102,6 +103,110 @@ function getMarkdownContent(editor: Editor, from: number, to: number): string {
         const [prefix, suffix] = marksToMarkdown(node.marks)
         parts.push(prefix + text + suffix)
       }
+    }
+    // Handle inline math nodes
+    else if (node.type.name === 'inlineMath') {
+      const latex = node.attrs.latex || ''
+      const isBlock = node.attrs.display === 'yes'
+      if (latex) {
+        parts.push(isBlock ? `$$${latex}$$` : `$${latex}$`)
+      }
+    }
+    // Handle block math nodes (legacy)
+    else if (node.type.name === 'mathematics') {
+      const latex = node.attrs.latex || ''
+      if (latex) {
+        parts.push(`$$${latex}$$`)
+      }
+    }
+    // Handle footnotes
+    else if (node.type.name === 'footnote') {
+      const id = node.attrs.id || '?'
+      parts.push(`[^${id}]`)
+    }
+    // Handle mermaid diagrams
+    else if (node.type.name === 'mermaid') {
+      const code = node.attrs.code || ''
+      if (code) {
+        parts.push(`\n\`\`\`mermaid\n${code}\n\`\`\`\n`)
+      }
+    }
+    // Handle file attachments
+    else if (node.type.name === 'fileAttachment') {
+      const name = node.attrs.name || 'attachment'
+      parts.push(`[📎 ${name}]`)
+    }
+    // Handle images - use markdown format for external URLs, placeholder for base64
+    else if (node.type.name === 'image') {
+      const alt = node.attrs.alt || ''
+      const src = node.attrs.src || ''
+      if (src.startsWith('data:')) {
+        // Base64 image - just use placeholder (too long)
+        parts.push(`[图片${alt ? `: ${alt}` : ''}]`)
+      } else {
+        // External URL or local path - use markdown format
+        parts.push(`![${alt}](${src})`)
+      }
+    }
+    // Handle HTML comments
+    else if (node.type.name === 'htmlComment') {
+      const content = node.attrs.content || ''
+      parts.push(`<!-- ${content} -->`)
+    }
+    // Handle code blocks
+    else if (node.type.name === 'codeBlock') {
+      const language = node.attrs.language || ''
+      const code = node.textContent || ''
+      parts.push(`\n\`\`\`${language}\n${code}\n\`\`\`\n`)
+    }
+    // Handle embed blocks - show URL for external, filename for local
+    else if (node.type.name === 'embedBlock') {
+      const url = node.attrs.url || ''
+      const localFile = node.attrs.localFile || ''
+      if (url) {
+        parts.push(`[嵌入: ${url}]`)
+      } else if (localFile) {
+        const filename = localFile.split('/').pop() || 'embed'
+        parts.push(`[嵌入: ${filename}]`)
+      }
+    }
+    // Handle audio - show URL or filename
+    else if (node.type.name === 'audio') {
+      const title = node.attrs.title || ''
+      const src = node.attrs.src || ''
+      if (src && !src.startsWith('data:')) {
+        parts.push(`[🔊 ${title || src}]`)
+      } else {
+        parts.push(`[🔊 ${title || '音频'}]`)
+      }
+    }
+    // Handle video - show URL or filename
+    else if (node.type.name === 'video') {
+      const src = node.attrs.src || ''
+      if (src && !src.startsWith('data:')) {
+        parts.push(`[🎬 ${src}]`)
+      } else {
+        parts.push(`[🎬 视频]`)
+      }
+    }
+    // Handle transclusion blocks
+    else if (node.type.name === 'transclusionBlock') {
+      const noteId = node.attrs.noteId || ''
+      const heading = node.attrs.headingPattern || ''
+      if (noteId) {
+        parts.push(heading ? `![[${noteId}#${heading}]]` : `![[${noteId}]]`)
+      }
+    }
+    // Handle dataview blocks
+    else if (node.type.name === 'dataviewBlock') {
+      const query = node.attrs.query || ''
+      if (query) {
+        parts.push(`\n\`\`\`dataview\n${query}\n\`\`\`\n`)
+      }
+    }
+    // Skip AI popup marks - not relevant for context
+    else if (node.type.name === 'aiPopupMark') {
+      // Skip
     }
     return true
   })

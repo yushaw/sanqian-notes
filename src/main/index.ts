@@ -256,6 +256,12 @@ let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null
 /** Previous selected text (for change detection) */
 let previousSelectedText: string | null = null
 
+/** Timestamp when pinned selection was last pushed (to prevent duplicate auto-push) */
+let lastPinnedSelectionTime: number = 0
+
+/** Cooldown period after pinned selection push to prevent duplicate auto-push (ms) */
+const PINNED_SELECTION_COOLDOWN_MS = 1000
+
 /** Shared TextEncoder instance (avoid creating new instance on each call) */
 const textEncoder = new TextEncoder()
 
@@ -363,6 +369,12 @@ async function pushSelectionResource(): Promise<void> {
   const client = getClient()
   if (!client) return
 
+  // Skip if a pinned selection was just pushed (within cooldown period)
+  // This prevents duplicate push when Ask AI triggers before Editor's debounce completes
+  if (Date.now() - lastPinnedSelectionTime < PINNED_SELECTION_COOLDOWN_MS) {
+    return
+  }
+
   const { selectedText, currentNoteTitle, cursorContext } = userContext
   if (!selectedText) return
 
@@ -416,6 +428,13 @@ async function pushPinnedSelectionResource(): Promise<string | null> {
   const client = getClient()
   if (!client) return null
 
+  // Clear pending selection debounce FIRST to prevent duplicate push after Ask AI
+  // Must be before any early return!
+  if (selectionDebounceTimer) {
+    clearTimeout(selectionDebounceTimer)
+    selectionDebounceTimer = null
+  }
+
   const { selectedText, currentNoteTitle, cursorContext } = userContext
   if (!selectedText) return null
 
@@ -444,6 +463,8 @@ async function pushPinnedSelectionResource(): Promise<string | null> {
       type: 'selection',
     })
 
+    // Record timestamp to prevent duplicate auto-push
+    lastPinnedSelectionTime = Date.now()
     console.log('[SessionResource] Pushed pinned selection:', resource.fullId)
     return resource.fullId
   } catch (error) {

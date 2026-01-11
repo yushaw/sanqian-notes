@@ -456,7 +456,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
       prompt,
       actionName,
       context: {
-        targetText: context.target,
+        targetText: context.targetMarkdown,
         documentTitle: context.documentTitle
       }
     })
@@ -496,7 +496,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
         prompt: action.prompt,
         actionName: action.name,
         context: {
-          targetText: aiContext.target,
+          targetText: aiContext.targetMarkdown,
           documentTitle: aiContext.documentTitle
         }
       })

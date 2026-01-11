@@ -61,7 +61,7 @@ import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlo
 import { setupOutputListener } from '../utils/editorOutputHandler'
 import { useAIActions } from '../hooks/useAIActions'
 import { useAIWriting } from '../hooks/useAIWriting'
-import { getAIContext } from '../utils/aiContext'
+import { getAIContext, getMarkdownContent } from '../utils/aiContext'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
 import { convertToEmbedUrl } from '../utils/embedUrl'
@@ -1472,7 +1472,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           // Re-fetch current state inside timeout to avoid stale closure
           const currentInfo = getCursorInfo(editor)
           const { from, to } = editor.state.selection
-          const selectedText = from !== to ? editor.state.doc.textBetween(from, to, ' ') : null
+          // Use getMarkdownContent to properly handle math, images and other special nodes
+          const selectedText = from !== to ? getMarkdownContent(editor, from, to) : null
           const blockId = currentInfo?.blockId || null
 
           // Only call if something changed

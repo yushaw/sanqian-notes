@@ -16,6 +16,9 @@ import { getUserDataPath } from '../attachment'
 import katex from 'katex'
 import hljs from 'highlight.js'
 
+/** Wait time for CSS rendering before PDF generation (ms) */
+const PDF_RENDER_DELAY_MS = 200
+
 // ============ PDF 预览模板（内联） ============
 
 const PDF_STYLES = `
@@ -951,8 +954,8 @@ export async function exportNoteAsPDF(
     // 加载临时文件
     await win.loadFile(tempFile)
 
-    // 等待 CSS 样式应用
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    // 等待 CSS 样式应用（loadFile 完成后 DOM 已加载，这里等待渲染）
+    await new Promise((resolve) => setTimeout(resolve, PDF_RENDER_DELAY_MS))
 
     // 生成 PDF
     const pdfData = await win.webContents.printToPDF({

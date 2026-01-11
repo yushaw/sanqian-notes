@@ -263,6 +263,19 @@ const translations = {
     common: {
       unknownError: '未知错误',
     },
+    // Export
+    export: {
+      nestingTooDeep: '(嵌套层级过深)',
+      mermaidSourceNote: 'Mermaid 图表源码',
+      untitledNote: '未命名笔记',
+      failedToLoadNote: '无法加载笔记',
+      embeddedContent: '嵌入内容',
+      noResults: '无结果',
+      selectExportLocation: '选择导出位置',
+      exportMarkdown: '导出 Markdown',
+      exportPDF: '导出 PDF',
+      attachment: '附件',
+    },
   },
   en: {
     // SDK Agent descriptions
@@ -481,6 +494,19 @@ Your job:
     // Common
     common: {
       unknownError: 'Unknown error',
+    },
+    // Export
+    export: {
+      nestingTooDeep: '(Nesting too deep)',
+      mermaidSourceNote: 'Mermaid diagram source',
+      untitledNote: 'Untitled Note',
+      failedToLoadNote: 'Failed to load note',
+      embeddedContent: 'Embedded content',
+      noResults: 'No results',
+      selectExportLocation: 'Select Export Location',
+      exportMarkdown: 'Export Markdown',
+      exportPDF: 'Export PDF',
+      attachment: 'Attachment',
     },
   },
 }

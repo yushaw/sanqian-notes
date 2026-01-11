@@ -7,6 +7,7 @@
 
 import type { Editor } from '@tiptap/react'
 import type { Node as ProseMirrorNode, Mark } from '@tiptap/pm/model'
+import { getTranslations, getSystemLanguage } from '../i18n/translations'
 
 const CONTEXT_LENGTH = 200 // Characters before and after
 
@@ -133,8 +134,9 @@ export function getMarkdownContent(editor: Editor, from: number, to: number): st
     }
     // Handle file attachments
     else if (node.type.name === 'fileAttachment') {
-      const name = node.attrs.name || 'attachment'
-      parts.push(`[📎 ${name}]`)
+      const name = node.attrs.name || ''
+      const t = getTranslations(getSystemLanguage())
+      parts.push(`[${t.media.attachment}${name ? `: ${name}` : ''}]`)
     }
     // Handle images - use markdown format for external URLs, placeholder for base64
     else if (node.type.name === 'image') {
@@ -142,7 +144,8 @@ export function getMarkdownContent(editor: Editor, from: number, to: number): st
       const src = node.attrs.src || ''
       if (src.startsWith('data:')) {
         // Base64 image - just use placeholder (too long)
-        parts.push(`[图片${alt ? `: ${alt}` : ''}]`)
+        const t = getTranslations(getSystemLanguage())
+        parts.push(`[${t.media.image}${alt ? `: ${alt}` : ''}]`)
       } else {
         // External URL or local path - use markdown format
         parts.push(`![${alt}](${src})`)
@@ -163,30 +166,33 @@ export function getMarkdownContent(editor: Editor, from: number, to: number): st
     else if (node.type.name === 'embedBlock') {
       const url = node.attrs.url || ''
       const localFile = node.attrs.localFile || ''
+      const t = getTranslations(getSystemLanguage())
       if (url) {
-        parts.push(`[嵌入: ${url}]`)
+        parts.push(`[${t.embed.placeholder}: ${url}]`)
       } else if (localFile) {
         const filename = localFile.split('/').pop() || 'embed'
-        parts.push(`[嵌入: ${filename}]`)
+        parts.push(`[${t.embed.placeholder}: ${filename}]`)
       }
     }
     // Handle audio - show URL or filename
     else if (node.type.name === 'audio') {
       const title = node.attrs.title || ''
       const src = node.attrs.src || ''
+      const t = getTranslations(getSystemLanguage())
       if (src && !src.startsWith('data:')) {
-        parts.push(`[🔊 ${title || src}]`)
+        parts.push(`[${t.media.audio}: ${title || src}]`)
       } else {
-        parts.push(`[🔊 ${title || '音频'}]`)
+        parts.push(`[${t.media.audio}${title ? `: ${title}` : ''}]`)
       }
     }
     // Handle video - show URL or filename
     else if (node.type.name === 'video') {
       const src = node.attrs.src || ''
+      const t = getTranslations(getSystemLanguage())
       if (src && !src.startsWith('data:')) {
-        parts.push(`[🎬 ${src}]`)
+        parts.push(`[${t.media.video}: ${src}]`)
       } else {
-        parts.push(`[🎬 视频]`)
+        parts.push(`[${t.media.video}]`)
       }
     }
     // Handle transclusion blocks

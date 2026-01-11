@@ -13,6 +13,7 @@ import { createRequire } from 'module'
 import { getNoteById, getNotes, searchNotes } from '../database'
 import { jsonToMarkdown } from '../markdown/tiptap-to-markdown'
 import { getUserDataPath } from '../attachment'
+import { t } from '../i18n'
 import katex from 'katex'
 import hljs from 'highlight.js'
 
@@ -382,7 +383,7 @@ function escapeRegExp(string: string): string {
  */
 function tiptapToHTML(jsonContent: string, depth = 0): string {
   if (depth > 3) {
-    return '<p><em>(嵌套层级过深)</em></p>'
+    return `<p><em>${t().export.nestingTooDeep}</em></p>`
   }
   try {
     const doc = JSON.parse(jsonContent)
@@ -527,7 +528,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
       // Mermaid 图表显示为代码块（服务端无法渲染 SVG）
       return `<div class="mermaid-container">
         <pre class="mermaid-source"><code>${escapeHTML(code)}</code></pre>
-        <p class="mermaid-note"><em>Mermaid 图表源码</em></p>
+        <p class="mermaid-note"><em>${t().export.mermaidSourceNote}</em></p>
       </div>`
     }
 
@@ -560,7 +561,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
     }
 
     case 'fileAttachment': {
-      const name = attrs.name as string || '附件'
+      const name = attrs.name as string || t().export.attachment
       const src = attrs.src as string || ''
       const size = attrs.size as number | undefined
       const sizeStr = size ? ` (${formatFileSize(size)})` : ''
@@ -599,13 +600,13 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
         if (embeddedNote) {
           const embeddedHTML = tiptapToHTML(embeddedNote.content, depth + 1)
           return `<div class="embed-block embed-note">
-            <div class="embed-title">${escapeHTML(embeddedNote.title || '未命名笔记')}</div>
+            <div class="embed-title">${escapeHTML(embeddedNote.title || t().export.untitledNote)}</div>
             <div class="embed-content">${embeddedHTML}</div>
           </div>`
         }
-        return `<div class="embed-block"><em>无法加载笔记</em></div>`
+        return `<div class="embed-block"><em>${t().export.failedToLoadNote}</em></div>`
       }
-      return `<div class="embed-block"><em>嵌入内容</em></div>`
+      return `<div class="embed-block"><em>${t().export.embeddedContent}</em></div>`
     }
 
     case 'transclusionBlock': {
@@ -617,7 +618,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
       if (referencedNote) {
         const referencedHTML = tiptapToHTML(referencedNote.content, depth + 1)
         return `<div class="transclusion-block">
-          <div class="transclusion-title">${escapeHTML(referencedNote.title || noteName || '未命名笔记')}</div>
+          <div class="transclusion-title">${escapeHTML(referencedNote.title || noteName || t().export.untitledNote)}</div>
           <div class="transclusion-content">${referencedHTML}</div>
         </div>`
       }
@@ -635,7 +636,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
           <ul class="dataview-results">${listItems}</ul>
         </div>`
       }
-      return `<div class="dataview-block"><code>${escapeHTML(query)}</code><p><em>无结果</em></p></div>`
+      return `<div class="dataview-block"><code>${escapeHTML(query)}</code><p><em>${t().export.noResults}</em></p></div>`
     }
 
     case 'agentTask':
@@ -856,7 +857,7 @@ export async function exportNoteAsMarkdown(
     if (hasAttachments) {
       // 有附件：选择文件夹，创建 笔记名/笔记名.md + assets/
       const { filePaths, canceled } = await dialog.showOpenDialog({
-        title: '选择导出位置',
+        title: t().export.selectExportLocation,
         defaultPath: app.getPath('downloads'),
         properties: ['openDirectory', 'createDirectory'],
       })
@@ -883,7 +884,7 @@ export async function exportNoteAsMarkdown(
     } else {
       // 无附件：直接保存单个 .md 文件
       const { filePath, canceled } = await dialog.showSaveDialog({
-        title: '导出 Markdown',
+        title: t().export.exportMarkdown,
         defaultPath: path.join(app.getPath('downloads'), `${sanitizedTitle}.md`),
         filters: [{ name: 'Markdown', extensions: ['md'] }],
       })
@@ -916,7 +917,7 @@ export async function exportNoteAsPDF(
 
   // 弹出保存对话框
   const { filePath, canceled } = await dialog.showSaveDialog({
-    title: '导出 PDF',
+    title: t().export.exportPDF,
     defaultPath: path.join(app.getPath('downloads'), `${sanitizeFilename(note.title || 'Untitled')}.pdf`),
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   })

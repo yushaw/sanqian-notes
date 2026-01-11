@@ -4268,3 +4268,21 @@ Agent 'sanqian-notes:researcher' not found or not accessible
 - `src/renderer/src/env.d.ts` - 渲染进程类型定义
 - `src/renderer/src/components/Editor.tsx` - 集成 ExportMenu 组件
 - `src/renderer/src/i18n/translations.ts` - 添加导出相关翻译
+
+
+### 2026-01-11: 导出模块国际化
+
+**改进**：将导出模块中的硬编码中文字符串改为使用 i18n 翻译函数。
+
+**国际化字符串**：
+- 嵌套层级提示、Mermaid 源码说明
+- 未命名笔记、加载失败等占位文本
+- 导出对话框标题
+
+**修改文件**：
+- `src/main/i18n.ts` - 添加 `export` 翻译分组
+- `src/main/export/note-exporter.ts` - 使用 `t().export.*` 替代硬编码字符串
+
+**追加**：aiContext.ts 中的媒体占位符也已国际化
+- 图片、音频、视频、嵌入的占位符文本
+- 使用 renderer 进程的 i18n 翻译系统

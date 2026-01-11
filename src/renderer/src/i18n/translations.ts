@@ -446,7 +446,9 @@ export interface Translations {
     backgroundColor: string
   }
   media: {
+    image: string
     audio: string
+    video: string
     attachment: string
     toggleExpand: string
     emptyHeading: string
@@ -485,6 +487,7 @@ export interface Translations {
     editLink: string
   }
   embed: {
+    placeholder: string
     noSource: string
     loading: string
     loadError: string
@@ -1214,7 +1217,9 @@ const zh: Translations = {
     backgroundColor: '背景颜色'
   },
   media: {
+    image: '图片',
     audio: '音频',
+    video: '视频',
     attachment: '附件',
     toggleExpand: '点击展开',
     emptyHeading: '(空标题)',
@@ -1253,6 +1258,7 @@ const zh: Translations = {
     editLink: '编辑'
   },
   embed: {
+    placeholder: '嵌入',
     noSource: '未指定 URL 或文件路径',
     loading: '加载中...',
     loadError: '加载内容失败',
@@ -1980,7 +1986,9 @@ const en: Translations = {
     backgroundColor: 'Background Color'
   },
   media: {
+    image: 'Image',
     audio: 'Audio',
+    video: 'Video',
     attachment: 'Attachment',
     toggleExpand: 'Click to expand',
     emptyHeading: '(Empty heading)',
@@ -2019,6 +2027,7 @@ const en: Translations = {
     editLink: 'Edit'
   },
   embed: {
+    placeholder: 'Embed',
     noSource: 'No URL or file path specified',
     loading: 'Loading...',
     loadError: 'Failed to load content',

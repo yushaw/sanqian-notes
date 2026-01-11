@@ -930,7 +930,7 @@ function createWindow(): void {
   const windowOptions: Electron.BaseWindowConstructorOptions = {
     ...windowBounds,
     minWidth: 640,
-    minHeight: 600,
+    minHeight: 480,
     show: false, // Always start hidden, show after view is ready
     backgroundColor: initialBgColor,
   }

@@ -21,7 +21,7 @@ interface SelectProps {
 
 export function Select({ options, value, onChange, disabled, placeholder = '-' }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [position, setPosition] = useState({ top: 0, left: 0, width: 0, openUpward: false })
+  const [position, setPosition] = useState({ top: 0, bottom: 0, left: 0, width: 0, openUpward: false })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -40,12 +40,10 @@ export function Select({ options, value, onChange, disabled, placeholder = '-' }
 
       // 优先向下展开，空间不足时向上展开
       const openUpward = spaceBelow < dropdownMaxHeight && spaceAbove > spaceBelow
-      const top = openUpward
-        ? rect.top - Math.min(dropdownMaxHeight, spaceAbove) - spacing
-        : rect.bottom + spacing
 
       setPosition({
-        top,
+        top: openUpward ? 0 : rect.bottom + spacing,
+        bottom: openUpward ? window.innerHeight - rect.top + spacing : 0,
         left: rect.left,
         width: Math.max(rect.width, 200), // min width 200px
         openUpward,
@@ -128,7 +126,9 @@ export function Select({ options, value, onChange, disabled, placeholder = '-' }
           role="listbox"
           className="fixed bg-[var(--color-card)] rounded-lg shadow-lg border border-black/10 dark:border-white/10 overflow-hidden py-1 max-h-60 overflow-y-auto"
           style={{
-            top: position.top,
+            ...(position.openUpward
+              ? { bottom: position.bottom }
+              : { top: position.top }),
             left: position.left,
             width: position.width,
             zIndex: 9999,

@@ -1851,6 +1851,60 @@ IPC 通信层 (Preload)
 
 ---
 
+## URL Scheme (Deep Linking)
+
+Sanqian Notes 支持 `sanqian-notes://` 协议，可从外部应用（如 AI 聊天窗口）直接跳转到指定笔记。
+
+### 基本格式
+
+```
+sanqian-notes://note/{noteId}
+```
+
+### 完整格式（带定位参数）
+
+```
+sanqian-notes://note/{noteId}?heading={heading}&block={blockId}
+```
+
+### 参数说明
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `noteId` | string | ✅ | 笔记 ID |
+| `heading` | string | ❌ | 跳转到指定标题（URL 编码） |
+| `block` | string | ❌ | 跳转到指定 Block ID |
+
+> **注意**：`heading` 和 `block` 互斥，优先使用 `heading`。
+
+### 示例
+
+```
+# 打开笔记
+sanqian-notes://note/abc123
+
+# 跳转到标题
+sanqian-notes://note/abc123?heading=%E7%AC%AC%E4%B8%80%E7%AB%A0
+
+# 跳转到 Block
+sanqian-notes://note/abc123?block=x7k9m2
+```
+
+### 使用场景
+
+1. **AI 聊天引用**：Agent 返回的笔记链接使用此格式，点击直接跳转
+2. **外部应用集成**：其他应用可通过此协议打开 Sanqian Notes 中的笔记
+3. **Markdown 链接**：在聊天消息中以 `[笔记标题](sanqian-notes://note/xxx)` 格式引用
+
+### 技术实现
+
+- **协议注册**：Electron `app.setAsDefaultProtocolClient('sanqian-notes')`
+- **链接生成**：`src/main/sanqian-sdk.ts:generateNoteLink()`
+- **链接处理**：`src/renderer/src/chat/ChatApp.tsx:handleLinkClick()`
+- **导航触发**：通过 IPC `chat:navigate-to-note` 发送到主窗口
+
+---
+
 ## 更新日志
 
 ### 2026-01-08

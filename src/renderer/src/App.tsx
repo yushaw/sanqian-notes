@@ -163,9 +163,13 @@ function AppContent() {
 
   // Tab system
   const {
+    tabs,
+    activeTab,
     focusedNoteId: tabFocusedNoteId,
     focusedPaneId,
+    activeTabId,
     createTab,
+    closeTab,
     openNoteInPane,
     closePane,
     splitPane,
@@ -1350,6 +1354,9 @@ function AppContent() {
   filteredNotesRef.current = filteredNotes
   tabFocusedNoteIdRef.current = tabFocusedNoteId
 
+  // 提取为原始值，避免 activeTab 对象引用导致 useEffect 频繁重绑定
+  const activePaneCount = activeTab ? Object.keys(activeTab.panes).length : 0
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl + Shift + T: Toggle typewriter mode
@@ -1367,11 +1374,21 @@ function AppContent() {
         e.preventDefault()
         createTab()
       }
-      // Cmd/Ctrl + W: Close current pane (or tab if only one pane)
+      // Cmd/Ctrl + W: Close current pane/tab, or window if last tab with single pane
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') {
         e.preventDefault()
-        if (focusedPaneId) {
+        const isLastTab = tabs.length === 1
+        const isSinglePane = activePaneCount <= 1
+
+        // 最后一个 tab 且只有一个或零个 pane 时，关闭窗口
+        if (isLastTab && isSinglePane) {
+          window.electron.window.close()
+        } else if (focusedPaneId) {
+          // 有焦点 pane，关闭 pane（如果是最后一个 pane 会关闭 tab）
           closePane(focusedPaneId)
+        } else if (activeTabId) {
+          // 空白 tab 没有 focusedPaneId，关闭 tab
+          closeTab(activeTabId)
         }
       }
       // Cmd/Ctrl + \: Split vertical
@@ -1413,7 +1430,8 @@ function AppContent() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [createTab, closePane, focusedPaneId, splitPane])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 使用 tabs.length 和 activePaneCount 而非对象引用避免频繁重绑定
+  }, [createTab, closeTab, closePane, focusedPaneId, activeTabId, tabs.length, activePaneCount, splitPane])
 
   // Bulk delete notes
   const handleBulkDelete = useCallback(async (ids: string[]) => {

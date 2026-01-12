@@ -2048,6 +2048,14 @@ app.whenReady().then(() => {
     return mainWindow?.isFullScreen() ?? false
   })
 
+  ipcMain.handle('window:close', () => {
+    if (mainWindow) {
+      mainWindow.close()
+      return true
+    }
+    return false
+  })
+
   // Windows titlebar overlay - dynamic color update
   ipcMain.handle('window:setTitleBarOverlay', (_, options: { color: string; symbolColor: string }) => {
     if (process.platform === 'win32' && mainWindow) {

@@ -106,6 +106,7 @@ interface Window {
       setTitleBarOverlay?: (options: { color: string; symbolColor: string }) => void
       setFullScreen: (isFullScreen: boolean) => Promise<boolean>
       isFullScreen: () => Promise<boolean>
+      close: () => Promise<boolean>
     }
     shell: {
       openExternal: (url: string) => Promise<boolean>

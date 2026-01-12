@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld('electron', {
     isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
     setTitleBarOverlay: (options: { color: string; symbolColor: string }) =>
       ipcRenderer.invoke('window:setTitleBarOverlay', options),
+    close: () => ipcRenderer.invoke('window:close'),
   },
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),

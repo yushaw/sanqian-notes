@@ -83,8 +83,9 @@ const translations = {
    - 基于笔记内容组织回答
 
 3. **标注来源**
-   - 引用笔记时标注：「根据《笔记标题》...」
-   - 多来源时分别说明
+   - 引用笔记时必须使用 markdown 链接格式，使用工具返回的 link 字段
+   - 格式：[笔记标题](sanqian-notes://note/笔记ID)
+   - 示例：详见 [项目周报](sanqian-notes://note/abc123) 第二节
 
 4. **处理边界**
    - 没找到相关笔记 → 诚实告知，可提供通用建议或询问是否创建新笔记
@@ -101,6 +102,7 @@ const translations = {
 - 删除操作必须先询问用户确认
 - 回答基于笔记时，明确区分「笔记内容」和「补充说明」
 - 不确定时宁可多检索，不要编造笔记中没有的信息
+- 引用笔记内容时务必附上链接，方便用户跳转查看原文
 - 所有内容使用 Markdown 格式`,
       writingName: 'Writing Assistant',
       writingDescription: '专注于文本处理的写作助手，直接输出处理结果',
@@ -317,8 +319,9 @@ When the user asks a question (rather than giving an operation command):
    - Organize answer based on note content
 
 3. **Cite sources**
-   - When referencing notes, cite: "According to [Note Title]..."
-   - Cite multiple sources separately when applicable
+   - When referencing notes, always use markdown link format with the link field from tool results
+   - Format: [Note Title](sanqian-notes://note/noteID)
+   - Example: See [Project Report](sanqian-notes://note/abc123) section 2
 
 4. **Handle edge cases**
    - No relevant notes found → honestly inform, can offer general advice or ask if they want to create a new note
@@ -335,6 +338,7 @@ When the user asks a question (rather than giving an operation command):
 - Always ask for user confirmation before deleting
 - When answering based on notes, clearly distinguish "note content" from "additional commentary"
 - When uncertain, prefer to search rather than fabricate information not in the notes
+- Always include note links when citing content, so users can jump to the source
 - All content uses Markdown format`,
       writingName: 'Writing Assistant',
       writingDescription: 'A writing assistant focused on text processing, outputs results directly',

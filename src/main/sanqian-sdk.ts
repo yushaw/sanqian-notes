@@ -127,6 +127,17 @@ function findSimilarContent(content: string, search: string, maxLength: number =
 }
 
 /**
+ * Generate sanqian-notes:// link for a note
+ */
+function generateNoteLink(noteId: string, heading?: string): string {
+  const base = `sanqian-notes://note/${noteId}`
+  if (heading) {
+    return `${base}?heading=${encodeURIComponent(heading)}`
+  }
+  return base
+}
+
+/**
  * Safely truncate text without breaking multi-byte characters (emoji, CJK, etc.)
  */
 function truncateText(text: string, maxLength: number): string {
@@ -266,6 +277,7 @@ function buildTools(): AppToolDefinition[] {
               return {
                 id: result.noteId,
                 title: note.title,
+                link: generateNoteLink(result.noteId),
                 preview: result.matchedChunks[0]?.chunkText
                   ? truncateText(result.matchedChunks[0].chunkText, 300)
                   : '',
@@ -370,6 +382,7 @@ function buildTools(): AppToolDefinition[] {
             return {
               id: note.id,
               title: note.title,
+              link: generateNoteLink(note.id),
               content: convertResult.content,
               totalLines: convertResult.totalLines,
               ...(convertResult.returnedLines && { returnedLines: convertResult.returnedLines }),
@@ -450,10 +463,12 @@ function buildTools(): AppToolDefinition[] {
           return {
             id: note.id,
             title: note.title,
+            link: generateNoteLink(note.id),
             headings: headings.map(h => ({
               level: h.level,
               text: h.text,
               formatted: `${'#'.repeat(h.level)} ${h.text}`,
+              link: generateNoteLink(note.id, h.text),
               line: h.line
             }))
           }
@@ -897,6 +912,7 @@ function buildContextProviders(): AppContextProvider[] {
         const items = paginatedNotes.map(note => ({
           id: note.id,
           title: note.title || 'Untitled',
+          link: generateNoteLink(note.id),
           summary: note.ai_summary || undefined,
           type: 'note' as const,
           updatedAt: note.updated_at,
@@ -914,10 +930,12 @@ function buildContextProviders(): AppContextProvider[] {
         // Build reference content with metadata only (not full content)
         const title = note.title || 'Untitled'
         const summary = note.ai_summary || ''
+        const link = generateNoteLink(note.id)
         const lines = [
           `[Note]`,
           `- Title: ${title}`,
           `- Note ID: ${note.id}`,
+          `- Link: ${link}`,
         ]
         if (summary) {
           lines.push(`- Summary: ${summary}`)
@@ -928,6 +946,7 @@ function buildContextProviders(): AppContextProvider[] {
           id: note.id,
           content,
           title,
+          link,
           summary: note.ai_summary || undefined,
           type: 'note' as const,
           metadata: {

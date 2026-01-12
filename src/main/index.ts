@@ -1311,6 +1311,23 @@ app.whenReady().then(() => {
     return chatPanel?.isVisible() ?? false
   })
 
+  // Handle note navigation from chat window (triggered by sanqian-notes:// links)
+  ipcMain.on('chat:navigate-to-note', (_, payload: { noteId: string; target?: { type: 'heading' | 'block'; value: string } }) => {
+    const { noteId, target } = payload
+
+    // Ensure main window is visible and focused
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore()
+      }
+      mainWindow.show()
+      mainWindow.focus()
+    }
+
+    // Send navigation event to main window renderer
+    mainView?.webContents.send('note:navigate', { noteId, target })
+  })
+
   // Theme sync: main window notifies theme changes, chat window retrieves settings
   ipcMain.handle('theme:sync', async (_, settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => {
     const localeChanged = currentThemeSettings.locale !== settings.locale

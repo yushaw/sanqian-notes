@@ -34,12 +34,26 @@ const api: ExtendedSanqianChatAPI = {
 // Expose to renderer
 contextBridge.exposeInMainWorld('sanqianChat', api)
 
-// Also expose basic window control for setContext
+/** Payload for navigating to a note from chat */
+interface NavigateToNotePayload {
+  noteId: string
+  target?: { type: 'heading' | 'block'; value: string }
+}
+
+// Also expose basic window control for setContext and navigation
 contextBridge.exposeInMainWorld('chatWindow', {
   onSetContext: (callback: (context: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, context: string) => callback(context)
     ipcRenderer.on('chatWindow:setContext', handler)
     return () => ipcRenderer.removeListener('chatWindow:setContext', handler)
+  },
+
+  /**
+   * Navigate to a note in the main window.
+   * Triggered when user clicks a sanqian-notes:// link in chat.
+   */
+  navigateToNote: (payload: NavigateToNotePayload) => {
+    ipcRenderer.send('chat:navigate-to-note', payload)
   },
 })
 
@@ -54,6 +68,7 @@ declare global {
   interface Window {
     chatWindow: {
       onSetContext: (callback: (context: string) => void) => () => void
+      navigateToNote: (payload: NavigateToNotePayload) => void
     }
   }
 }

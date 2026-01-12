@@ -38,6 +38,13 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('summary:updated', handler)
       return () => ipcRenderer.removeListener('summary:updated', handler)
     },
+    // Navigate to note (triggered from chat window via sanqian-notes:// links)
+    onNavigate: (callback: (data: { noteId: string; target?: { type: 'heading' | 'block'; value: string } }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: { noteId: string; target?: { type: 'heading' | 'block'; value: string } }) =>
+        callback(data)
+      ipcRenderer.on('note:navigate', handler)
+      return () => ipcRenderer.removeListener('note:navigate', handler)
+    },
   },
   daily: {
     getByDate: (date: string) => ipcRenderer.invoke('daily:getByDate', date),

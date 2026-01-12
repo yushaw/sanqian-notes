@@ -242,7 +242,7 @@ interface EditorProps {
   onCreateNote: (title: string) => Promise<Note>
   onSelectNote?: (noteId: string) => void
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
-  onScrollComplete?: () => void
+  onScrollComplete?: (found: boolean) => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
   onSelectionChange?: (blockId: string | null, selectedText: string | null, cursorContext: CursorContext | null) => void
   // 分屏控制
@@ -250,6 +250,8 @@ interface EditorProps {
   onSplitVertical?: () => void
   onClosePane?: () => void
   showPaneControls?: boolean
+  // 是否是焦点 pane（用于自动聚焦）
+  isFocused?: boolean
 }
 
 // 暴露给外部的 Editor 实例接口
@@ -266,7 +268,7 @@ interface ZenEditorProps {
   onNoteClick: (noteId: string, target?: { type: 'heading' | 'block'; value: string }) => void
   onCreateNote: (title: string) => Promise<Note>
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
-  onScrollComplete?: () => void
+  onScrollComplete?: (found: boolean) => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
   onSelectionChange?: (blockId: string | null, selectedText: string | null, cursorContext: CursorContext | null) => void
   // 分屏控制
@@ -274,6 +276,8 @@ interface ZenEditorProps {
   onSplitVertical?: () => void
   onClosePane?: () => void
   showPaneControls?: boolean
+  // 是否是焦点 pane（用于自动聚焦）
+  isFocused?: boolean
 }
 
 const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
@@ -291,6 +295,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   onSplitVertical,
   onClosePane,
   showPaneControls,
+  isFocused,
 }, ref) {
   const [title, setTitle] = useState(note.title)
   const [isFocusMode, setIsFocusMode] = useState(false)
@@ -1681,14 +1686,26 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         }, 2000)
       }
 
-      // 通知完成滚动
-      onScrollComplete?.()
+      // 通知完成滚动，传递是否找到目标
+      onScrollComplete?.(!!targetElement)
     }
 
     // 给编辑器一点时间加载内容
     const timer = setTimeout(scrollToTarget, 100)
     return () => clearTimeout(timer)
   }, [scrollTarget, editor, onScrollComplete])
+
+  // 当 isFocused 变为 true 时自动聚焦编辑器
+  useEffect(() => {
+    if (isFocused && editor && !editor.isDestroyed) {
+      // 延迟聚焦，确保 DOM 已更新
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed && !editor.isFocused) {
+          editor.commands.focus()
+        }
+      })
+    }
+  }, [isFocused, editor])
 
   if (!editor) return null
 
@@ -2003,7 +2020,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 })
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
-  { note, notes, notebooks, onUpdate, onNoteClick, onCreateNote, onSelectNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange, onSplitHorizontal, onSplitVertical, onClosePane, showPaneControls },
+  { note, notes, notebooks, onUpdate, onNoteClick, onCreateNote, onSelectNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange, onSplitHorizontal, onSplitVertical, onClosePane, showPaneControls, isFocused },
   ref
 ) {
   const t = useTranslations()
@@ -2097,6 +2114,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           onSplitVertical={onSplitVertical}
           onClosePane={onClosePane}
           showPaneControls={showPaneControls}
+          isFocused={isFocused}
         />
       )}
     </div>

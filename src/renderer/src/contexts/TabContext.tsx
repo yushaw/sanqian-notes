@@ -15,7 +15,6 @@ import {
   useState,
   useEffect,
   useRef,
-  useMemo,
   type ReactNode,
 } from 'react'
 import { MosaicNode, MosaicDirection, getLeaves } from 'react-mosaic-component'
@@ -60,7 +59,7 @@ export interface TabContextValue {
   splitPane: (direction: MosaicDirection, options?: { fromPaneId?: string; noteId?: string }) => void
   closePane: (paneId: string) => void
   swapPanes: (sourcePaneId: string, targetPaneId: string) => void
-  focusPane: (paneId: string) => void
+  focusPane: (paneId: string, tabId?: string) => void
   updateLayout: (layout: MosaicNode<string> | string) => void
 
   // Pane 辅助
@@ -68,6 +67,8 @@ export interface TabContextValue {
 
   // 辅助
   isNoteOpenInAnyTab: (noteId: string) => boolean
+  /** 查找打开了指定笔记的 tab 和 pane，用于智能导航 */
+  findPaneWithNote: (noteId: string) => { tabId: string; paneId: string } | null
   getOpenNoteIds: () => string[]
   getTabDisplayTitle: (tab: Tab, getNoteTitle: (id: string) => string) => string
 }
@@ -323,22 +324,27 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
 
   const [tabs, setTabs] = useState<Tab[]>(initialTabs)
   const [activeTabId, setActiveTabId] = useState<string | null>(initialActiveTabId)
+  // 独立的焦点状态（参考 sanqian 的 focusedConversationId 实现）
+  const [focusedPaneId, setFocusedPaneId] = useState<string | null>(() => {
+    // 初始化时从 activeTab 获取
+    const activeTab = initialTabs.find((t) => t.id === initialActiveTabId)
+    return activeTab?.focusedPaneId || null
+  })
 
   // Layout cache for comparison
   const layoutCacheRef = useRef<{ full: string; structure: string } | null>(null)
 
+  // Refs for callbacks that need current values without re-creating
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  const activeTabIdRef = useRef(activeTabId)
+  activeTabIdRef.current = activeTabId
+
   // 派生状态
-  const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId])
-
-  const focusedPaneId = useMemo(() => {
-    if (!activeTab) return null
-    return activeTab.focusedPaneId
-  }, [activeTab])
-
-  const focusedNoteId = useMemo(() => {
-    if (!activeTab || !activeTab.focusedPaneId) return null
-    return activeTab.panes[activeTab.focusedPaneId]?.noteId || null
-  }, [activeTab])
+  const activeTab = tabs.find((t) => t.id === activeTabId) || null
+  const focusedNoteId = activeTab && focusedPaneId
+    ? activeTab.panes[focusedPaneId]?.noteId || null
+    : null
 
   // 持久化 tabs
   useEffect(() => {
@@ -380,6 +386,7 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
 
     setTabs((prev) => [...prev, newTab])
     setActiveTabId(tabId)
+    setFocusedPaneId(noteId ? paneId : null)
 
     return tabId
   }, [])
@@ -396,9 +403,12 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
         // 如果关闭的是当前 tab，切换到相邻 tab
         if (tabId === activeTabId && newTabs.length > 0) {
           const newIdx = Math.min(idx, newTabs.length - 1)
-          setActiveTabId(newTabs[newIdx].id)
+          const newTab = newTabs[newIdx]
+          setActiveTabId(newTab.id)
+          setFocusedPaneId(newTab.focusedPaneId)
         } else if (newTabs.length === 0) {
           setActiveTabId(null)
+          setFocusedPaneId(null)
         }
 
         return newTabs
@@ -428,9 +438,12 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
             .filter((i) => i !== -1)
           const minClosedIndex = Math.min(...closedIndices)
           const newIdx = Math.min(minClosedIndex, newTabs.length - 1)
-          setActiveTabId(newTabs[newIdx].id)
+          const newTab = newTabs[newIdx]
+          setActiveTabId(newTab.id)
+          setFocusedPaneId(newTab.focusedPaneId)
         } else if (newTabs.length === 0) {
           setActiveTabId(null)
+          setFocusedPaneId(null)
         }
 
         return newTabs
@@ -441,6 +454,11 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
 
   const selectTab = useCallback((tabId: string) => {
     setActiveTabId(tabId)
+    // 同步焦点状态到新 tab 的 focusedPaneId（使用 ref 避免依赖 tabs 导致不必要的 re-render）
+    const targetTab = tabsRef.current.find((t) => t.id === tabId)
+    if (targetTab) {
+      setFocusedPaneId(targetTab.focusedPaneId)
+    }
   }, [])
 
   const pinTab = useCallback((tabId: string) => {
@@ -473,26 +491,36 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
         return
       }
 
-      setTabs((prev) =>
-        prev.map((tab) => {
-          if (tab.id !== activeTabId) return tab
+      // 查找当前 tab 确定焦点 pane
+      const currentTab = tabs.find((t) => t.id === activeTabId)
+      if (!currentTab) return
 
-          // 如果当前 tab 是空的，创建新 pane
-          if (!tab.layout || tab.layout === '') {
-            const paneId = generatePaneId()
+      // 如果当前 tab 是空的，创建新 pane
+      if (!currentTab.layout || currentTab.layout === '') {
+        const paneId = generatePaneId()
+        setTabs((prev) =>
+          prev.map((tab) => {
+            if (tab.id !== activeTabId) return tab
             return {
               ...tab,
               layout: paneId,
               panes: { [paneId]: { noteId } },
               focusedPaneId: paneId,
             }
-          }
+          })
+        )
+        setFocusedPaneId(paneId)
+        return
+      }
 
-          // 如果没有焦点 pane，选择第一个
-          const currentFocusedPaneId = tab.focusedPaneId || getLayoutPaneIds(tab.layout)[0]
-          if (!currentFocusedPaneId) return tab
+      // 如果没有焦点 pane，选择第一个
+      const currentFocusedPaneId = focusedPaneId || getLayoutPaneIds(currentTab.layout)[0]
+      if (!currentFocusedPaneId) return
 
-          // 更新焦点 pane 的 noteId
+      // 更新焦点 pane 的 noteId
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.id !== activeTabId) return tab
           return {
             ...tab,
             panes: {
@@ -503,8 +531,9 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
           }
         })
       )
+      setFocusedPaneId(currentFocusedPaneId)
     },
-    [activeTabId, createTab]
+    [activeTabId, createTab, tabs, focusedPaneId]
   )
 
   const splitPane = useCallback(
@@ -548,6 +577,7 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
 
       const newLayout = splitAtNode(currentLayout, targetPaneId)
 
+      // 更新 tabs（布局和 panes）
       setTabs((prev) =>
         prev.map((tab) => {
           if (tab.id !== activeTabId) return tab
@@ -562,6 +592,8 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
           }
         })
       )
+
+      setFocusedPaneId(newPaneId)
     },
     [activeTabId, activeTab]
   )
@@ -624,6 +656,8 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
           }
         })
       )
+
+      setFocusedPaneId(newFocusedPaneId)
     },
     [activeTabId, activeTab, closeTab]
   )
@@ -661,18 +695,22 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
   )
 
   const focusPane = useCallback(
-    (paneId: string) => {
-      if (!activeTabId) return
+    (paneId: string, tabId?: string) => {
+      const targetTabId = tabId ?? activeTabId
+      if (!targetTabId) return
 
+      // 更新 tab 内的 focusedPaneId（用于持久化）
       setTabs((prev) =>
         prev.map((tab) => {
-          if (tab.id !== activeTabId) return tab
+          if (tab.id !== targetTabId) return tab
           return {
             ...tab,
             focusedPaneId: paneId,
           }
         })
       )
+
+      setFocusedPaneId(paneId)
     },
     [activeTabId]
   )
@@ -717,6 +755,33 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
       })
     },
     [tabs]
+  )
+
+  const findPaneWithNote = useCallback(
+    (noteId: string): { tabId: string; paneId: string } | null => {
+      const currentActiveTabId = activeTabIdRef.current
+      const currentTabs = tabsRef.current
+      // 优先检查当前 tab
+      const currentTab = currentTabs.find((t) => t.id === currentActiveTabId)
+      if (currentTab) {
+        for (const [paneId, pane] of Object.entries(currentTab.panes)) {
+          if (pane.noteId === noteId) {
+            return { tabId: currentTab.id, paneId }
+          }
+        }
+      }
+      // 再检查其他 tabs
+      for (const tab of currentTabs) {
+        if (tab.id === currentActiveTabId) continue // 跳过已检查的当前 tab
+        for (const [paneId, pane] of Object.entries(tab.panes)) {
+          if (pane.noteId === noteId) {
+            return { tabId: tab.id, paneId }
+          }
+        }
+      }
+      return null
+    },
+    []
   )
 
   const getOpenNoteIds = useCallback((): string[] => {
@@ -796,6 +861,7 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
     updateLayout,
     getPaneNoteId,
     isNoteOpenInAnyTab,
+    findPaneWithNote,
     getOpenNoteIds,
     getTabDisplayTitle,
   }

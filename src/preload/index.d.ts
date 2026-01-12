@@ -46,6 +46,7 @@ declare global {
         checkIndex: (noteId: string, notebookId: string, content: string) => Promise<boolean>
         onDataChanged: (callback: () => void) => () => void
         onSummaryUpdated: (callback: (noteId: string) => void) => () => void
+        onNavigate: (callback: (data: { noteId: string; target?: { type: 'heading' | 'block'; value: string } }) => void) => () => void
       }
       daily: {
         getByDate: (date: string) => Promise<unknown | null>

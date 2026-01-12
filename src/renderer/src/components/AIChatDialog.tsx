@@ -10,6 +10,8 @@ import { createPortal } from 'react-dom'
 import { useTheme } from '../theme'
 import { useTranslations } from '../i18n'
 import { TIMING, EASING } from '../constants'
+import { Tooltip } from './Tooltip'
+import { formatShortcut, useChatShortcut } from '../utils/shortcut'
 import notesLogo from '../assets/notes-logo.png'
 
 // Event for opening chat with context
@@ -30,22 +32,16 @@ export function openAIChat() {
   window.dispatchEvent(new CustomEvent(OPEN_CHAT_EVENT))
 }
 
-interface AIChatDialogProps {
-  isOpen: boolean
-  onClose: () => void
-  onOpen?: () => void
-}
-
-export function AIChatDialog({ onOpen }: AIChatDialogProps) {
+export function AIChatDialog() {
   const { resolvedColorMode } = useTheme()
   const t = useTranslations()
   const [isHovered, setIsHovered] = useState(false)
+  const chatShortcut = useChatShortcut()
 
   // Handle button click - open the floating chat window
   const handleClick = useCallback(() => {
     window.electron.chatWindow.show()
-    onOpen?.()
-  }, [onOpen])
+  }, [])
 
   // Listen for "open chat with context" events
   useEffect(() => {
@@ -57,7 +53,6 @@ export function AIChatDialog({ onOpen }: AIChatDialogProps) {
           .replace('{selectedText}', detail.selectedText)
           .replace('{explanation}', detail.explanation)
         window.electron.chatWindow.showWithContext(contextMessage)
-        onOpen?.()
       }
     }
 
@@ -66,7 +61,6 @@ export function AIChatDialog({ onOpen }: AIChatDialogProps) {
     // Also listen for simple open chat events
     const handleOpenChat = () => {
       window.electron.chatWindow.show()
-      onOpen?.()
     }
     window.addEventListener(OPEN_CHAT_EVENT, handleOpenChat)
 
@@ -74,42 +68,49 @@ export function AIChatDialog({ onOpen }: AIChatDialogProps) {
       window.removeEventListener(OPEN_CHAT_WITH_CONTEXT_EVENT, handleOpenWithContext)
       window.removeEventListener(OPEN_CHAT_EVENT, handleOpenChat)
     }
-  }, [onOpen, t.ai.continueContextTemplate])
+  }, [t.ai.continueContextTemplate])
+
+  // Build tooltip content with shortcut
+  const tooltipContent = chatShortcut
+    ? `${t.settings.openChatTooltip} (${formatShortcut(chatShortcut)})`
+    : t.settings.openChatTooltip
 
   const button = (
     <div className="fixed bottom-14 right-6 z-[99999]">
-      <AnimatePresence mode="wait">
-        <motion.button
-          key="ai-button"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{
-            opacity: isHovered ? 1 : 0.6,
-            scale: 1
-          }}
-          exit={{ opacity: 0, scale: 0.9 }}
-          transition={{
-            opacity: { duration: 0.3, ease: 'easeOut' },
-            scale: { duration: TIMING.SESSION_PILL_S, ease: EASING.SMOOTH }
-          }}
-          onClick={handleClick}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-          className="bg-app-surface border border-app-border rounded-full w-9 h-9 flex items-center justify-center shadow-app-soft hover:shadow-app-elevated cursor-pointer relative"
-        >
-          <motion.img
-            src={notesLogo}
-            alt="AI"
-            className="w-5 h-5"
-            style={resolvedColorMode === 'dark' ? { filter: 'invert(1)' } : {}}
-            animate={{ rotate: isHovered ? 360 : 0 }}
-            transition={{
-              duration: 20,
-              ease: 'linear',
-              repeat: isHovered ? Infinity : 0,
+      <Tooltip content={tooltipContent} placement="left">
+        <AnimatePresence mode="wait">
+          <motion.button
+            key="ai-button"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{
+              opacity: isHovered ? 1 : 0.6,
+              scale: 1
             }}
-          />
-        </motion.button>
-      </AnimatePresence>
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{
+              opacity: { duration: 0.3, ease: 'easeOut' },
+              scale: { duration: TIMING.SESSION_PILL_S, ease: EASING.SMOOTH }
+            }}
+            onClick={handleClick}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            className="bg-app-surface border border-app-border rounded-full w-9 h-9 flex items-center justify-center shadow-app-soft hover:shadow-app-elevated cursor-pointer relative"
+          >
+            <motion.img
+              src={notesLogo}
+              alt="AI"
+              className="w-5 h-5"
+              style={resolvedColorMode === 'dark' ? { filter: 'invert(1)' } : {}}
+              animate={{ rotate: isHovered ? 360 : 0 }}
+              transition={{
+                duration: 20,
+                ease: 'linear',
+                repeat: isHovered ? Infinity : 0,
+              }}
+            />
+          </motion.button>
+        </AnimatePresence>
+      </Tooltip>
     </div>
   )
 

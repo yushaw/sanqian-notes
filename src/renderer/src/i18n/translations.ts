@@ -107,6 +107,13 @@ export interface Translations {
     languageDesc: string
     syncSelectionToChat: string
     syncSelectionToChatDesc: string
+    chatShortcut: string
+    chatShortcutDesc: string
+    chatShortcutRecording: string
+    chatShortcutNotSet: string
+    chatShortcutNeedModifier: string
+    chatShortcutClear: string
+    openChatTooltip: string
     themeColor: string
     themeColorDesc: string
     theme: string
@@ -367,6 +374,8 @@ export interface Translations {
     searchBlockPlaceholder: string
     fullNote: string
     noteNotFound: string
+    headingNotFound: string
+    blockNotFound: string
   }
   emoji: {
     loading: string
@@ -935,6 +944,13 @@ const zh: Translations = {
     languageDesc: '选择界面显示语言',
     syncSelectionToChat: '实时同步选中内容',
     syncSelectionToChatDesc: '打开 Chat 时自动将编辑器选中内容同步为上下文',
+    chatShortcut: '打开 Chat 快捷键',
+    chatShortcutDesc: '快速打开/关闭 Chat 面板',
+    chatShortcutRecording: '按下快捷键...',
+    chatShortcutNotSet: '未设置',
+    chatShortcutNeedModifier: '需要至少一个修饰键 (Ctrl/Cmd)',
+    chatShortcutClear: '清除',
+    openChatTooltip: '打开 Chat',
     themeColor: '主题色',
     themeColorDesc: '选择界面主题颜色',
     theme: '外观模式',
@@ -1195,6 +1211,8 @@ const zh: Translations = {
     searchBlockPlaceholder: '搜索段落...',
     fullNote: '全文',
     noteNotFound: '笔记不存在',
+    headingNotFound: '标题不存在',
+    blockNotFound: '段落不存在',
   },
   emoji: {
     loading: '加载中...',
@@ -1760,6 +1778,13 @@ const en: Translations = {
     languageDesc: 'Choose display language',
     syncSelectionToChat: 'Sync selection to Chat',
     syncSelectionToChatDesc: 'Automatically sync editor selection as context when Chat is open',
+    chatShortcut: 'Open Chat Shortcut',
+    chatShortcutDesc: 'Quickly open/close Chat panel',
+    chatShortcutRecording: 'Press shortcut...',
+    chatShortcutNotSet: 'Not set',
+    chatShortcutNeedModifier: 'Requires at least one modifier key (Ctrl/Cmd)',
+    chatShortcutClear: 'Clear',
+    openChatTooltip: 'Open Chat',
     themeColor: 'Theme Color',
     themeColorDesc: 'Choose accent color',
     theme: 'Appearance',
@@ -2020,6 +2045,8 @@ const en: Translations = {
     searchBlockPlaceholder: 'Search blocks...',
     fullNote: 'Full note',
     noteNotFound: 'Note not found',
+    headingNotFound: 'Heading not found',
+    blockNotFound: 'Block not found',
   },
   emoji: {
     loading: 'Loading...',

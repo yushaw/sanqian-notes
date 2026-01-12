@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { CompactChat, createIpcAdapter, type ChatAdapter, type ChatUiConfig } from '@yushaw/sanqian-chat/renderer'
+import { CompactChat, createIpcAdapter, type ChatAdapter, type ChatUiConfig, type LinkClickEvent, type LinkHandlerConfig } from '@yushaw/sanqian-chat/renderer'
 import '@yushaw/sanqian-chat/renderer/styles/variables.css'
 import notesLogo from '../assets/notes-logo.png'
 import type { ThemeSettings, ThemeAPI } from '../../../shared/types'
@@ -125,6 +125,48 @@ export default function ChatApp() {
     alwaysOnTop: isPinned,
   }), [themeSettings, handleClose, handlePin, isPinned])
 
+  // Handle sanqian-notes:// links in chat messages
+  const handleLinkClick = useCallback((event: LinkClickEvent): boolean => {
+    const { href, url } = event
+
+    // Only handle sanqian-notes:// protocol
+    if (!href.startsWith('sanqian-notes://')) {
+      return false // Let default behavior handle it
+    }
+
+    try {
+      // Parse: sanqian-notes://note/{noteId}?heading=xxx&block=xxx
+      // For custom protocols: hostname = 'note', pathname = '/{noteId}'
+      const action = url?.hostname // 'note'
+      const noteId = url?.pathname?.slice(1) // Remove leading '/'
+
+      if (action === 'note' && noteId) {
+        const heading = url?.searchParams.get('heading') || undefined
+        const block = url?.searchParams.get('block') || undefined
+
+        // Send navigation request to main window
+        window.chatWindow?.navigateToNote({
+          noteId,
+          target: heading
+            ? { type: 'heading' as const, value: heading }
+            : block
+            ? { type: 'block' as const, value: block }
+            : undefined,
+        })
+      }
+
+      return true // Handled
+    } catch (err) {
+      console.error('[ChatApp] Failed to handle note link:', href, err)
+      return true // Still handled (prevent opening invalid URL)
+    }
+  }, [])
+
+  // Link handler configuration for custom protocols
+  const linkHandler = useMemo<LinkHandlerConfig>(() => ({
+    allowedProtocols: ['sanqian-notes:'],
+    onLinkClick: handleLinkClick,
+  }), [handleLinkClick])
 
   if (!adapter) {
     return (
@@ -146,6 +188,7 @@ export default function ChatApp() {
         floating={true}
         focusInputRef={chatFocusInputRef}
         setTextRef={chatSetTextRef}
+        linkHandler={linkHandler}
         headerLeft={
           <img src={notesLogo} alt="Notes" className="chat-header-logo" draggable={false} />
         }

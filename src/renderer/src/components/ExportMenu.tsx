@@ -7,6 +7,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslations } from '../i18n'
 import { toast } from '../utils/toast'
+import { formatShortcut, useChatShortcut } from '../utils/shortcut'
 
 interface ExportMenuProps {
   noteId?: string
@@ -26,6 +27,11 @@ const Icons = {
       <circle cx="12" cy="12" r="1" />
       <circle cx="19" cy="12" r="1" />
       <circle cx="5" cy="12" r="1" />
+    </svg>
+  ),
+  chat: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   ),
   close: (
@@ -76,6 +82,7 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
   const menuRef = useRef<HTMLDivElement>(null)
   const arxivInputRef = useRef<HTMLInputElement>(null)
   const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null)
+  const chatShortcut = useChatShortcut()
 
   // PDF 配置
   const [pageSize, setPageSize] = useState<'A4' | 'Letter'>('A4')
@@ -283,6 +290,13 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
               className="more-menu-dropdown"
               style={{ top: dropdownPos.top, right: dropdownPos.right }}
             >
+              {/* Open Chat */}
+              <button className="more-menu-item" onClick={() => { setMenuOpen(false); window.electron.chatWindow.toggle() }}>
+                {Icons.chat}
+                <span>{t.settings?.openChatTooltip || 'Open Chat'}</span>
+                {chatShortcut && <span className="more-menu-shortcut">{formatShortcut(chatShortcut)}</span>}
+              </button>
+              {(onOpenSearch || onSplitHorizontal || onSplitVertical || onInsertContent || noteId) && <div className="more-menu-divider" />}
               {onOpenSearch && (
                 <button className="more-menu-item" onClick={() => { setMenuOpen(false); onOpenSearch() }}>
                   {Icons.search}
@@ -292,13 +306,13 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
               )}
               {onOpenSearch && (onSplitHorizontal || onSplitVertical || onInsertContent || noteId) && <div className="more-menu-divider" />}
               {onSplitHorizontal && (
-                <button className="more-menu-item" onClick={() => { setMenuOpen(false); onSplitHorizontal() }}>
+                <button className="more-menu-item" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onSplitHorizontal() }}>
                   {Icons.splitHorizontal}
                   <span>{t.paneControls?.splitHorizontal || 'Split Right'}</span>
                 </button>
               )}
               {onSplitVertical && (
-                <button className="more-menu-item" onClick={() => { setMenuOpen(false); onSplitVertical() }}>
+                <button className="more-menu-item" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onSplitVertical() }}>
                   {Icons.splitVertical}
                   <span>{t.paneControls?.splitVertical || 'Split Down'}</span>
                 </button>

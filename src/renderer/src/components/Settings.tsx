@@ -6,6 +6,7 @@ import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting }
 import { AIActionsSettings } from './AIActionsSettings'
 import { KnowledgeBaseSettings } from './KnowledgeBaseSettings'
 import { DataSettings } from './DataSettings'
+import { DEFAULT_CHAT_SHORTCUT, CHAT_SHORTCUT_CHANGE_EVENT, formatShortcut } from '../utils/shortcut'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -46,6 +47,9 @@ export function Settings({ onClose }: SettingsProps) {
     releaseNotes: null
   })
   const [syncSelectionToChat, setSyncSelectionToChat] = useState<boolean>(true)
+  const [chatShortcut, setChatShortcut] = useState<string>(DEFAULT_CHAT_SHORTCUT)
+  const [isRecordingShortcut, setIsRecordingShortcut] = useState(false)
+  const [shortcutError, setShortcutError] = useState<string | null>(null)
 
   // Load sync selection setting
   useEffect(() => {
@@ -53,6 +57,10 @@ export function Settings({ onClose }: SettingsProps) {
     window.electron?.appSettings?.get('syncSelectionToChat').then((value) => {
       // Default to true if not set
       if (mounted) setSyncSelectionToChat(value !== 'false')
+    })
+    window.electron?.appSettings?.get('chatShortcut').then((value) => {
+      // Default to CommandOrControl+K if not set
+      if (mounted && value) setChatShortcut(value)
     })
     return () => { mounted = false }
   }, [])
@@ -329,6 +337,93 @@ export function Settings({ onClose }: SettingsProps) {
                       />
                     </button>
                   </div>
+                </div>
+
+                {/* Chat Shortcut */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-sm font-medium text-[var(--color-text)] mb-1">
+                        {t.settings.chatShortcut}
+                      </h4>
+                      <p className="text-xs text-[var(--color-muted)]">{t.settings.chatShortcutDesc}</p>
+                    </div>
+                    {chatShortcut && (
+                      <button
+                        onClick={async () => {
+                          setChatShortcut('')
+                          setShortcutError(null)
+                          await window.electron?.appSettings?.set('chatShortcut', '')
+                          window.dispatchEvent(new CustomEvent(CHAT_SHORTCUT_CHANGE_EVENT, { detail: '' }))
+                        }}
+                        className="text-xs text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+                      >
+                        {t.settings.chatShortcutClear}
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsRecordingShortcut(true)
+                      setShortcutError(null)
+                    }}
+                    onKeyDown={async (e) => {
+                      if (!isRecordingShortcut) return
+
+                      e.preventDefault()
+                      e.stopPropagation()
+
+                      // Ignore modifier-only keys
+                      if (['Meta', 'Control', 'Alt', 'Shift'].includes(e.key)) {
+                        return
+                      }
+
+                      // Build shortcut string (Electron format)
+                      const parts: string[] = []
+                      if (e.metaKey) parts.push('Command')
+                      if (e.ctrlKey) parts.push('Control')
+                      if (e.altKey) parts.push('Alt')
+                      if (e.shiftKey) parts.push('Shift')
+
+                      let key = e.key
+                      if (key === ' ') key = 'Space'
+                      else if (key.length === 1) key = key.toUpperCase()
+                      parts.push(key)
+
+                      const shortcut = parts.join('+')
+
+                      // Require at least one modifier
+                      if (!e.metaKey && !e.ctrlKey) {
+                        setShortcutError(t.settings.chatShortcutNeedModifier)
+                        return
+                      }
+
+                      // Save the shortcut
+                      setChatShortcut(shortcut)
+                      setShortcutError(null)
+                      setIsRecordingShortcut(false)
+                      await window.electron?.appSettings?.set('chatShortcut', shortcut)
+                      // Notify App.tsx about the change
+                      window.dispatchEvent(new CustomEvent(CHAT_SHORTCUT_CHANGE_EVENT, { detail: shortcut }))
+                    }}
+                    onBlur={() => {
+                      setIsRecordingShortcut(false)
+                    }}
+                    className={`w-full px-3 py-2 rounded-xl border text-sm font-mono transition-all ${
+                      isRecordingShortcut
+                        ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-text)]'
+                        : 'border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/5 text-[var(--color-text)]'
+                    }`}
+                  >
+                    {isRecordingShortcut
+                      ? t.settings.chatShortcutRecording
+                      : chatShortcut
+                        ? formatShortcut(chatShortcut)
+                        : t.settings.chatShortcutNotSet}
+                  </button>
+                  {shortcutError && (
+                    <p className="mt-2 text-xs text-red-500">{shortcutError}</p>
+                  )}
                 </div>
               </div>
             )}

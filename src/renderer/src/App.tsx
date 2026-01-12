@@ -19,6 +19,7 @@ import { I18nProvider, useTranslations, useI18n } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext } from './utils/cursor'
 import { formatDailyDate } from './utils/dateFormat'
 import { toast } from './utils/toast'
+import { useChatShortcut } from './utils/shortcut'
 import { RECENT_DAYS, type Note, type Notebook, type NoteSearchFilter, type SmartViewId } from './types/note'
 
 // 全局 Lightbox 组件
@@ -168,6 +169,9 @@ function AppContent() {
     openNoteInPane,
     closePane,
     splitPane,
+    findPaneWithNote,
+    selectTab,
+    focusPane,
   } = useTabs()
 
   const [notebooks, setNotebooks] = useState<Notebook[]>([])
@@ -222,8 +226,8 @@ function AppContent() {
   // Sidebar collapsed state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
-  // AI chat dialog state
-  const [isAIChatOpen, setIsAIChatOpen] = useState(false)
+  // Chat shortcut for global keyboard handler
+  const chatShortcut = useChatShortcut()
 
   // Editor selection state (for context provider sync)
   const [currentBlockId, setCurrentBlockId] = useState<string | null>(null)
@@ -264,17 +268,40 @@ function AppContent() {
     }, 300)
   }, [])
 
-  // Global keyboard shortcut for AI chat (Cmd/Ctrl + K)
+  // Global keyboard shortcut for AI chat
+  // Use capture phase to catch the event before editor intercepts it
   useEffect(() => {
+    if (!chatShortcut) return
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      // Parse shortcut string (e.g., "Command+K", "Control+Shift+P")
+      const parts = chatShortcut.split('+')
+      const key = parts[parts.length - 1].toLowerCase()
+      const needsCommand = parts.includes('Command')
+      const needsControl = parts.includes('Control')
+      const needsAlt = parts.includes('Alt')
+      const needsShift = parts.includes('Shift')
+
+      // Check if modifiers match
+      const commandMatch = needsCommand ? e.metaKey : !e.metaKey
+      const controlMatch = needsControl ? e.ctrlKey : !e.ctrlKey
+      const altMatch = needsAlt ? e.altKey : !e.altKey
+      const shiftMatch = needsShift ? e.shiftKey : !e.shiftKey
+
+      // For cross-platform, Command on Mac = Ctrl on Windows/Linux
+      const modifiersMatch = (needsCommand || needsControl)
+        ? (e.metaKey || e.ctrlKey) && altMatch && shiftMatch
+        : commandMatch && controlMatch && altMatch && shiftMatch
+
+      if (modifiersMatch && e.key.toLowerCase() === key) {
         e.preventDefault()
-        setIsAIChatOpen(prev => !prev)
+        e.stopPropagation()
+        window.electron.chatWindow.toggle()
       }
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+    window.addEventListener('keydown', handleKeyDown, true) // capture phase
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [chatShortcut])
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -825,6 +852,12 @@ function AppContent() {
   const [scrollTarget, setScrollTarget] = useState<{ type: 'heading' | 'block'; value: string } | null>(null)
 
   // Handle clicking a note link (支持标题和 block 定位)
+  // 智能导航逻辑：
+  // 1. 如果笔记不存在，toast 提示
+  // 2. 如果当前 pane 已经打开这个笔记，只处理 scrollTarget
+  // 3. 如果当前 pane 是空白的，在当前 pane 打开
+  // 4. 如果笔记在其他 tab/pane 已打开，跳转过去
+  // 5. 否则在新 tab 打开
   const handleNoteClick = useCallback((noteId: string, target?: { type: 'heading' | 'block'; value: string }) => {
     // 检查笔记是否存在
     const noteExists = notes.some(n => n.id === noteId)
@@ -833,18 +866,55 @@ function AppContent() {
       return
     }
 
-    selectSingleNote(noteId)
+    // 设置滚动目标
     if (target) {
       setScrollTarget(target)
     } else {
       setScrollTarget(null)
     }
-  }, [selectSingleNote, notes, t])
+
+    // 如果当前 pane 已经打开这个笔记，不需要切换
+    if (tabFocusedNoteId === noteId) {
+      return
+    }
+
+    // 检查笔记是否在其他 tab/pane 已打开（优先跳转到已打开的位置）
+    const existingPane = findPaneWithNote(noteId)
+    if (existingPane) {
+      selectTab(existingPane.tabId)
+      focusPane(existingPane.paneId, existingPane.tabId)
+      return
+    }
+
+    // 如果当前 pane 是空白的，在当前 pane 打开
+    if (tabFocusedNoteId === null && focusedPaneId) {
+      openNoteInPane(noteId)
+      return
+    }
+
+    // 在新 tab 打开
+    createTab(noteId)
+  }, [notes, t, tabFocusedNoteId, focusedPaneId, openNoteInPane, findPaneWithNote, selectTab, focusPane, createTab])
+
+  // Listen for note:navigate IPC events (from chat window via sanqian-notes:// links)
+  useEffect(() => {
+    const cleanup = window.electron.note.onNavigate((data: { noteId: string; target?: { type: 'heading' | 'block'; value: string } }) => {
+      const { noteId, target } = data
+      handleNoteClick(noteId, target)
+    })
+    return cleanup
+  }, [handleNoteClick])
 
   // 清除滚动目标的回调
-  const handleScrollComplete = useCallback(() => {
+  const handleScrollComplete = useCallback((found: boolean) => {
+    if (!found && scrollTarget) {
+      const typeText = scrollTarget.type === 'heading'
+        ? (t.noteLink?.headingNotFound || 'Heading not found')
+        : (t.noteLink?.blockNotFound || 'Block not found')
+      toast(`${typeText}: ${scrollTarget.value}`, { type: 'error' })
+    }
     setScrollTarget(null)
-  }, [])
+  }, [scrollTarget, t])
 
   // Handle creating a note from link (returns the created note)
   const handleCreateNoteFromLink = useCallback(async (title: string): Promise<Note> => {
@@ -1498,6 +1568,7 @@ function AppContent() {
                     onSplitHorizontal={() => splitPane('row', { fromPaneId: paneId })}
                     onSplitVertical={() => splitPane('column', { fromPaneId: paneId })}
                     onClosePane={panelCount > 1 ? () => closePane(paneId) : undefined}
+                    isFocused={isFocused}
                   />
                 </EditorErrorBoundary>
               )
@@ -1594,12 +1665,8 @@ function AppContent() {
         document.body
       )}
 
-      {/* AI Chat Dialog */}
-      <AIChatDialog
-        isOpen={isAIChatOpen}
-        onClose={() => setIsAIChatOpen(false)}
-        onOpen={() => setIsAIChatOpen(true)}
-      />
+      {/* AI Chat Floating Button */}
+      <AIChatDialog />
 
       {/* Image Lightbox */}
       <ImageLightbox />

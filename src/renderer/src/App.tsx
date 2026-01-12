@@ -1383,7 +1383,6 @@ function AppContent() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- 使用 tabs.length 和 activePaneCount 而非对象引用避免频繁重绑定
   }, [createTab, closeTab, closePane, focusedPaneId, activeTabId, tabs.length, activePaneCount, splitPane])
 
   // Bulk delete notes

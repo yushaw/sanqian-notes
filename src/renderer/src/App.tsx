@@ -213,9 +213,6 @@ function AppContent() {
   const [showSettings, setShowSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
-  // Knowledge base enabled status (cached to avoid IPC on every search)
-  const [kbEnabled, setKbEnabled] = useState(false)
-
   // Notebook modal state
   const [showNotebookModal, setShowNotebookModal] = useState(false)
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null>(null)
@@ -320,18 +317,16 @@ function AppContent() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [notesData, notebooksData, trashData, kbConfig] = await Promise.all([
+        const [notesData, notebooksData, trashData] = await Promise.all([
           window.electron.note.getAll(),
           window.electron.notebook.getAll(),
-          window.electron.trash.getAll(),
-          window.electron.knowledgeBase.getConfig()
+          window.electron.trash.getAll()
         ])
         const loadedNotes = notesData as Note[]
         const loadedNotebooks = notebooksData as Notebook[]
         setNotes(loadedNotes)
         setNotebooks(loadedNotebooks)
         setTrashNotes(trashData as Note[])
-        setKbEnabled(kbConfig.enabled)
 
         // Validate restored navigation state
         // Check if saved notebook still exists
@@ -1070,7 +1065,7 @@ function AppContent() {
     }
   }, [notes, isZh, selectSingleNote])
 
-  // Handle search - merge hybrid search (indexed) and keyword search (all notes)
+  // Handle search - keyword search only
   // Results are filtered based on current view (notebook, daily, favorites, etc.)
   const handleSearch = useCallback(async (query: string): Promise<Note[]> => {
     // Build filter based on current view
@@ -1078,47 +1073,8 @@ function AppContent() {
       ? { notebookId: selectedNotebookId }
       : { viewType: selectedSmartView || 'all' }
 
-    try {
-      // Parallel search: hybrid (indexed notes) + keyword (all notes including unindexed)
-      // Both use the same filter, so results are consistent
-      const [hybridResults, keywordResults] = await Promise.all([
-        kbEnabled
-          ? window.electron.knowledgeBase.hybridSearch(query, { limit: 20, filter })
-          : Promise.resolve([]),
-        window.electron.note.search(query, filter)
-      ])
-
-      // Merge results: hybrid first (already ranked by RRF), then unindexed notes
-      const noteIds = new Set<string>()
-      const results: Note[] = []
-
-      // Add hybrid search results first (higher quality ranking)
-      if (hybridResults.length > 0) {
-        const ids = hybridResults.map(result => result.noteId)
-        const notes = await window.electron.note.getByIds(ids) as Note[]
-        for (const note of notes) {
-          if (note && !noteIds.has(note.id)) {
-            noteIds.add(note.id)
-            results.push(note)
-          }
-        }
-      }
-
-      // Add keyword search results (already filtered by database)
-      for (const note of keywordResults) {
-        if (!noteIds.has(note.id)) {
-          noteIds.add(note.id)
-          results.push(note)
-        }
-      }
-
-      return results.slice(0, 20)
-    } catch (error) {
-      console.error('Search failed:', error)
-      // Fall back to keyword search on error
-      return window.electron.note.search(query, filter)
-    }
-  }, [kbEnabled, selectedNotebookId, selectedSmartView])
+    return window.electron.note.search(query, filter)
+  }, [selectedNotebookId, selectedSmartView])
 
   // Handle restore note from trash
   const handleRestoreNote = useCallback(async (id: string) => {
@@ -1258,11 +1214,8 @@ function AppContent() {
     setShowSettings(true)
   }, [])
 
-  const handleCloseSettings = useCallback(async () => {
+  const handleCloseSettings = useCallback(() => {
     setShowSettings(false)
-    // Refresh kbEnabled in case user changed knowledge base settings
-    const kbConfig = await window.electron.knowledgeBase.getConfig()
-    setKbEnabled(kbConfig.enabled)
   }, [])
 
   // Toggle typewriter mode - 现在接收 cursorInfo 参数

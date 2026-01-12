@@ -96,6 +96,20 @@ export function NoteList({
     }
   }, [])
 
+  // 当 notes 更新时同步 hoveredNote（用于 AI summary 实时更新）
+  useEffect(() => {
+    if (hoveredNote) {
+      const updatedNote = notes.find(n => n.id === hoveredNote.id)
+      if (!updatedNote) {
+        // 笔记被删除，关闭 popover
+        setHoveredNote(null)
+        setPreviewAnchor(null)
+      } else if (updatedNote.ai_summary !== hoveredNote.ai_summary) {
+        setHoveredNote(updatedNote)
+      }
+    }
+  }, [notes, hoveredNote])
+
   // 实时搜索
   const performSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -108,6 +122,10 @@ export function NoteList({
 
   // 防抖搜索
   useEffect(() => {
+    // 搜索时清除 hover 状态（列表重渲染后 anchor 会丢失）
+    setHoveredNote(null)
+    setPreviewAnchor(null)
+
     const timer = setTimeout(() => {
       performSearch(searchQuery)
     }, 150)

@@ -31,9 +31,20 @@ import { getEmbeddings } from './api'
 import { computeContentHash } from './utils'
 import type { NoteChunk, NoteIndexStatus } from './types'
 import { generateSummary } from '../summary-service'
+import { getNoteSummaryInfo } from '../database'
 
 // 摘要触发阈值：Chunk 变化率超过 30% 时重新生成摘要
 const SUMMARY_CHANGE_THRESHOLD = 0.3
+
+/**
+ * 触发 AI Summary 生成（如果需要）
+ */
+function triggerSummary(noteId: string, reason: string): void {
+  console.log(`[IndexingService] Note ${noteId} triggering summary (${reason})`)
+  generateSummary(noteId).catch((err) => {
+    console.error(`[IndexingService] Summary generation failed for ${noteId}:`, err)
+  })
+}
 
 // 配置常量
 const MIN_CONTENT_LENGTH = 100 // 最小内容长度
@@ -291,7 +302,13 @@ class IndexingService {
       const newHash = computeContentHash(text)
       // 只有内容相同且上次成功时才跳过（允许 error 状态重试）
       if (existingStatus.contentHash === newHash && existingStatus.status === 'indexed') {
-        console.log(`[IndexingService] Note ${noteId} no change (hash match), skipping`)
+        // 即使索引没变，也要检查是否缺少 summary
+        const summaryInfo = getNoteSummaryInfo(noteId)
+        if (!summaryInfo?.ai_summary) {
+          triggerSummary(noteId, 'no summary')
+        } else {
+          console.log(`[IndexingService] Note ${noteId} no change (hash match), skipping`)
+        }
         return false
       }
     }
@@ -349,27 +366,32 @@ class IndexingService {
       // 变化率 = 变化的 chunks 数 / max(新旧 chunks 总数)
       const changeRatio = changedChunks / Math.max(totalOldChunks, totalNewChunks, 1)
 
-      // 5. 如果没有变化，跳过
+      // 5. 如果没有变化，检查是否需要补生成 summary
       if (result.toAdd.length === 0 && result.toDelete.length === 0) {
-        console.log(`[IndexingService] Note ${noteId} no chunk changes, skipping`)
+        console.log(`[IndexingService] Note ${noteId} no chunk changes`)
+        // 即使 chunks 没变，也要检查是否缺少 summary
+        const summaryInfo = getNoteSummaryInfo(noteId)
+        if (!summaryInfo?.ai_summary) {
+          triggerSummary(noteId, 'no summary')
+        }
         return true
       }
 
-      // 5. 先获取新 embeddings（可能失败，失败时不影响现有数据）
+      // 6. 先获取新 embeddings（可能失败，失败时不影响现有数据）
       let embeddings: number[][] = []
       if (result.toAdd.length > 0) {
         const chunkTexts = result.toAdd.map((c) => c.chunkText)
         embeddings = await getEmbeddings(chunkTexts)
       }
 
-      // 6. 删除旧的 chunks 和 embeddings（在 embedding 获取成功后再删除）
+      // 7. 删除旧的 chunks 和 embeddings（在 embedding 获取成功后再删除）
       if (result.toDelete.length > 0) {
         const deleteIds = result.toDelete.map((c) => c.chunkId)
         deleteChunksByIds(deleteIds)
         deleteEmbeddingsByChunkIds(deleteIds)
       }
 
-      // 7. 插入新 chunks 和 embeddings
+      // 8. 插入新 chunks 和 embeddings
       if (result.toAdd.length > 0) {
         insertNoteChunks(result.toAdd)
 
@@ -382,12 +404,12 @@ class IndexingService {
         insertEmbeddings(embeddingData)
       }
 
-      // 8. 更新 unchanged chunks 的位置元数据（chunkIndex, charStart, charEnd 可能变化）
+      // 9. 更新 unchanged chunks 的位置元数据（chunkIndex, charStart, charEnd 可能变化）
       if (result.unchanged.length > 0) {
         updateChunksMetadata(result.unchanged)
       }
 
-      // 9. 更新索引状态
+      // 10. 更新索引状态
       const status: NoteIndexStatus = {
         noteId,
         contentHash: computeContentHash(text),
@@ -400,17 +422,17 @@ class IndexingService {
 
       console.log(`[IndexingService] Note ${noteId} indexed successfully`)
 
-      // 10. 检查是否需要更新摘要（新笔记或变化率 > 30%）
+      // 11. 检查是否需要更新摘要（新笔记、变化率 > 30%、或没有摘要）
       const isNewNote = totalOldChunks === 0
-      if (isNewNote || changeRatio > SUMMARY_CHANGE_THRESHOLD) {
-        console.log(
-          `[IndexingService] Note ${noteId} triggering summary (` +
-            `${isNewNote ? 'new note' : `change: ${(changeRatio * 100).toFixed(0)}%`})`
-        )
-        // 异步生成摘要，不阻塞索引流程
-        generateSummary(noteId).catch((err) => {
-          console.error(`[IndexingService] Summary generation failed for ${noteId}:`, err)
-        })
+      const summaryInfo = getNoteSummaryInfo(noteId)
+      const noSummary = !summaryInfo?.ai_summary
+      if (isNewNote || changeRatio > SUMMARY_CHANGE_THRESHOLD || noSummary) {
+        const reason = isNewNote
+          ? 'new note'
+          : noSummary
+            ? 'no summary'
+            : `change: ${(changeRatio * 100).toFixed(0)}%`
+        triggerSummary(noteId, reason)
       }
 
       // 发送进度通知
@@ -511,6 +533,12 @@ class IndexingService {
       updateNoteIndexStatus(status)
 
       console.log(`[IndexingService] Note ${noteId} indexed successfully`)
+
+      // 检查是否需要生成摘要
+      const summaryInfo = getNoteSummaryInfo(noteId)
+      if (!summaryInfo?.ai_summary) {
+        triggerSummary(noteId, 'full index, no summary')
+      }
 
       // 发送进度通知
       this.sendProgress({

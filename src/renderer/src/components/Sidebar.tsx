@@ -89,7 +89,7 @@ function NotebookIcon({ icon, className = '' }: { icon?: string; className?: str
   }
 
   // It's an emoji
-  return <span className={`text-sm select-none ${className}`}>{iconValue}</span>
+  return <span className={`inline-flex items-center justify-center w-4 h-4 text-sm leading-none select-none ${className}`}>{iconValue}</span>
 }
 
 interface SidebarProps {
@@ -239,7 +239,7 @@ export function Sidebar({
 
   if (isCollapsed) {
     return (
-      <div className="w-12 flex-shrink-0 h-full bg-[var(--color-card-solid)] flex flex-col select-none">
+      <div className="w-12 flex-shrink-0 h-full bg-[var(--color-card-solid)] flex flex-col select-none overflow-hidden">
         {/* Drag region - top area for window dragging */}
         <div className="h-[42px] flex-shrink-0 drag-region" />
 

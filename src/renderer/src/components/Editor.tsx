@@ -1019,7 +1019,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
   // Track blocks for cleanup, edit detection, and agent task caching
   const previousAgentBlocksRef = useRef<Set<string>>(new Set())
-  const managedBlockContentRef = useRef<Map<string, string>>(new Map())
+  // Store both textContent and nodeSize to detect text changes and structure changes (e.g., adding rows)
+  const managedBlockContentRef = useRef<Map<string, { text: string; size: number }>>(new Map())
   const blockScanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isInitialScanRef = useRef(true)
 
@@ -1039,7 +1040,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       if (editor.isDestroyed) return
 
       const currentAgentBlocks = new Set<string>()
-      const currentManagedContent = new Map<string, string>()
+      const currentManagedContent = new Map<string, { text: string; size: number }>()
       const agentBlockIds: string[] = []
 
       // Single traversal for all purposes
@@ -1056,13 +1057,15 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         // Collect managed blocks and check for edits
         if (node.attrs.managedBy) {
           const textContent = node.textContent
-          currentManagedContent.set(blockId, textContent)
+          const nodeSize = node.nodeSize
+          currentManagedContent.set(blockId, { text: textContent, size: nodeSize })
 
-          // Check if content changed from previous snapshot (skip on initial scan)
+          // Check if content or structure changed from previous snapshot (skip on initial scan)
           if (!isInitialScanRef.current) {
-            const previousContent = managedBlockContentRef.current.get(blockId)
-            if (previousContent !== undefined && previousContent !== textContent) {
-              // Content changed, user edited the block - clear managedBy
+            const previous = managedBlockContentRef.current.get(blockId)
+            // Detect text changes OR structure changes (e.g., adding table rows)
+            if (previous !== undefined && (previous.text !== textContent || previous.size !== nodeSize)) {
+              // Content/structure changed, user edited the block - clear managedBy
               setTimeout(() => {
                 editor.commands.clearManagedBy(blockId)
               }, 0)

@@ -25,8 +25,8 @@ declare module '@tiptap/core' {
   }
 }
 
-// 支持 Agent Task 的节点类型
-export const AGENT_TASK_SUPPORTED_TYPES = [
+// 可作为 agent 任务目标的节点类型（有内容，可以作为 agent 输入）
+export const AGENT_TASK_TARGET_TYPES = [
   'paragraph',
   'heading',
   'blockquote',
@@ -38,6 +38,18 @@ export const AGENT_TASK_SUPPORTED_TYPES = [
   'taskList',
   'table',
 ] as const
+
+// 额外需要 managedBy 属性的类型（可被输出但不能作为任务目标）
+const OUTPUT_ONLY_TYPES = [
+  'tableRow',
+  'tableCell',
+  'tableHeader',
+  'horizontalRule',
+  'image',
+] as const
+
+// 所有可能被 agent 输出的节点类型（需要支持 managedBy 属性）
+const ALL_BLOCK_TYPES = [...AGENT_TASK_TARGET_TYPES, ...OUTPUT_ONLY_TYPES] as const
 
 // Extension options
 export interface AgentTaskOptions {
@@ -66,8 +78,8 @@ export const AgentTask = Extension.create<AgentTaskOptions>({
   addGlobalAttributes() {
     return [
       {
-        // Apply to common block nodes
-        types: [...AGENT_TASK_SUPPORTED_TYPES],
+        // agentTaskId: 只应用于可作为任务目标的 block
+        types: [...AGENT_TASK_TARGET_TYPES],
         attributes: {
           agentTaskId: {
             default: null,
@@ -78,9 +90,13 @@ export const AgentTask = Extension.create<AgentTaskOptions>({
               return { 'data-agent-task-id': attributes.agentTaskId }
             },
           },
-          // managedBy: 标记输出 block 被哪个 agent block 管理
-          // 值为 agent block 的 blockId
-          // 用户编辑时清除此属性，断开管理关系
+        },
+      },
+      {
+        // managedBy: 应用于所有 block 类型（agent 可能输出任何内容）
+        // 值为 agent block 的 blockId，用户编辑时清除此属性断开管理关系
+        types: [...ALL_BLOCK_TYPES],
+        attributes: {
           managedBy: {
             default: null,
             keepOnSplit: false, // Don't copy to new block when pressing Enter
@@ -218,6 +234,7 @@ export const AgentTask = Extension.create<AgentTaskOptions>({
           state.doc.descendants((node: ProseMirrorNodeType, pos: number) => {
             if (node.attrs.managedBy === managerBlockId) {
               toDelete.push({ from: pos, to: pos + node.nodeSize })
+              return false // 跳过子节点，避免重复收集嵌套的 managed block
             }
           })
 

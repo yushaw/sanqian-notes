@@ -10,7 +10,7 @@ import { createPopup, updatePopupContent, updatePopupStreaming, deletePopup } fr
 import { toast } from '../utils/toast'
 import { v4 as uuidv4 } from 'uuid'
 import { generateBlockId } from './extensions/BlockId'
-import { AGENT_TASK_SUPPORTED_TYPES } from './extensions/AgentTask'
+import { AGENT_TASK_TARGET_TYPES } from './extensions/AgentTask'
 
 // 时间常量
 const CLEANUP_DELAY_MS = 300
@@ -182,7 +182,7 @@ const Icons = {
 }
 
 // 将导入的数组转为 Set 以提高查找效率
-const AGENT_TASK_SUPPORTED_TYPES_SET: Set<string> = new Set(AGENT_TASK_SUPPORTED_TYPES)
+const AGENT_TASK_TARGET_TYPES_SET: Set<string> = new Set(AGENT_TASK_TARGET_TYPES)
 
 // 插入项配置 - 来自斜杠命令中常用的
 const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
@@ -276,13 +276,13 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
     if (!editor) return false
 
     const { from, to } = editor.state.selection
-    const hasSelection = from !== to
+    const hasTextSelection = from !== to
 
-    if (hasSelection) {
+    if (hasTextSelection) {
       // 有选区时，检查选区内是否有支持的 block
       let found = false
       editor.state.doc.nodesBetween(from, to, (node) => {
-        if (AGENT_TASK_SUPPORTED_TYPES_SET.has(node.type.name)) {
+        if (AGENT_TASK_TARGET_TYPES_SET.has(node.type.name)) {
           found = true
           return false // 停止遍历
         }
@@ -294,7 +294,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
       const { $from } = editor.state.selection
       for (let d = $from.depth; d >= 0; d--) {
         const node = $from.node(d)
-        if (AGENT_TASK_SUPPORTED_TYPES_SET.has(node.type.name)) {
+        if (AGENT_TASK_TARGET_TYPES_SET.has(node.type.name)) {
           return true
         }
       }

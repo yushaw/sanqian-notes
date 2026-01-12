@@ -25,6 +25,23 @@ import {
 } from './editor-agent'
 
 // ============================================
+// 常量定义
+// ============================================
+
+/** Auto format prompt - 引导 Formatter Agent 生成结构化内容 */
+const AUTO_FORMAT_PROMPT = `请将以下内容格式化并输出到编辑器中。
+
+格式化要求：
+1. 结构清晰：如果内容较长或有多个主题，用标题（insert_heading）划分层次
+2. 善用列表：并列的要点、步骤、选项等用列表（insert_list）呈现，比纯段落更易读
+3. 表格优先：对比性数据、多属性信息优先用表格（insert_table）展示
+4. 代码高亮：代码片段必须用代码块（insert_code_block）并指定语言
+5. 精简段落：避免大段文字堆砌，一个段落聚焦一个要点
+
+内容：
+`
+
+// ============================================
 // 类型定义
 // ============================================
 
@@ -296,8 +313,8 @@ export async function* runAgentTask(
           const formatName = formatMap[format] || format
           editorPrompt = `请将以下内容以【${formatName}】格式输出到编辑器中。必须使用指定的格式工具，不要使用其他格式。\n\n${resultText}`
         } else {
-          // Auto format - let Formatter Agent decide
-          editorPrompt = `请将以下内容格式化并输出到编辑器中：\n\n${resultText}`
+          // Auto format - intelligent structured output
+          editorPrompt = AUTO_FORMAT_PROMPT + resultText
         }
 
         const editorStream = client.chatStream(FORMATTER_AGENT_ID, [

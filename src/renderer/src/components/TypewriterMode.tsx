@@ -57,6 +57,7 @@ import { CustomKeyboardShortcuts } from './extensions/CustomKeyboardShortcuts'
 import { TransclusionBlock } from './extensions/TransclusionBlock'
 import { EmbedBlock } from './extensions/EmbedBlock'
 import { DataviewBlock } from './extensions/DataviewBlock'
+import { TocBlock } from './extensions/TocBlock'
 import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
@@ -470,6 +471,7 @@ export function TypewriterMode({
       TransclusionBlock,
       EmbedBlock,
       DataviewBlock,
+      TocBlock,
       MarkdownPaste,
       SlashCommand.configure({
         suggestion: slashCommandSuggestion,

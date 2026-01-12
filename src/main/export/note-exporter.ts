@@ -101,6 +101,14 @@ video, audio { max-width: 100%; margin: 1em 0; border-radius: 8px; }
 .transclusion-block { margin: 1em 0; padding: 16px; background: #fefce8; border-left: 3px solid #eab308; border-radius: 4px; }
 .transclusion-title { font-weight: 600; margin-bottom: 12px; color: #92400e; }
 .transclusion-content { color: #78350f; }
+/* 目录块 */
+.toc-block { margin: 1em 0; padding: 16px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; }
+.toc-block .toc-title { font-weight: 600; margin-bottom: 12px; color: #374151; font-size: 14px; }
+.toc-block .toc-list { margin: 0; padding: 0; list-style: none; }
+.toc-block .toc-list li { margin: 4px 0; color: #4b5563; font-size: 14px; }
+.toc-block .toc-level-1 { padding-left: 0; font-weight: 500; }
+.toc-block .toc-level-2 { padding-left: 1em; }
+.toc-block .toc-level-3 { padding-left: 2em; color: #6b7280; }
 /* 数据视图 */
 .dataview-block { margin: 1em 0; padding: 16px; background: #f3f4f6; border-radius: 8px; }
 .dataview-query { margin-bottom: 12px; padding: 8px; background: #e5e7eb; border-radius: 4px; }
@@ -377,6 +385,73 @@ function escapeRegExp(string: string): string {
 }
 
 /**
+ * 从节点中提取纯文本
+ */
+function getTextFromNode(node: Record<string, unknown>): string {
+  if (node.text) return node.text as string
+  if (!node.content) return ''
+  return (node.content as Record<string, unknown>[]).map(getTextFromNode).join('')
+}
+
+/**
+ * 从文档内容中提取指定标题下的章节
+ */
+function extractHeadingSection(content: Record<string, unknown>[], headingText: string): Record<string, unknown>[] | null {
+  const normalizedSearch = headingText.trim().toLowerCase()
+  let startIndex = -1
+  let startLevel = 0
+
+  // 查找匹配的标题
+  for (let i = 0; i < content.length; i++) {
+    const node = content[i]
+    if (node.type === 'heading') {
+      const text = getTextFromNode(node).trim()
+      const textLower = text.toLowerCase()
+
+      // 精确匹配或模糊匹配
+      if (text === headingText || textLower === normalizedSearch ||
+          textLower.startsWith(normalizedSearch) || textLower.includes(normalizedSearch)) {
+        startIndex = i
+        startLevel = ((node.attrs as Record<string, unknown>)?.level as number) || 1
+        break
+      }
+    }
+  }
+
+  if (startIndex === -1) return null
+
+  // 收集从该标题到下一个同级或更高级标题之间的所有内容
+  const result: Record<string, unknown>[] = [content[startIndex]]
+
+  for (let i = startIndex + 1; i < content.length; i++) {
+    const node = content[i]
+    if (node.type === 'heading') {
+      const level = ((node.attrs as Record<string, unknown>)?.level as number) || 1
+      if (level <= startLevel) break
+    }
+    result.push(node)
+  }
+
+  return result
+}
+
+/**
+ * 从文档内容中查找指定 blockId 的节点
+ */
+function findBlockById(content: Record<string, unknown>[], blockId: string): Record<string, unknown> | null {
+  for (const node of content) {
+    if ((node.attrs as Record<string, unknown>)?.blockId === blockId) {
+      return node
+    }
+    if (node.content) {
+      const found = findBlockById(node.content as Record<string, unknown>[], blockId)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/**
  * 将 TipTap JSON 转换为 HTML（用于 PDF 导出）
  * @param jsonContent JSON 内容字符串
  * @param depth 递归深度，防止无限循环
@@ -397,8 +472,9 @@ function tiptapToHTML(jsonContent: string, depth = 0): string {
  * 递归转换节点为 HTML
  * @param node 节点对象
  * @param depth 递归深度
+ * @param rootDoc 根文档节点（用于 TOC 等需要访问全文的块）
  */
-function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
+function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: Record<string, unknown>): string {
   if (!node) return ''
 
   const type = node.type as string
@@ -418,8 +494,11 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
     return result
   }
 
+  // 对于 doc 节点，保存为 rootDoc 供子节点使用
+  const docRef = type === 'doc' ? node : rootDoc
+
   // 递归处理子节点
-  const childHTML = content ? content.map(n => convertNodeToHTML(n, depth)).join('') : ''
+  const childHTML = content ? content.map(n => convertNodeToHTML(n, depth, docRef)).join('') : ''
 
   switch (type) {
     case 'doc':
@@ -612,17 +691,79 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0): string {
     case 'transclusionBlock': {
       const noteId = attrs.noteId as string || ''
       const noteName = attrs.noteName as string || ''
+      const targetType = attrs.targetType as string || 'note'
+      const targetValue = attrs.targetValue as string || ''
 
       // 获取引用笔记的内容
       const referencedNote = getNoteById(noteId)
       if (referencedNote) {
-        const referencedHTML = tiptapToHTML(referencedNote.content, depth + 1)
+        let displayTitle = referencedNote.title || noteName || t().export.untitledNote
+        let contentToRender = referencedNote.content
+
+        try {
+          const doc = JSON.parse(referencedNote.content)
+          if (doc.content) {
+            if (targetType === 'heading' && targetValue) {
+              // 提取指定标题下的内容
+              displayTitle += `#${targetValue}`
+              const sectionNodes = extractHeadingSection(doc.content, targetValue)
+              if (sectionNodes) {
+                contentToRender = JSON.stringify({ type: 'doc', content: sectionNodes })
+              }
+            } else if (targetType === 'block' && targetValue) {
+              // 提取指定 block
+              displayTitle += `^${targetValue}`
+              const blockNode = findBlockById(doc.content, targetValue)
+              if (blockNode) {
+                contentToRender = JSON.stringify({ type: 'doc', content: [blockNode] })
+              }
+            }
+          }
+        } catch {
+          // 解析失败时使用完整内容
+        }
+
+        const referencedHTML = tiptapToHTML(contentToRender, depth + 1)
         return `<div class="transclusion-block">
-          <div class="transclusion-title">${escapeHTML(referencedNote.title || noteName || t().export.untitledNote)}</div>
+          <div class="transclusion-title">${escapeHTML(displayTitle)}</div>
           <div class="transclusion-content">${referencedHTML}</div>
         </div>`
       }
       return `<div class="transclusion-block"><em>${t().export.reference}: ${escapeHTML(noteName || noteId)}</em></div>`
+    }
+
+    case 'tocBlock': {
+      // 从文档中提取所有 h1-h3 标题
+      const headings: Array<{ level: number; text: string }> = []
+      const extractHeadings = (nodes: Record<string, unknown>[] | undefined) => {
+        if (!nodes) return
+        for (const n of nodes) {
+          if (n.type === 'heading') {
+            const level = (n.attrs as Record<string, unknown>)?.level as number || 1
+            if (level <= 3) {
+              // 提取标题文本
+              const textContent = (n.content as Record<string, unknown>[] | undefined)
+                ?.map(c => (c as { text?: string }).text || '')
+                .join('') || ''
+              headings.push({ level, text: textContent })
+            }
+          }
+          // 递归处理子节点（如 toggle 内的标题）
+          if (n.content) {
+            extractHeadings(n.content as Record<string, unknown>[])
+          }
+        }
+      }
+      extractHeadings(docRef?.content as Record<string, unknown>[] | undefined)
+
+      if (headings.length === 0) {
+        return `<nav class="toc-block"><div class="toc-title">${t().export.tableOfContents}</div><p><em>${t().export.noHeadings || 'No headings found'}</em></p></nav>`
+      }
+
+      const tocItems = headings.map(h =>
+        `<li class="toc-level-${h.level}">${escapeHTML(h.text || '(empty)')}</li>`
+      ).join('')
+      return `<nav class="toc-block"><div class="toc-title">${t().export.tableOfContents}</div><ul class="toc-list">${tocItems}</ul></nav>`
     }
 
     case 'dataviewBlock': {

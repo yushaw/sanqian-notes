@@ -279,6 +279,8 @@ const translations = {
       exportPDF: '导出 PDF',
       attachment: '附件',
       reference: '引用',
+      tableOfContents: '目录',
+      noHeadings: '暂无标题',
     },
   },
   en: {
@@ -515,6 +517,8 @@ Your job:
       exportPDF: 'Export PDF',
       attachment: 'Attachment',
       reference: 'Reference',
+      tableOfContents: 'Table of Contents',
+      noHeadings: 'No headings found',
     },
   },
 }

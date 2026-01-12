@@ -51,6 +51,7 @@ import { HtmlComment } from './extensions/HtmlComment'
 import { TransclusionBlock } from './extensions/TransclusionBlock'
 import { EmbedBlock } from './extensions/EmbedBlock'
 import { DataviewBlock } from './extensions/DataviewBlock'
+import { TocBlock } from './extensions/TocBlock'
 import { EditorSearch, editorSearchPluginKey } from './extensions/EditorSearch'
 import { SearchBar } from './SearchBar'
 import { FileHandler } from '@tiptap/extension-file-handler'
@@ -571,6 +572,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       }),
       EmbedBlock,
       DataviewBlock,
+      TocBlock,
       EditorSearch.configure({
         skipNodeTypes: ['mathematics', 'mermaid', 'codeBlock', 'embed'],
       }),

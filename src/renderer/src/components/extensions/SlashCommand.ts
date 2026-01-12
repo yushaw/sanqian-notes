@@ -336,6 +336,15 @@ export const slashCommands: SlashCommandItem[] = [
       editor.chain().focus().deleteRange(range).setDataview().run()
     },
   },
+  // TOC Block - 目录
+  {
+    id: 'toc',
+    icon: '📑',
+    keywords: ['toc', 'contents', 'outline', 'mulu', 'dagang', '目录', '大纲'],
+    command: (editor, range) => {
+      editor.chain().focus().deleteRange(range).setTocBlock().run()
+    },
+  },
 ]
 
 export interface SlashCommandOptions {

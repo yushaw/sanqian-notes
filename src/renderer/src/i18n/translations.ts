@@ -63,6 +63,8 @@ export interface Translations {
     titlePlaceholder: string
     contentPlaceholder: string
     untitled: string
+    toc: string
+    tocEmpty: string
   }
   tabBar: {
     pin: string
@@ -430,6 +432,8 @@ export interface Translations {
     embedDesc: string
     dataview: string
     dataviewDesc: string
+    toc: string
+    tocDesc: string
     noMatches: string
     // Group headers
     formatGroup: string
@@ -899,7 +903,9 @@ const zh: Translations = {
     createNewNote: '创建新笔记',
     titlePlaceholder: '无标题',
     contentPlaceholder: '开始输入...',
-    untitled: '无标题'
+    untitled: '无标题',
+    toc: '目录',
+    tocEmpty: '暂无标题'
   },
   tabBar: {
     pin: '固定',
@@ -1267,6 +1273,8 @@ const zh: Translations = {
     embedDesc: '嵌入外部网页或本地 HTML',
     dataview: '数据查询',
     dataviewDesc: '查询和展示笔记数据',
+    toc: '目录',
+    tocDesc: '插入文档目录',
     noMatches: '没有匹配的命令',
     formatGroup: '格式',
     aiGroup: 'AI 操作',
@@ -1733,7 +1741,9 @@ const en: Translations = {
     createNewNote: 'Create a New Note',
     titlePlaceholder: 'Untitled',
     contentPlaceholder: 'Start typing...',
-    untitled: 'Untitled'
+    untitled: 'Untitled',
+    toc: 'Table of Contents',
+    tocEmpty: 'No headings found'
   },
   tabBar: {
     pin: 'Pin',
@@ -2101,6 +2111,8 @@ const en: Translations = {
     embedDesc: 'Embed external webpage or local HTML',
     dataview: 'Dataview',
     dataviewDesc: 'Query and display note data',
+    toc: 'Table of Contents',
+    tocDesc: 'Insert document table of contents',
     noMatches: 'No matching commands',
     formatGroup: 'Format',
     aiGroup: 'AI Actions',

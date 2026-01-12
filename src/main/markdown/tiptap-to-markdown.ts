@@ -302,6 +302,10 @@ function convertNode(node: TiptapNode, ctx: ConvertContext): string {
       return `![[${noteName || noteId}]]`
     }
 
+    // 目录块
+    case 'tocBlock':
+      return '[TOC]'
+
     // 数据视图
     case 'dataviewBlock': {
       const query = (node.attrs?.query as string) || ''

@@ -38,6 +38,8 @@ export interface AgentBlockAttrs {
   scheduledAt: string | null  // ISO 时间字符串
   // 输出内容展开/折叠
   open: boolean
+  // 插入后自动聚焦输入框（一次性）
+  shouldFocus: boolean
 }
 
 declare module '@tiptap/core' {
@@ -143,6 +145,11 @@ export const AgentBlock = Node.create<AgentBlockOptions>({
         parseHTML: (element) => element.getAttribute('data-open') !== 'false',
         renderHTML: (attributes) => ({ 'data-open': attributes.open ? 'true' : 'false' }),
       },
+      // 插入后自动聚焦输入框（一次性，不持久化）
+      shouldFocus: {
+        default: false,
+        rendered: false,
+      },
     }
   },
 
@@ -199,6 +206,7 @@ export const AgentBlock = Node.create<AgentBlockOptions>({
               error: null,
               scheduledAt: attrs?.scheduledAt ?? null,
               open: true,
+              shouldFocus: attrs?.shouldFocus ?? false,
             },
           })
         },

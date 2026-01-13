@@ -695,6 +695,10 @@ export interface Translations {
     mode: string
     modeBelow: string
     modeReplace: string
+    expand: string
+    collapse: string
+    unknownError: string
+    cancelFailed: string
   }
   fileError: {
     tooLarge: string
@@ -1555,7 +1559,11 @@ const zh: Translations = {
     formatQuote: '引用',
     mode: '模式',
     modeBelow: '下方插入',
-    modeReplace: '替换'
+    modeReplace: '替换',
+    expand: '展开',
+    collapse: '收起',
+    unknownError: '未知错误',
+    cancelFailed: '取消任务失败'
   },
   fileError: {
     tooLarge: '文件过大',
@@ -2416,7 +2424,11 @@ const en: Translations = {
     formatQuote: 'Quote',
     mode: 'Mode',
     modeBelow: 'Insert below',
-    modeReplace: 'Replace'
+    modeReplace: 'Replace',
+    expand: 'Expand',
+    collapse: 'Collapse',
+    unknownError: 'Unknown error',
+    cancelFailed: 'Failed to cancel task'
   },
   fileError: {
     tooLarge: 'File too large',

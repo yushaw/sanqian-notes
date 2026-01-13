@@ -2043,7 +2043,6 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         position={contextMenuPosition}
         onClose={handleCloseContextMenu}
         hasSelection={contextMenuHasSelection}
-        onOpenAgentTask={handleOpenAgentTask}
       />
 
       {/* Agent Task Panel */}

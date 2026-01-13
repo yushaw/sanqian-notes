@@ -591,38 +591,11 @@ span.zen-header-title {
   background: var(--color-surface);
   padding: 1.25em;
   border-radius: var(--radius-md);
-  overflow-x: overlay;
-  overflow-y: overlay;
+  overflow: auto;
   margin: 1em 0;
   border: 1px solid var(--color-divider);
-}
-
-/* pre 元素浮动滚动条 */
-.zen-editor pre::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-.zen-editor pre::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.zen-editor pre::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.zen-editor pre:hover::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
-}
-
-.zen-editor pre::-webkit-scrollbar-thumb:hover {
-  background: var(--color-scrollbar-hover);
-}
-
-.zen-editor pre::-webkit-scrollbar-corner {
-  background: transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .zen-editor pre code {
@@ -719,36 +692,9 @@ span.zen-header-title {
 .zen-editor .tableWrapper {
   position: relative;
   margin: 1em 0;
-  overflow-x: overlay;
-  overflow-y: overlay;
-}
-
-/* 表格浮动滚动条 */
-.zen-editor .tableWrapper::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-.zen-editor .tableWrapper::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.zen-editor .tableWrapper::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.zen-editor .tableWrapper:hover::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
-}
-
-.zen-editor .tableWrapper::-webkit-scrollbar-thumb:hover {
-  background: var(--color-scrollbar-hover);
-}
-
-.zen-editor .tableWrapper::-webkit-scrollbar-corner {
-  background: transparent;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 /* ============================================
@@ -3057,9 +3003,10 @@ span.zen-header-title {
   margin: 0;
   padding: 16px 20px;
   padding-top: 12px;
-  overflow-x: overlay;
-  overflow-y: overlay;
+  overflow: auto;
   background: transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .code-block-wrapper pre code {
@@ -3132,34 +3079,6 @@ span.zen-header-title {
   color: #383a42;
 }
 
-/* Scrollbar - 浮动不占位置 */
-.code-block-wrapper pre::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-.code-block-wrapper pre::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.code-block-wrapper pre::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.code-block-wrapper pre:hover::-webkit-scrollbar-thumb,
-.code-block-wrapper:hover pre::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--color-text) 12%, transparent);
-}
-
-.code-block-wrapper pre::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--color-text) 20%, transparent);
-}
-
-.code-block-wrapper pre::-webkit-scrollbar-corner {
-  background: transparent;
-}
 
 /* 深色主题适配 */
 .dark .code-block-wrapper {
@@ -3852,36 +3771,10 @@ span.zen-header-title {
   background: rgba(0, 0, 0, 0.03);
   padding: 8px 10px;
   border-radius: 4px;
-  overflow-x: overlay;
-  overflow-y: overlay;
+  overflow: auto;
   font-size: 0.85em;
-}
-
-.transclusion-content pre::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-.transclusion-content pre::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.transclusion-content pre::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.transclusion-content pre:hover::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
-}
-
-.transclusion-content pre::-webkit-scrollbar-thumb:hover {
-  background: var(--color-scrollbar-hover);
-}
-
-.transclusion-content pre::-webkit-scrollbar-corner {
-  background: transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .transclusion-content pre code {
@@ -4710,35 +4603,9 @@ span.zen-header-title {
 
 /* Table view - minimal */
 .dataview-table-container {
-  overflow-x: overlay;
-  overflow-y: overlay;
-}
-
-.dataview-table-container::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-.dataview-table-container::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.dataview-table-container::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.dataview-table-container:hover::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
-}
-
-.dataview-table-container::-webkit-scrollbar-thumb:hover {
-  background: var(--color-scrollbar-hover);
-}
-
-.dataview-table-container::-webkit-scrollbar-corner {
-  background: transparent;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .dataview-table {

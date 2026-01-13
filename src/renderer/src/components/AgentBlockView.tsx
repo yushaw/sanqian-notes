@@ -30,6 +30,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     taskId,
     durationMs,
     open,
+    shouldFocus,
   } = attrs
 
   // Check if there's any child content
@@ -140,14 +141,14 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
             }
             updateAttributes({ status: 'failed' })
             setLoading(false)
-            toast(truncateError(event.error || 'Unknown error'), { type: 'error' })
+            toast(truncateError(event.error || t.agentBlock.unknownError || 'Unknown error'), { type: 'error' })
             setContentOutput('')
             setEditorOutput('')
             break
         }
       }
     },
-    [updateAttributes]
+    [updateAttributes, t]
   )
 
   // Load agents list (only on mount)
@@ -232,7 +233,17 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     }
   }, [status, taskId, createEventHandler, updateAttributes])
 
-  // Auto-focus input when newly created (only on mount)
+  // Auto-focus input when newly created or when shouldFocus is set
+  useEffect(() => {
+    if (shouldFocus) {
+      requestAnimationFrame(() => {
+        inputRef.current?.focus()
+        updateAttributes({ shouldFocus: false })
+      })
+    }
+  }, [shouldFocus, updateAttributes])
+
+  // Auto-focus on mount if no prompt (new empty block)
   useEffect(() => {
     if (!additionalPrompt && inputRef.current) {
       requestAnimationFrame(() => {
@@ -346,7 +357,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
       console.error('Failed to execute agent task:', err)
       updateAttributes({ status: 'failed' })
       setLoading(false)
-      toast(truncateError(err instanceof Error ? err.message : 'Unknown error'), { type: 'error' })
+      toast(truncateError(err instanceof Error ? err.message : (t.agentBlock.unknownError || 'Unknown error')), { type: 'error' })
     }
   }, [
     agentId,
@@ -360,6 +371,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     getPageContext,
     updateAttributes,
     createEventHandler,
+    t,
   ])
 
   // Handle cancel
@@ -370,12 +382,13 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
         await window.electron.agent.cancel(cancelTaskId)
       } catch (err) {
         console.error('Failed to cancel:', err)
+        toast(t.agentBlock.cancelFailed || 'Failed to cancel task', { type: 'error' })
       }
       executingTaskIdRef.current = null
       setLoading(false)
       updateAttributes({ status: 'idle', error: null })
     }
-  }, [taskId, updateAttributes])
+  }, [taskId, updateAttributes, t])
 
   // Format duration
   const formatDuration = (ms: number | null) => {
@@ -398,12 +411,12 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
   // Output format options
   const formatOptions = useMemo(
     () => [
-      { value: 'auto', label: t.agentBlock?.formatAuto || 'Auto' },
-      { value: 'paragraph', label: t.agentBlock?.formatParagraph || 'Paragraph' },
-      { value: 'list', label: t.agentBlock?.formatList || 'List' },
-      { value: 'table', label: t.agentBlock?.formatTable || 'Table' },
-      { value: 'code', label: t.agentBlock?.formatCode || 'Code' },
-      { value: 'quote', label: t.agentBlock?.formatQuote || 'Quote' },
+      { value: 'auto', label: t.agentBlock.formatAuto || 'Auto' },
+      { value: 'paragraph', label: t.agentBlock.formatParagraph || 'Paragraph' },
+      { value: 'list', label: t.agentBlock.formatList || 'List' },
+      { value: 'table', label: t.agentBlock.formatTable || 'Table' },
+      { value: 'code', label: t.agentBlock.formatCode || 'Code' },
+      { value: 'quote', label: t.agentBlock.formatQuote || 'Quote' },
     ],
     [t]
   )
@@ -468,7 +481,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
                 updateAttributes({ open: newOpen })
               })
             }}
-            title={localOpen ? 'Collapse' : 'Expand'}
+            title={localOpen ? (t.agentBlock.collapse || 'Collapse') : (t.agentBlock.expand || 'Expand')}
           >
             <ChevronRight size={14} />
           </button>
@@ -479,7 +492,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
               ref={inputRef}
               type="text"
               className="agent-block-input"
-              placeholder={t.agentBlock?.promptPlaceholder || 'Enter task description...'}
+              placeholder={t.agentBlock.promptPlaceholder || 'Enter task description...'}
               value={localPrompt}
               onChange={(e) => setLocalPrompt(e.target.value)}
               onKeyDown={handleInputKeyDown}
@@ -518,7 +531,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
                   options={agentOptions}
                   value={agentId}
                   onChange={handleAgentChange}
-                  placeholder={t.agentBlock?.selectAgent || 'Agent'}
+                  placeholder={t.agentBlock.selectAgent || 'Agent'}
                   compact
                   alignRight
                   maxWidth={220}
@@ -538,7 +551,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
                 }
               }}
               disabled={!canExecute && !isRunning}
-              title={isRunning ? (t.agentBlock?.cancel || 'Cancel') : (hasRun ? (t.agentBlock?.rerun || 'Re-run') : (t.agentBlock?.run || 'Run'))}
+              title={isRunning ? (t.agentBlock.cancel || 'Cancel') : (hasRun ? (t.agentBlock.rerun || 'Re-run') : (t.agentBlock.run || 'Run'))}
             >
               {getRunIcon()}
             </button>

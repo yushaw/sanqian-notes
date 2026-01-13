@@ -9,7 +9,6 @@ import { getAIContext, type AIContext, formatAIPrompt } from '../utils/aiContext
 import { createPopup, updatePopupContent, updatePopupStreaming, deletePopup } from '../utils/popupStorage'
 import { toast } from '../utils/toast'
 import { v4 as uuidv4 } from 'uuid'
-import { generateBlockId } from './extensions/BlockId'
 import { AGENT_TASK_TARGET_TYPES } from './extensions/AgentTask'
 
 // 时间常量
@@ -25,7 +24,6 @@ interface EditorContextMenuProps {
   position: ContextMenuPosition | null
   onClose: () => void
   hasSelection: boolean
-  onOpenAgentTask?: (blockIds: string[], taskId: string | null, blockContent: string) => void
 }
 
 // SVG 图标
@@ -199,7 +197,7 @@ const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
 
 // AI 操作项配置现在从数据库动态加载
 
-export function EditorContextMenu({ editor, position, onClose, hasSelection, onOpenAgentTask }: EditorContextMenuProps) {
+export function EditorContextMenu({ editor, position, onClose, hasSelection }: EditorContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const insertSubmenuRef = useRef<HTMLDivElement>(null)
   const tableSubmenuRef = useRef<HTMLDivElement>(null)
@@ -525,12 +523,12 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
     onClose()
   }, [onClose, t.ai.askAboutSelection])
 
-  // 处理 Agent 任务
+  // 处理 Agent 任务 - 转换为 AgentBlock
   const handleAgentTask = useCallback(() => {
     if (!editor) return
 
     const { from, to } = editor.state.selection
-    const hasSelection = from !== to
+    const hasTextSelection = from !== to
 
     // 收集选中范围内的所有 block 节点
     interface BlockInfo {
@@ -539,11 +537,11 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
     }
     const selectedBlocks: BlockInfo[] = []
 
-    if (hasSelection) {
+    if (hasTextSelection) {
       // 有选区时，遍历选区内的所有 block
       editor.state.doc.nodesBetween(from, to, (node, pos) => {
-        // 检查是否是块级节点（有 blockId 属性定义）
-        if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs) {
+        // 检查是否是块级节点（有 blockId 属性定义），排除 agentBlock 自身
+        if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs && node.type.name !== 'agentBlock') {
           selectedBlocks.push({ node, pos })
           return false // 不递归进入子节点
         }
@@ -559,7 +557,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
       // 向上查找最近的块级节点
       for (let d = resolvedPos.depth; d >= 0; d--) {
         const node = resolvedPos.node(d)
-        if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs) {
+        if (node.type.spec.attrs && 'blockId' in node.type.spec.attrs && node.type.name !== 'agentBlock') {
           selectedBlocks.push({ node, pos: resolvedPos.before(d) })
           break
         }
@@ -571,38 +569,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
       return
     }
 
-    // 使用事务批量更新没有 blockId 的节点，并收集所有 blockId
-    let tr = editor.state.tr
-    const blockIds: string[] = []
-    let taskId: string | null = null
-
-    for (const { node, pos } of selectedBlocks) {
-      let blockId = node.attrs.blockId
-      if (!blockId) {
-        blockId = generateBlockId()
-        try {
-          tr = tr.setNodeMarkup(pos, undefined, {
-            ...node.attrs,
-            blockId,
-          })
-        } catch (e) {
-          // 某些节点类型（如包含特殊内联节点的 paragraph）可能不支持 setNodeMarkup
-          console.warn('Failed to set blockId for node:', node.type.name, e)
-        }
-      }
-      blockIds.push(blockId)
-      // 只取第一个 block 的 taskId（用于关联任务）
-      if (taskId === null) {
-        taskId = node.attrs.agentTaskId ?? null
-      }
-    }
-
-    // 如果有更新，一次性 dispatch
-    if (tr.docChanged) {
-      editor.view.dispatch(tr)
-    }
-
-    // 合并所有选中 block 的内容
+    // 合并所有选中 block 的内容作为 prompt
     const blockContent = selectedBlocks
       .map(({ node }) => node.textContent || '')
       .filter(text => text.trim())
@@ -611,9 +578,31 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
     setShowAISubmenu(false)
     onClose()
 
-    // 调用回调打开面板（传递所有 blockId）
-    onOpenAgentTask?.(blockIds, taskId, blockContent)
-  }, [editor, onClose, onOpenAgentTask])
+    if (selectedBlocks.length === 1) {
+      // 单个 block：替换为 AgentBlock
+      const { pos, node } = selectedBlocks[0]
+      editor.chain()
+        .focus()
+        .deleteRange({ from: pos, to: pos + node.nodeSize })
+        .insertAgentBlock({ additionalPrompt: blockContent, shouldFocus: true })
+        .run()
+    } else {
+      // 多个 block：在最后一个 block 后面插入 AgentBlock
+      const lastBlock = selectedBlocks[selectedBlocks.length - 1]
+      const insertPos = lastBlock.pos + lastBlock.node.nodeSize
+      editor.chain()
+        .focus()
+        .insertContentAt(insertPos, {
+          type: 'agentBlock',
+          attrs: {
+            blockId: uuidv4(),
+            additionalPrompt: blockContent,
+            shouldFocus: true,
+          },
+        })
+        .run()
+    }
+  }, [editor, onClose])
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -906,9 +895,13 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
   // 调整菜单位置，确保不超出视口
   const adjustedPosition = position ? { ...position } : null
   const menuWidth = 220
-  // 有选中: 编辑行(40) + 段落行(40) + 格式行(40) + AI(32) + 插入(32) + 分隔线 ≈ 220
-  // 无选中: 编辑行(40) + 段落行(40) + AI(32) + 插入(32) + 分隔线 ≈ 180
-  const menuHeight = hasSelection ? 220 : 180
+  // 基础: 编辑行(40) + 段落行(40) + AI(32) + 插入(32) + padding(16) = 160
+  // 有选中: +格式行(40) + Ask AI(32) = +72
+  // Agent Task: +32, 表格操作: +32
+  let menuHeight = 160
+  if (hasSelection) menuHeight += 72
+  if (hasAgentTaskSupportedBlock) menuHeight += 32
+  if (isInTable) menuHeight += 32
 
   if (adjustedPosition) {
     if (adjustedPosition.x + menuWidth > window.innerWidth) {
@@ -1060,7 +1053,7 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection, onO
         )}
 
         {/* Agent 任务 - 仅当选中的 block 支持时显示 */}
-        {onOpenAgentTask && hasAgentTaskSupportedBlock && (
+        {hasAgentTaskSupportedBlock && (
           <div className="context-menu-group">
             <button
               className="context-menu-item"

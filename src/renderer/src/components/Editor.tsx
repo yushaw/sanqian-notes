@@ -52,6 +52,7 @@ import { TransclusionBlock } from './extensions/TransclusionBlock'
 import { EmbedBlock } from './extensions/EmbedBlock'
 import { DataviewBlock } from './extensions/DataviewBlock'
 import { TocBlock } from './extensions/TocBlock'
+import { AgentBlock } from './extensions/AgentBlock'
 import { EditorSearch, editorSearchPluginKey } from './extensions/EditorSearch'
 import { SearchBar } from './SearchBar'
 import { FileHandler } from '@tiptap/extension-file-handler'
@@ -228,6 +229,38 @@ const CustomHeading = Heading.extend({
         getAttributes: { level },
       })
     })
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      // 空 heading 按 Backspace 时删除当前节点，光标移到上一个节点末尾
+      Backspace: ({ editor }) => {
+        const { selection } = editor.state
+        const { $from } = selection
+
+        // 只处理光标在 heading 开头的情况
+        if ($from.parentOffset !== 0) return false
+
+        const node = $from.parent
+        if (node.type.name !== 'heading') return false
+
+        // 只处理空 heading
+        if (node.textContent !== '') return false
+
+        // 删除当前 heading 节点，光标移到前一个位置
+        const pos = $from.before()
+        if (pos > 0) {
+          editor.chain()
+            .deleteRange({ from: pos, to: pos + node.nodeSize })
+            .setTextSelection(Math.max(0, pos - 1))
+            .focus()
+            .run()
+          return true
+        }
+
+        return false
+      },
+    }
   },
 })
 
@@ -573,6 +606,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       EmbedBlock,
       DataviewBlock,
       TocBlock,
+      AgentBlock,
       EditorSearch.configure({
         skipNodeTypes: ['mathematics', 'mermaid', 'codeBlock', 'embed'],
       }),
@@ -1747,6 +1781,11 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         className={`zen-header-bar with-title ${isScrolled ? 'scrolled' : ''}`}
         style={showSearchBar ? { pointerEvents: 'none' } : undefined}
       >
+        {/* 左侧空白拖动区域 */}
+        <div
+          className="zen-header-drag-area"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        />
 
         {/* Title - 空白区域可拖动窗口，文字部分不可拖动 */}
         <div

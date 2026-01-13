@@ -122,6 +122,8 @@ export function AgentTaskPanel({
   const [selectedPhase, setSelectedPhase] = useState<'content' | 'editor'>('content') // User-selected tab
   const unsubscribeRef = useRef<(() => void) | null>(null)
   const executingTaskIdRef = useRef<string | null>(null) // Track currently executing task
+  // Use ref to track phase for event handler (avoid stale closure and React double-invoke)
+  const currentPhaseRef = useRef<'content' | 'editor' | null>(null)
 
   // Process mode (append below or replace block)
   const [processMode, setProcessMode] = useState<'append' | 'replace'>('append')
@@ -164,6 +166,7 @@ export function AgentTaskPanel({
     setContentOutput('')
     setEditorOutput('')
     setExecutionSteps([])
+    currentPhaseRef.current = null
     setCurrentPhase(null)
     setSelectedPhase('content')
 
@@ -246,6 +249,7 @@ export function AgentTaskPanel({
       setContentOutput('')
       setEditorOutput('')
       setExecutionSteps([])
+      currentPhaseRef.current = null
       setCurrentPhase(null)
       setSelectedPhase('content')
 
@@ -316,6 +320,7 @@ export function AgentTaskPanel({
           case 'phase':
             // Execution phase changed (content → editor)
             if (event.phase) {
+              currentPhaseRef.current = event.phase
               setCurrentPhase(event.phase)
               setSelectedPhase(event.phase) // Auto-select new phase
             }
@@ -323,16 +328,14 @@ export function AgentTaskPanel({
 
           case 'text':
             // Append text to the current phase output
+            // Use ref to avoid stale closure and React double-invoke in setter
             if (event.content) {
-              setCurrentPhase((phase) => {
-                const targetPhase = phase || 'content'
-                if (targetPhase === 'editor') {
-                  setEditorOutput((prev) => prev + event.content)
-                } else {
-                  setContentOutput((prev) => prev + event.content)
-                }
-                return phase
-              })
+              const targetPhase = currentPhaseRef.current || 'content'
+              if (targetPhase === 'editor') {
+                setEditorOutput((prev) => prev + event.content)
+              } else {
+                setContentOutput((prev) => prev + event.content)
+              }
             }
             break
 

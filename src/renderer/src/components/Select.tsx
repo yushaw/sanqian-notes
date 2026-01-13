@@ -17,11 +17,14 @@ interface SelectProps {
   onChange: (value: string) => void
   disabled?: boolean
   placeholder?: string
+  compact?: boolean
+  alignRight?: boolean
+  maxWidth?: number
 }
 
-export function Select({ options, value, onChange, disabled, placeholder = '-' }: SelectProps) {
+export function Select({ options, value, onChange, disabled, placeholder = '-', compact, alignRight, maxWidth = 280 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [position, setPosition] = useState({ top: 0, bottom: 0, left: 0, width: 0, openUpward: false })
+  const [position, setPosition] = useState({ top: 0, bottom: 0, left: 0, right: 0, width: 0, openUpward: false, alignRight: false })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -32,6 +35,7 @@ export function Select({ options, value, onChange, disabled, placeholder = '-' }
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect()
       const dropdownMaxHeight = 240 // max-h-60 = 15rem ≈ 240px
+      const triggerWidth = rect.width
       const spacing = 4
 
       // 计算上下可用空间
@@ -44,12 +48,14 @@ export function Select({ options, value, onChange, disabled, placeholder = '-' }
       setPosition({
         top: openUpward ? 0 : rect.bottom + spacing,
         bottom: openUpward ? window.innerHeight - rect.top + spacing : 0,
-        left: rect.left,
-        width: Math.max(rect.width, 200), // min width 200px
+        left: alignRight ? 0 : rect.left,
+        right: alignRight ? window.innerWidth - rect.right : 0,
+        width: triggerWidth,
         openUpward,
+        alignRight: !!alignRight,
       })
     }
-  }, [])
+  }, [alignRight])
 
   // Open dropdown
   const handleOpen = useCallback(() => {
@@ -105,12 +111,12 @@ export function Select({ options, value, onChange, disabled, placeholder = '-' }
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        className="flex-1 flex items-center justify-between bg-transparent text-[var(--color-text)] font-medium focus:outline-none cursor-pointer text-left disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`flex items-center bg-transparent text-[var(--color-text)] focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'text-xs' : 'font-medium'} ${alignRight ? 'justify-end text-right' : 'flex-1 justify-between text-left'}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <span className="truncate">{selectedOption?.label || placeholder}</span>
         <svg
-          className={`w-3 h-3 ml-1 text-[var(--color-muted)] flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`ml-1 text-[var(--color-muted)] flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''} ${compact ? 'w-2.5 h-2.5' : 'w-3 h-3'}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -129,8 +135,12 @@ export function Select({ options, value, onChange, disabled, placeholder = '-' }
             ...(position.openUpward
               ? { bottom: position.bottom }
               : { top: position.top }),
-            left: position.left,
-            width: position.width,
+            ...(position.alignRight
+              ? { right: position.right }
+              : { left: position.left }),
+            width: 'max-content',
+            minWidth: position.width,
+            maxWidth,
             zIndex: 9999,
           }}
         >
@@ -144,7 +154,7 @@ export function Select({ options, value, onChange, disabled, placeholder = '-' }
                 onChange(option.value)
                 setIsOpen(false)
               }}
-              className={`w-full px-3 py-1.5 text-left transition-colors ${
+              className={`block px-3 py-1.5 text-left transition-colors whitespace-nowrap ${
                 option.value === value
                   ? 'bg-[var(--color-accent)]/10'
                   : 'hover:bg-black/5 dark:hover:bg-white/5'

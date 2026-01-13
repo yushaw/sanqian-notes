@@ -434,6 +434,8 @@ export interface Translations {
     dataviewDesc: string
     toc: string
     tocDesc: string
+    agent: string
+    agentDesc: string
     noMatches: string
     // Group headers
     formatGroup: string
@@ -672,6 +674,27 @@ export interface Translations {
     formatCode: string
     formatQuote: string
     formattingDone: string
+  }
+  agentBlock: {
+    unconfigured: string
+    configure: string
+    run: string
+    rerun: string
+    cancel: string
+    agent: string
+    selectAgent: string
+    noAgents: string
+    promptPlaceholder: string
+    format: string
+    formatAuto: string
+    formatParagraph: string
+    formatList: string
+    formatTable: string
+    formatCode: string
+    formatQuote: string
+    mode: string
+    modeBelow: string
+    modeReplace: string
   }
   fileError: {
     tooLarge: string
@@ -1275,6 +1298,8 @@ const zh: Translations = {
     dataviewDesc: '查询和展示笔记数据',
     toc: '目录',
     tocDesc: '插入文档目录',
+    agent: 'Agent 任务',
+    agentDesc: '插入 AI Agent 任务块',
     noMatches: '没有匹配的命令',
     formatGroup: '格式',
     aiGroup: 'AI 操作',
@@ -1510,6 +1535,27 @@ const zh: Translations = {
     formatCode: '代码',
     formatQuote: '引用',
     formattingDone: '内容已格式化，可以插入'
+  },
+  agentBlock: {
+    unconfigured: '未配置',
+    configure: '配置',
+    run: '运行',
+    rerun: '重新运行',
+    cancel: '取消',
+    agent: 'Agent',
+    selectAgent: '选择 Agent',
+    noAgents: '暂无可用 Agent',
+    promptPlaceholder: '输入任务描述...',
+    format: '格式',
+    formatAuto: '自动',
+    formatParagraph: '段落',
+    formatList: '列表',
+    formatTable: '表格',
+    formatCode: '代码',
+    formatQuote: '引用',
+    mode: '模式',
+    modeBelow: '下方插入',
+    modeReplace: '替换'
   },
   fileError: {
     tooLarge: '文件过大',
@@ -2113,6 +2159,8 @@ const en: Translations = {
     dataviewDesc: 'Query and display note data',
     toc: 'Table of Contents',
     tocDesc: 'Insert document table of contents',
+    agent: 'Agent Task',
+    agentDesc: 'Insert AI Agent task block',
     noMatches: 'No matching commands',
     formatGroup: 'Format',
     aiGroup: 'AI Actions',
@@ -2348,6 +2396,27 @@ const en: Translations = {
     formatCode: 'Code',
     formatQuote: 'Quote',
     formattingDone: 'Content formatted and ready to insert'
+  },
+  agentBlock: {
+    unconfigured: 'Unconfigured',
+    configure: 'Configure',
+    run: 'Run',
+    rerun: 'Re-run',
+    cancel: 'Cancel',
+    agent: 'Agent',
+    selectAgent: 'Select Agent',
+    noAgents: 'No agents available',
+    promptPlaceholder: 'Enter task description...',
+    format: 'Format',
+    formatAuto: 'Auto',
+    formatParagraph: 'Paragraph',
+    formatList: 'List',
+    formatTable: 'Table',
+    formatCode: 'Code',
+    formatQuote: 'Quote',
+    mode: 'Mode',
+    modeBelow: 'Insert below',
+    modeReplace: 'Replace'
   },
   fileError: {
     tooLarge: 'File too large',

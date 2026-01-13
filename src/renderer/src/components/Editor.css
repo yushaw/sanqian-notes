@@ -34,13 +34,19 @@
   display: flex;
   align-items: center;
   border-bottom: 1px solid transparent;
-  /* 和内容区域对齐：zen-content 是 max-width: 720px（内容624px + padding 48px*2），居中，padding-left: 48px */
-  /* 顶栏标题左边距 = (容器宽度 - 720px) / 2 + 48px */
   /* 右侧留出空间给分屏按钮 */
-  padding: 0 12px 0 max(48px, calc((100% - 720px) / 2 + 48px));
+  padding: 0 12px 0 0;
   pointer-events: auto;
   -webkit-app-region: no-drag;
   transition: border-color 0.15s ease;
+}
+
+/* 左侧空白拖动区域 - 和内容区域对齐 */
+.zen-header-drag-area {
+  /* 宽度 = (容器宽度 - 720px) / 2 + 48px，最小 48px */
+  width: max(48px, calc((100% - 720px) / 2 + 48px));
+  height: 100%;
+  flex-shrink: 0;
 }
 
 .zen-header-bar.with-title.scrolled {
@@ -83,9 +89,10 @@ span.zen-header-title {
 /* Scroll wrapper - scrollbar at right edge, show on hover (overlay style) */
 .zen-scroll-wrapper {
   flex: 1;
-  overflow-y: overlay;
+  overflow-y: auto;
   overflow-x: hidden;
   padding-top: 42px; /* 为顶栏留出空间 */
+  scrollbar-gutter: stable; /* 预留滚动条空间，避免内容宽度跳动 */
 }
 
 .zen-scroll-wrapper::-webkit-scrollbar {
@@ -584,9 +591,38 @@ span.zen-header-title {
   background: var(--color-surface);
   padding: 1.25em;
   border-radius: var(--radius-md);
-  overflow-x: auto;
+  overflow-x: overlay;
+  overflow-y: overlay;
   margin: 1em 0;
   border: 1px solid var(--color-divider);
+}
+
+/* pre 元素浮动滚动条 */
+.zen-editor pre::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+.zen-editor pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.zen-editor pre::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.zen-editor pre:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+.zen-editor pre::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
+}
+
+.zen-editor pre::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .zen-editor pre code {
@@ -683,7 +719,36 @@ span.zen-header-title {
 .zen-editor .tableWrapper {
   position: relative;
   margin: 1em 0;
-  overflow-x: auto;
+  overflow-x: overlay;
+  overflow-y: overlay;
+}
+
+/* 表格浮动滚动条 */
+.zen-editor .tableWrapper::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+.zen-editor .tableWrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.zen-editor .tableWrapper::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.zen-editor .tableWrapper:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+.zen-editor .tableWrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
+}
+
+.zen-editor .tableWrapper::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ============================================
@@ -2992,7 +3057,8 @@ span.zen-header-title {
   margin: 0;
   padding: 16px 20px;
   padding-top: 12px;
-  overflow-x: auto;
+  overflow-x: overlay;
+  overflow-y: overlay;
   background: transparent;
 }
 
@@ -3066,9 +3132,11 @@ span.zen-header-title {
   color: #383a42;
 }
 
-/* Scrollbar */
+/* Scrollbar - 浮动不占位置 */
 .code-block-wrapper pre::-webkit-scrollbar {
+  width: 6px;
   height: 6px;
+  background: transparent;
 }
 
 .code-block-wrapper pre::-webkit-scrollbar-track {
@@ -3076,12 +3144,21 @@ span.zen-header-title {
 }
 
 .code-block-wrapper pre::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  background: transparent;
   border-radius: 3px;
+}
+
+.code-block-wrapper pre:hover::-webkit-scrollbar-thumb,
+.code-block-wrapper:hover pre::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
 }
 
 .code-block-wrapper pre::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--color-text) 20%, transparent);
+}
+
+.code-block-wrapper pre::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* 深色主题适配 */
@@ -3503,7 +3580,7 @@ span.zen-header-title {
 .transclusion-block-wrapper.selected::before {
   content: '';
   position: absolute;
-  left: -12px;
+  left: -6px;
   top: 8px;
   bottom: 8px;
   width: 1px;
@@ -3775,8 +3852,36 @@ span.zen-header-title {
   background: rgba(0, 0, 0, 0.03);
   padding: 8px 10px;
   border-radius: 4px;
-  overflow-x: auto;
+  overflow-x: overlay;
+  overflow-y: overlay;
   font-size: 0.85em;
+}
+
+.transclusion-content pre::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+.transclusion-content pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transclusion-content pre::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.transclusion-content pre:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+.transclusion-content pre::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
+}
+
+.transclusion-content pre::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .transclusion-content pre code {
@@ -4254,7 +4359,7 @@ span.zen-header-title {
 .dataview-block-wrapper.selected::before {
   content: '';
   position: absolute;
-  left: -12px;
+  left: -6px;
   top: 8px;
   bottom: 16px;
   width: 1px;
@@ -4605,7 +4710,35 @@ span.zen-header-title {
 
 /* Table view - minimal */
 .dataview-table-container {
-  overflow-x: auto;
+  overflow-x: overlay;
+  overflow-y: overlay;
+}
+
+.dataview-table-container::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+.dataview-table-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dataview-table-container::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.dataview-table-container:hover::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+}
+
+.dataview-table-container::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
+}
+
+.dataview-table-container::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .dataview-table {
@@ -4785,7 +4918,7 @@ span.zen-header-title {
 .toc-block-wrapper.selected::before {
   content: '';
   position: absolute;
-  left: -12px;
+  left: -6px;
   top: 8px;
   bottom: 8px;
   width: 1px;
@@ -4898,4 +5031,288 @@ span.zen-header-title {
 .toc-level-3 {
   padding-left: 32px;
   font-size: 0.8rem;
+}
+
+/* ============================================
+   Agent Block - Zen Minimal Style
+   ============================================ */
+
+.agent-block-wrapper {
+  margin: 0.25rem 0;
+  position: relative;
+  width: 100%;
+}
+
+.agent-block-wrapper.selected::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--color-accent);
+  opacity: 0.5;
+}
+
+.agent-block {
+  position: relative;
+  width: 100%;
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.agent-block.running {
+  background: color-mix(in srgb, var(--color-accent) 2%, transparent);
+}
+
+/* Main row: [input] [agent select] [expand] */
+.agent-block-main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  position: relative;
+  min-height: 26px;
+}
+
+/* Run button - positioned in gutter like H1 label */
+.agent-block-run {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.agent-block-run:not(.disabled) {
+  color: var(--color-accent);
+}
+
+.agent-block-run:hover:not(.disabled) {
+  background: var(--color-accent);
+  color: white;
+}
+
+.agent-block-run.disabled {
+  opacity: 0.3;
+  color: var(--color-muted);
+  cursor: default;
+}
+
+.agent-block-run.running {
+  color: var(--color-accent);
+}
+
+.agent-block-run.running:hover {
+  color: var(--color-error, #ef4444);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Input wrapper */
+.agent-block-input-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Single-line input (collapsed) */
+.agent-block-input {
+  width: 100%;
+  height: 26px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 26px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--color-text);
+}
+
+.agent-block-input:focus {
+  outline: none;
+}
+
+.agent-block-input::placeholder {
+  color: var(--color-muted);
+  opacity: 0.5;
+}
+
+/* Right side controls */
+.agent-block-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.agent-block-duration {
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+  margin-right: 8px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.agent-block:hover .agent-block-duration {
+  opacity: 0.6;
+}
+
+.agent-block-format-select {
+  display: flex;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.agent-block:hover .agent-block-format-select,
+.agent-block-format-select:has(button[aria-expanded="true"]) {
+  opacity: 1;
+}
+
+.agent-block-format-select button {
+  color: var(--color-muted);
+  transition: color 0.15s ease;
+}
+
+.agent-block:hover .agent-block-format-select button,
+.agent-block-format-select button[aria-expanded="true"] {
+  color: var(--color-text);
+}
+
+.agent-block-format-select svg {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.agent-block:hover .agent-block-format-select svg,
+.agent-block-format-select button[aria-expanded="true"] svg {
+  opacity: 1;
+}
+
+.agent-block-agent-select {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.agent-block-agent-select button {
+  color: var(--color-muted);
+  transition: color 0.15s ease;
+}
+
+.agent-block:hover .agent-block-agent-select button,
+.agent-block-agent-select button[aria-expanded="true"] {
+  color: var(--color-text);
+}
+
+.agent-block-agent-select svg {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.agent-block:hover .agent-block-agent-select svg,
+.agent-block-agent-select button[aria-expanded="true"] svg {
+  opacity: 1;
+}
+
+/* Expand button - positioned in gutter like H1 label */
+.agent-block-expand {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  opacity: 0;
+}
+
+.agent-block:hover .agent-block-expand,
+.agent-block-expand.open {
+  opacity: 1;
+}
+
+.agent-block-expand:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--color-text);
+}
+
+.agent-block-expand.open {
+  color: var(--color-accent);
+}
+
+.agent-block-expand svg {
+  transition: transform 0.15s ease;
+}
+
+.agent-block-expand.open svg {
+  transform: rotate(90deg);
+}
+
+.agent-block-expand.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Output during execution */
+.agent-block-output {
+  padding: 6px 0;
+  margin-top: 4px;
+  border-top: 1px dashed var(--color-border);
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.agent-block-output-text {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--color-text);
+  opacity: 0.8;
+  white-space: pre-wrap;
+}
+
+
+/* Content area (child nodes) */
+.agent-block-content-wrapper {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.agent-block-content-wrapper.empty {
+  display: none;
+}
+
+.agent-block-content-wrapper.collapsed {
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.agent-block-content-inner {
+  /* Child content inherits normal editor styles */
+}
+
+/* Dark mode */
+[data-theme="dark"] .agent-block-run:hover:not(.disabled) {
+  background: var(--color-accent);
+  color: white;
 }

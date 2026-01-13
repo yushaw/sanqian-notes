@@ -345,6 +345,15 @@ export const slashCommands: SlashCommandItem[] = [
       editor.chain().focus().deleteRange(range).setTocBlock().run()
     },
   },
+  // Agent Block - AI Agent 任务块
+  {
+    id: 'agent',
+    icon: '🤖',
+    keywords: ['agent', 'ai', 'task', 'renwu', 'zhineng', '任务', '智能', '代理'],
+    command: (editor, range) => {
+      editor.chain().focus().deleteRange(range).insertAgentBlock().run()
+    },
+  },
 ]
 
 export interface SlashCommandOptions {

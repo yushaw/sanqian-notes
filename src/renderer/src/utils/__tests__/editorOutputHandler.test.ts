@@ -40,12 +40,13 @@ const createMockEditor = (nodes: Array<{ blockId: string; managedBy?: string; no
     chain: mockChain,
     state: {
       doc: {
-        descendants: (callback: (node: { attrs: { blockId: string; managedBy?: string }; nodeSize: number }, pos: number) => void) => {
+        descendants: (callback: (node: { attrs: { blockId: string; managedBy?: string }; nodeSize: number; type: { name: string } }, pos: number) => void) => {
           nodeData.forEach((node) => {
             callback(
               {
                 attrs: { blockId: node.blockId, managedBy: node.managedBy },
                 nodeSize: node.nodeSize,
+                type: { name: 'paragraph' },
               },
               node.pos
             )

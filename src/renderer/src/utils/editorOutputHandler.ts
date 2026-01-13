@@ -6,6 +6,7 @@
  */
 
 import type { Editor } from '@tiptap/react'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { generateBlockId } from '../components/extensions/BlockId'
 import type {
   EditorOutputContext,
@@ -299,6 +300,27 @@ function convertOperation(operation: OutputOperation, managerBlockId: string): T
 }
 
 // ============================================
+// Helper Functions
+// ============================================
+
+/**
+ * Find an AgentBlock node by its blockId
+ */
+function findAgentBlock(
+  editor: Editor,
+  blockId: string
+): { node: ProseMirrorNode; pos: number } | null {
+  let result: { node: ProseMirrorNode; pos: number } | null = null
+  editor.state.doc.descendants((node, pos) => {
+    if (node.attrs.blockId === blockId && node.type.name === 'agentBlock') {
+      result = { node, pos }
+      return false // Stop traversal
+    }
+  })
+  return result
+}
+
+// ============================================
 // Main Handler
 // ============================================
 
@@ -306,8 +328,10 @@ function convertOperation(operation: OutputOperation, managerBlockId: string): T
  * Handle output insertion from Agent task
  *
  * Supports multi-block operations:
- * - append: insert after the last selected block
- * - replace: delete all selected blocks and insert at the first position
+ * - For AgentBlock: insert content inside the block (nested)
+ * - For other blocks:
+ *   - append: insert after the last selected block
+ *   - replace: delete all selected blocks and insert at the first position
  *
  * @param editor Tiptap editor instance
  * @param data Output data from main process
@@ -329,12 +353,12 @@ export function handleOutputInsertion(editor: Editor, data: InsertOutputData): s
   editor.commands.deleteManagedBlocks(primaryBlockId)
 
   // Find positions of all target blocks
-  const blockPositions: Array<{ blockId: string; pos: number; nodeSize: number }> = []
+  const blockPositions: Array<{ blockId: string; pos: number; nodeSize: number; nodeType: string }> = []
 
   editor.state.doc.descendants((node, pos) => {
     const nodeBlockId = node.attrs.blockId
     if (nodeBlockId && blockIds.includes(nodeBlockId)) {
-      blockPositions.push({ blockId: nodeBlockId, pos, nodeSize: node.nodeSize })
+      blockPositions.push({ blockId: nodeBlockId, pos, nodeSize: node.nodeSize, nodeType: node.type.name })
     }
   })
 
@@ -366,9 +390,38 @@ export function handleOutputInsertion(editor: Editor, data: InsertOutputData): s
     }
   }
 
-  // Insert nodes based on process mode
+  // Check if primary target is an AgentBlock
+  const primaryBlock = blockPositions.find(b => b.blockId === primaryBlockId)
+  const isAgentBlock = primaryBlock?.nodeType === 'agentBlock'
+
+  // Insert nodes based on target type and process mode
   if (nodes.length > 0) {
-    if (context.processMode === 'replace') {
+    if (isAgentBlock && primaryBlock) {
+      // AgentBlock: insert content inside the block
+      const agentBlockInfo = findAgentBlock(editor, primaryBlockId)
+
+      if (agentBlockInfo) {
+        const { node: agentBlockNode, pos: agentBlockPos } = agentBlockInfo
+        // Clear existing content if in replace mode
+        const contentStart = agentBlockPos + 1 // After opening tag
+        const contentEnd = agentBlockPos + agentBlockNode.nodeSize - 1 // Before closing tag
+
+        if (context.processMode === 'replace' && agentBlockNode.content.size > 0) {
+          // Delete existing content and insert new
+          editor.chain()
+            .focus()
+            .deleteRange({ from: contentStart, to: contentEnd })
+            .insertContentAt(contentStart, nodes)
+            .run()
+        } else {
+          // Append: insert at the end of existing content
+          editor.chain()
+            .focus()
+            .insertContentAt(contentEnd, nodes)
+            .run()
+        }
+      }
+    } else if (context.processMode === 'replace') {
       // Replace mode: delete selected blocks and insert at the first position
       // Check if blocks are contiguous to avoid deleting unselected content
       const firstBlock = blockPositions[0]
@@ -402,14 +455,24 @@ export function handleOutputInsertion(editor: Editor, data: InsertOutputData): s
     }
   }
 
-  // Handle HTML operations (insert after other content)
-  // Use document end position to ensure correct placement after previous insertions
+  // Handle HTML operations (insert after other content for non-AgentBlock, or inside for AgentBlock)
   const htmlOperations = operations.filter((op) => op.type === 'html')
   for (const htmlOp of htmlOperations) {
     const htmlContent = (htmlOp.content as { html: string }).html
     if (htmlContent) {
-      const docEndPos = editor.state.doc.content.size
-      editor.chain().focus().insertContentAt(docEndPos, htmlContent).run()
+      if (isAgentBlock && primaryBlock) {
+        // For AgentBlock, need to re-find position as it may have changed
+        const agentBlockInfo = findAgentBlock(editor, primaryBlockId)
+
+        if (agentBlockInfo) {
+          const { node: agentBlockNode, pos: agentBlockPos } = agentBlockInfo
+          const contentEnd = agentBlockPos + agentBlockNode.nodeSize - 1
+          editor.chain().focus().insertContentAt(contentEnd, htmlContent).run()
+        }
+      } else {
+        const docEndPos = editor.state.doc.content.size
+        editor.chain().focus().insertContentAt(docEndPos, htmlContent).run()
+      }
     }
   }
 

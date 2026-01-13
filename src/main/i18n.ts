@@ -54,7 +54,7 @@ const translations = {
 
 ## 能力
 **查询类**
-- search_notes：搜索笔记（支持语义搜索，可限定笔记本范围）
+- search_notes：搜索笔记（语义+关键词混合搜索），用 notebook_id 参数可限定笔记本范围
 - get_note：获取笔记内容（支持单个或批量 ID，单个时可用 heading 参数指定章节）
 - get_notebooks：查看所有笔记本及笔记数量
 
@@ -121,9 +121,9 @@ const translations = {
     // SDK Tool descriptions
     tools: {
       searchNotes: {
-        description: '搜索笔记。使用混合搜索（语义 + 关键词），返回最相关的结果。',
+        description: '搜索笔记。使用混合搜索（语义 + 关键词），返回最相关的结果。可通过 notebook_id 限定搜索范围。',
         queryDesc: '搜索关键词或自然语言查询',
-        notebookIdDesc: '限制搜索范围的笔记本 ID（可选），不指定则搜索所有笔记',
+        notebookIdDesc: '笔记本 ID，仅搜索该笔记本内的笔记；不指定则搜索所有笔记',
         limitDesc: '返回结果的最大数量，默认 10',
         error: '搜索笔记失败',
       },
@@ -292,7 +292,7 @@ const translations = {
 
 ## Capabilities
 **Query**
-- search_notes: Search notes (supports semantic search, can filter by notebook)
+- search_notes: Search notes (hybrid: semantic + keyword), use notebook_id to filter by notebook
 - get_note: Get note content (supports single ID or array of IDs; use heading parameter for specific section when single)
 - get_notebooks: List all notebooks with note counts
 
@@ -359,9 +359,9 @@ Your job:
     // SDK Tool descriptions
     tools: {
       searchNotes: {
-        description: 'Search notes. Uses hybrid search (semantic + keyword) to return the most relevant results.',
+        description: 'Search notes. Uses hybrid search (semantic + keyword). Use notebook_id to search within a specific notebook.',
         queryDesc: 'Search keywords or natural language query',
-        notebookIdDesc: 'Notebook ID to limit search scope (optional), searches all notes if not specified',
+        notebookIdDesc: 'Notebook ID to search within; searches all notes if not specified',
         limitDesc: 'Maximum number of results to return, default 10',
         error: 'Failed to search notes',
       },

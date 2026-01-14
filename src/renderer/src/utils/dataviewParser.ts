@@ -18,11 +18,31 @@ export interface FromClause {
   value: string
 }
 
-export interface WhereClause {
+/**
+ * Field function that extracts a component from a date field
+ * e.g., week(created), year(created)
+ */
+export interface FieldFunction {
+  type: 'field_function'
+  function: 'week' | 'year'
   field: string
+}
+
+export interface WhereClause {
+  field: string | FieldFunction
   operator: '=' | '!=' | '>' | '<' | '>=' | '<=' | 'contains'
-  value: string | number | boolean
+  value: string | number | boolean | DateExpression
   logic?: 'AND' | 'OR'
+}
+
+/**
+ * Date expression value for WHERE clause
+ * e.g., date(today), date(sow), today, this_week
+ */
+export interface DateExpression {
+  type: 'date'
+  keyword: string // today, yesterday, sow, eow, this_week, etc.
+  isRange: boolean // true for range keywords like today, this_week (used with = operator)
 }
 
 export interface SortClause {
@@ -86,6 +106,35 @@ const KEYWORDS = new Set([
   'AND',
   'OR',
   'CONTAINS',
+  'DATE', // date() function
+  'WEEK', // week() function - extract week number
+  'YEAR', // year() function - extract year
+])
+
+// Date keywords (for date() function and direct use)
+const DATE_KEYWORDS = new Set([
+  'now',
+  'today',
+  'yesterday',
+  'tomorrow',
+  'sow', // start of week
+  'eow', // end of week
+  'som', // start of month
+  'eom', // end of month
+  'soy', // start of year
+  'eoy', // end of year
+])
+
+// Range keywords (expand to date range when used with = operator)
+const RANGE_KEYWORDS = new Set([
+  'today',
+  'yesterday',
+  'tomorrow',
+  'this_week',
+  'last_week',
+  'this_month',
+  'last_month',
+  'this_year',
 ])
 
 // Operators
@@ -379,7 +428,22 @@ class Parser {
   }
 
   private parseCondition(): WhereClause {
-    const field = this.expect('IDENTIFIER').value
+    let field: string | FieldFunction
+
+    // Handle field functions: week(field), year(field)
+    if (this.match('KEYWORD', 'WEEK') || this.match('KEYWORD', 'YEAR')) {
+      const funcName = this.advance().value.toLowerCase() as 'week' | 'year'
+      this.expect('LPAREN')
+      const fieldName = this.expect('IDENTIFIER').value
+      this.expect('RPAREN')
+      field = {
+        type: 'field_function',
+        function: funcName,
+        field: fieldName,
+      }
+    } else {
+      field = this.expect('IDENTIFIER').value
+    }
 
     // Handle CONTAINS keyword
     if (this.match('KEYWORD', 'CONTAINS')) {
@@ -394,7 +458,28 @@ class Parser {
     return { field, operator, value }
   }
 
-  private parseValue(): string | number | boolean {
+  private parseValue(): string | number | boolean | DateExpression {
+    // Handle date() function: date(keyword)
+    if (this.match('KEYWORD', 'DATE')) {
+      this.advance() // consume 'date'
+      this.expect('LPAREN')
+      let keyword: string
+      if (this.match('STRING')) {
+        keyword = this.advance().value
+      } else if (this.match('IDENTIFIER')) {
+        keyword = this.advance().value
+      } else {
+        throw new Error(`Expected date keyword at line ${this.peek().line}`)
+      }
+      this.expect('RPAREN')
+      const keywordLower = keyword.toLowerCase()
+      return {
+        type: 'date',
+        keyword: keywordLower,
+        isRange: RANGE_KEYWORDS.has(keywordLower),
+      }
+    }
+
     if (this.match('STRING')) {
       return this.advance().value
     }
@@ -406,6 +491,14 @@ class Parser {
       const val = this.advance().value.toLowerCase()
       if (val === 'true') return true
       if (val === 'false') return false
+      // Check if it's a date/range keyword
+      if (DATE_KEYWORDS.has(val) || RANGE_KEYWORDS.has(val)) {
+        return {
+          type: 'date',
+          keyword: val,
+          isRange: RANGE_KEYWORDS.has(val),
+        }
+      }
       return val
     }
     throw new Error(`Expected value at line ${this.peek().line}`)
@@ -503,8 +596,22 @@ export function formatQuery(query: ParsedQuery): string {
   // WHERE
   if (query.where.length > 0) {
     const conditions = query.where.map((c, i) => {
-      const valueStr = typeof c.value === 'string' ? `"${c.value}"` : String(c.value)
-      const condition = `${c.field} ${c.operator} ${valueStr}`
+      let valueStr: string
+      if (typeof c.value === 'object' && c.value !== null && 'type' in c.value && c.value.type === 'date') {
+        valueStr = `date(${c.value.keyword})`
+      } else if (typeof c.value === 'string') {
+        valueStr = `"${c.value}"`
+      } else {
+        valueStr = String(c.value)
+      }
+      // Format field (may be string or FieldFunction)
+      let fieldStr: string
+      if (typeof c.field === 'object' && c.field.type === 'field_function') {
+        fieldStr = `${c.field.function}(${c.field.field})`
+      } else {
+        fieldStr = c.field as string
+      }
+      const condition = `${fieldStr} ${c.operator} ${valueStr}`
       if (i > 0 && query.where[i - 1].logic) {
         return `${query.where[i - 1].logic} ${condition}`
       }

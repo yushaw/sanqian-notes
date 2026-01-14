@@ -8,13 +8,18 @@ import { useState, useEffect, useRef } from 'react'
 import { useTranslations } from '../i18n'
 import { toast } from '../utils/toast'
 import { formatShortcut, useChatShortcut } from '../utils/shortcut'
+import { TemplateSelector } from './TemplateSelector'
+import type { TemplateContext } from '../utils/templateVariables'
 
 interface ExportMenuProps {
   noteId?: string
+  noteTitle?: string
+  notebookName?: string
   onSplitHorizontal?: () => void
   onSplitVertical?: () => void
   onInsertContent?: (content: string) => void
   onOpenSearch?: () => void
+  onOpenSettings?: (tab?: string) => void
 }
 
 type ExportFormat = 'pdf' | 'markdown'
@@ -72,11 +77,19 @@ const Icons = {
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
     </svg>
   ),
+  template: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M9 21V9" />
+    </svg>
+  ),
 }
 
-export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInsertContent, onOpenSearch }: ExportMenuProps) {
+export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal, onSplitVertical, onInsertContent, onOpenSearch, onOpenSettings }: ExportMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [exportModalOpen, setExportModalOpen] = useState(false)
+  const [templateSelectorOpen, setTemplateSelectorOpen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [format, setFormat] = useState<ExportFormat>('pdf')
   const menuRef = useRef<HTMLDivElement>(null)
@@ -329,6 +342,15 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
                   {Icons.export}
                   <span>{t.export?.title || 'Export'}</span>
                 </button>
+              )}
+              {onInsertContent && (
+                <>
+                  <div className="more-menu-divider" />
+                  <button className="more-menu-item" onClick={() => { setMenuOpen(false); setTemplateSelectorOpen(true); }}>
+                    {Icons.template}
+                    <span>{t.templates?.insertTemplate || 'Insert Template'}</span>
+                  </button>
+                </>
               )}
             </div>
           </>
@@ -813,6 +835,17 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
           cursor: not-allowed;
         }
 
+        :root[data-theme="dark"] .export-submit-btn,
+        .dark .export-submit-btn {
+          background: #57534E;
+          color: #FAFAF9;
+        }
+
+        :root[data-theme="dark"] .export-submit-btn:hover,
+        .dark .export-submit-btn:hover {
+          background: #78716C;
+        }
+
         .export-submit-btn svg {
           width: 12px;
           height: 12px;
@@ -899,6 +932,23 @@ export function ExportMenu({ noteId, onSplitHorizontal, onSplitVertical, onInser
         }
 
       `}</style>
+
+      {/* Template Selector */}
+      {templateSelectorOpen && onInsertContent && (
+        <TemplateSelector
+          onClose={() => setTemplateSelectorOpen(false)}
+          onInsert={(content) => {
+            try {
+              JSON.parse(content) // Validate JSON format
+              onInsertContent(content)
+            } catch {
+              onInsertContent(content)
+            }
+          }}
+          context={{ title: noteTitle || '', notebookName: notebookName || '' } as TemplateContext}
+          onOpenSettings={onOpenSettings ? () => onOpenSettings('templates') : undefined}
+        />
+      )}
     </>
   )
 }

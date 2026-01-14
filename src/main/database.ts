@@ -2,7 +2,14 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
-import { t, getSystemLang } from './i18n'
+import dayjs from 'dayjs'
+import weekOfYear from 'dayjs/plugin/weekOfYear'
+import isoWeek from 'dayjs/plugin/isoWeek'
+import { t, getSystemLang, getAppLocale } from './i18n'
+import { markdownToTiptapString } from './markdown'
+
+dayjs.extend(weekOfYear)
+dayjs.extend(isoWeek)
 import {
   RECENT_DAYS,
   type AIAction,
@@ -16,7 +23,9 @@ import {
   type Notebook,
   type NotebookInput,
   type AgentTaskRecord,
-  type AgentTaskInput
+  type AgentTaskInput,
+  type Template,
+  type TemplateInput
 } from '../shared/types'
 
 // Re-export for backward compatibility
@@ -235,6 +244,9 @@ export function initDatabase(): void {
   // Initialize default AI actions
   initDefaultAIActions()
 
+  // Initialize default templates
+  initDefaultTemplates()
+
   // Clean up FTS tables if they exist (no longer used, LIKE search is better for CJK)
   cleanupFtsTables()
 
@@ -349,6 +361,32 @@ function runMigrations(): void {
     console.log('Adding output_format column to agent_tasks table...')
     db.exec("ALTER TABLE agent_tasks ADD COLUMN output_format TEXT DEFAULT 'auto'")
     console.log('Migration completed: output_format column added to agent_tasks.')
+  }
+
+  // Migration: Create templates table
+  const templatesTableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='templates'"
+  ).get()
+
+  if (!templatesTableExists) {
+    console.log('Creating templates table...')
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        content TEXT NOT NULL,
+        icon TEXT DEFAULT '',
+        is_daily_default INTEGER DEFAULT 0,
+        order_index INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_templates_order ON templates(order_index);
+      CREATE INDEX IF NOT EXISTS idx_templates_daily ON templates(is_daily_default);
+    `)
+    console.log('Migration completed: templates table created.')
+    // Default templates are now created by initDefaultTemplates()
   }
 
   // Always update builtin actions with latest descriptions (ensures updates after code changes)
@@ -1892,14 +1930,110 @@ export function getDailyByDate(date: string): Note | null {
   return rowToNote(row as Record<string, unknown>)
 }
 
+/**
+ * Parse template variables in text (simplified version for backend)
+ * Supports:
+ * - Basic: {{title}}, {{notebook}}, {{cursor}}
+ * - Date/Time: {{date}}, {{time}}, {{datetime}}, {{week}}
+ * - Date with offset: {{date-7}}, {{date+3}}
+ * - Relative: {{yesterday}}, {{tomorrow}}
+ * - Daily note specific: {{daily_date}}, {{daily_date-1}}, {{daily_week}}
+ */
+function parseTemplateVariables(
+  text: string,
+  context: { title: string; dailyDate?: string }
+): string {
+  const now = dayjs()
+  // For daily notes, use the target date; otherwise use today
+  const dailyDate = context.dailyDate ? dayjs(context.dailyDate) : now
+
+  // Match {{variable}}, {{variable±N}}, or {{variable±N:format}}
+  return text.replace(/\{\{(\w+)([+-]\d+)?(?::([^}]+))?\}\}/g, (match, variable, offset, format) => {
+    const varLower = variable.toLowerCase()
+    const offsetDays = offset ? parseInt(offset, 10) : 0
+
+    switch (varLower) {
+      // Note Info
+      case 'title':
+        return context.title || ''
+      case 'notebook':
+        return '' // 日记通常没有特定笔记本
+
+      // Current Date/Time (with optional offset)
+      case 'date': {
+        const targetDate = offsetDays !== 0 ? now.add(offsetDays, 'day') : now
+        return targetDate.format(format || 'YYYY-MM-DD')
+      }
+      case 'time':
+        return now.format(format || 'HH:mm')
+      case 'datetime':
+        return now.format(format || 'YYYY-MM-DD HH:mm')
+
+      // Week Number
+      case 'week':
+        return now.format(format || 'WW')
+
+      // Relative Dates
+      case 'yesterday':
+        return now.subtract(1, 'day').format(format || 'YYYY-MM-DD')
+      case 'tomorrow':
+        return now.add(1, 'day').format(format || 'YYYY-MM-DD')
+
+      // Daily Note Specific (with optional offset)
+      case 'daily_date': {
+        const targetDate = offsetDays !== 0 ? dailyDate.add(offsetDays, 'day') : dailyDate
+        return targetDate.format(format || 'YYYY-MM-DD')
+      }
+      case 'daily_yesterday':
+        return dailyDate.subtract(1, 'day').format(format || 'YYYY-MM-DD')
+      case 'daily_tomorrow':
+        return dailyDate.add(1, 'day').format(format || 'YYYY-MM-DD')
+      case 'daily_week':
+        return dailyDate.format(format || 'WW')
+
+      // Cursor: use invisible separator as placeholder, frontend will handle it
+      case 'cursor':
+        return '\u2063'
+
+      default:
+        return match
+    }
+  })
+}
+
+/**
+ * Parse template content (Markdown) with variables
+ */
+function parseTemplateContent(
+  markdownContent: string,
+  context: { title: string; dailyDate?: string }
+): string {
+  return parseTemplateVariables(markdownContent, context)
+}
+
 export function createDaily(date: string, title?: string): Note {
   // Check if already exists
   const existing = getDailyByDate(date)
   if (existing) return existing
 
+  // Get daily default template
+  const dailyTemplate = getDailyDefaultTemplate()
+  let content = '[]'
+
+  if (dailyTemplate) {
+    // Parse template variables with title and dailyDate context
+    // dailyDate is the target date for this daily note (may differ from today)
+    const markdown = parseTemplateContent(dailyTemplate.content, {
+      title: title || '',
+      dailyDate: date,
+    })
+    // Convert markdown to Tiptap JSON
+    content = markdownToTiptapString(markdown)
+  }
+
   return addNote({
     title: title || '',
-    content: '[]',
+    content,
     is_daily: true,
     daily_date: date,
     is_favorite: false
@@ -2797,4 +2931,272 @@ export function setAppSetting(key: string, value: string): void {
 export function deleteAppSetting(key: string): boolean {
   const result = db.prepare('DELETE FROM app_settings WHERE key = ?').run(key)
   return result.changes > 0
+}
+
+// ============================================
+// Templates
+// ============================================
+
+interface TemplateRow {
+  id: string
+  name: string
+  description: string | null
+  content: string
+  icon: string | null
+  is_daily_default: number
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
+function rowToTemplate(row: TemplateRow): Template {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    content: row.content,
+    icon: row.icon || '',
+    isDailyDefault: row.is_daily_default === 1,
+    orderIndex: row.order_index,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+/**
+ * Get all templates ordered by order_index
+ */
+export function getAllTemplates(): Template[] {
+  const rows = db.prepare('SELECT * FROM templates ORDER BY order_index').all() as TemplateRow[]
+  return rows.map(rowToTemplate)
+}
+
+/**
+ * Get a template by ID
+ */
+export function getTemplate(id: string): Template | null {
+  const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined
+  return row ? rowToTemplate(row) : null
+}
+
+/**
+ * Get the daily default template
+ */
+export function getDailyDefaultTemplate(): Template | null {
+  const row = db.prepare('SELECT * FROM templates WHERE is_daily_default = 1').get() as TemplateRow | undefined
+  return row ? rowToTemplate(row) : null
+}
+
+/**
+ * Create a new template
+ */
+export function createTemplate(input: TemplateInput): Template {
+  const id = uuidv4()
+  const now = new Date().toISOString()
+  const maxOrder = db.prepare('SELECT MAX(order_index) as max FROM templates').get() as { max: number | null }
+  const orderIndex = (maxOrder?.max ?? -1) + 1
+
+  // If setting as daily default, clear others first
+  if (input.isDailyDefault) {
+    db.prepare('UPDATE templates SET is_daily_default = 0').run()
+  }
+
+  db.prepare(`
+    INSERT INTO templates (id, name, description, content, icon, is_daily_default, order_index, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    input.name,
+    input.description || '',
+    input.content,
+    input.icon || '',
+    input.isDailyDefault ? 1 : 0,
+    orderIndex,
+    now,
+    now
+  )
+
+  return getTemplate(id)!
+}
+
+/**
+ * Update an existing template
+ */
+export function updateTemplate(id: string, updates: Partial<TemplateInput>): Template | null {
+  const existing = getTemplate(id)
+  if (!existing) return null
+
+  const now = new Date().toISOString()
+
+  // If setting as daily default, clear others first
+  if (updates.isDailyDefault) {
+    db.prepare('UPDATE templates SET is_daily_default = 0 WHERE id != ?').run(id)
+  }
+
+  const fields: string[] = []
+  const values: unknown[] = []
+
+  if (updates.name !== undefined) {
+    fields.push('name = ?')
+    values.push(updates.name)
+  }
+  if (updates.description !== undefined) {
+    fields.push('description = ?')
+    values.push(updates.description)
+  }
+  if (updates.content !== undefined) {
+    fields.push('content = ?')
+    values.push(updates.content)
+  }
+  if (updates.icon !== undefined) {
+    fields.push('icon = ?')
+    values.push(updates.icon)
+  }
+  if (updates.isDailyDefault !== undefined) {
+    fields.push('is_daily_default = ?')
+    values.push(updates.isDailyDefault ? 1 : 0)
+  }
+
+  if (fields.length === 0) return existing
+
+  fields.push('updated_at = ?')
+  values.push(now)
+  values.push(id)
+
+  db.prepare(`UPDATE templates SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+
+  return getTemplate(id)
+}
+
+/**
+ * Delete a template
+ */
+export function deleteTemplate(id: string): boolean {
+  const result = db.prepare('DELETE FROM templates WHERE id = ?').run(id)
+  return result.changes > 0
+}
+
+/**
+ * Reorder templates
+ */
+export function reorderTemplates(orderedIds: string[]): void {
+  const stmt = db.prepare('UPDATE templates SET order_index = ? WHERE id = ?')
+  const updateMany = db.transaction((ids: string[]) => {
+    ids.forEach((id, index) => {
+      stmt.run(index, id)
+    })
+  })
+  updateMany(orderedIds)
+}
+
+/**
+ * Set daily default template (pass null to clear)
+ */
+export function setDailyDefaultTemplate(id: string | null): void {
+  db.prepare('UPDATE templates SET is_daily_default = 0').run()
+  if (id) {
+    db.prepare('UPDATE templates SET is_daily_default = 1 WHERE id = ?').run(id)
+  }
+}
+
+/**
+ * Get default template content based on language
+ */
+function getDefaultTemplateContent(): { content: string; name: string; description: string } {
+  // Use user's app locale instead of system locale
+  const lang = getAppLocale()
+  const isZh = lang === 'zh'
+
+  const content = isZh
+    ? `## 日记 & 随想
+-
+
+
+## 今日任务
+**重要**:
+[ ]
+
+
+**待办**:
+[ ] {{cursor}}
+
+
+## 杂项 & 日常
+[ ]
+
+___
+
+## 今日笔记
+
+\`\`\`dataview
+LIST WHERE created = today
+SORT updated ASC
+\`\`\`
+`
+    : `## Journals & Thoughts
+-
+
+
+## Today's Tasks
+**High Priority**:
+[ ]
+
+
+**Tasks**:
+[ ] {{cursor}}
+
+
+## Miscellanies & Routines
+[ ]
+
+___
+
+## Today's Notes
+
+\`\`\`dataview
+LIST WHERE created = today
+SORT updated ASC
+\`\`\`
+`
+
+  return {
+    content,
+    name: isZh ? '日记' : 'Daily',
+    description: isZh ? '每日日记模板' : 'Daily journal template'
+  }
+}
+
+/**
+ * Initialize default templates if none exist
+ */
+export function initDefaultTemplates(): void {
+  const count = db.prepare('SELECT COUNT(*) as count FROM templates').get() as { count: number }
+
+  if (count.count === 0) {
+    const now = new Date().toISOString()
+    const { content, name, description } = getDefaultTemplateContent()
+
+    db.prepare(`
+      INSERT INTO templates (id, name, description, content, icon, is_daily_default, order_index, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
+    `).run(
+      uuidv4(),
+      name,
+      description,
+      content,
+      '',
+      now,
+      now
+    )
+
+    console.log('[Database] Initialized default templates')
+  }
+}
+
+/**
+ * Reset templates to defaults
+ */
+export function resetTemplatesToDefaults(): void {
+  db.prepare('DELETE FROM templates').run()
+  initDefaultTemplates()
 }

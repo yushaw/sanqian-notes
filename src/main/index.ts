@@ -60,8 +60,19 @@ import {
   // App Settings
   getAppSetting,
   setAppSetting,
+  // Templates
+  getAllTemplates,
+  getTemplate,
+  getDailyDefaultTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+  reorderTemplates,
+  setDailyDefaultTemplate,
+  resetTemplatesToDefaults,
 } from './database'
-import type { AgentTaskInput, AgentTaskRecord } from '../shared/types'
+import { markdownToTiptapString } from './markdown'
+import type { AgentTaskInput, AgentTaskRecord, TemplateInput } from '../shared/types'
 import {
   saveAttachment,
   saveAttachmentBuffer,
@@ -1551,6 +1562,20 @@ app.whenReady().then(() => {
   ipcMain.handle('agentTask:update', (_, id: string, updates: Partial<AgentTaskRecord>) => updateAgentTask(id, updates))
   ipcMain.handle('agentTask:delete', (_, id: string) => deleteAgentTask(id))
   ipcMain.handle('agentTask:deleteByBlockId', (_, blockId: string) => deleteAgentTaskByBlockId(blockId))
+
+  // IPC handlers for Templates
+  ipcMain.handle('templates:getAll', () => getAllTemplates())
+  ipcMain.handle('templates:get', (_, id: string) => getTemplate(id))
+  ipcMain.handle('templates:getDailyDefault', () => getDailyDefaultTemplate())
+  ipcMain.handle('templates:create', (_, input: TemplateInput) => createTemplate(input))
+  ipcMain.handle('templates:update', (_, id: string, updates: Partial<TemplateInput>) => updateTemplate(id, updates))
+  ipcMain.handle('templates:delete', (_, id: string) => deleteTemplate(id))
+  ipcMain.handle('templates:reorder', (_, orderedIds: string[]) => reorderTemplates(orderedIds))
+  ipcMain.handle('templates:setDailyDefault', (_, id: string | null) => setDailyDefaultTemplate(id))
+  ipcMain.handle('templates:reset', () => resetTemplatesToDefaults())
+
+  // IPC handlers for Markdown utilities
+  ipcMain.handle('markdown:toTiptap', (_, markdown: string) => markdownToTiptapString(markdown))
 
   // IPC handlers for Agent execution
   ipcMain.handle('agent:list', async () => {

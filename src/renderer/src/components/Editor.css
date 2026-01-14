@@ -543,7 +543,7 @@ span.zen-header-title {
 
 .zen-editor ul[data-type="taskList"] li > label {
   flex-shrink: 0;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .zen-editor ul[data-type="taskList"] li > div {

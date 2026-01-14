@@ -353,6 +353,52 @@ export interface Translations {
     importFailed: string
     pdfNotConfigured: string
   }
+  templates: {
+    title: string
+    description: string
+    add: string
+    addTemplate: string
+    editTemplate: string
+    name: string
+    namePlaceholder: string
+    descriptionPlaceholder: string
+    content: string
+    contentPlaceholder: string
+    icon: string
+    variableHelp: string
+    availableVariables: string
+    setAsDailyDefault: string
+    removeDailyDefault: string
+    dailyDefaultHint: string
+    dailyDefault: string
+    save: string
+    saving: string
+    cancel: string
+    loading: string
+    empty: string
+    noTemplates: string
+    goToSettings: string
+    manageTemplates: string
+    insertTemplate: string
+    deleteConfirmTitle: string
+    deleteConfirmMessage: string
+    syntaxHelp: string
+    markdownSyntax: string
+    syntaxHeading: string
+    syntaxList: string
+    syntaxTask: string
+    syntaxQuote: string
+    syntaxCode: string
+    syntaxDivider: string
+    syntaxToc: string
+    syntaxDataview: string
+    syntaxAgent: string
+    specialBlocks: string
+    agentExample: string
+    resetToDefaults: string
+    resetConfirm: string
+    reset: string
+  }
   tray: {
     show: string
     quit: string
@@ -1221,6 +1267,52 @@ const zh: Translations = {
     importFailed: '导入失败',
     pdfNotConfigured: '请先在设置中配置 PDF 服务',
   },
+  templates: {
+    title: '模板',
+    description: '自定义内容模板，快速插入常用结构',
+    add: '新建',
+    addTemplate: '新建模板',
+    editTemplate: '编辑模板',
+    name: '名称',
+    namePlaceholder: '模板名称',
+    descriptionPlaceholder: '可选描述',
+    content: '内容',
+    contentPlaceholder: '模板内容...',
+    icon: '图标',
+    variableHelp: '变量',
+    availableVariables: '可用变量',
+    setAsDailyDefault: '设为日记默认',
+    removeDailyDefault: '取消日记默认',
+    dailyDefaultHint: '创建新日记时自动应用此模板',
+    dailyDefault: '日记',
+    save: '保存',
+    saving: '保存中...',
+    cancel: '取消',
+    loading: '加载中...',
+    empty: '还没有模板，点击"新建"创建第一个',
+    noTemplates: '暂无模板',
+    goToSettings: '前往设置创建',
+    manageTemplates: '管理模板',
+    insertTemplate: '插入模板',
+    deleteConfirmTitle: '删除模板',
+    deleteConfirmMessage: '确定要删除「{name}」吗？',
+    syntaxHelp: '语法',
+    markdownSyntax: 'Markdown 语法',
+    syntaxHeading: '标题',
+    syntaxList: '列表',
+    syntaxTask: '任务',
+    syntaxQuote: '引用',
+    syntaxCode: '代码',
+    syntaxDivider: '分割线',
+    syntaxToc: '目录',
+    syntaxDataview: '数据视图',
+    syntaxAgent: 'Agent',
+    specialBlocks: '特殊 Block',
+    agentExample: '你的指令',
+    resetToDefaults: '恢复默认',
+    resetConfirm: '这将删除所有自定义模板，是否继续？',
+    reset: '重置',
+  },
   tray: {
     show: '显示窗口',
     quit: '退出'
@@ -2085,6 +2177,52 @@ const en: Translations = {
     importSuccess: 'Import successful',
     importFailed: 'Import failed',
     pdfNotConfigured: 'Please configure PDF service in Settings first',
+  },
+  templates: {
+    title: 'Templates',
+    description: 'Custom content templates for quick insertion',
+    add: 'Add',
+    addTemplate: 'New Template',
+    editTemplate: 'Edit Template',
+    name: 'Name',
+    namePlaceholder: 'Template name',
+    descriptionPlaceholder: 'Optional description',
+    content: 'Content',
+    contentPlaceholder: 'Template content...',
+    icon: 'Icon',
+    variableHelp: 'Variables',
+    availableVariables: 'Available Variables',
+    setAsDailyDefault: 'Set as daily default',
+    removeDailyDefault: 'Remove daily default',
+    dailyDefaultHint: 'Apply this template when creating new daily notes',
+    dailyDefault: 'Daily',
+    save: 'Save',
+    saving: 'Saving...',
+    cancel: 'Cancel',
+    loading: 'Loading...',
+    empty: 'No templates yet. Click "Add" to create one.',
+    noTemplates: 'No templates yet',
+    goToSettings: 'Create in Settings',
+    manageTemplates: 'Manage Templates',
+    insertTemplate: 'Insert Template',
+    deleteConfirmTitle: 'Delete Template',
+    deleteConfirmMessage: 'Are you sure you want to delete "{name}"?',
+    syntaxHelp: 'Syntax',
+    markdownSyntax: 'Markdown Syntax',
+    syntaxHeading: 'Heading',
+    syntaxList: 'List',
+    syntaxTask: 'Task',
+    syntaxQuote: 'Quote',
+    syntaxCode: 'Code',
+    syntaxDivider: 'Divider',
+    syntaxToc: 'TOC',
+    syntaxDataview: 'Dataview',
+    syntaxAgent: 'Agent',
+    specialBlocks: 'Special Blocks',
+    agentExample: 'Your prompt here',
+    resetToDefaults: 'Reset to defaults',
+    resetConfirm: 'This will remove all custom templates. Continue?',
+    reset: 'Reset',
   },
   tray: {
     show: 'Show Window',

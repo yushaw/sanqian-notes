@@ -14,6 +14,7 @@ A modern, AI-powered note-taking app with Obsidian-like features.
 - **Full-text Search** - Fast search powered by SQLite FTS5
 - **Notebooks & Tags** - Organize notes with folders and tags
 - **Import/Export** - Markdown, PDF, Obsidian vault, Notion export
+- **Templates** - Obsidian-like template system with variable support (`{{date}}`, `{{time}}`, `{{title}}`, etc.)
 - **Dark/Light Mode** - Theme follows system or manual toggle
 - **Multi-language** - English and Chinese support
 
@@ -47,3 +48,163 @@ npm run build
 ## License
 
 MIT
+
+---
+
+## Changelog
+
+### 2026-01-14 - Template Variables Enhancement
+
+Enhanced template variable system with Obsidian Templater-compatible features:
+
+**New Variables:**
+- `{{yesterday}}` / `{{yesterday:FORMAT}}` - yesterday's date
+- `{{tomorrow}}` / `{{tomorrow:FORMAT}}` - tomorrow's date
+- `{{daily_date}}` - daily note's target date (for past daily notes)
+- `{{daily_yesterday}}` - day before daily note's date
+- `{{daily_tomorrow}}` - day after daily note's date
+
+**Daily Note Example:**
+```
+# {{daily_date:YYYY-MM-DD dddd}}
+
+<< [[{{daily_yesterday}}|Yesterday]] | [[{{daily_tomorrow}}|Tomorrow]] >>
+
+## Today's Notes
+```dataview
+LIST WHERE created = today
+```
+```
+
+Files:
+- `src/renderer/src/utils/templateVariables.ts` - enhanced variable parser
+- `src/main/database.ts` - backend parser with dailyDate support
+
+---
+
+### 2026-01-14 - Dataview Date Expressions
+
+Added Obsidian-compatible date expressions for Dataview queries:
+
+**Date Keywords:**
+- `today`, `yesterday`, `tomorrow` - relative days
+- `sow`, `eow` - start/end of week
+- `som`, `eom` - start/end of month
+- `soy`, `eoy` - start/end of year
+
+**Range Keywords (for = operator):**
+- `today`, `yesterday`, `tomorrow` - match notes within that day
+- `this_week`, `last_week` - match notes within this/last week
+- `this_month`, `last_month` - match notes within this/last month
+- `this_year` - match notes within this year
+
+**Query Examples:**
+```
+LIST WHERE created = today        -- 今天的笔记
+LIST WHERE created = yesterday    -- 昨天的笔记
+LIST WHERE created = this_week    -- 本周的笔记
+LIST WHERE created = last_week    -- 上周的笔记
+LIST WHERE created = this_month   -- 本月的笔记
+LIST WHERE created = last_month   -- 上月的笔记
+LIST WHERE created >= date(sow)   -- 本周开始以来的笔记
+
+-- 按周数/年份查询
+LIST WHERE week(created) = 2                         -- 第2周的笔记
+LIST WHERE week(created) = 5 AND year(created) = 2026  -- 2026年第5周的笔记
+```
+
+Files:
+- `src/renderer/src/utils/dateExpressions.ts` - shared date utilities module
+- `src/renderer/src/utils/dataviewParser.ts` - added DateExpression support
+- `src/renderer/src/utils/dataviewExecutor.ts` - date range evaluation
+
+---
+
+### 2026-01-14 - Template & Dataview Block Rendering Fix
+
+Fixed markdown templates not rendering correctly when inserted:
+
+**Issues Fixed:**
+- Dataview blocks (`\`\`\`dataview`) were rendering as plain code blocks instead of interactive queries
+- Agent blocks (`\`\`\`agent`) were rendering as plain code blocks
+- Task lists (`- [ ]`) were rendering as bullet lists with "[ ]" text
+- TOC blocks (`\`\`\`toc`) were not rendering
+
+**Changes:**
+- `src/main/markdown/markdown-to-tiptap.ts` - Added special handling for dataview, agent, and toc code blocks
+- `src/main/database.ts` - createDaily() now converts markdown template to Tiptap JSON
+- `src/renderer/src/components/Editor.tsx` - handleInsertContent() uses backend markdown-to-tiptap converter
+- Added `markdown:toTiptap` IPC endpoint for frontend markdown conversion
+
+---
+
+### 2026-01-14 - Week/Year Query Functions
+
+Added `week()` and `year()` functions for querying notes by specific week number:
+
+**New Functions:**
+- `week(field)` - extract ISO week number (1-53) from date field
+- `year(field)` - extract year from date field
+
+**New Range Keywords:**
+- `last_week` - notes from the previous week
+- `last_month` - notes from the previous month
+
+**Examples:**
+```
+LIST WHERE week(created) = 2                           -- 第2周的笔记
+LIST WHERE week(created) = 5 AND year(created) = 2026  -- 2026年第5周的笔记
+LIST WHERE created = last_week                         -- 上周的笔记
+```
+
+Files:
+- `src/renderer/src/utils/dataviewParser.ts` - added WEEK/YEAR keywords, FieldFunction type
+- `src/renderer/src/utils/dataviewExecutor.ts` - implemented week/year extraction
+- `src/renderer/src/utils/dateExpressions.ts` - added last_week/last_month range keywords
+
+---
+
+### 2026-01-14 - Template System
+
+Added Obsidian-like template system:
+- Template management in Settings with drag-and-drop reordering
+- Insert templates from "More" menu in editor toolbar
+- Variable support: `{{date}}`, `{{time}}`, `{{title}}`, `{{notebook}}`, `{{cursor}}`
+- Custom date/time formats: `{{date:YYYY-MM-DD}}`, `{{time:HH:mm}}`
+- Daily default template auto-applied when creating new daily notes
+- Delete confirmation dialog for templates
+- Preset daily template included
+
+Bug fixes:
+- Fixed template content insertion (was treating Tiptap JSON as Markdown)
+- `handleInsertContent` now correctly detects and handles JSON format
+
+Files:
+- `src/main/database.ts` - templates table, CRUD, variable parsing for daily notes
+- `src/shared/types.ts` - Template/TemplateInput types
+- `src/renderer/src/utils/templateVariables.ts` - variable parser (frontend)
+- `src/renderer/src/components/TemplateSettings.tsx` - settings UI with delete confirmation
+- `src/renderer/src/components/TemplateSelector.tsx` - selection modal
+- `src/renderer/src/components/Editor.tsx` - fixed `handleInsertContent` for JSON support
+
+---
+
+### 2026-01-14 - Template Reset to Defaults
+
+Added ability to reset templates to defaults (similar to AI Actions):
+
+**Features:**
+- Auto-create default daily template if no templates exist
+- Reset to defaults button in Template Settings with confirmation dialog
+- Default templates include both English and Chinese versions based on system language
+
+**Changes:**
+- `src/main/database.ts`:
+  - `initDefaultTemplates()` - creates default template if none exist
+  - `resetTemplatesToDefaults()` - deletes all templates and recreates defaults
+  - Removed duplicate template creation from migration
+- `src/main/index.ts` - added `templates:reset` IPC handler
+- `src/preload/index.ts` & `src/preload/index.d.ts` - exposed reset function
+- `src/renderer/src/env.d.ts` - updated Window.electron.templates type
+- `src/renderer/src/components/TemplateSettings.tsx` - added reset UI with confirmation
+- `src/renderer/src/i18n/translations.ts` - added resetToDefaults, resetConfirm, reset translations

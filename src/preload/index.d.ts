@@ -385,6 +385,82 @@ declare global {
         delete: (id: string) => Promise<boolean>
         deleteByBlockId: (blockId: string) => Promise<boolean>
       }
+      templates: {
+        getAll: () => Promise<Array<{
+          id: string
+          name: string
+          description: string
+          content: string
+          icon: string
+          isDailyDefault: boolean
+          orderIndex: number
+          createdAt: string
+          updatedAt: string
+        }>>
+        get: (id: string) => Promise<{
+          id: string
+          name: string
+          description: string
+          content: string
+          icon: string
+          isDailyDefault: boolean
+          orderIndex: number
+          createdAt: string
+          updatedAt: string
+        } | null>
+        getDailyDefault: () => Promise<{
+          id: string
+          name: string
+          description: string
+          content: string
+          icon: string
+          isDailyDefault: boolean
+          orderIndex: number
+          createdAt: string
+          updatedAt: string
+        } | null>
+        create: (input: {
+          name: string
+          description?: string
+          content: string
+          icon?: string
+          isDailyDefault?: boolean
+        }) => Promise<{
+          id: string
+          name: string
+          description: string
+          content: string
+          icon: string
+          isDailyDefault: boolean
+          orderIndex: number
+          createdAt: string
+          updatedAt: string
+        }>
+        update: (id: string, updates: {
+          name?: string
+          description?: string
+          content?: string
+          icon?: string
+          isDailyDefault?: boolean
+        }) => Promise<{
+          id: string
+          name: string
+          description: string
+          content: string
+          icon: string
+          isDailyDefault: boolean
+          orderIndex: number
+          createdAt: string
+          updatedAt: string
+        } | null>
+        delete: (id: string) => Promise<boolean>
+        reorder: (orderedIds: string[]) => Promise<void>
+        setDailyDefault: (id: string | null) => Promise<void>
+        reset: () => Promise<void>
+      }
+      markdown: {
+        toTiptap: (markdown: string) => Promise<string>
+      }
       agent: {
         list: () => Promise<Array<{ id: string; name: string; description?: string }>>
         run: (

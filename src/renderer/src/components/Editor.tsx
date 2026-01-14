@@ -73,6 +73,49 @@ import { ScrollText } from 'lucide-react'
 import 'katex/dist/katex.min.css'
 import './Editor.css'
 
+// 光标占位符常量 (Invisible Separator)
+const CURSOR_PLACEHOLDER = '\u2063'
+
+/**
+ * 处理模板中的光标占位符
+ * 找到 \u2063 字符，将光标移动到该位置，然后删除占位符
+ */
+function handleCursorPlaceholder(editor: TiptapEditor) {
+  if (editor.isDestroyed) return
+
+  const doc = editor.state.doc
+  let cursorPos: number | null = null
+
+  // 遍历文档查找光标占位符
+  doc.descendants((node, pos) => {
+    if (cursorPos !== null) return false // 已找到，停止遍历
+
+    if (node.isText && node.text) {
+      const index = node.text.indexOf(CURSOR_PLACEHOLDER)
+      if (index !== -1) {
+        cursorPos = pos + index
+        return false
+      }
+    }
+    return true
+  })
+
+  if (cursorPos !== null) {
+    // 延迟执行，确保 DOM 已更新
+    requestAnimationFrame(() => {
+      if (editor.isDestroyed) return
+
+      // 删除占位符并设置光标位置
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: cursorPos!, to: cursorPos! + 1 })
+        .setTextSelection(cursorPos!)
+        .run()
+    })
+  }
+}
+
 // 关闭分屏按钮组件
 function PaneCloseButton({ onClick, title }: { onClick: () => void; title: string }) {
   return (
@@ -824,9 +867,35 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // 跟踪上次的 note.id，用于检测切换笔记
   const prevSyncNoteIdRef = useRef<string | null>(null)
 
-  // 处理导入内容插入（用于 ExportMenu 的 Import 功能）
-  const handleInsertContent = useCallback((content: string) => {
+  // 处理导入内容插入（用于 ExportMenu 的 Import 功能和模板插入）
+  const handleInsertContent = useCallback(async (content: string) => {
     if (!editor) return
+
+    // 检测是否是 Tiptap JSON 格式（模板内容）
+    try {
+      const parsed = JSON.parse(content)
+      if (parsed.type === 'doc' && Array.isArray(parsed.content)) {
+        // 直接插入 JSON 文档的 content 数组
+        editor.commands.insertContent(parsed.content)
+        return
+      }
+    } catch {
+      // 不是 JSON，继续作为 Markdown 处理
+    }
+
+    // 使用后端的 markdownToTiptap 进行完整转换（支持 dataview、agent、toc 等特殊 block）
+    try {
+      const tiptapJson = await window.electron.markdown.toTiptap(content)
+      const parsed = JSON.parse(tiptapJson)
+      if (parsed.type === 'doc' && Array.isArray(parsed.content)) {
+        editor.commands.insertContent(parsed.content)
+        return
+      }
+    } catch (error) {
+      console.error('Failed to convert markdown to Tiptap:', error)
+    }
+
+    // 降级：使用简单的 HTML 转换
     const html = markdownToHtml(content)
     editor.commands.insertContent(html, {
       parseOptions: { preserveWhitespace: false },
@@ -911,6 +980,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         if (syncVersionRef.current !== version || editor.isDestroyed) return
         editor.commands.setContent(externalContent, { emitUpdate: false })
         editorContentRef.current = contentToSync
+        // 处理模板中的光标占位符 \u2063
+        handleCursorPlaceholder(editor)
       })
       return
     }
@@ -945,6 +1016,16 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       editor.off('update', updateHandler)
     }
   }, [editor])
+
+  // 首次加载时处理光标占位符（模板中的 {{cursor}}）
+  useEffect(() => {
+    if (!editor) return
+    // 延迟执行，确保编辑器内容已完全加载
+    const timer = setTimeout(() => {
+      handleCursorPlaceholder(editor)
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [editor, note.id])
 
   // 监听搜索状态变化
   useEffect(() => {
@@ -1763,6 +1844,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             <div style={{ marginLeft: -2 }}>
               <ExportMenu
                 noteId={note.id}
+                noteTitle={note.title}
+                notebookName={notebooks.find(nb => nb.id === note.notebook_id)?.name}
                 onSplitHorizontal={onSplitHorizontal}
                 onSplitVertical={onSplitVertical}
                 onInsertContent={handleInsertContent}
@@ -1855,6 +1938,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             {note && (
               <ExportMenu
                 noteId={note.id}
+                noteTitle={note.title}
+                notebookName={notebooks.find(nb => nb.id === note.notebook_id)?.name}
                 onSplitHorizontal={onSplitHorizontal}
                 onSplitVertical={onSplitVertical}
                 onInsertContent={handleInsertContent}

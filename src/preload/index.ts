@@ -184,6 +184,24 @@ contextBridge.exposeInMainWorld('electron', {
     delete: (id: string) => ipcRenderer.invoke('agentTask:delete', id),
     deleteByBlockId: (blockId: string) => ipcRenderer.invoke('agentTask:deleteByBlockId', blockId),
   },
+  // Templates API
+  templates: {
+    getAll: () => ipcRenderer.invoke('templates:getAll'),
+    get: (id: string) => ipcRenderer.invoke('templates:get', id),
+    getDailyDefault: () => ipcRenderer.invoke('templates:getDailyDefault'),
+    create: (input: { name: string; description?: string; content: string; icon?: string; isDailyDefault?: boolean }) =>
+      ipcRenderer.invoke('templates:create', input),
+    update: (id: string, updates: { name?: string; description?: string; content?: string; icon?: string; isDailyDefault?: boolean }) =>
+      ipcRenderer.invoke('templates:update', id, updates),
+    delete: (id: string) => ipcRenderer.invoke('templates:delete', id),
+    reorder: (orderedIds: string[]) => ipcRenderer.invoke('templates:reorder', orderedIds),
+    setDailyDefault: (id: string | null) => ipcRenderer.invoke('templates:setDailyDefault', id),
+    reset: () => ipcRenderer.invoke('templates:reset'),
+  },
+  // Markdown utilities API
+  markdown: {
+    toTiptap: (markdown: string) => ipcRenderer.invoke('markdown:toTiptap', markdown),
+  },
   // Agent execution API
   agent: {
     list: () => ipcRenderer.invoke('agent:list'),

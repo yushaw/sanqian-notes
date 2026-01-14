@@ -4,8 +4,13 @@
  * Executes parsed queries against the note database
  */
 
-import type { ParsedQuery, WhereClause, SortClause } from './dataviewParser'
+import type { ParsedQuery, WhereClause, SortClause, DateExpression, FieldFunction } from './dataviewParser'
+import dayjs from 'dayjs'
+import isoWeek from 'dayjs/plugin/isoWeek'
+
+dayjs.extend(isoWeek)
 import type { Note, Notebook } from '../../../shared/types'
+import { parseDateKeyword, getDateRange, isDateInRange } from './dateExpressions'
 
 export interface QueryResultRow {
   noteId: string
@@ -171,6 +176,44 @@ function filterByWhere(
 }
 
 /**
+ * Check if a value is a DateExpression
+ */
+function isDateExpression(value: unknown): value is DateExpression {
+  return typeof value === 'object' && value !== null && 'type' in value && (value as DateExpression).type === 'date'
+}
+
+/**
+ * Check if a field is a FieldFunction
+ */
+function isFieldFunction(field: string | FieldFunction): field is FieldFunction {
+  return typeof field === 'object' && field.type === 'field_function'
+}
+
+/**
+ * Extract week or year number from a date value
+ */
+function extractDateComponent(
+  note: Note,
+  fieldFunc: FieldFunction,
+  notebookMap: Map<string, Notebook>
+): number | null {
+  const fieldValue = getFieldValue(note, fieldFunc.field, notebookMap)
+  if (fieldValue === null || fieldValue === undefined) return null
+
+  const date = dayjs(fieldValue as string)
+  if (!date.isValid()) return null
+
+  switch (fieldFunc.function) {
+    case 'week':
+      return date.isoWeek() // ISO week number (1-53)
+    case 'year':
+      return date.year()
+    default:
+      return null
+  }
+}
+
+/**
  * Evaluate a single WHERE condition
  */
 function evaluateCondition(
@@ -178,8 +221,40 @@ function evaluateCondition(
   condition: WhereClause,
   notebookMap: Map<string, Notebook>
 ): boolean {
-  const fieldValue = getFieldValue(note, condition.field, notebookMap)
+  let fieldValue: unknown
+
+  // Handle FieldFunction (e.g., week(created), year(created))
+  if (isFieldFunction(condition.field)) {
+    fieldValue = extractDateComponent(note, condition.field, notebookMap)
+    // For field functions, compare as numbers
+    const compareValue = typeof condition.value === 'number' ? condition.value : parseInt(String(condition.value), 10)
+    if (fieldValue === null || isNaN(compareValue)) return false
+
+    switch (condition.operator) {
+      case '=':
+        return fieldValue === compareValue
+      case '!=':
+        return fieldValue !== compareValue
+      case '>':
+        return (fieldValue as number) > compareValue
+      case '<':
+        return (fieldValue as number) < compareValue
+      case '>=':
+        return (fieldValue as number) >= compareValue
+      case '<=':
+        return (fieldValue as number) <= compareValue
+      default:
+        return false
+    }
+  }
+
+  fieldValue = getFieldValue(note, condition.field, notebookMap)
   const compareValue = condition.value
+
+  // Handle DateExpression specially
+  if (isDateExpression(compareValue)) {
+    return evaluateDateCondition(fieldValue, condition.operator, compareValue)
+  }
 
   switch (condition.operator) {
     case '=':
@@ -198,6 +273,68 @@ function evaluateCondition(
       return compareContains(fieldValue, compareValue)
     default:
       return false
+  }
+}
+
+/**
+ * Evaluate date-based condition
+ */
+function evaluateDateCondition(
+  fieldValue: unknown,
+  operator: WhereClause['operator'],
+  dateExpr: DateExpression
+): boolean {
+  if (fieldValue === null || fieldValue === undefined) return false
+
+  const fieldDate = new Date(fieldValue as string)
+  if (isNaN(fieldDate.getTime())) return false
+
+  // For = operator with range keywords (today, yesterday, this_week, etc.),
+  // check if field value is within the range
+  if (operator === '=' && dateExpr.isRange) {
+    try {
+      const range = getDateRange(dateExpr.keyword)
+      return isDateInRange(fieldDate, range)
+    } catch {
+      // Fallback to point comparison
+    }
+  }
+
+  // For != operator with range keywords, check if NOT in range
+  if (operator === '!=' && dateExpr.isRange) {
+    try {
+      const range = getDateRange(dateExpr.keyword)
+      return !isDateInRange(fieldDate, range)
+    } catch {
+      // Fallback to point comparison
+    }
+  }
+
+  // For other operators or non-range keywords, compare as points
+  try {
+    const compareDate = parseDateKeyword(dateExpr.keyword)
+    const fieldTime = fieldDate.getTime()
+    const compareTime = compareDate.getTime()
+
+    switch (operator) {
+      case '=':
+        // For point comparison, compare date part only
+        return fieldDate.toDateString() === compareDate.toDateString()
+      case '!=':
+        return fieldDate.toDateString() !== compareDate.toDateString()
+      case '>':
+        return fieldTime > compareTime
+      case '<':
+        return fieldTime < compareTime
+      case '>=':
+        return fieldTime >= compareTime
+      case '<=':
+        return fieldTime <= compareTime
+      default:
+        return false
+    }
+  } catch {
+    return false
   }
 }
 

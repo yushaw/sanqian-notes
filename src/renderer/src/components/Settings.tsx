@@ -6,13 +6,14 @@ import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting }
 import { AIActionsSettings } from './AIActionsSettings'
 import { KnowledgeBaseSettings } from './KnowledgeBaseSettings'
 import { DataSettings } from './DataSettings'
+import { TemplateSettings } from './TemplateSettings'
 import { DEFAULT_CHAT_SHORTCUT, CHAT_SHORTCUT_CHANGE_EVENT, formatShortcut } from '../utils/shortcut'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
 const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emerald', 'cyan', 'cobalt', 'indigo', 'magenta']
 
-type SettingsTab = 'general' | 'appearance' | 'ai-actions' | 'knowledge-base' | 'data' | 'about'
+type SettingsTab = 'general' | 'appearance' | 'ai-actions' | 'templates' | 'knowledge-base' | 'data' | 'about'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
 
@@ -223,6 +224,7 @@ export function Settings({ onClose }: SettingsProps) {
     { key: 'general', label: t.settings.general },
     { key: 'appearance', label: t.settings.appearance },
     { key: 'ai-actions', label: t.settings.aiActions.title },
+    { key: 'templates', label: t.templates?.title || 'Templates' },
     { key: 'knowledge-base', label: t.settings.knowledgeBase.title },
     { key: 'data', label: t.settings.data },
     { key: 'about', label: t.settings.about },
@@ -542,6 +544,11 @@ export function Settings({ onClose }: SettingsProps) {
             {/* AI Actions Tab */}
             {activeTab === 'ai-actions' && (
               <AIActionsSettings />
+            )}
+
+            {/* Templates Tab */}
+            {activeTab === 'templates' && (
+              <TemplateSettings />
             )}
 
             {/* Knowledge Base Tab */}

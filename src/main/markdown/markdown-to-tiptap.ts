@@ -57,6 +57,41 @@ function preprocessMarkdown(markdown: string): string {
   protectedBlockMaths = []
   protectedInlineMaths = []
 
+  // 标准化换行符为 LF
+  result = result.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+  // 保护额外的空行（3个及以上换行符 = 1个及以上空行）
+  // 用零宽空格段落替代，这样 marked 会保留它们
+  result = result.replace(/\n\n\n+/g, (match) => {
+    const newlines = match.length
+    // 3个换行 = 1个空行段落，4个换行 = 2个空行段落
+    const emptyLines = newlines - 2
+    return '\n\n' + '\u200B\n\n'.repeat(emptyLines)
+  })
+
+  // 处理空的列表项和任务项（marked 需要内容才能正确解析）
+  // 使用零宽空格 \u200B 作为占位符，marked 会识别为有内容
+  // 注意：\u2063 是光标占位符，需要保留
+
+  // 先处理独立的 [ ] 或 [x]（没有 - 前缀），转换为列表项
+  // `[ ]` on its own line -> `- [ ] \u200B` (保留光标占位符)
+  result = result.replace(/^(\s*)\[([\sx]?)\]\s*(\u2063)?[\s]*$/gm, (_, indent, check, cursor) => {
+    return `${indent}- [${check}] \u200B${cursor || ''}`
+  })
+
+  // `- ` at end of line -> `- \u200B` (保留光标占位符)
+  result = result.replace(/^(\s*)-\s*(\u2063)?[\s]*$/gm, (_, indent, cursor) => {
+    return `${indent}- \u200B${cursor || ''}`
+  })
+  // `- [ ]` at end of line -> `- [ ] \u200B` (保留光标占位符)
+  result = result.replace(/^(\s*)-\s*\[([\sx]?)\]\s*(\u2063)?[\s]*$/gm, (_, indent, check, cursor) => {
+    return `${indent}- [${check}] \u200B${cursor || ''}`
+  })
+
+  // 确保段落和列表之间有空行分隔（避免被 marked 合并）
+  // 匹配：非列表行 + 换行 + 列表项开始，在中间插入空行
+  result = result.replace(/(^(?![-*+\d])[^\n]+)\n([-*+] )/gm, '$1\n\n$2')
+
   // 保护代码块
   const codeBlocks: string[] = []
   result = result.replace(/```[\s\S]*?```/g, (match) => {
@@ -419,16 +454,84 @@ function parseToken(token: Token): TiptapNode[] {
 
     case 'list': {
       const listToken = token as Tokens.List
-      const isTask = listToken.items.some(item => item.task)
 
-      if (isTask) {
+      // Check if any item is a task (either marked by parser or has [ ]/[x] pattern)
+      const hasTaskItems = listToken.items.some(item => {
+        if (item.task) return true
+        // Check for empty checkbox pattern: text starts with [ ] or [x]
+        const text = item.text?.trim() || ''
+        return /^\[[\sx]?\]/.test(text)
+      })
+
+      if (hasTaskItems) {
         return [{
           type: 'taskList',
-          content: listToken.items.map(item => ({
-            type: 'taskItem',
-            attrs: { checked: item.checked || false },
-            content: parseListItemContent(item)
-          }))
+          content: listToken.items.map(item => {
+            let checked = item.checked || false
+            let content: TiptapNode[] = []
+
+            if (item.task) {
+              // For properly recognized task items, extract content from non-checkbox tokens
+              checked = item.checked || false
+              const textTokens = (item.tokens || []).filter(t => t.type !== 'checkbox')
+              if (textTokens.length > 0) {
+                for (const token of textTokens) {
+                  if (token.type === 'text') {
+                    const textToken = token as Tokens.Text
+                    const text = textToken.text?.replace(/\u200B/g, '').trim() // Remove zero-width space placeholder
+                    if (text) {
+                      // Check if there are nested tokens for inline formatting (bold, italic, etc.)
+                      if (textToken.tokens && textToken.tokens.length > 0) {
+                        content.push({
+                          type: 'paragraph',
+                          content: parseInlineTokens(textToken.tokens)
+                        })
+                      } else {
+                        content.push({
+                          type: 'paragraph',
+                          content: [{ type: 'text', text }]
+                        })
+                      }
+                    }
+                  } else {
+                    content.push(...parseToken(token))
+                  }
+                }
+              }
+              // Ensure at least an empty paragraph for empty task items
+              if (content.length === 0) {
+                content = [{ type: 'paragraph', content: [] }]
+              }
+            } else {
+              // Handle checkbox pattern in non-task items (fallback for edge cases)
+              const text = item.text?.trim() || ''
+              const checkboxMatch = text.match(/^\[([\sx]?)\]\s*(.*)$/)
+              if (checkboxMatch) {
+                checked = checkboxMatch[1].toLowerCase() === 'x'
+                const remainingText = checkboxMatch[2].replace(/\u200B/g, '').trim()
+                if (remainingText) {
+                  // Parse inline formatting in the remaining text
+                  const inlineTokens = marked.lexer(remainingText)
+                  if (inlineTokens.length > 0 && inlineTokens[0].type === 'paragraph') {
+                    const paraToken = inlineTokens[0] as Tokens.Paragraph
+                    content = [{ type: 'paragraph', content: parseInlineTokens(paraToken.tokens || []) }]
+                  } else {
+                    content = [{ type: 'paragraph', content: [{ type: 'text', text: remainingText }] }]
+                  }
+                } else {
+                  content = [{ type: 'paragraph', content: [] }]
+                }
+              } else {
+                content = parseListItemContent(item)
+              }
+            }
+
+            return {
+              type: 'taskItem',
+              attrs: { checked },
+              content
+            }
+          })
         }]
       }
 
@@ -460,6 +563,36 @@ function parseToken(token: Token): TiptapNode[] {
         return [{
           type: 'mermaid',
           attrs: { code: codeToken.text }
+        }]
+      }
+
+      // Dataview 特殊处理
+      if (codeToken.lang === 'dataview') {
+        return [{
+          type: 'dataviewBlock',
+          attrs: {
+            query: codeToken.text.trim(),
+            isEditing: false,
+            lastExecuted: null
+          }
+        }]
+      }
+
+      // Agent block 特殊处理
+      if (codeToken.lang === 'agent') {
+        return [{
+          type: 'agentBlock',
+          attrs: {
+            additionalPrompt: codeToken.text.trim(),
+            status: 'idle',
+          }
+        }]
+      }
+
+      // TOC 特殊处理
+      if (codeToken.lang === 'toc') {
+        return [{
+          type: 'tableOfContents'
         }]
       }
 

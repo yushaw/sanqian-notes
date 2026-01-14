@@ -454,3 +454,39 @@ export interface InsertOutputData {
   context: EditorOutputContext
   operations: OutputOperation[]
 }
+
+// ============ Template Types ============
+
+/** Template 完整类型 */
+export interface Template {
+  id: string
+  name: string
+  description: string
+  content: string              // Tiptap JSON string
+  icon: string
+  isDailyDefault: boolean
+  orderIndex: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** Template 创建/更新输入 */
+export interface TemplateInput {
+  name: string
+  description?: string
+  content: string
+  icon?: string
+  isDailyDefault?: boolean
+}
+
+/** Template API 接口 */
+export interface TemplateAPI {
+  getAll: () => Promise<Template[]>
+  get: (id: string) => Promise<Template | null>
+  getDailyDefault: () => Promise<Template | null>
+  create: (input: TemplateInput) => Promise<Template>
+  update: (id: string, updates: Partial<TemplateInput>) => Promise<Template | null>
+  delete: (id: string) => Promise<boolean>
+  reorder: (orderedIds: string[]) => Promise<void>
+  setDailyDefault: (id: string | null) => Promise<void>
+}

@@ -24,6 +24,8 @@ type AIAction = import('../../shared/types').AIAction
 type AIActionInput = import('../../shared/types').AIActionInput
 type AIActionAPI = import('../../shared/types').AIActionAPI
 type ThemeSettings = import('../../shared/types').ThemeSettings
+type Template = import('../../shared/types').Template
+type TemplateInput = import('../../shared/types').TemplateInput
 
 interface Window {
   electron: {
@@ -455,6 +457,20 @@ interface Window {
       update: (id: string, updates: Partial<AgentTaskRecord>) => Promise<AgentTaskRecord | null>
       delete: (id: string) => Promise<boolean>
       deleteByBlockId: (blockId: string) => Promise<boolean>
+    }
+    templates: {
+      getAll: () => Promise<Template[]>
+      get: (id: string) => Promise<Template | null>
+      getDailyDefault: () => Promise<Template | null>
+      create: (input: TemplateInput) => Promise<Template>
+      update: (id: string, updates: Partial<TemplateInput>) => Promise<Template | null>
+      delete: (id: string) => Promise<boolean>
+      reorder: (orderedIds: string[]) => Promise<void>
+      setDailyDefault: (id: string | null) => Promise<void>
+      reset: () => Promise<void>
+    }
+    markdown: {
+      toTiptap: (markdown: string) => Promise<string>
     }
     agent: {
       list: () => Promise<AgentCapability[]>

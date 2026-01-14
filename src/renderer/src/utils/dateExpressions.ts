@@ -237,36 +237,3 @@ export function isDateInRange(date: Date | string, range: DateRange): boolean {
 export function formatDate(date: Date, format: string = 'YYYY-MM-DD'): string {
   return dayjs(date).format(format)
 }
-
-/**
- * Get all supported date keywords with descriptions
- * Useful for help documentation
- */
-export function getDateKeywordHelp(): Array<{ keyword: string; description: string; example: string }> {
-  return [
-    { keyword: 'today', description: '今天', example: formatDate(parseDateKeyword('today')) },
-    { keyword: 'yesterday', description: '昨天', example: formatDate(parseDateKeyword('yesterday')) },
-    { keyword: 'tomorrow', description: '明天', example: formatDate(parseDateKeyword('tomorrow')) },
-    { keyword: 'sow', description: '本周开始', example: formatDate(parseDateKeyword('sow')) },
-    { keyword: 'eow', description: '本周结束', example: formatDate(parseDateKeyword('eow')) },
-    { keyword: 'som', description: '本月开始', example: formatDate(parseDateKeyword('som')) },
-    { keyword: 'eom', description: '本月结束', example: formatDate(parseDateKeyword('eom')) },
-    { keyword: 'soy', description: '本年开始', example: formatDate(parseDateKeyword('soy')) },
-    { keyword: 'eoy', description: '本年结束', example: formatDate(parseDateKeyword('eoy')) },
-  ]
-}
-
-/**
- * Get all supported range keywords with descriptions
- */
-export function getRangeKeywordHelp(): Array<{ keyword: string; description: string }> {
-  return [
-    { keyword: 'today', description: '今天的笔记' },
-    { keyword: 'yesterday', description: '昨天的笔记' },
-    { keyword: 'this_week', description: '本周的笔记' },
-    { keyword: 'last_week', description: '上周的笔记' },
-    { keyword: 'this_month', description: '本月的笔记' },
-    { keyword: 'last_month', description: '上月的笔记' },
-    { keyword: 'this_year', description: '今年的笔记' },
-  ]
-}

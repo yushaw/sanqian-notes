@@ -398,6 +398,22 @@ export interface Translations {
     resetToDefaults: string
     resetConfirm: string
     reset: string
+    // Variable descriptions for help display
+    variables: {
+      title: string
+      notebook: string
+      date: string
+      dateFormat: string
+      dateOffset: string
+      time: string
+      week: string
+      yesterday: string
+      tomorrow: string
+      dailyDate: string
+      dailyDateOffset: string
+      dailyWeek: string
+      cursor: string
+    }
   }
   tray: {
     show: string
@@ -1312,6 +1328,21 @@ const zh: Translations = {
     resetToDefaults: '恢复默认',
     resetConfirm: '这将删除所有自定义模板，是否继续？',
     reset: '重置',
+    variables: {
+      title: '笔记标题',
+      notebook: '笔记本名称',
+      date: '今天日期',
+      dateFormat: '自定义格式',
+      dateOffset: '天前/后',
+      time: '当前时间',
+      week: '周数',
+      yesterday: '昨天',
+      tomorrow: '明天',
+      dailyDate: '日记日期',
+      dailyDateOffset: '日记前/后一天',
+      dailyWeek: '日记周数',
+      cursor: '光标位置',
+    },
   },
   tray: {
     show: '显示窗口',
@@ -2223,6 +2254,21 @@ const en: Translations = {
     resetToDefaults: 'Reset to defaults',
     resetConfirm: 'This will remove all custom templates. Continue?',
     reset: 'Reset',
+    variables: {
+      title: 'Note title',
+      notebook: 'Notebook name',
+      date: 'Today\'s date',
+      dateFormat: 'Custom format',
+      dateOffset: 'days ago/ahead',
+      time: 'Current time',
+      week: 'Week number',
+      yesterday: 'Yesterday',
+      tomorrow: 'Tomorrow',
+      dailyDate: 'Daily note date',
+      dailyDateOffset: 'Days before/after daily',
+      dailyWeek: 'Daily week number',
+      cursor: 'Cursor position',
+    },
   },
   tray: {
     show: 'Show Window',

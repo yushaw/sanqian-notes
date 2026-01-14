@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { NoteSearchFilter } from '../shared/types'
+import type { NoteSearchFilter, TemplateInput } from '../shared/types'
 
 // Expose APIs to renderer
 contextBridge.exposeInMainWorld('electron', {
@@ -189,10 +189,8 @@ contextBridge.exposeInMainWorld('electron', {
     getAll: () => ipcRenderer.invoke('templates:getAll'),
     get: (id: string) => ipcRenderer.invoke('templates:get', id),
     getDailyDefault: () => ipcRenderer.invoke('templates:getDailyDefault'),
-    create: (input: { name: string; description?: string; content: string; icon?: string; isDailyDefault?: boolean }) =>
-      ipcRenderer.invoke('templates:create', input),
-    update: (id: string, updates: { name?: string; description?: string; content?: string; icon?: string; isDailyDefault?: boolean }) =>
-      ipcRenderer.invoke('templates:update', id, updates),
+    create: (input: TemplateInput) => ipcRenderer.invoke('templates:create', input),
+    update: (id: string, updates: Partial<TemplateInput>) => ipcRenderer.invoke('templates:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('templates:delete', id),
     reorder: (orderedIds: string[]) => ipcRenderer.invoke('templates:reorder', orderedIds),
     setDailyDefault: (id: string | null) => ipcRenderer.invoke('templates:setDailyDefault', id),

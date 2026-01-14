@@ -462,7 +462,7 @@ export interface Template {
   id: string
   name: string
   description: string
-  content: string              // Tiptap JSON string
+  content: string              // Markdown content
   icon: string
   isDailyDefault: boolean
   orderIndex: number

@@ -334,7 +334,7 @@ export function TemplateSettings() {
                 <div className="absolute right-0 top-full mt-2 w-72 bg-[var(--color-card)] rounded-lg shadow-xl border border-[var(--color-border)] p-3 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150">
                   <h5 className="text-xs font-medium text-[var(--color-text)] mb-2">{t.templates?.availableVariables || 'Available Variables'}</h5>
                   <div className="space-y-1.5 text-xs">
-                    {getTemplateVariableHelp().map((v) => (
+                    {getTemplateVariableHelp(t.templates?.variables).map((v) => (
                       <div key={v.variable} className="flex justify-between">
                         <code className="text-[var(--color-accent)] font-mono">{v.variable}</code>
                         <span className="text-[var(--color-muted)]">{v.example}</span>

@@ -9,7 +9,6 @@ import { useTranslations } from '../i18n'
 import { toast } from '../utils/toast'
 import { formatShortcut, useChatShortcut } from '../utils/shortcut'
 import { TemplateSelector } from './TemplateSelector'
-import type { TemplateContext } from '../utils/templateVariables'
 
 interface ExportMenuProps {
   noteId?: string
@@ -945,7 +944,7 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
               onInsertContent(content)
             }
           }}
-          context={{ title: noteTitle || '', notebookName: notebookName || '' } as TemplateContext}
+          context={{ title: noteTitle || '', notebookName: notebookName || '' }}
           onOpenSettings={onOpenSettings ? () => onOpenSettings('templates') : undefined}
         />
       )}

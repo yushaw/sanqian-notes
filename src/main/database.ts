@@ -1957,7 +1957,7 @@ function parseTemplateVariables(
       case 'title':
         return context.title || ''
       case 'notebook':
-        return '' // 日记通常没有特定笔记本
+        return '' // 后端模板解析仅用于日记创建，不传入笔记本信息
 
       // Current Date/Time (with optional offset)
       case 'date': {

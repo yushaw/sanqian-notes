@@ -296,7 +296,8 @@ function evaluateDateCondition(
       const range = getDateRange(dateExpr.keyword)
       return isDateInRange(fieldDate, range)
     } catch {
-      // Fallback to point comparison
+      // Fallback to point comparison if range keyword is invalid
+      console.debug(`[Dataview] Range keyword "${dateExpr.keyword}" not supported, falling back to point comparison`)
     }
   }
 
@@ -306,7 +307,8 @@ function evaluateDateCondition(
       const range = getDateRange(dateExpr.keyword)
       return !isDateInRange(fieldDate, range)
     } catch {
-      // Fallback to point comparison
+      // Fallback to point comparison if range keyword is invalid
+      console.debug(`[Dataview] Range keyword "${dateExpr.keyword}" not supported, falling back to point comparison`)
     }
   }
 

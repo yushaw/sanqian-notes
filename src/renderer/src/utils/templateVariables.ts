@@ -149,81 +149,71 @@ export function hasTemplateVariables(text: string): boolean {
 }
 
 /**
- * Get list of supported template variables for help display
+ * Translations type for template variable descriptions
  */
-export function getTemplateVariableHelp(): Array<{
+export interface VariableTranslations {
+  title: string
+  notebook: string
+  date: string
+  dateFormat: string
+  dateOffset: string
+  time: string
+  week: string
+  yesterday: string
+  tomorrow: string
+  dailyDate: string
+  dailyDateOffset: string
+  dailyWeek: string
+  cursor: string
+}
+
+/**
+ * Get list of supported template variables for help display
+ * @param translations Optional translations for descriptions (falls back to Chinese)
+ */
+export function getTemplateVariableHelp(translations?: VariableTranslations): Array<{
   variable: string
   description: string
   example: string
 }> {
   const now = dayjs()
+  const t = translations ?? {
+    title: '笔记标题',
+    notebook: '笔记本名称',
+    date: '今天日期',
+    dateFormat: '自定义格式',
+    dateOffset: '天前/后',
+    time: '当前时间',
+    week: '周数',
+    yesterday: '昨天',
+    tomorrow: '明天',
+    dailyDate: '日记日期',
+    dailyDateOffset: '日记前/后一天',
+    dailyWeek: '日记周数',
+    cursor: '光标位置',
+  }
   return [
     // Note Info
-    { variable: '{{title}}', description: '笔记标题', example: 'My Note' },
-    { variable: '{{notebook}}', description: '笔记本名称', example: 'Work' },
+    { variable: '{{title}}', description: t.title, example: 'My Note' },
+    { variable: '{{notebook}}', description: t.notebook, example: 'Work' },
 
     // Current Date/Time
-    { variable: '{{date}}', description: '今天日期', example: now.format('YYYY-MM-DD') },
-    { variable: '{{date:FORMAT}}', description: '自定义格式', example: now.format('MM/DD') },
-    { variable: '{{date-7}}', description: '7天前', example: now.subtract(7, 'day').format('YYYY-MM-DD') },
-    { variable: '{{date+7}}', description: '7天后', example: now.add(7, 'day').format('YYYY-MM-DD') },
-    { variable: '{{time}}', description: '当前时间', example: now.format('HH:mm') },
-    { variable: '{{week}}', description: '周数', example: now.format('WW') },
+    { variable: '{{date}}', description: t.date, example: now.format('YYYY-MM-DD') },
+    { variable: '{{date:FORMAT}}', description: t.dateFormat, example: now.format('MM/DD') },
+    { variable: '{{date+N}}/{{date-N}}', description: t.dateOffset, example: now.subtract(7, 'day').format('YYYY-MM-DD') },
+    { variable: '{{time}}', description: t.time, example: now.format('HH:mm') },
+    { variable: '{{week}}', description: t.week, example: now.format('WW') },
 
     // Relative Dates
-    { variable: '{{yesterday}}', description: '昨天', example: now.subtract(1, 'day').format('YYYY-MM-DD') },
-    { variable: '{{tomorrow}}', description: '明天', example: now.add(1, 'day').format('YYYY-MM-DD') },
+    { variable: '{{yesterday}}', description: t.yesterday, example: now.subtract(1, 'day').format('YYYY-MM-DD') },
+    { variable: '{{tomorrow}}', description: t.tomorrow, example: now.add(1, 'day').format('YYYY-MM-DD') },
 
     // Daily Note Specific
-    { variable: '{{daily_date}}', description: '日记日期', example: now.format('YYYY-MM-DD') },
-    { variable: '{{daily_date-1}}', description: '日记前一天', example: now.subtract(1, 'day').format('YYYY-MM-DD') },
-    { variable: '{{daily_week}}', description: '日记周数', example: now.format('WW') },
+    { variable: '{{daily_date}}', description: t.dailyDate, example: now.format('YYYY-MM-DD') },
+    { variable: '{{daily_date+N}}/{{daily_date-N}}', description: t.dailyDateOffset, example: now.subtract(1, 'day').format('YYYY-MM-DD') },
+    { variable: '{{daily_week}}', description: t.dailyWeek, example: now.format('WW') },
 
     // Cursor
-    { variable: '{{cursor}}', description: '光标位置', example: '|' },
-  ]
-}
-
-/**
- * Get variable categories for organized help display
- */
-export function getTemplateVariableCategories(): Array<{
-  category: string
-  variables: Array<{ variable: string; description: string; example: string }>
-}> {
-  const now = dayjs()
-  return [
-    {
-      category: '笔记信息',
-      variables: [
-        { variable: '{{title}}', description: '笔记标题', example: 'My Note' },
-        { variable: '{{notebook}}', description: '笔记本名称', example: 'Work' },
-      ]
-    },
-    {
-      category: '日期时间',
-      variables: [
-        { variable: '{{date}}', description: '今天', example: now.format('YYYY-MM-DD') },
-        { variable: '{{date±N}}', description: 'N天偏移', example: now.subtract(7, 'day').format('YYYY-MM-DD') },
-        { variable: '{{yesterday}}', description: '昨天', example: now.subtract(1, 'day').format('YYYY-MM-DD') },
-        { variable: '{{tomorrow}}', description: '明天', example: now.add(1, 'day').format('YYYY-MM-DD') },
-        { variable: '{{time}}', description: '时间', example: now.format('HH:mm') },
-        { variable: '{{week}}', description: '周数', example: now.format('WW') },
-      ]
-    },
-    {
-      category: '日记专用',
-      variables: [
-        { variable: '{{daily_date}}', description: '日记日期', example: now.format('YYYY-MM-DD') },
-        { variable: '{{daily_date±N}}', description: '日记偏移', example: now.subtract(1, 'day').format('YYYY-MM-DD') },
-        { variable: '{{daily_week}}', description: '日记周数', example: now.format('WW') },
-      ]
-    },
-    {
-      category: '其他',
-      variables: [
-        { variable: '{{cursor}}', description: '光标位置', example: '|' },
-      ]
-    },
+    { variable: '{{cursor}}', description: t.cursor, example: '|' },
   ]
 }

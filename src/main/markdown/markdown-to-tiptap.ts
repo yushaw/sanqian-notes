@@ -42,20 +42,27 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&amp;/g, '&') // 必须放在最后，避免二次解码
 }
 
-// Storage for protected math formulas during preprocessing
-let protectedBlockMaths: string[] = []
-let protectedInlineMaths: string[] = []
+/**
+ * Context for protected math formulas during preprocessing
+ * Used to avoid module-level state that could cause concurrency issues
+ */
+interface MathContext {
+  protectedBlockMaths: string[]
+  protectedInlineMaths: string[]
+}
 
 /**
  * 预处理 Markdown，处理自定义语法
  * 保护数学公式不被 marked 错误解析（如 LaTeX 的 _ 被误认为斜体）
  */
-function preprocessMarkdown(markdown: string): string {
+function preprocessMarkdown(markdown: string): { result: string; mathContext: MathContext } {
   let result = markdown
 
-  // 重置保护的数学公式存储
-  protectedBlockMaths = []
-  protectedInlineMaths = []
+  // 创建本次转换的数学公式上下文
+  const mathContext: MathContext = {
+    protectedBlockMaths: [],
+    protectedInlineMaths: [],
+  }
 
   // 标准化换行符为 LF
   result = result.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -109,15 +116,15 @@ function preprocessMarkdown(markdown: string): string {
   // 保护块级数学公式 $$...$$（必须在行内公式之前）
   // 这些占位符会保留到 postProcessMath 阶段
   result = result.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
-    protectedBlockMaths.push(latex)
-    return `\x00BLOCK_MATH_${protectedBlockMaths.length - 1}\x00`
+    mathContext.protectedBlockMaths.push(latex)
+    return `\x00BLOCK_MATH_${mathContext.protectedBlockMaths.length - 1}\x00`
   })
 
   // 保护行内数学公式 $...$（防止 _ 被误解析为斜体）
   // 这些占位符会保留到 postProcessMath 阶段
   result = result.replace(/\$([^$\n]+)\$/g, (_, latex) => {
-    protectedInlineMaths.push(latex)
-    return `\x00INLINE_MATH_${protectedInlineMaths.length - 1}\x00`
+    mathContext.protectedInlineMaths.push(latex)
+    return `\x00INLINE_MATH_${mathContext.protectedInlineMaths.length - 1}\x00`
   })
 
   // 保护 data URI（base64 图片等）
@@ -162,7 +169,7 @@ function preprocessMarkdown(markdown: string): string {
     result = result.replace(`\x00CODE_BLOCK_${i}\x00`, block)
   })
 
-  return result
+  return { result, mathContext }
 }
 
 /**
@@ -326,7 +333,7 @@ function parseInlineTokens(tokens: Token[]): TiptapNode[] {
 /**
  * 解析单个 token
  */
-function parseToken(token: Token): TiptapNode[] {
+function parseToken(token: Token, mathContext: MathContext): TiptapNode[] {
   switch (token.type) {
     case 'heading': {
       const headingToken = token as Tokens.Heading
@@ -345,7 +352,7 @@ function parseToken(token: Token): TiptapNode[] {
       const blockMathPlaceholder = text.match(/^\x00BLOCK_MATH_(\d+)\x00$/)
       if (blockMathPlaceholder) {
         const index = parseInt(blockMathPlaceholder[1], 10)
-        const latex = protectedBlockMaths[index] || ''
+        const latex = mathContext.protectedBlockMaths[index] || ''
         return [{
           type: 'paragraph',
           content: [{
@@ -447,7 +454,7 @@ function parseToken(token: Token): TiptapNode[] {
 
       const content: TiptapNode[] = []
       for (const childToken of quoteToken.tokens || []) {
-        content.push(...parseToken(childToken))
+        content.push(...parseToken(childToken, mathContext))
       }
       return [{ type: 'blockquote', content }]
     }
@@ -494,7 +501,7 @@ function parseToken(token: Token): TiptapNode[] {
                       }
                     }
                   } else {
-                    content.push(...parseToken(token))
+                    content.push(...parseToken(token, mathContext))
                   }
                 }
               }
@@ -522,7 +529,7 @@ function parseToken(token: Token): TiptapNode[] {
                   content = [{ type: 'paragraph', content: [] }]
                 }
               } else {
-                content = parseListItemContent(item)
+                content = parseListItemContent(item, mathContext)
               }
             }
 
@@ -541,7 +548,7 @@ function parseToken(token: Token): TiptapNode[] {
           attrs: { start: listToken.start || 1 },
           content: listToken.items.map(item => ({
             type: 'listItem',
-            content: parseListItemContent(item)
+            content: parseListItemContent(item, mathContext)
           }))
         }]
       }
@@ -550,7 +557,7 @@ function parseToken(token: Token): TiptapNode[] {
         type: 'bulletList',
         content: listToken.items.map(item => ({
           type: 'listItem',
-          content: parseListItemContent(item)
+          content: parseListItemContent(item, mathContext)
         }))
       }]
     }
@@ -766,7 +773,8 @@ function parseHtmlTable(html: string): TiptapNode | null {
  */
 function parseDetailsTokens(
   tokens: Token[],
-  startIndex: number
+  startIndex: number,
+  mathContext: MathContext
 ): { node: TiptapNode; endIndex: number } | null {
   const startToken = tokens[startIndex]
   if (startToken.type !== 'html') return null
@@ -796,7 +804,7 @@ function parseDetailsTokens(
   // 解析内容
   const content: TiptapNode[] = []
   for (const token of contentTokens) {
-    content.push(...parseToken(token))
+    content.push(...parseToken(token, mathContext))
   }
 
   // 如果没有内容，添加一个空段落
@@ -817,7 +825,7 @@ function parseDetailsTokens(
 /**
  * 解析列表项内容
  */
-function parseListItemContent(item: Tokens.ListItem): TiptapNode[] {
+function parseListItemContent(item: Tokens.ListItem, mathContext: MathContext): TiptapNode[] {
   const content: TiptapNode[] = []
 
   for (const token of item.tokens || []) {
@@ -836,7 +844,7 @@ function parseListItemContent(item: Tokens.ListItem): TiptapNode[] {
         })
       }
     } else {
-      content.push(...parseToken(token))
+      content.push(...parseToken(token, mathContext))
     }
   }
 
@@ -847,7 +855,7 @@ function parseListItemContent(item: Tokens.ListItem): TiptapNode[] {
  * 后处理：处理数学公式占位符
  * 将预处理阶段保护的数学公式占位符转换为 inlineMath 节点
  */
-function postProcessMath(nodes: TiptapNode[]): TiptapNode[] {
+function postProcessMath(nodes: TiptapNode[], mathContext: MathContext): TiptapNode[] {
   return nodes.map(node => {
     if (node.type === 'paragraph' && node.content) {
       const newContent: TiptapNode[] = []
@@ -864,7 +872,7 @@ function postProcessMath(nodes: TiptapNode[]): TiptapNode[] {
             const blockMathMatch = part.match(/^\x00BLOCK_MATH_(\d+)\x00$/)
             if (blockMathMatch) {
               const index = parseInt(blockMathMatch[1], 10)
-              const latex = protectedBlockMaths[index] || ''
+              const latex = mathContext.protectedBlockMaths[index] || ''
               newContent.push({
                 type: 'inlineMath',
                 attrs: { latex, display: 'yes' }
@@ -876,7 +884,7 @@ function postProcessMath(nodes: TiptapNode[]): TiptapNode[] {
             const inlineMathMatch = part.match(/^\x00INLINE_MATH_(\d+)\x00$/)
             if (inlineMathMatch) {
               const index = parseInt(inlineMathMatch[1], 10)
-              const latex = protectedInlineMaths[index] || ''
+              const latex = mathContext.protectedInlineMaths[index] || ''
               newContent.push({
                 type: 'inlineMath',
                 attrs: { latex }
@@ -911,7 +919,7 @@ function postProcessMath(nodes: TiptapNode[]): TiptapNode[] {
 
     // 递归处理子节点
     if (node.content) {
-      return { ...node, content: postProcessMath(node.content) }
+      return { ...node, content: postProcessMath(node.content, mathContext) }
     }
 
     return node
@@ -971,7 +979,7 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
   }
 
   // 预处理自定义语法
-  const preprocessed = preprocessMarkdown(trimmed)
+  const { result: preprocessed, mathContext } = preprocessMarkdown(trimmed)
 
   // 配置 marked
   marked.setOptions({
@@ -991,19 +999,19 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
 
     // 检测 <details> 开始标签
     if (token.type === 'html' && token.raw.trim().startsWith('<details')) {
-      const result = parseDetailsTokens(tokens, i)
-      if (result) {
-        content.push(result.node)
-        i = result.endIndex // 跳过已处理的 tokens
+      const detailsResult = parseDetailsTokens(tokens, i, mathContext)
+      if (detailsResult) {
+        content.push(detailsResult.node)
+        i = detailsResult.endIndex // 跳过已处理的 tokens
         continue
       }
     }
 
-    content.push(...parseToken(token))
+    content.push(...parseToken(token, mathContext))
   }
 
   // 后处理：处理行内数学公式
-  const processedContent = postProcessMath(content)
+  const processedContent = postProcessMath(content, mathContext)
 
   // 后处理：移除空文本节点（TipTap 不允许）
   const cleanedContent = removeEmptyTextNodes(processedContent)

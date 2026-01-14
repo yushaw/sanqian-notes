@@ -40,12 +40,9 @@ export function parseTemplateText(text: string, context: TemplateContext): Parse
   // For daily notes, use the target date; otherwise use today
   const dailyDate = context.dailyDate ? dayjs(context.dailyDate) : now
 
-  let cursorOffset: number | null = null
-  let currentOffset = 0
-
   // Match {{variable}} or {{variable:format}}
   // Variable can include underscore, +/- offset (e.g., daily_date, date-7, date+3)
-  const result = text.replace(/\{\{(\w+)([+-]\d+)?(?::([^}]+))?\}\}/g, (match, variable, offset, format, matchOffset) => {
+  const result = text.replace(/\{\{(\w+)([+-]\d+)?(?::([^}]+))?\}\}/g, (match, variable, offset, format) => {
     let replacement = ''
     const varLower = variable.toLowerCase()
     const offsetDays = offset ? parseInt(offset, 10) : 0
@@ -108,9 +105,8 @@ export function parseTemplateText(text: string, context: TemplateContext): Parse
 
       // === Cursor ===
       case 'cursor':
-        // Record cursor position (adjusted for previous replacements)
-        cursorOffset = currentOffset + matchOffset
-        replacement = ''
+        // Use invisible separator as placeholder, Editor will handle cursor positioning
+        replacement = '\u2063'
         break
 
       default:
@@ -118,13 +114,11 @@ export function parseTemplateText(text: string, context: TemplateContext): Parse
         replacement = match
     }
 
-    // Track offset adjustment
-    currentOffset += replacement.length - match.length
-
     return replacement
   })
 
-  return { content: result, cursorOffset }
+  // cursorOffset is deprecated - cursor is now handled via \u2063 placeholder
+  return { content: result, cursorOffset: null }
 }
 
 /**

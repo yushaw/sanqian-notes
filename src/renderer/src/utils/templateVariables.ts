@@ -151,7 +151,7 @@ export function parseTemplateContent(
  * Check if content contains any template variables
  */
 export function hasTemplateVariables(text: string): boolean {
-  return /\{\{(\w+)(?::[^}]+)?\}\}/.test(text)
+  return /\{\{(\w+)([+-]\d+)?(?::[^}]+)?\}\}/.test(text)
 }
 
 /**

@@ -155,27 +155,27 @@ export function getDateRange(keyword: RangeKeyword | string): DateRange {
     case 'this_week':
       return {
         start: now.startOf('isoWeek').toDate(),
-        end: now.endOf('isoWeek').add(1, 'millisecond').toDate(),
+        end: now.add(1, 'week').startOf('isoWeek').toDate(),
       }
     case 'last_week':
       return {
         start: now.subtract(1, 'week').startOf('isoWeek').toDate(),
-        end: now.subtract(1, 'week').endOf('isoWeek').add(1, 'millisecond').toDate(),
+        end: now.startOf('isoWeek').toDate(),
       }
     case 'this_month':
       return {
         start: now.startOf('month').toDate(),
-        end: now.endOf('month').add(1, 'millisecond').toDate(),
+        end: now.add(1, 'month').startOf('month').toDate(),
       }
     case 'last_month':
       return {
         start: now.subtract(1, 'month').startOf('month').toDate(),
-        end: now.subtract(1, 'month').endOf('month').add(1, 'millisecond').toDate(),
+        end: now.startOf('month').toDate(),
       }
     case 'this_year':
       return {
         start: now.startOf('year').toDate(),
-        end: now.endOf('year').add(1, 'millisecond').toDate(),
+        end: now.add(1, 'year').startOf('year').toDate(),
       }
     default:
       throw new Error(`Invalid range keyword: ${keyword}`)

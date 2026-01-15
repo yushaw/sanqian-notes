@@ -1265,3 +1265,39 @@ export async function fetchEmbeddingConfigFromSanqian(): Promise<{
     return null
   }
 }
+
+/**
+ * Fetch rerank configuration from Sanqian
+ */
+export async function fetchRerankConfigFromSanqian(): Promise<{
+  available: boolean
+  apiUrl?: string
+  apiKey?: string
+  modelName?: string
+} | null> {
+  if (!client) {
+    console.log('[Notes SDK] Client not initialized, cannot fetch rerank config')
+    return null
+  }
+
+  try {
+    await client.ensureReady()
+    const config = await client.getRerankConfig()
+
+    if (config?.available) {
+      console.log(
+        `[Notes SDK] Got rerank config from Sanqian: model=${config.modelName}, apiUrl=${config.apiUrl}`
+      )
+    } else {
+      console.log('[Notes SDK] Sanqian has no rerank configured')
+    }
+
+    return config
+  } catch (error) {
+    console.log(
+      '[Notes SDK] Failed to fetch rerank config from Sanqian:',
+      error instanceof Error ? error.message : error
+    )
+    return null
+  }
+}

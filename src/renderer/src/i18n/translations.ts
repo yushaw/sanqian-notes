@@ -231,6 +231,7 @@ export interface Translations {
       sanqianVersionTooOldHint: string
       refreshSanqian: string
       retryFetch: string
+      rerankModel: string
       presets: {
         openaiSmall: string
         openaiLarge: string
@@ -1123,7 +1124,7 @@ const zh: Translations = {
       apiKey: 'API Key',
       apiKeyPlaceholder: '输入 API Key',
       apiUrl: 'API 地址',
-      modelName: '模型名称',
+      modelName: 'Embedding 模型',
       dimensions: '向量维度',
       testConnection: '测试连接',
       testing: '测试中...',
@@ -1161,10 +1162,11 @@ const zh: Translations = {
       sanqianVersionTooOldHint: '请访问 Sanqian.io 下载升级',
       refreshSanqian: '刷新',
       retryFetch: '重试',
+      rerankModel: 'Rerank 模型',
       presets: {
         openaiSmall: 'OpenAI text-embedding-3-small',
         openaiLarge: 'OpenAI text-embedding-3-large',
-        zhipu: '智谱 embedding-3',
+        zhipu: '智谱 embedding-3 + rerank',
         ollama: 'Ollama 本地模型',
         custom: '自定义'
       }
@@ -2049,7 +2051,7 @@ const en: Translations = {
       apiKey: 'API Key',
       apiKeyPlaceholder: 'Enter API Key',
       apiUrl: 'API URL',
-      modelName: 'Model Name',
+      modelName: 'Embedding Model',
       dimensions: 'Dimensions',
       testConnection: 'Test Connection',
       testing: 'Testing...',
@@ -2087,10 +2089,11 @@ const en: Translations = {
       sanqianVersionTooOldHint: 'Please visit Sanqian.io to download and upgrade',
       refreshSanqian: 'Refresh',
       retryFetch: 'Retry',
+      rerankModel: 'Rerank Model',
       presets: {
         openaiSmall: 'OpenAI text-embedding-3-small',
         openaiLarge: 'OpenAI text-embedding-3-large',
-        zhipu: 'Zhipu embedding-3',
+        zhipu: 'Zhipu embedding-3 + rerank',
         ollama: 'Ollama Local',
         custom: 'Custom'
       }

@@ -48,6 +48,16 @@ export {
 // API
 export { getEmbeddings, getEmbedding, testEmbeddingAPI } from './api'
 
+// Rerank API
+export {
+  setRerankConfig,
+  getRerankConfig,
+  isRerankAvailable,
+  callRerankAPI,
+  testRerankAPI,
+  type RerankApiConfig
+} from './rerank-api'
+
 // 分块
 export {
   ChunkingService,

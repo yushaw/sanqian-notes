@@ -750,7 +750,10 @@ export function searchEmbeddings(
         e.note_id,
         e.notebook_id,
         e.distance,
-        c.chunk_text
+        c.chunk_text,
+        c.char_start,
+        c.char_end,
+        c.chunk_index
       FROM (
         SELECT chunk_id, note_id, notebook_id, distance
         FROM note_embeddings
@@ -766,6 +769,9 @@ export function searchEmbeddings(
       notebook_id: string
       distance: number
       chunk_text: string
+      char_start: number
+      char_end: number
+      chunk_index: number
     }>
 
   // 过滤距离阈值并转换为结果格式
@@ -783,7 +789,10 @@ export function searchEmbeddings(
         notebookId: row.notebook_id,
         chunkText: row.chunk_text,
         distance: row.distance,
-        score
+        score,
+        charStart: row.char_start,
+        charEnd: row.char_end,
+        chunkIndex: row.chunk_index
       })
     }
   }
@@ -819,7 +828,10 @@ export function searchEmbeddingsInNotebook(
         e.note_id,
         e.notebook_id,
         e.distance,
-        c.chunk_text
+        c.chunk_text,
+        c.char_start,
+        c.char_end,
+        c.chunk_index
       FROM (
         SELECT chunk_id, note_id, notebook_id, distance
         FROM note_embeddings
@@ -835,6 +847,9 @@ export function searchEmbeddingsInNotebook(
       notebook_id: string
       distance: number
       chunk_text: string
+      char_start: number
+      char_end: number
+      chunk_index: number
     }>
 
   const results: VectorSearchResult[] = []
@@ -849,7 +864,10 @@ export function searchEmbeddingsInNotebook(
         notebookId: row.notebook_id,
         chunkText: row.chunk_text,
         distance: row.distance,
-        score
+        score,
+        charStart: row.char_start,
+        charEnd: row.char_end,
+        chunkIndex: row.chunk_index
       })
     }
   }
@@ -868,6 +886,9 @@ export interface KeywordSearchResult {
   notebookId: string
   chunkText: string
   matchCount: number // 匹配次数
+  charStart: number
+  charEnd: number
+  chunkIndex: number
 }
 
 /**
@@ -909,7 +930,7 @@ export function searchKeyword(
   }
 
   let sql = `
-    SELECT chunk_id, note_id, notebook_id, chunk_text
+    SELECT chunk_id, note_id, notebook_id, chunk_text, char_start, char_end, chunk_index
     FROM note_chunks
     WHERE (${conditions.join(' OR ')})
   `
@@ -927,6 +948,9 @@ export function searchKeyword(
     note_id: string
     notebook_id: string
     chunk_text: string
+    char_start: number
+    char_end: number
+    chunk_index: number
   }>
 
   // 构建匹配正则（所有词 OR）
@@ -943,7 +967,10 @@ export function searchKeyword(
       noteId: row.note_id,
       notebookId: row.notebook_id,
       chunkText: row.chunk_text,
-      matchCount
+      matchCount,
+      charStart: row.char_start,
+      charEnd: row.char_end,
+      chunkIndex: row.chunk_index
     }
   })
 

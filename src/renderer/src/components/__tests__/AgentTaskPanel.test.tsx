@@ -15,6 +15,45 @@ import type { AgentTaskRecord } from '../../../../shared/types'
 
 // Mock translations
 vi.mock('../../i18n', () => ({
+  useI18n: () => ({
+    language: 'zh',
+    isZh: true,
+    t: {
+      agentTask: {
+        phaseContent: '生成内容',
+        phaseEditor: '格式化输出',
+        modeAppend: '追加',
+        modeReplace: '替换',
+        outputLinked: '已输出',
+        outputPending: '待输出',
+        formatLabel: '格式',
+        formatAuto: '自动',
+        formatParagraph: '段落',
+        formatList: '列表',
+        formatTable: '表格',
+        formatCode: '代码',
+        formatQuote: '引用',
+        execute: '运行',
+        cancel: '取消',
+        copy: '复制',
+        remove: '移除',
+        retry: '重试',
+        configure: '配置',
+        collapse: '收起',
+        insertBelow: '插入',
+        additionalPromptPlaceholder: '可选指令...',
+        emptyContent: '(空)',
+        useAgent: '使用',
+        noAgents: '无可用 Agent',
+        executingMessage: '处理中...',
+        thinking: '思考',
+        unknownError: '未知错误',
+        interrupted: '任务被中断',
+        reconfigure: '重新配置',
+        reExecute: '重试',
+      },
+    },
+  }),
   useTranslations: () => ({
     agentTask: {
       phaseContent: '生成内容',

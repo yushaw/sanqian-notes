@@ -195,6 +195,16 @@ interface Window {
         }
         error?: 'timeout' | 'not_configured'
       }>
+      fetchRerankFromSanqian: () => Promise<{
+        success: boolean
+        config: {
+          available: boolean
+          apiUrl?: string
+          apiKey?: string
+          modelName?: string
+        }
+        error?: 'timeout' | 'not_configured'
+      }>
       testAPI: (config?: {
         enabled?: boolean
         source?: 'sanqian' | 'custom'

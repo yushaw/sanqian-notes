@@ -48,7 +48,7 @@
     "@tiptap/react": "^3.13.0",
     "@tiptap/starter-kit": "^3.13.0",
     "@tiptap/suggestion": "^3.13.0",
-    "@yushaw/sanqian-chat": "^0.2.18",
+    "@yushaw/sanqian-chat": "^0.2.19",
     "better-sqlite3": "^12.5.0",
     "cheerio": "^1.1.2",
     "clsx": "^2.1.1",

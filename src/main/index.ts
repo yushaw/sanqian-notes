@@ -122,10 +122,11 @@ import {
   getDimensionsForModel,
   type EmbeddingConfig,
 } from './embedding'
-import { fetchEmbeddingConfigFromSanqian, updateSdkContexts } from './sanqian-sdk'
+import { fetchEmbeddingConfigFromSanqian, fetchRerankConfigFromSanqian, updateSdkContexts } from './sanqian-sdk'
 import { setAppLocale, t } from './i18n'
 import { testEmbeddingAPI } from './embedding/api'
-import { semanticSearch, hybridSearch } from './embedding/semantic-search'
+import { setRerankConfig, callRerankAPI } from './embedding/rerank-api'
+import { semanticSearch, hybridSearch, configureRerank } from './embedding/semantic-search'
 import {
   getImporters,
   detectImporter,
@@ -1189,8 +1190,14 @@ async function syncEmbeddingConfigFromSanqian(): Promise<void> {
       } else {
         console.log('[Main] Embedding config synced from Sanqian')
       }
+
+      // 同步 Rerank 配置
+      await syncRerankConfigFromSanqian()
     } else {
       console.log('[Main] Sanqian embedding not available, using cached config')
+      // 禁用 rerank
+      setRerankConfig(null)
+      configureRerank({ enabled: false })
 
       // Check model consistency with cached config
       const consistency = checkModelConsistency()
@@ -1205,6 +1212,40 @@ async function syncEmbeddingConfigFromSanqian(): Promise<void> {
     }
   } catch (error) {
     console.error('[Main] Failed to sync embedding config:', error)
+  }
+}
+
+/**
+ * 同步 Rerank 配置
+ */
+async function syncRerankConfigFromSanqian(): Promise<void> {
+  try {
+    const rerankConfig = await fetchRerankConfigFromSanqian()
+
+    if (rerankConfig?.available) {
+      // 设置 Rerank API 配置
+      setRerankConfig({
+        apiUrl: rerankConfig.apiUrl || '',
+        apiKey: rerankConfig.apiKey || '',
+        modelName: rerankConfig.modelName || ''
+      })
+
+      // 配置 semantic-search 使用 rerank
+      configureRerank({
+        enabled: true,
+        rerankFn: callRerankAPI
+      })
+
+      console.log(`[Main] Rerank config synced from Sanqian: model=${rerankConfig.modelName}`)
+    } else {
+      console.log('[Main] Sanqian rerank not available')
+      setRerankConfig(null)
+      configureRerank({ enabled: false })
+    }
+  } catch (error) {
+    console.error('[Main] Failed to sync rerank config:', error)
+    setRerankConfig(null)
+    configureRerank({ enabled: false })
   }
 }
 
@@ -1710,6 +1751,24 @@ app.whenReady().then(() => {
     }
     // config is null means timeout/error (likely Sanqian version too old)
     // config.available === false means Sanqian responded but embedding not configured
+    if (config === null) {
+      return { success: false, config: { available: false }, error: 'timeout' }
+    }
+    return { success: false, config: { available: false }, error: 'not_configured' }
+  })
+  ipcMain.handle('knowledgeBase:fetchRerankFromSanqian', async () => {
+    const config = await fetchRerankConfigFromSanqian()
+    if (config?.available) {
+      return {
+        success: true,
+        config: {
+          available: true,
+          apiUrl: config.apiUrl,
+          apiKey: config.apiKey,
+          modelName: config.modelName,
+        },
+      }
+    }
     if (config === null) {
       return { success: false, config: { available: false }, error: 'timeout' }
     }

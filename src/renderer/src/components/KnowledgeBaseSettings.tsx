@@ -117,6 +117,10 @@ export function KnowledgeBaseSettings() {
     modelName?: string
     dimensions?: number
   } | null>(null)
+  const [rerankConfig, setRerankConfig] = useState<{
+    available: boolean
+    modelName?: string
+  } | null>(null)
   const [sanqianError, setSanqianError] = useState<'timeout' | 'not_configured' | null>(null)
   const [fetchingSanqian, setFetchingSanqian] = useState(false)
   const rebuildCheckTimer = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -198,8 +202,21 @@ export function KnowledgeBaseSettings() {
       if (result.success && result.config.available) {
         setSanqianConfig(result.config)
         setSanqianError(null)
+
+        // Embedding 可用时，也尝试获取 Rerank 配置
+        try {
+          const rerankResult = await window.electron.knowledgeBase.fetchRerankFromSanqian()
+          if (rerankResult.success && rerankResult.config.available) {
+            setRerankConfig(rerankResult.config)
+          } else {
+            setRerankConfig({ available: false })
+          }
+        } catch {
+          setRerankConfig({ available: false })
+        }
       } else {
         setSanqianConfig({ available: false })
+        setRerankConfig({ available: false })
         // 区分超时（版本过低）和未配置
         setSanqianError(result.error || 'not_configured')
       }
@@ -209,6 +226,7 @@ export function KnowledgeBaseSettings() {
 
       console.error('Failed to fetch sanqian config:', error)
       setSanqianConfig({ available: false })
+      setRerankConfig({ available: false })
       // 网络错误等异常也当作连接失败处理，显示"版本过低"提示
       setSanqianError('timeout')
     } finally {
@@ -545,6 +563,12 @@ export function KnowledgeBaseSettings() {
                       <span className="ml-2 text-[var(--color-text)]">{sanqianConfig.dimensions || '-'}</span>
                     </div>
                   </div>
+                  {rerankConfig?.available && (
+                    <div className="text-sm">
+                      <span className="text-[var(--color-muted)]">{t.settings.knowledgeBase.rerankModel}:</span>
+                      <span className="ml-2 text-[var(--color-text)]">{rerankConfig.modelName || '-'}</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-3 pt-2">
                     <button
                       onClick={handleSave}

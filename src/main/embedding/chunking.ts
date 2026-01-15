@@ -18,12 +18,30 @@ export const CHUNK_SIZE = 800 // 字符数（约 300 tokens）
 export const CHUNK_OVERLAP = 100 // 重叠字符数（12.5%）
 export const MIN_CHUNK_SIZE = 100 // 最小分块阈值
 
+// 受保护结构的正则表达式（不能被切断的结构）
+// 参考 WeKnora: https://github.com/Tencent/WeKnora
+const PROTECTED_PATTERNS = {
+  // 代码块: ```...```
+  codeBlock: /```[\s\S]*?```/g,
+  // 数学公式块: $$...$$
+  mathBlock: /\$\$[\s\S]*?\$\$/g
+}
+
+// 受保护结构的标识
+interface ProtectedRegion {
+  start: number
+  end: number
+  type: 'codeBlock' | 'mathBlock' | 'table'
+  content: string
+}
+
 /**
  * 分块服务
  */
 export class ChunkingService {
   private chunkSize: number
   private chunkOverlap: number
+  private mergeSmallChunksEnabled: boolean
 
   // 通用分隔符（中文优化）
   private baseSeparators = [
@@ -42,9 +60,14 @@ export class ChunkingService {
     '' // 字符级别（最后手段）
   ]
 
-  constructor(chunkSize: number = CHUNK_SIZE, chunkOverlap: number = CHUNK_OVERLAP) {
+  constructor(
+    chunkSize: number = CHUNK_SIZE,
+    chunkOverlap: number = CHUNK_OVERLAP,
+    mergeSmallChunksEnabled: boolean = true
+  ) {
     this.chunkSize = chunkSize
     this.chunkOverlap = chunkOverlap
+    this.mergeSmallChunksEnabled = mergeSmallChunksEnabled
   }
 
   /**
@@ -115,6 +138,174 @@ export class ChunkingService {
   }
 
   /**
+   * 查找文本中所有受保护的结构区域
+   */
+  private findProtectedRegions(text: string): ProtectedRegion[] {
+    const regions: ProtectedRegion[] = []
+
+    // 查找代码块
+    const codeBlockRegex = new RegExp(PROTECTED_PATTERNS.codeBlock.source, 'g')
+    let match: RegExpExecArray | null
+    while ((match = codeBlockRegex.exec(text)) !== null) {
+      regions.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        type: 'codeBlock',
+        content: match[0]
+      })
+    }
+
+    // 查找数学公式块
+    const mathBlockRegex = new RegExp(PROTECTED_PATTERNS.mathBlock.source, 'g')
+    while ((match = mathBlockRegex.exec(text)) !== null) {
+      // 检查是否与代码块重叠（代码块内的 $$ 不算）
+      const isInsideCodeBlock = regions.some(
+        (r) => r.type === 'codeBlock' && match!.index >= r.start && match!.index < r.end
+      )
+      if (!isInsideCodeBlock) {
+        regions.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          type: 'mathBlock',
+          content: match[0]
+        })
+      }
+    }
+
+    // 查找表格（使用行扫描方式，更可靠）
+    const tableRegions = this.findTableRegions(text, regions)
+    regions.push(...tableRegions)
+
+    // 按起始位置排序
+    return regions.sort((a, b) => a.start - b.start)
+  }
+
+  /**
+   * 通过行扫描方式查找表格区域
+   * 表格特征：连续的以 | 开头和结尾的行，且包含分隔行 |---|
+   */
+  private findTableRegions(
+    text: string,
+    existingRegions: ProtectedRegion[]
+  ): ProtectedRegion[] {
+    const tableRegions: ProtectedRegion[] = []
+    const lines = text.split('\n')
+    let currentPos = 0
+    let tableStartPos = -1
+    let tableLines: string[] = []
+    let hasSeparatorLine = false
+
+    const isTableLine = (line: string): boolean => {
+      const trimmed = line.trim()
+      return trimmed.startsWith('|') && trimmed.endsWith('|')
+    }
+
+    const isSeparatorLine = (line: string): boolean => {
+      // 分隔行: | --- | --- | 或 |:---|:---| 等
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return false
+      // 去掉首尾的 |，然后按 | 分割
+      const cells = trimmed.slice(1, -1).split('|')
+      // 每个单元格只能包含 -, :, 空格，且至少有一个 -
+      return cells.every((cell) => /^[\s:-]*-[\s:-]*$/.test(cell))
+    }
+
+    const isInsideExistingRegion = (pos: number): boolean => {
+      return existingRegions.some((r) => pos >= r.start && pos < r.end)
+    }
+
+    const saveTable = () => {
+      if (tableLines.length >= 2 && hasSeparatorLine) {
+        const content = tableLines.join('\n')
+        tableRegions.push({
+          start: tableStartPos,
+          end: tableStartPos + content.length,
+          type: 'table',
+          content
+        })
+      }
+      tableStartPos = -1
+      tableLines = []
+      hasSeparatorLine = false
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const lineStart = currentPos
+      currentPos += line.length + 1 // +1 for \n
+
+      // 跳过已有保护区域内的行
+      if (isInsideExistingRegion(lineStart)) {
+        if (tableStartPos !== -1) saveTable()
+        continue
+      }
+
+      if (isTableLine(line)) {
+        if (tableStartPos === -1) {
+          tableStartPos = lineStart
+        }
+        tableLines.push(line)
+        if (isSeparatorLine(line)) {
+          hasSeparatorLine = true
+        }
+      } else {
+        // 非表格行，保存之前的表格
+        if (tableStartPos !== -1) {
+          saveTable()
+        }
+      }
+    }
+
+    // 处理文件末尾的表格
+    if (tableStartPos !== -1) {
+      saveTable()
+    }
+
+    return tableRegions
+  }
+
+  /**
+   * 将文本分割成单元，受保护结构作为独立单元
+   * 返回: { text: string, isProtected: boolean }[]
+   * 注意：保留空白文本以确保位置计算正确
+   */
+  private splitIntoUnits(text: string): Array<{ text: string; isProtected: boolean }> {
+    const regions = this.findProtectedRegions(text)
+
+    if (regions.length === 0) {
+      return [{ text, isProtected: false }]
+    }
+
+    const units: Array<{ text: string; isProtected: boolean }> = []
+    let currentPos = 0
+
+    for (const region of regions) {
+      // 添加保护区域之前的普通文本（包括空白文本，以保持位置准确）
+      if (region.start > currentPos) {
+        const normalText = text.slice(currentPos, region.start)
+        // 只有纯空白且没有换行的才跳过，有换行的保留（可能是段落分隔）
+        if (normalText.length > 0 && (normalText.trim() || normalText.includes('\n'))) {
+          units.push({ text: normalText, isProtected: false })
+        }
+      }
+
+      // 添加受保护的结构
+      units.push({ text: region.content, isProtected: true })
+      currentPos = region.end
+    }
+
+    // 添加最后一个保护区域之后的文本
+    if (currentPos < text.length) {
+      const remainingText = text.slice(currentPos)
+      if (remainingText.length > 0 && (remainingText.trim() || remainingText.includes('\n'))) {
+        units.push({ text: remainingText, isProtected: false })
+      }
+    }
+
+    return units
+  }
+
+  /**
    * 检测文本是否为 Markdown 格式
    */
   private isMarkdown(text: string): boolean {
@@ -174,41 +365,107 @@ export class ChunkingService {
   }
 
   /**
-   * Markdown 两阶段分块
+   * Markdown 分块（带结构保护）
+   *
+   * 策略：
+   * 1. 先识别受保护结构（代码块、表格、数学公式块）
+   * 2. 将文本分成单元，受保护结构作为原子单元
+   * 3. 对非保护单元按标题分割，再做递归分块
+   * 4. 保护单元保持完整（即使超过 chunkSize）
    */
   private splitMarkdown(text: string): string[] {
-    // 第一阶段：按标题分割成 sections
-    const sections = this.splitByHeaders(text)
-
-    // 第二阶段：对过大的 section 做二次分割
+    // 分割成单元
+    const units = this.splitIntoUnits(text)
     const finalChunks: string[] = []
 
-    for (const section of sections) {
-      if (section.length <= this.chunkSize) {
-        finalChunks.push(section)
+    for (const unit of units) {
+      if (unit.isProtected) {
+        // 受保护结构：保持完整，不切分
+        // 即使超过 chunkSize，也保持完整（保证结构语义）
+        finalChunks.push(unit.text)
       } else {
-        const subChunks = this.splitTextRecursive(section, this.baseSeparators)
-        const overlappedSubChunks = this.applyOverlap(subChunks)
-        finalChunks.push(...overlappedSubChunks)
+        // 非保护文本：正常分块流程
+        // 第一阶段：按标题分割成 sections
+        const sections = this.splitByHeaders(unit.text)
+
+        // 第二阶段：对过大的 section 做二次分割
+        for (const section of sections) {
+          if (section.length <= this.chunkSize) {
+            finalChunks.push(section)
+          } else {
+            const subChunks = this.splitTextRecursive(section, this.baseSeparators)
+            const overlappedSubChunks = this.applyOverlap(subChunks)
+            finalChunks.push(...overlappedSubChunks)
+          }
+        }
       }
     }
 
-    return finalChunks
+    // 合并相邻的小块（避免过度碎片化），传入原文用于验证拼接
+    return this.mergeSmallChunksEnabled ? this.mergeSmallChunks(finalChunks, text) : finalChunks
+  }
+
+  /**
+   * 合并相邻的小块，避免过度碎片化
+   * 只有当 buffer + chunk 在原文中存在时才合并，保证 chunkText 是原文子串
+   *
+   * @param chunks - 待合并的 chunks
+   * @param sourceText - 原始文本，用于验证拼接是否合法
+   */
+  private mergeSmallChunks(chunks: string[], sourceText?: string): string[] {
+    if (chunks.length <= 1) return chunks
+
+    const merged: string[] = []
+    let buffer = ''
+
+    for (const chunk of chunks) {
+      if (!buffer) {
+        buffer = chunk
+        continue
+      }
+
+      const candidate = buffer + chunk
+
+      // 只有当拼接结果在原文中存在且不超过 chunkSize 时才合并
+      const existsInSource = sourceText ? sourceText.includes(candidate) : true
+      const withinSize = candidate.length <= this.chunkSize
+
+      if (existsInSource && withinSize) {
+        buffer = candidate
+      } else {
+        // 不能合并，保存 buffer，开始新的
+        merged.push(buffer)
+        buffer = chunk
+      }
+    }
+
+    if (buffer) {
+      merged.push(buffer)
+    }
+
+    return merged
   }
 
   /**
    * 按 Markdown 标题分割
+   * 保留原始分隔符以确保位置计算正确
    */
   private splitByHeaders(text: string): string[] {
     const lines = text.split('\n')
     const sections: string[] = []
     let currentSectionLines: string[] = []
     let inCodeBlock = false
+    let pendingBlankLines: string[] = [] // 暂存标题前的空行
 
     for (const line of lines) {
       // 检测代码块边界
       if (line.startsWith('```')) {
         inCodeBlock = !inCodeBlock
+        // 如果有暂存的空行，先加到当前 section
+        if (pendingBlankLines.length > 0) {
+          currentSectionLines.push(...pendingBlankLines)
+          pendingBlankLines = []
+        }
         currentSectionLines.push(line)
         continue
       }
@@ -219,18 +476,37 @@ export class ChunkingService {
         continue
       }
 
+      // 检查是否是空行（可能是标题前的分隔符）
+      if (line.trim() === '') {
+        pendingBlankLines.push(line)
+        continue
+      }
+
       // 检查是否是标题行
       if (/^#{1,6}\s+.+$/.test(line)) {
+        // 将暂存的空行加到前一个 section（保持原始分隔）
+        if (pendingBlankLines.length > 0) {
+          currentSectionLines.push(...pendingBlankLines)
+          pendingBlankLines = []
+        }
         if (currentSectionLines.length > 0) {
           sections.push(currentSectionLines.join('\n'))
         }
         currentSectionLines = [line]
       } else {
+        // 非标题行，将暂存的空行和当前行都加到 section
+        if (pendingBlankLines.length > 0) {
+          currentSectionLines.push(...pendingBlankLines)
+          pendingBlankLines = []
+        }
         currentSectionLines.push(line)
       }
     }
 
-    // 添加最后一个 section
+    // 处理末尾
+    if (pendingBlankLines.length > 0) {
+      currentSectionLines.push(...pendingBlankLines)
+    }
     if (currentSectionLines.length > 0) {
       sections.push(currentSectionLines.join('\n'))
     }
@@ -329,6 +605,10 @@ export class ChunkingService {
 
   /**
    * 计算每个 chunk 在原文中的位置
+   * 策略：
+   * 1. 尝试精确匹配（去掉 overlap 前缀后搜索）
+   * 2. 如果失败，尝试匹配 chunk 开头的一小段文本
+   * 3. 最后回退到估算位置
    */
   private computeChunkPositions(text: string, chunksText: string[]): Array<[number, number]> {
     const positions: Array<[number, number]> = []
@@ -347,17 +627,38 @@ export class ChunkingService {
         searchContent = chunkContent.slice(overlapOffset)
       }
 
-      let startPos: number
+      let startPos: number = -1
+
       if (searchContent) {
-        const foundPos = text.indexOf(searchContent, currentPos)
-        startPos = foundPos === -1 ? currentPos : foundPos
+        // 策略 1: 精确匹配
+        startPos = text.indexOf(searchContent, currentPos)
+
+        // 策略 2: 如果失败，尝试匹配开头的一小段（50 字符）
+        if (startPos === -1 && searchContent.length > 50) {
+          const shortPrefix = searchContent.slice(0, 50)
+          const prefixPos = text.indexOf(shortPrefix, currentPos)
+          if (prefixPos !== -1) {
+            startPos = prefixPos
+          }
+        }
+
+        // 策略 3: 回退到当前位置估算
+        if (startPos === -1) {
+          startPos = currentPos
+        }
       } else {
         startPos = currentPos
       }
 
-      const endPos = startPos + searchContent.length
-      positions.push([startPos, endPos])
-      currentPos = startPos
+      // 计算位置：charStart/charEnd 应覆盖完整的 chunkContent（含 overlap）
+      // 这样 text.slice(charStart, charEnd) === chunkContent
+      const charStart = i === 0 ? startPos : Math.max(0, startPos - overlapOffset)
+      const charEnd = Math.min(charStart + chunkContent.length, text.length)
+      positions.push([charStart, charEnd])
+
+      // 更新 currentPos：基于非 overlap 内容的结束位置，确保下一个搜索正确
+      const uniqueEndPos = Math.min(startPos + searchContent.length, text.length)
+      currentPos = uniqueEndPos
     }
 
     return positions

@@ -121,4 +121,7 @@ export interface VectorSearchResult {
   chunkText: string
   distance: number
   score: number // 1 / (1 + distance)
+  charStart: number // chunk 在原文中的起始位置
+  charEnd: number // chunk 在原文中的结束位置
+  chunkIndex: number // chunk 索引，用于邻居扩展
 }

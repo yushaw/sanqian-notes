@@ -7,6 +7,15 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from 'vite
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { AgentSelect } from '../AgentSelect'
 
+// Mock i18n
+vi.mock('../../i18n', () => ({
+  useI18n: () => ({
+    language: 'zh',
+    isZh: true,
+    t: {},
+  }),
+}))
+
 // Mock createPortal
 vi.mock('react-dom', async () => {
   const actual = await vi.importActual('react-dom')

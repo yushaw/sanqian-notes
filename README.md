@@ -18,12 +18,23 @@ A modern, AI-powered note-taking app with Obsidian-like features.
 - **Dark/Light Mode** - Theme follows system or manual toggle
 - **Multi-language** - English and Chinese support
 
+## RAG (Retrieval-Augmented Generation)
+
+Knowledge base semantic search with the following improvements (based on [WeKnora](https://github.com/Tencent/WeKnora)):
+
+1. **Structure-Preserving Chunking** - Tables, code blocks, and math blocks are kept intact
+2. **Query Expansion** - Removes question words, extracts quoted phrases for better search
+3. **Chunk Merge** - Merges overlapping/adjacent chunks for better context
+4. **Query Rewrite** - Rewrites queries using conversation history (SDK integration)
+5. **Rerank + MMR** - Reranking with external model + Maximal Marginal Relevance for diversity
+
 ## Tech Stack
 
 - **Framework**: Electron + React + TypeScript
 - **Editor**: Tiptap (ProseMirror)
 - **Styling**: Tailwind CSS
 - **Database**: SQLite (better-sqlite3)
+- **Vector DB**: sqlite-vec (for semantic search)
 - **AI**: Sanqian SDK
 
 ## Development

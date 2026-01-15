@@ -117,6 +117,8 @@ const translations = {
 2. 直接输出结果，不要任何解释、前言、标签或代码块
 3. 保持原文格式（列表、段落等）
 4. 保持原文语言（除非指令要求翻译）`,
+      formatterName: 'Formatter',
+      formatterDescription: '精炼内容并格式化输出到笔记编辑器',
     },
     // SDK Tool descriptions
     tools: {
@@ -355,6 +357,8 @@ Your job:
 2. Output the result directly, without any explanation, preamble, tags, or code blocks
 3. Preserve the original format (lists, paragraphs, etc.)
 4. Keep the original language (unless the instruction requires translation)`,
+      formatterName: 'Formatter',
+      formatterDescription: 'Refine content and format output to note editor',
     },
     // SDK Tool descriptions
     tools: {

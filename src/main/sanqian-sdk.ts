@@ -24,7 +24,7 @@ import {
 } from '@yushaw/sanqian-chat/main'
 import { app } from 'electron'
 import {
-  formatterAgentConfig,
+  getFormatterAgentConfig,
   createEditorOutputTools,
 } from './editor-agent'
 import {
@@ -222,7 +222,7 @@ function buildAgentConfigs(): AppAgentConfig[] {
       tools: []
     },
     // Formatter Agent for formatting output
-    formatterAgentConfig
+    getFormatterAgentConfig()
   ]
 }
 

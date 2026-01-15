@@ -24,6 +24,7 @@ import type {
   OutputOperation,
   OutputOperationType,
 } from '../shared/types'
+import { t } from './i18n'
 
 // Re-export for backwards compatibility
 export type { EditorOutputContext }
@@ -42,13 +43,14 @@ const pendingOps = new Map<string, PendingOutputOps>()
 // ============================================
 
 export const FORMATTER_AGENT_ID = 'sanqian-notes:formatter'
-export const FORMATTER_AGENT_NAME = 'Formatter'
 
-export const formatterAgentConfig: AppAgentConfig = {
-  agentId: 'formatter',
-  name: 'Formatter',
-  description: '精炼内容并格式化输出到笔记编辑器',
-  systemPrompt: `你是一个内容精炼助手。你会收到：
+export function getFormatterAgentConfig(): AppAgentConfig {
+  const sdk = t().sdk
+  return {
+    agentId: 'formatter',
+    name: sdk.formatterName,
+    description: sdk.formatterDescription,
+    systemPrompt: `你是一个内容精炼助手。你会收到：
 - <user_request>：用户原始的问题或指令
 - <original_content>：AI 生成的回答
 
@@ -83,6 +85,7 @@ export const formatterAgentConfig: AppAgentConfig = {
     'insert_html',
     'create_note_ref',
   ],
+  }
 }
 
 // ============================================

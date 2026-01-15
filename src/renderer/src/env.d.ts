@@ -521,6 +521,8 @@ interface AgentCapability {
   source: 'builtin' | 'custom' | 'sdk'
   sourceId?: string
   icon?: string
+  display?: { zh?: string; en?: string }
+  shortDesc?: { zh?: string; en?: string }
 }
 
 interface AgentTaskEvent {

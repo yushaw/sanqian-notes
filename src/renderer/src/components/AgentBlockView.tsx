@@ -7,7 +7,7 @@ import { NodeViewWrapper, NodeViewContent, NodeViewProps } from '@tiptap/react'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Play, RotateCcw, Loader2, ChevronRight } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
-import { useTranslations } from '../i18n'
+import { useTranslations, useI18n } from '../i18n'
 import { Select } from './Select'
 import { createTask, updateTask, getTaskAsync } from '../utils/agentTaskStorage'
 import { toast } from '../utils/toast'
@@ -55,6 +55,8 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
   const hasContent = node.content.size > 0
 
   const t = useTranslations()
+  const { isZh } = useI18n()
+  const locale = isZh ? 'zh' : 'en'
 
   // UI state
   const [localPrompt, setLocalPrompt] = useState(additionalPrompt || '')
@@ -436,10 +438,10 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     () =>
       agents.map((a) => ({
         value: a.id,
-        label: a.name,
-        description: a.description,
+        label: a.display?.[locale] || a.name,
+        description: a.shortDesc?.[locale] || a.description,
       })),
-    [agents]
+    [agents, locale]
   )
 
   // Output format options

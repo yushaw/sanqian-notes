@@ -244,8 +244,6 @@ export function initDatabase(): void {
   // Initialize default AI actions
   initDefaultAIActions()
 
-  // Initialize default templates
-  initDefaultTemplates()
 
   // Clean up FTS tables if they exist (no longer used, LIKE search is better for CJK)
   cleanupFtsTables()
@@ -388,6 +386,9 @@ function runMigrations(): void {
     console.log('Migration completed: templates table created.')
     // Default templates are now created by initDefaultTemplates()
   }
+
+  // Initialize default templates after templates table exists
+  initDefaultTemplates()
 
   // Always update builtin actions with latest descriptions (ensures updates after code changes)
   const aiActions = t().aiActions

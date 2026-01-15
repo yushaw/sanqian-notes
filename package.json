@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "reset-db": "bash scripts/reset-database.sh"
+    "reset-db": "bash scripts/reset-database.sh",
+    "rebuild-index": "electron -r tsx/cjs scripts/rebuild-index.cjs"
   },
   "dependencies": {
     "@aarkue/tiptap-math-extension": "^1.4.0",
@@ -57,6 +58,7 @@
     "framer-motion": "^12.0.0",
     "frimousse": "^0.3.0",
     "highlight.js": "^11.11.1",
+    "jieba-wasm": "^2.4.0",
     "katex": "^0.16.27",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.562.0",

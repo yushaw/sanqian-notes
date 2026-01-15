@@ -57,8 +57,27 @@ import type { EmbeddingConfig, NoteChunk, NoteIndexStatus, VectorSearchResult } 
 import { DEFAULT_CONFIG } from './types'
 import { normalizeCjkAscii } from './utils'
 import { encrypt, decrypt } from './encryption'
+import { buildSearchTokens, tokenizeForSearch, warmupTokenizer } from './tokenizer'
 
 let db: Database.Database | null = null
+let ftsEnabled = false
+let ftsNeedsRebuild = false
+let ftsRebuildRunning = false
+let ftsRebuildDirty = false
+
+const DEFAULT_L2_THRESHOLD = 2.0
+const DEFAULT_EMBEDDING_DIM = 1536
+
+function getScaledThreshold(threshold: number): number {
+  if (!Number.isFinite(threshold)) return DEFAULT_L2_THRESHOLD
+  if (threshold !== DEFAULT_L2_THRESHOLD) return threshold
+
+  const config = getEmbeddingConfig()
+  const dim = config.dimensions
+  if (!Number.isFinite(dim) || dim <= 0) return threshold
+
+  return threshold * Math.sqrt(dim / DEFAULT_EMBEDDING_DIM)
+}
 
 /**
  * 获取数据库路径
@@ -135,12 +154,203 @@ export function initVectorDatabase(): void {
 
   // 数据库迁移：为已有表添加 chunk_hash 列
   migrateDatabase(db)
+  initFtsIndex(db)
 
   // 获取当前配置的维度来创建向量表
   const config = getEmbeddingConfigInternal(db)
   createVectorTable(db, config.dimensions)
 
   console.log('[Embedding] Vector database initialized:', dbPath)
+}
+
+/**
+ * 初始化 FTS 索引（关键词检索）
+ */
+function initFtsIndex(database: Database.Database): void {
+  try {
+    const exists = database
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='note_chunks_fts'")
+      .get() as { name?: string }
+
+    database.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS note_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        note_id UNINDEXED,
+        notebook_id UNINDEXED,
+        tokens
+      );
+    `)
+
+    ftsEnabled = true
+    setTimeout(() => {
+      try {
+        warmupTokenizer()
+      } catch (error) {
+        console.warn('[Embedding] Tokenizer warmup failed:', error)
+      }
+    }, 0)
+
+    const ftsCount = database
+      .prepare('SELECT COUNT(*) as count FROM note_chunks_fts')
+      .get() as { count: number }
+    const chunkCount = database
+      .prepare('SELECT COUNT(*) as count FROM note_chunks')
+      .get() as { count: number }
+
+    if (!exists?.name || ftsCount.count < chunkCount.count) {
+      ftsNeedsRebuild = true
+      console.log('[Embedding] FTS index pending rebuild (background)')
+    }
+  } catch (error) {
+    ftsEnabled = false
+    console.warn('[Embedding] FTS5 unavailable, fallback to LIKE:', error)
+  }
+}
+
+/**
+ * 重建 FTS 索引（用于升级或损坏修复）
+ */
+function rebuildFtsIndex(database: Database.Database, batchSize: number = 2000): void {
+  if (!ftsEnabled) return
+
+  const targetTable = 'note_chunks_fts'
+  const newTable = 'note_chunks_fts_new'
+  const backupTable = 'note_chunks_fts_old'
+
+  ftsRebuildDirty = false
+
+  const rows = database
+    .prepare('SELECT chunk_id, note_id, notebook_id, chunk_text FROM note_chunks')
+    .all() as Array<{ chunk_id: string; note_id: string; notebook_id: string; chunk_text: string }>
+
+  database.exec(`DROP TABLE IF EXISTS ${newTable};`)
+  database.exec(`
+    CREATE VIRTUAL TABLE ${newTable} USING fts5(
+      chunk_id UNINDEXED,
+      note_id UNINDEXED,
+      notebook_id UNINDEXED,
+      tokens
+    );
+  `)
+
+  const stmt = database.prepare(
+    `INSERT INTO ${newTable} (chunk_id, note_id, notebook_id, tokens) VALUES (?, ?, ?, ?)`
+  )
+
+  let cursor = 0
+  const total = rows.length
+
+  const insertBatch = () => {
+    if (!db || db !== database) {
+      ftsRebuildRunning = false
+      return
+    }
+
+    const batch = rows.slice(cursor, cursor + batchSize)
+    if (batch.length === 0) {
+      try {
+        database.exec('BEGIN IMMEDIATE;')
+        const oldExists = database
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+          .get(targetTable) as { name?: string }
+        database.exec(`DROP TABLE IF EXISTS ${backupTable};`)
+        if (oldExists?.name) {
+          database.exec(`ALTER TABLE ${targetTable} RENAME TO ${backupTable};`)
+        }
+        database.exec(`ALTER TABLE ${newTable} RENAME TO ${targetTable};`)
+        database.exec('COMMIT;')
+
+        if (oldExists?.name) {
+          database.exec(`DROP TABLE IF EXISTS ${backupTable};`)
+        }
+
+        const ftsCount = database
+          .prepare(`SELECT COUNT(*) as count FROM ${targetTable}`)
+          .get() as { count: number }
+        const chunkCount = database
+          .prepare('SELECT COUNT(*) as count FROM note_chunks')
+          .get() as { count: number }
+
+        let needsRetry = ftsRebuildDirty
+        if (ftsCount.count < chunkCount.count) {
+          ftsNeedsRebuild = true
+          needsRetry = true
+          console.warn(
+            `[Embedding] FTS rebuild incomplete: fts=${ftsCount.count}, chunks=${chunkCount.count}`
+          )
+        } else {
+          ftsNeedsRebuild = false
+        }
+
+        if (needsRetry) {
+          ftsNeedsRebuild = true
+          console.log('[Embedding] FTS rebuild dirty, scheduling another pass')
+        }
+
+        ftsRebuildDirty = false
+        ftsRebuildRunning = false
+        console.log(`[Embedding] FTS index rebuilt: ${total} chunks`)
+
+        if (needsRetry) {
+          setTimeout(() => {
+            scheduleFtsRebuild()
+          }, 0)
+        }
+      } catch (error) {
+        try {
+          database.exec('ROLLBACK;')
+        } catch {}
+        ftsRebuildRunning = false
+        ftsNeedsRebuild = true
+        console.warn('[Embedding] FTS swap failed:', error)
+      }
+      return
+    }
+
+    const insertMany = database.transaction((items: typeof rows) => {
+      for (const row of items) {
+        let tokens = ''
+        try {
+          tokens = buildSearchTokens(row.chunk_text)
+        } catch (error) {
+          console.warn(`[Embedding] FTS tokenize failed for ${row.chunk_id}:`, error)
+        }
+        stmt.run(row.chunk_id, row.note_id, row.notebook_id, tokens)
+      }
+    })
+
+    try {
+      insertMany(batch)
+      cursor += batch.length
+      setTimeout(insertBatch, 0)
+    } catch (error) {
+      ftsRebuildRunning = false
+      ftsNeedsRebuild = true
+      console.warn('[Embedding] FTS rebuild failed:', error)
+    }
+  }
+
+  insertBatch()
+}
+
+/**
+ * 后台触发 FTS rebuild（避免启动阻塞）
+ */
+export function scheduleFtsRebuild(): void {
+  if (!ftsEnabled || !ftsNeedsRebuild || ftsRebuildRunning || !db) return
+
+  ftsRebuildRunning = true
+  const database = db
+
+  setTimeout(() => {
+    try {
+      rebuildFtsIndex(database)
+    } catch (error) {
+      ftsRebuildRunning = false
+      ftsNeedsRebuild = true
+      console.warn('[Embedding] FTS rebuild failed:', error)
+    }
+  }, 0)
 }
 
 /**
@@ -273,6 +483,25 @@ export function closeVectorDatabase(): void {
     db.close()
     db = null
   }
+}
+
+/**
+ * Test helper: inject a database instance and control FTS state.
+ * Not intended for production use.
+ */
+export function __setVectorDatabaseForTests(
+  database: Database.Database | null,
+  options?: {
+    ftsEnabled?: boolean
+    ftsNeedsRebuild?: boolean
+    ftsRebuildRunning?: boolean
+  }
+): void {
+  db = database
+  ftsEnabled = options?.ftsEnabled ?? false
+  ftsNeedsRebuild = options?.ftsNeedsRebuild ?? false
+  ftsRebuildRunning = options?.ftsRebuildRunning ?? false
+  ftsRebuildDirty = false
 }
 
 /**
@@ -454,6 +683,14 @@ export function insertNoteChunks(chunks: NoteChunk[]): void {
     (chunk_id, note_id, notebook_id, chunk_index, chunk_text, chunk_hash, char_start, char_end, heading, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
+  const ftsInsertStmt = ftsEnabled
+    ? database.prepare(
+        'INSERT INTO note_chunks_fts (chunk_id, note_id, notebook_id, tokens) VALUES (?, ?, ?, ?)'
+      )
+    : null
+  const ftsDeleteStmt = ftsEnabled
+    ? database.prepare('DELETE FROM note_chunks_fts WHERE chunk_id = ?')
+    : null
 
   const insertMany = database.transaction((items: NoteChunk[]) => {
     for (const chunk of items) {
@@ -469,6 +706,18 @@ export function insertNoteChunks(chunks: NoteChunk[]): void {
         chunk.heading,
         chunk.createdAt
       )
+      if (ftsInsertStmt && ftsDeleteStmt && !ftsRebuildRunning) {
+        let tokens = ''
+        try {
+          tokens = buildSearchTokens(chunk.chunkText)
+        } catch (error) {
+          console.warn(`[Embedding] FTS tokenize failed for ${chunk.chunkId}:`, error)
+        }
+        ftsDeleteStmt.run(chunk.chunkId)
+        ftsInsertStmt.run(chunk.chunkId, chunk.noteId, chunk.notebookId, tokens)
+      } else if (ftsEnabled && ftsRebuildRunning) {
+        ftsRebuildDirty = true
+      }
     }
   })
 
@@ -481,6 +730,11 @@ export function insertNoteChunks(chunks: NoteChunk[]): void {
 export function deleteNoteChunks(noteId: string): void {
   const database = getDb()
   database.prepare('DELETE FROM note_chunks WHERE note_id = ?').run(noteId)
+  if (ftsEnabled && !ftsRebuildRunning) {
+    database.prepare('DELETE FROM note_chunks_fts WHERE note_id = ?').run(noteId)
+  } else if (ftsEnabled && ftsRebuildRunning) {
+    ftsRebuildDirty = true
+  }
 }
 
 /**
@@ -525,6 +779,13 @@ export function deleteChunksByIds(chunkIds: string[]): void {
   const database = getDb()
   const placeholders = chunkIds.map(() => '?').join(',')
   database.prepare(`DELETE FROM note_chunks WHERE chunk_id IN (${placeholders})`).run(...chunkIds)
+  if (ftsEnabled && !ftsRebuildRunning) {
+    database
+      .prepare(`DELETE FROM note_chunks_fts WHERE chunk_id IN (${placeholders})`)
+      .run(...chunkIds)
+  } else if (ftsEnabled && ftsRebuildRunning) {
+    ftsRebuildDirty = true
+  }
 }
 
 /**
@@ -728,7 +989,7 @@ export function deleteNoteEmbeddings(noteId: string): void {
 export function searchEmbeddings(
   queryEmbedding: number[],
   limit: number = 20,
-  threshold: number = 2.0 // L2 距离阈值，越小越相似
+  threshold: number = DEFAULT_L2_THRESHOLD // L2 距离阈值，越小越相似
 ): VectorSearchResult[] {
   const database = getDb()
 
@@ -777,8 +1038,10 @@ export function searchEmbeddings(
   // 过滤距离阈值并转换为结果格式
   const results: VectorSearchResult[] = []
 
+  const effectiveThreshold = getScaledThreshold(threshold)
+
   for (const row of rows) {
-    if (row.distance <= threshold) {
+    if (row.distance <= effectiveThreshold) {
       // 将 L2 距离转换为相似度分数 (0-1 范围)
       // 使用 1 / (1 + distance) 转换
       const score = 1 / (1 + row.distance)
@@ -807,7 +1070,7 @@ export function searchEmbeddingsInNotebook(
   queryEmbedding: number[],
   notebookId: string,
   limit: number = 20,
-  threshold: number = 2.0
+  threshold: number = DEFAULT_L2_THRESHOLD
 ): VectorSearchResult[] {
   const database = getDb()
 
@@ -854,9 +1117,11 @@ export function searchEmbeddingsInNotebook(
 
   const results: VectorSearchResult[] = []
 
+  const effectiveThreshold = getScaledThreshold(threshold)
+
   for (const row of rows) {
     // 过滤笔记本和距离阈值
-    if (row.notebook_id === notebookId && row.distance <= threshold) {
+    if (row.notebook_id === notebookId && row.distance <= effectiveThreshold) {
       const score = 1 / (1 + row.distance)
       results.push({
         chunkId: row.chunk_id,
@@ -905,25 +1170,117 @@ export function searchKeyword(
 ): KeywordSearchResult[] {
   const database = getDb()
 
-  // 预处理：在中英文之间插入空格
-  const normalizedKeyword = normalizeCjkAscii(keyword.trim())
+  const quotedPhrases: string[] = []
+  let remaining = keyword
+  const quotePatterns = [
+    /"([^"]+)"/g,
+    /“([^”]+)”/g
+  ]
+  for (const pattern of quotePatterns) {
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(keyword)) !== null) {
+      if (match[1]) quotedPhrases.push(match[1])
+    }
+    remaining = remaining.replace(pattern, ' ')
+  }
 
-  // 按空格分割成多个词（过滤空字符串和过短的词）
-  const words = normalizedKeyword
+  // 预处理：在中英文之间插入空格
+  const normalizedKeyword = normalizeCjkAscii(remaining.trim())
+
+  if (ftsEnabled && ftsNeedsRebuild && !ftsRebuildRunning) {
+    scheduleFtsRebuild()
+  }
+
+  const ftsReady = ftsEnabled && !ftsNeedsRebuild && !ftsRebuildRunning
+  const tokens = ftsReady
+    ? Array.from(new Set(tokenizeForSearch(normalizedKeyword))).slice(0, 12)
+    : []
+  const phraseTokens = ftsReady
+    ? quotedPhrases
+        .map((phrase) => tokenizeForSearch(normalizeCjkAscii(phrase)).join(' '))
+        .filter((phrase) => phrase.length > 0)
+        .slice(0, 4)
+    : []
+
+  if (ftsReady && (tokens.length > 0 || phraseTokens.length > 0)) {
+    try {
+      const escapedTokens = tokens.map((t) => `"${t.replace(/"/g, '""')}"`)
+      const escapedPhrases = phraseTokens.map((p) => `"${p.replace(/"/g, '""')}"`)
+      const ftsQuery = [...escapedPhrases, ...escapedTokens].join(' OR ')
+
+      const params: (string | number)[] = [ftsQuery]
+      let sql = `
+        SELECT c.chunk_id, c.note_id, c.notebook_id, c.chunk_text,
+               c.char_start, c.char_end, c.chunk_index,
+               bm25(note_chunks_fts) as bm25_score
+        FROM note_chunks_fts
+        JOIN note_chunks c ON c.chunk_id = note_chunks_fts.chunk_id
+        WHERE note_chunks_fts MATCH ?
+      `
+
+      if (notebookId) {
+        sql += ' AND c.notebook_id = ?'
+        params.push(notebookId)
+      }
+
+      sql += ' ORDER BY bm25_score LIMIT ?'
+      params.push(limit)
+
+      const rows = database.prepare(sql).all(...params) as Array<{
+        chunk_id: string
+        note_id: string
+        notebook_id: string
+        chunk_text: string
+        char_start: number
+        char_end: number
+        chunk_index: number
+        bm25_score: number
+      }>
+
+      const bm25Values = rows.map((row) => {
+        const value = row.bm25_score ?? 0
+        return Number.isFinite(value) ? value : 0
+      })
+      const minBm25 = bm25Values.length > 0 ? Math.min(...bm25Values) : 0
+
+      return rows.map((row) => {
+        const bm25Score = Number.isFinite(row.bm25_score) ? row.bm25_score : 0
+        const adjusted = Math.max(0, bm25Score - minBm25)
+        const matchCount = Math.max(1, Math.round(1000 / (1 + adjusted)))
+
+        return {
+          chunkId: row.chunk_id,
+          noteId: row.note_id,
+          notebookId: row.notebook_id,
+          chunkText: row.chunk_text,
+          matchCount,
+          charStart: row.char_start,
+          charEnd: row.char_end,
+          chunkIndex: row.chunk_index
+        }
+      })
+    } catch (error) {
+      console.warn('[Embedding] FTS query failed, fallback to LIKE:', error)
+    }
+  }
+
+  // FTS 不可用时，回退到 LIKE
+  const likeSource = [normalizedKeyword, ...quotedPhrases.map((p) => normalizeCjkAscii(p))]
+    .join(' ')
+    .trim()
+  const words = likeSource
     .split(/\s+/)
     .filter((w) => w.length >= 1)
-    .slice(0, 5) // 最多 5 个词
+    .slice(0, 5)
 
   if (words.length === 0) {
     return []
   }
 
-  // 构建 OR 查询
   const conditions: string[] = []
   const params: (string | number)[] = []
 
   for (const word of words) {
-    // 转义 LIKE 特殊字符
     const escapedWord = word.replace(/[%_\\]/g, '\\$&')
     conditions.push("chunk_text LIKE ? ESCAPE '\\'")
     params.push(`%${escapedWord}%`)
@@ -953,12 +1310,10 @@ export function searchKeyword(
     chunk_index: number
   }>
 
-  // 构建匹配正则（所有词 OR）
   const regexParts = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   const regex = new RegExp(regexParts.join('|'), 'gi')
 
   const results = rows.map((row) => {
-    // 计算所有词的总匹配次数
     const matches = row.chunk_text.match(regex)
     const matchCount = matches ? matches.length : 0
 
@@ -974,7 +1329,6 @@ export function searchKeyword(
     }
   })
 
-  // 按匹配次数降序排序
   return results.sort((a, b) => b.matchCount - a.matchCount)
 }
 
@@ -1043,6 +1397,10 @@ export function clearAllIndexData(): void {
   const database = getDb()
 
   database.exec('DELETE FROM note_chunks;')
+  if (ftsEnabled) {
+    database.exec('DELETE FROM note_chunks_fts;')
+  }
+  ftsNeedsRebuild = false
   if (embeddingsTableExists(database)) {
     database.exec('DELETE FROM note_embeddings;')
   }

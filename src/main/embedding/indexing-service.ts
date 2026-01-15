@@ -24,7 +24,8 @@ import {
   deleteNoteIndexStatus,
   getNoteChunks,
   updateChunksMetadata,
-  clearAllIndexData
+  clearAllIndexData,
+  scheduleFtsRebuild
 } from './database'
 import { chunkNote } from './chunking'
 import { getEmbeddings } from './api'
@@ -47,7 +48,9 @@ function triggerSummary(noteId: string, reason: string): void {
 }
 
 // 配置常量
-const MIN_CONTENT_LENGTH = 100 // 最小内容长度
+const MIN_CONTENT_LENGTH = Number.isFinite(Number(process.env.KB_MIN_CONTENT_LENGTH))
+  ? Number(process.env.KB_MIN_CONTENT_LENGTH)
+  : 100 // 最小内容长度
 const MAX_BATCH_SIZE = 10 // 每批处理的笔记数
 
 /**
@@ -261,6 +264,7 @@ class IndexingService {
   start(): void {
     if (this.isRunning) return
     this.isRunning = true
+    scheduleFtsRebuild()
     console.log('[IndexingService] Started')
   }
 

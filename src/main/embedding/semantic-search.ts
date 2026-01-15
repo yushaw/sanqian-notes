@@ -14,6 +14,7 @@ import {
   searchEmbeddingsInNotebook,
   searchKeyword
 } from './database'
+import { tokenizeForSearch } from './tokenizer'
 import { getNotesByIds } from '../database'
 import { RECENT_DAYS, type NoteSearchFilter, type Note } from '../../shared/types'
 
@@ -337,17 +338,8 @@ function jaccardSimilarity(text1: string, text2: string): number {
  * 简单分词（支持中英文）
  */
 function tokenize(text: string): string[] {
-  // 中文按字分，英文按空格分
-  return text
-    .toLowerCase()
-    .split(/[\s,.!?;:，。！？；：、]+/)
-    .flatMap((word) => {
-      // 如果是纯英文，返回整词
-      if (/^[a-z]+$/.test(word)) return [word]
-      // 否则按字符分（中文）
-      return word.split('')
-    })
-    .filter((t) => t.length > 0)
+  // Reuse search tokenizer for consistent CJK/ASCII behavior.
+  return tokenizeForSearch(text)
 }
 
 /**
@@ -442,7 +434,7 @@ export function mergeOverlappingChunks(chunks: MergeableChunk[]): MergeableChunk
 
   const merged: MergeableChunk[] = []
 
-  for (const [noteId, noteChunks] of byNote) {
+  for (const noteChunks of byNote.values()) {
     if (noteChunks.length === 1) {
       merged.push(noteChunks[0])
       continue
@@ -813,7 +805,7 @@ export async function hybridSearch(
     }
   })
 
-  // 关键词搜索贡献（searchKeyword 已按 matchCount 降序排列）
+  // 关键词搜索贡献（FTS: BM25 排序；LIKE: matchCount 排序）
   keywordResults.forEach((result, index) => {
     const rank = index + 1
     const rrfScore = 1 / (RRF_K + rank)

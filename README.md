@@ -56,6 +56,19 @@ npm run test
 npm run build
 ```
 
+## Utilities
+
+```bash
+# Rebuild knowledge base index (CLI)
+npm run rebuild-index
+```
+
+Environment variables:
+- `KB_MIN_CONTENT_LENGTH` - Minimum text length to index a note (default: 100)
+- `SANQIAN_USERDATA` - Override userData path for the rebuild script
+- `REBUILD_BATCH_SIZE` - Notes per batch during rebuild (default: 1000)
+- `REBUILD_SLEEP_MS` - Sleep between batches (default: 0)
+
 ## License
 
 MIT

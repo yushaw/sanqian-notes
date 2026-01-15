@@ -8,9 +8,9 @@
  * 4. MMR - 结果多样性
  */
 
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { ChunkingService, CHUNK_SIZE, CHUNK_OVERLAP } from '../chunking'
-import { expandQuery, type ExpandedQuery } from '../semantic-search'
+import { expandQuery } from '../semantic-search'
 
 // ============================================
 // 1. 结构保护分块测试
@@ -278,7 +278,6 @@ $$
   function hasIncompleteTable(chunk: string): boolean {
     // 检查是否有表格开始但没有结束
     const tableStartPattern = /^\|[^|]+\|/m
-    const tableHeaderPattern = /^\|\s*[-:]+\s*\|/m
 
     const hasStart = tableStartPattern.test(chunk)
     if (!hasStart) return false
@@ -581,7 +580,7 @@ describe('Chunk Merge', () => {
 
     const merged: ChunkForMerge[] = []
 
-    for (const [noteId, noteChunks] of byNote) {
+    for (const noteChunks of byNote.values()) {
       // 按 charStart 排序
       noteChunks.sort((a, b) => a.charStart - b.charStart)
 

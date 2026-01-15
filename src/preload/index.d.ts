@@ -476,6 +476,14 @@ declare global {
             notebookId: string | null
             processMode: 'append' | 'replace'
             outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+            executionContext?: {
+              sourceApp?: string
+              noteId?: string | null
+              noteTitle?: string | null
+              notebookId?: string | null
+              notebookName?: string | null
+              heading?: string | null
+            }
           }
         ) => Promise<void>
         cancel: (taskId: string) => Promise<boolean>

@@ -13,7 +13,7 @@ import {
   updateTask,
   deleteTask,
 } from '../utils/agentTaskStorage'
-import type { AgentTaskRecord, AgentTaskStatus, AgentTaskOutputFormat } from '../../../shared/types'
+import type { AgentExecutionContext, AgentTaskRecord, AgentTaskStatus, AgentTaskOutputFormat } from '../../../shared/types'
 
 interface AgentTaskPanelProps {
   isOpen: boolean
@@ -23,6 +23,7 @@ interface AgentTaskPanelProps {
   blockContent: string
   pageId: string
   notebookId: string | null
+  executionContext?: AgentExecutionContext | null
   onTaskCreated?: (taskId: string) => void
   onTaskRemoved?: () => void
   onTaskUpdated?: () => void
@@ -97,6 +98,7 @@ export function AgentTaskPanel({
   blockContent,
   pageId,
   notebookId,
+  executionContext,
   onTaskCreated,
   onTaskRemoved,
   onTaskUpdated,
@@ -407,6 +409,7 @@ export function AgentTaskPanel({
           notebookId,
           processMode,
           outputFormat,
+          executionContext: executionContext || undefined,
         }
       )
 
@@ -427,6 +430,7 @@ export function AgentTaskPanel({
     agents,
     processMode,
     outputFormat,
+    executionContext,
     onTaskCreated,
     onTaskUpdated,
   ])

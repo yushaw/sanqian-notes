@@ -448,6 +448,39 @@ export function getAIContext(editor: Editor, documentTitle?: string): AIContext 
 }
 
 /**
+ * Get nearest heading text before a block (by blockId).
+ */
+export function getNearestHeadingForBlock(editor: Editor, blockId: string): string | null {
+  if (!blockId) return null
+
+  let headingLevel: number | null = null
+  let headingText: string | null = null
+  let found = false
+
+  editor.state.doc.descendants((node) => {
+    if (found) return false
+
+    if (node.type.name === 'heading') {
+      const text = node.textContent
+      if (text) {
+        headingLevel = node.attrs.level as number
+        headingText = text
+      }
+    }
+
+    if (node.attrs?.blockId === blockId) {
+      found = true
+      return false
+    }
+
+    return true
+  })
+
+  if (!found || headingLevel === null || !headingText) return null
+  return '#'.repeat(headingLevel) + ' ' + headingText
+}
+
+/**
  * Result of formatting AI prompt for cross-block operations
  */
 export interface FormattedPrompt {

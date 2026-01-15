@@ -16,6 +16,7 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import { textblockTypeInputRule } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Note } from '../types/note'
+import type { AgentExecutionContext } from '../../../shared/types'
 import { useTranslations } from '../i18n'
 import { useTheme } from '../theme'
 import { NoteLink } from './extensions/NoteLink'
@@ -65,7 +66,7 @@ import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlo
 import { setupOutputListener } from '../utils/editorOutputHandler'
 import { useAIActions } from '../hooks/useAIActions'
 import { useAIWriting } from '../hooks/useAIWriting'
-import { getAIContext, getMarkdownContent } from '../utils/aiContext'
+import { getAIContext, getMarkdownContent, getNearestHeadingForBlock } from '../utils/aiContext'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
 import { convertToEmbedUrl } from '../utils/embedUrl'
@@ -403,6 +404,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [agentTaskBlockIds, setAgentTaskBlockIds] = useState<string[]>([])
   const [agentTaskId, setAgentTaskId] = useState<string | null>(null)
   const [agentTaskBlockContent, setAgentTaskBlockContent] = useState<string>('')
+  const [agentTaskExecutionContext, setAgentTaskExecutionContext] = useState<AgentExecutionContext | null>(null)
 
   // Transclusion 选择弹窗状态
   const [showTransclusionPopup, setShowTransclusionPopup] = useState(false)
@@ -422,6 +424,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
   const t = useTranslations()
   const { resolvedColorMode } = useTheme()
+  const resolvedNoteTitle = note.title || t.editor?.untitled || 'Untitled'
+  const currentNotebookName = notebooks.find(nb => nb.id === note.notebook_id)?.name || ''
   const editorContainerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const headerTitleRef = useRef<HTMLInputElement>(null)
@@ -673,6 +677,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       attributes: {
         class: `zen-editor ${isFocusMode ? 'focus-mode' : ''}`,
         spellcheck: 'false',
+        'data-note-id': note.id,
+        'data-note-title': resolvedNoteTitle,
+        'data-notebook-id': note.notebook_id || '',
+        'data-notebook-name': currentNotebookName,
       },
       // 自定义剪贴板纯文本序列化，正确处理列表格式
       clipboardTextSerializer: (slice) => {
@@ -835,6 +843,24 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   useImperativeHandle(ref, () => ({
     getEditor: () => editor,
   }), [editor])
+
+  useEffect(() => {
+    if (!editor) return
+    const root = editor.view.dom
+    const attrs: Record<string, string> = {
+      'data-note-id': note.id,
+      'data-note-title': resolvedNoteTitle,
+      'data-notebook-id': note.notebook_id || '',
+      'data-notebook-name': currentNotebookName,
+    }
+    Object.entries(attrs).forEach(([key, value]) => {
+      if (value) {
+        root.setAttribute(key, value)
+      } else {
+        root.removeAttribute(key)
+      }
+    })
+  }, [editor, note.id, note.notebook_id, resolvedNoteTitle, currentNotebookName])
 
   // AI actions hook
   const { getContextMenuActions } = useAIActions()
@@ -1565,8 +1591,20 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setAgentTaskBlockIds(blockIds)
     setAgentTaskId(taskId)
     setAgentTaskBlockContent(blockContent)
+    const primaryBlockId = blockIds[0] || ''
+    const heading = editor && primaryBlockId
+      ? getNearestHeadingForBlock(editor, primaryBlockId)
+      : null
+    setAgentTaskExecutionContext({
+      sourceApp: 'sanqian-notes',
+      noteId: note.id,
+      noteTitle: resolvedNoteTitle || null,
+      notebookId: note.notebook_id ?? null,
+      notebookName: currentNotebookName || null,
+      heading,
+    })
     setAgentTaskPanelOpen(true)
-  }, [])
+  }, [editor, note.id, note.notebook_id, resolvedNoteTitle, currentNotebookName])
 
   // Update the ref so the extension can access the latest handler
   openAgentTaskRef.current = handleOpenAgentTask
@@ -2139,6 +2177,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         blockContent={agentTaskBlockContent}
         pageId={note.id}
         notebookId={note.notebook_id ?? null}
+        executionContext={agentTaskExecutionContext}
         onTaskCreated={handleAgentTaskCreated}
         onTaskRemoved={handleAgentTaskRemoved}
         onTaskUpdated={handleAgentTaskUpdated}

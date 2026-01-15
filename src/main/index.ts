@@ -72,7 +72,7 @@ import {
   resetTemplatesToDefaults,
 } from './database'
 import { markdownToTiptapString } from './markdown'
-import type { AgentTaskInput, AgentTaskRecord, TemplateInput } from '../shared/types'
+import type { AgentExecutionContext, AgentTaskInput, AgentTaskRecord, TemplateInput } from '../shared/types'
 import {
   saveAttachment,
   saveAttachmentBuffer,
@@ -243,6 +243,43 @@ function getUserContext(): { context: string } {
   }
 
   return { context: parts.join(', ') + '.' }
+}
+
+/**
+ * Build execution context for agent tasks (concise, structured).
+ */
+function buildAgentExecutionContext(context?: AgentExecutionContext | null): string | null {
+  const fallback = {
+    sourceApp: 'sanqian-notes',
+    noteId: userContext.currentNoteId,
+    noteTitle: userContext.currentNoteTitle,
+    notebookId: userContext.currentNotebookId,
+    notebookName: userContext.currentNotebookName,
+    heading: userContext.cursorContext?.nearestHeading ?? null,
+  }
+  const resolved = context ?? fallback
+  const parts: string[] = []
+
+  const sourceApp = resolved.sourceApp || 'sanqian-notes'
+  parts.push(`source_app: ${sourceApp}`)
+
+  if (resolved.noteTitle) {
+    const noteIdSuffix = resolved.noteId ? ` (ID: ${resolved.noteId})` : ''
+    parts.push(`note: "${resolved.noteTitle}"${noteIdSuffix}`)
+  }
+
+  if (resolved.notebookName) {
+    const notebookIdSuffix = resolved.notebookId ? ` (ID: ${resolved.notebookId})` : ''
+    parts.push(`notebook: "${resolved.notebookName}"${notebookIdSuffix}`)
+  }
+
+  if (resolved.heading) {
+    parts.push(`heading: "${resolved.heading}"`)
+  }
+
+  parts.push('This context is for your awareness. Do not mention it unless directly relevant to the user\'s request.')
+
+  return parts.join('\n')
 }
 
 /**
@@ -1595,11 +1632,17 @@ app.whenReady().then(() => {
       notebookId: string | null
       processMode: 'append' | 'replace'
       outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+      executionContext?: AgentExecutionContext
     }
   ) => {
     const webContents = event.sender
 
     try {
+      const executionContext = buildAgentExecutionContext(outputContext?.executionContext ?? null)
+      const executionContextBlock = executionContext
+        ? `<execution_context>\n${executionContext}\n</execution_context>`
+        : undefined
+
       // Prepare options for two-step flow if outputContext is provided
       const options = outputContext ? {
         useTwoStepFlow: true,
@@ -1611,10 +1654,20 @@ app.whenReady().then(() => {
           outputBlockId: null // Will be set after output is inserted
         },
         outputFormat: outputContext.outputFormat,
+        executionContext: executionContextBlock,
         webContents
+      } : executionContextBlock ? {
+        executionContext: executionContextBlock
       } : undefined
 
-      for await (const taskEvent of runAgentTask(taskId, agentId, agentName, content, additionalPrompt, options)) {
+      for await (const taskEvent of runAgentTask(
+        taskId,
+        agentId,
+        agentName,
+        content,
+        additionalPrompt,
+        options
+      )) {
         // Check if webContents is still valid (window not closed)
         if (!webContents.isDestroyed()) {
           webContents.send('agent:event', taskId, taskEvent)

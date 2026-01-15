@@ -439,6 +439,16 @@ export interface EditorOutputContext {
   outputBlockId?: string | null
 }
 
+/** Execution context for agent tasks */
+export interface AgentExecutionContext {
+  sourceApp?: string
+  noteId?: string | null
+  noteTitle?: string | null
+  notebookId?: string | null
+  notebookName?: string | null
+  heading?: string | null
+}
+
 /** Output operation type */
 export type OutputOperationType = 'paragraph' | 'list' | 'table' | 'html' | 'heading' | 'codeBlock' | 'blockquote' | 'noteRef'
 

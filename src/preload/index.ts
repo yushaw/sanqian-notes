@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { NoteSearchFilter, TemplateInput } from '../shared/types'
+import type { AgentExecutionContext, NoteSearchFilter, TemplateInput } from '../shared/types'
 
 // Expose APIs to renderer
 contextBridge.exposeInMainWorld('electron', {
@@ -216,6 +216,7 @@ contextBridge.exposeInMainWorld('electron', {
         notebookId: string | null
         processMode: 'append' | 'replace'
         outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+        executionContext?: AgentExecutionContext
       }
     ) =>
       ipcRenderer.invoke('agent:run', taskId, agentId, agentName, content, additionalPrompt, outputContext),

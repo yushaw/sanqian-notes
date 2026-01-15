@@ -12,7 +12,8 @@ import { Select } from './Select'
 import { createTask, updateTask, getTaskAsync } from '../utils/agentTaskStorage'
 import { toast } from '../utils/toast'
 import type { AgentBlockAttrs } from './extensions/AgentBlock'
-import type { AgentTaskOutputFormat } from '../../../shared/types'
+import type { AgentExecutionContext, AgentTaskOutputFormat } from '../../../shared/types'
+import { getNearestHeadingForBlock } from '../utils/aiContext'
 
 // Truncate error message to avoid bloating HTML attributes
 const truncateError = (msg: string, maxLen = 200) =>
@@ -63,8 +64,10 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
   const getPageContext = useCallback(() => {
     const editorElement = editor?.view?.dom?.closest('[data-note-id]')
     const pageId = editorElement?.getAttribute('data-note-id') || ''
+    const noteTitle = editorElement?.getAttribute('data-note-title') || null
     const notebookId = editorElement?.getAttribute('data-notebook-id') || null
-    return { pageId, notebookId }
+    const notebookName = editorElement?.getAttribute('data-notebook-name') || null
+    return { pageId, noteTitle, notebookId, notebookName }
   }, [editor])
 
   // Create event handler for agent events (shared between initial execution and remount)
@@ -285,7 +288,18 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
       return
     }
 
-    const { pageId, notebookId } = getPageContext()
+    const { pageId, noteTitle, notebookId, notebookName } = getPageContext()
+    const heading = editor && currentBlockId
+      ? getNearestHeadingForBlock(editor, currentBlockId)
+      : null
+    const executionContext: AgentExecutionContext = {
+      sourceApp: 'sanqian-notes',
+      noteId: pageId || null,
+      noteTitle: noteTitle || null,
+      notebookId,
+      notebookName,
+      heading,
+    }
 
     try {
       setLoading(true)
@@ -351,6 +365,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
           notebookId,
           processMode,
           outputFormat,
+          executionContext,
         }
       )
     } catch (err) {
@@ -371,6 +386,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     getPageContext,
     updateAttributes,
     createEventHandler,
+    editor,
     t,
   ])
 

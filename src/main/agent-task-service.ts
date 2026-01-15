@@ -66,6 +66,8 @@ export interface AgentTaskOptions {
   useTwoStepFlow?: boolean
   /** 输出上下文（两步流程必需） */
   outputContext?: EditorOutputContext
+  /** Execution context for the content agent (e.g., note metadata) */
+  executionContext?: string
   /** 输出格式偏好 */
   outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
   /** WebContents 引用（用于发送输出到渲染器） */
@@ -199,9 +201,12 @@ export async function* runAgentTask(
   runningTasks.set(taskId, { cancelled: false, taskId })
 
   // 构建 prompt
-  const userMessage = additionalPrompt
+  let userMessage = additionalPrompt
     ? `${content}\n\n---\n\n${additionalPrompt}`
     : content
+  if (options?.executionContext) {
+    userMessage += `\n\n${options.executionContext}`
+  }
 
   // 更新状态为 running
   const startedAt = new Date().toISOString()

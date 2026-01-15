@@ -3,6 +3,7 @@
 // 从 shared/types 导入类型
 type AgentTaskRecord = import('../../shared/types').AgentTaskRecord
 type AgentTaskInput = import('../../shared/types').AgentTaskInput
+type AgentExecutionContext = import('../../shared/types').AgentExecutionContext
 type AttachmentResult = import('../../shared/types').AttachmentResult
 type AttachmentSelectOptions = import('../../shared/types').AttachmentSelectOptions
 type AttachmentAPI = import('../../shared/types').AttachmentAPI
@@ -487,6 +488,7 @@ interface Window {
           notebookId: string | null
           processMode: 'append' | 'replace'
           outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
+          executionContext?: AgentExecutionContext
         }
       ) => Promise<void>
       cancel: (taskId: string) => Promise<boolean>

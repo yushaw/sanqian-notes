@@ -42,3 +42,12 @@ yarn-error.log*
 
 # Test coverage
 coverage/
+
+# Eval data and scripts
+.eval-data/
+scripts/eval-*.ts
+scripts/build-*-ragbench.ts
+scripts/demo-*.ts
+scripts/test-*.ts
+scripts/verify-*.ts
+docs/ai-*.md

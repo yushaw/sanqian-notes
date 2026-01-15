@@ -19,6 +19,23 @@ import { getNearestHeadingForBlock } from '../utils/aiContext'
 const truncateError = (msg: string, maxLen = 200) =>
   msg.length > maxLen ? msg.slice(0, maxLen) + '...' : msg
 
+const prioritizeSanqianNotesAgents = (list: AgentCapability[]) => {
+  const target = 'sanqian-notes'
+  const preferred: AgentCapability[] = []
+  const rest: AgentCapability[] = []
+
+  for (const agent of list) {
+    const haystack = `${agent.sourceId ?? ''} ${agent.id} ${agent.name}`.toLowerCase()
+    if (haystack.includes(target)) {
+      preferred.push(agent)
+    } else {
+      rest.push(agent)
+    }
+  }
+
+  return preferred.length > 0 ? [...preferred, ...rest] : list
+}
+
 export function AgentBlockView({ node, updateAttributes, selected, editor, deleteNode }: NodeViewProps) {
   const attrs = node.attrs as AgentBlockAttrs
   const {
@@ -160,14 +177,15 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     window.electron.agent
       .list()
       .then((list) => {
-        setAgents(list)
+        const orderedAgents = prioritizeSanqianNotesAgents(list)
+        setAgents(orderedAgents)
         // 如果没有选择 agent，按优先级选择：本地缓存 > meta agent > 第一个
-        if (!agentId && list.length > 0) {
+        if (!agentId && orderedAgents.length > 0) {
           const cachedAgentId = localStorage.getItem('agent-block-last-agent-id')
-          const cachedAgent = cachedAgentId ? list.find((a) => a.id === cachedAgentId) : null
-          const metaAgent = list.find((a) => a.id === 'meta' || a.name.toLowerCase() === 'meta')
+          const cachedAgent = cachedAgentId ? orderedAgents.find((a) => a.id === cachedAgentId) : null
+          const metaAgent = orderedAgents.find((a) => a.id === 'meta' || a.name.toLowerCase() === 'meta')
 
-          const defaultAgent = cachedAgent || metaAgent || list[0]
+          const defaultAgent = cachedAgent || metaAgent || orderedAgents[0]
           updateAttributes({
             agentId: defaultAgent.id,
             agentName: defaultAgent.name,

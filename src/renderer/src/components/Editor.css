@@ -2,8 +2,14 @@
    Zen Editor - Immersive Writing Experience
    ============================================ */
 
-/* Container */
+/* Container with Layout Variables */
 .zen-editor-container {
+  /* Layout constants */
+  --editor-header-height: 42px;
+  --editor-content-width: 720px;
+  --editor-horizontal-padding: 48px;
+  --editor-split-handle-width: 36px;
+
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -19,38 +25,40 @@
 .zen-header-bar {
   position: absolute;
   top: 0;
-  left: 0;
+  left: var(--editor-split-handle-width);
   right: 0;
-  height: 42px;
+  height: var(--editor-header-height);
   z-index: 10;
   -webkit-app-region: drag;
-  pointer-events: none;
+  pointer-events: auto;
   background: transparent;
-  transition: background-color 0.2s ease;
-}
-
-.zen-header-bar.with-title {
-  background: var(--color-card-solid);
   display: flex;
   align-items: center;
-  border-bottom: 1px solid transparent;
-  /* 右侧留出空间给分屏按钮 */
   padding: 0 12px 0 0;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-  transition: border-color 0.15s ease;
+  border-bottom: 1px solid transparent;
+  transition: background-color 0.2s ease, border-color 0.15s ease;
 }
 
-/* 左侧空白拖动区域 - 和内容区域对齐 */
+/* Show background when title is pinned */
+.zen-header-bar.with-title {
+  background: var(--color-card-solid);
+}
+
+/* Show border when scrolled */
+.zen-header-bar.scrolled {
+  border-bottom-color: var(--color-border);
+}
+
+/* Left spacing area - aligned with content area */
 .zen-header-drag-area {
-  /* 宽度 = (容器宽度 - 720px) / 2 + 48px，最小 48px */
-  width: max(48px, calc((100% - 720px) / 2 + 48px));
+  width: max(12px, calc((100% - var(--editor-content-width)) / 2 + var(--editor-horizontal-padding) - var(--editor-split-handle-width)));
   height: 100%;
   flex-shrink: 0;
 }
 
-.zen-header-bar.with-title.scrolled {
-  border-bottom-color: var(--color-border);
+/* Buttons are not draggable */
+.zen-header-bar button {
+  -webkit-app-region: no-drag;
 }
 
 .zen-header-title {
@@ -91,8 +99,8 @@ span.zen-header-title {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-top: 42px; /* 为顶栏留出空间 */
-  scrollbar-gutter: stable; /* 预留滚动条空间，避免内容宽度跳动 */
+  padding-top: var(--editor-header-height);
+  scrollbar-gutter: stable;
 }
 
 .zen-scroll-wrapper::-webkit-scrollbar {
@@ -336,11 +344,43 @@ span.zen-header-title {
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-width: 720px; /* 容器宽度，内部 .zen-editor 有 48px 水平 padding */
-  min-width: 320px; /* 最小宽度，保证文字可读 */
+  max-width: var(--editor-content-width);
+  min-width: 320px;
   width: 100%;
   margin: 0 auto;
-  padding: 0 0 160px; /* 顶部 padding 已移至 scroll wrapper */
+  padding: 0 0 160px;
+}
+
+/* ============================================
+   Title (Inline)
+   ============================================ */
+
+.zen-title {
+  width: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  resize: none;
+  padding: 0 var(--editor-horizontal-padding);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-text);
+  margin-bottom: 16px;
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+  overflow-y: hidden;
+  overflow-x: hidden;
+  caret-color: var(--color-accent);
+  /* Auto-resize height based on content (Chrome 123+) */
+  field-sizing: content;
+  min-height: 1.8rem; /* Ensure minimum height for empty state */
+}
+
+/* !important needed to override browser default placeholder styles (e.g., Safari's opacity) */
+.zen-title::placeholder {
+  color: var(--color-muted) !important;
+  opacity: 1 !important;
 }
 
 /* ============================================
@@ -360,8 +400,8 @@ span.zen-header-title {
   caret-color: var(--color-accent);
   overflow-wrap: break-word;
   word-wrap: break-word;
-  padding-left: 48px;  /* 水平 padding 让 ProseMirror 处理点击定位 */
-  padding-right: 48px;
+  padding-left: var(--editor-horizontal-padding);
+  padding-right: var(--editor-horizontal-padding);
 }
 
 .zen-editor > * + * {

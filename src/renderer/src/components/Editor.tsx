@@ -77,6 +77,9 @@ import './Editor.css'
 // 光标占位符常量 (Invisible Separator)
 const CURSOR_PLACEHOLDER = '\u2063'
 
+// Editor layout constants (keep in sync with Editor.css)
+const HEADER_HEIGHT = 42
+
 /**
  * 处理模板中的光标占位符
  * 找到 \u2063 字符，将光标移动到该位置，然后删除占位符
@@ -381,7 +384,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const [showToolbar, setShowToolbar] = useState(false)
   const [selectedWordCount, setSelectedWordCount] = useState<number | null>(null)
   const [isEditingHeaderTitle, setIsEditingHeaderTitle] = useState(false)
-  const [isScrolled, setIsScrolled] = useState(false)
+  const [isTitleHidden, setIsTitleHidden] = useState(false)
 
   // Note link popup state
   const [showLinkPopup, setShowLinkPopup] = useState(false)
@@ -428,6 +431,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const currentNotebookName = notebooks.find(nb => nb.id === note.notebook_id)?.name || ''
   const editorContainerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  const titleRef = useRef<HTMLTextAreaElement>(null)
   const headerTitleRef = useRef<HTMLInputElement>(null)
   const headerTitleClickPosRef = useRef<number | null>(null)
 
@@ -1330,20 +1334,22 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // Auto-focus title for new (empty) notes
   const prevNoteIdRef = useRef<string | null>(null)
   useEffect(() => {
-    // Only trigger when note.id changes (not on initial mount with same note)
-    if (prevNoteIdRef.current !== note.id) {
-      prevNoteIdRef.current = note.id
-      // Check if this is a new empty note - focus the header title
-      const isEmptyTitle = !note.title || note.title.trim() === ''
-      const isEmptyContent = !note.content || note.content === '[]' || note.content === ''
-      if (isEmptyTitle && isEmptyContent) {
-        // Small delay to ensure DOM is ready, then trigger editing mode
-        setTimeout(() => {
-          setIsEditingHeaderTitle(true)
-        }, 50)
-      }
+    // Only trigger when note.id changes
+    if (prevNoteIdRef.current === note.id) return
+    prevNoteIdRef.current = note.id
+
+    // Check if this is a new empty note - focus the inline title
+    const isEmptyTitle = !note.title || note.title.trim() === ''
+    const isEmptyContent = !note.content || note.content === '[]' || note.content === ''
+    if (isEmptyTitle && isEmptyContent && titleRef.current) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        titleRef.current?.focus()
+      }, 50)
     }
-  }, [note.id, note.title, note.content])
+    // note.title/content are read but don't need to trigger re-run
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id])
 
   // Handle title change
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
@@ -1351,6 +1357,31 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setTitle(newTitle)
     onUpdate(note.id, { title: newTitle })
   }, [note.id, onUpdate])
+
+  // Handle title keydown - Enter moves to editor, Escape blurs
+  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Skip if IME is composing (e.g., Chinese/Japanese input)
+    if (e.nativeEvent.isComposing) return
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      editor?.commands.focus('start')
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      editor?.commands.focus()
+    }
+  }, [editor])
+
+  // Auto-resize title textarea (fallback for browsers without field-sizing support)
+  useEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    // Check if field-sizing is supported (no need for JS resize)
+    if (CSS.supports('field-sizing', 'content')) return
+    // Fallback: manually resize
+    el.style.height = 'auto'
+    el.style.height = el.scrollHeight + 'px'
+  }, [title])
 
   // Handle note link selection (支持标题和 block)
   const handleSelectNoteLink = useCallback((
@@ -1790,19 +1821,24 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     }
   }, [])
 
-  // 检测是否滚动（用于显示/隐藏顶栏分隔线）
+  // Detect if inline title is scrolled out of view (for showing/hiding header title)
   useEffect(() => {
     const container = contentRef.current
-    if (!container) return
+    const titleEl = titleRef.current
+    if (!container || !titleEl) return
 
-    const handleScroll = () => {
-      setIsScrolled(container.scrollTop > 0)
+    const checkTitleVisibility = () => {
+      const titleRect = titleEl.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      // Title is hidden when its bottom is above the header bar
+      const isHidden = titleRect.bottom < containerRect.top + HEADER_HEIGHT
+      setIsTitleHidden(isHidden)
     }
 
-    container.addEventListener('scroll', handleScroll, { passive: true })
-    handleScroll() // 初始检测
+    container.addEventListener('scroll', checkTitleVisibility, { passive: true })
+    checkTitleVisibility() // Initial check
 
-    return () => container.removeEventListener('scroll', handleScroll)
+    return () => container.removeEventListener('scroll', checkTitleVisibility)
   }, [])
 
   // 滚动到目标标题或 block
@@ -1897,27 +1933,24 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         </div>
       )}
 
-      {/* Top header bar - always shows title + pane controls */}
+      {/* Top header bar - shows title when scrolled (title hidden) */}
       <div
-        className={`zen-header-bar with-title ${isScrolled ? 'scrolled' : ''}`}
+        className={`zen-header-bar ${isTitleHidden ? 'with-title scrolled' : ''}`}
         style={showSearchBar ? { pointerEvents: 'none' } : undefined}
       >
-        {/* 左侧空白拖动区域 */}
-        <div
-          className="zen-header-drag-area"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        />
+        {/* Left spacing area */}
+        <div className="zen-header-drag-area" />
 
-        {/* Title - 空白区域可拖动窗口，文字部分不可拖动 */}
+        {/* Title area - shows title only when pinned, otherwise empty draggable area */}
         <div
-          className="flex-1 min-w-0 overflow-hidden cursor-text"
+          className="flex-1 min-w-0 overflow-hidden"
           style={{
-            WebkitAppRegion: showSearchBar ? 'no-drag' : 'drag',
+            cursor: isTitleHidden ? 'text' : 'default',
             pointerEvents: showSearchBar ? 'none' : undefined
-          } as React.CSSProperties}
+          }}
           onClick={(e) => {
-            if (!isEditingHeaderTitle) {
-              // 使用 caretRangeFromPoint 获取点击位置对应的字符偏移
+            if (isTitleHidden && !isEditingHeaderTitle) {
+              // Get character offset at click position
               const range = document.caretRangeFromPoint(e.clientX, e.clientY)
               if (range && range.startContainer.nodeType === Node.TEXT_NODE) {
                 headerTitleClickPosRef.current = range.startOffset
@@ -1928,42 +1961,45 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             }
           }}
         >
-          {isEditingHeaderTitle ? (
-            <input
-              ref={headerTitleRef}
-              type="text"
-              className="zen-header-title"
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              value={title}
-              onChange={handleTitleChange}
-              placeholder={t.editor.titlePlaceholder}
-              autoFocus
-              onFocus={(e) => {
-                const input = e.target as HTMLInputElement
-                const pos = headerTitleClickPosRef.current
-                if (pos !== null) {
-                  input.setSelectionRange(pos, pos)
-                }
-                headerTitleClickPosRef.current = null
-              }}
-              onBlur={() => setIsEditingHeaderTitle(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === 'Tab') {
-                  e.preventDefault()
-                  setIsEditingHeaderTitle(false)
-                  editor?.commands.focus('start')
-                } else if (e.key === 'Escape') {
-                  setIsEditingHeaderTitle(false)
-                }
-              }}
-            />
-          ) : (
-            <span
-              className="zen-header-title"
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            >
-              {title || t.editor.titlePlaceholder}
-            </span>
+          {isTitleHidden && (
+            isEditingHeaderTitle ? (
+              <input
+                ref={headerTitleRef}
+                type="text"
+                className="zen-header-title"
+                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                value={title}
+                onChange={handleTitleChange}
+                placeholder={t.editor.titlePlaceholder}
+                autoFocus
+                onFocus={(e) => {
+                  const input = e.target as HTMLInputElement
+                  const pos = headerTitleClickPosRef.current
+                  if (pos !== null) {
+                    input.setSelectionRange(pos, pos)
+                  }
+                  headerTitleClickPosRef.current = null
+                }}
+                onBlur={() => setIsEditingHeaderTitle(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault()
+                    setIsEditingHeaderTitle(false)
+                    editor?.commands.focus('start')
+                  } else if (e.key === 'Escape') {
+                    setIsEditingHeaderTitle(false)
+                    editor?.commands.focus()
+                  }
+                }}
+              />
+            ) : (
+              <span
+                className="zen-header-title"
+                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              >
+                {title || t.editor.titlePlaceholder}
+              </span>
+            )
           )}
         </div>
 
@@ -1971,7 +2007,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         {!isWindows() && (
           <div
             className="flex items-center gap-0.5 ml-2 flex-shrink-0"
-            style={showSearchBar ? { pointerEvents: 'none' } : undefined}
+            style={{
+              WebkitAppRegion: 'no-drag',
+              pointerEvents: showSearchBar ? 'none' : undefined
+            } as React.CSSProperties}
           >
             {note && (
               <ExportMenu
@@ -2053,6 +2092,16 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
         {/* Editor content area */}
         <div className={`zen-content ${isTypewriterMode ? 'typewriter-mode' : ''}`}>
+          {/* Title */}
+          <textarea
+            ref={titleRef}
+            value={title}
+            onChange={handleTitleChange}
+            onKeyDown={handleTitleKeyDown}
+            placeholder={t.editor.titlePlaceholder}
+            className="zen-title"
+            rows={1}
+          />
           {/* Editor */}
           <div onContextMenu={handleContextMenu}>
             <EditorContent editor={editor} className="zen-editor-content" />

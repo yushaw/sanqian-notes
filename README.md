@@ -77,6 +77,15 @@ MIT
 
 ## Changelog
 
+### 2026-01-16 - Markdown Import Enhancement
+
+Enhanced Markdown importer to support both Markdown and plain text files:
+
+- Support .txt file import (plain text, no Markdown syntax parsing)
+- Support folder import that recursively scans both .md and .txt files
+- txt files are imported as plain text paragraphs, preserving original formatting
+- Support multi-selection of files and folders in import dialog
+
 ### 2026-01-14 - Template Variables Enhancement
 
 Enhanced template variable system with Obsidian Templater-compatible features:

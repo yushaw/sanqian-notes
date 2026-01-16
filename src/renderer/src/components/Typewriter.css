@@ -164,6 +164,15 @@
 .typewriter-editor-content .ProseMirror > *:has(+ * + * + * + * + * + * + * + .has-focus),
 .typewriter-editor-content .ProseMirror > .has-focus + * + * + * + * + * + * + * + * { opacity: var(--tw-opacity-8); }
 
+/* 编辑中的特殊 block 保持完全可见 (math, dataview, agent 等) */
+.typewriter-editor-content .ProseMirror > *:has(.math-input),
+.typewriter-editor-content .ProseMirror > *:has(.dataview-block.editing),
+.typewriter-editor-content .ProseMirror > *:has(.agent-block:focus-within),
+.typewriter-editor-content .ProseMirror > *:has(textarea:focus),
+.typewriter-editor-content .ProseMirror > *:has(input:focus) {
+  opacity: 1 !important;
+}
+
 /* 失焦时全部显示 */
 .typewriter-container:not(:focus-within) .typewriter-editor-content .ProseMirror > * {
   opacity: 1 !important;

@@ -38,8 +38,32 @@
   display: flex;
   align-items: center;
   padding: 0 12px 0 0;
-  border-bottom: 1px solid transparent;
-  transition: background-color 0.2s ease, border-color 0.15s ease;
+  transition: background-color 0.2s ease;
+}
+
+/* Extend background to left edge */
+.zen-header-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(-1 * var(--editor-split-handle-width));
+  width: var(--editor-split-handle-width);
+  height: 100%;
+  background: inherit;
+  pointer-events: none;
+}
+
+/* Full-width bottom border */
+.zen-header-bar::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: calc(-1 * var(--editor-split-handle-width));
+  right: 0;
+  height: 1px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+  pointer-events: none;
 }
 
 /* Show background when title is pinned */
@@ -48,13 +72,14 @@
 }
 
 /* Show border when scrolled */
-.zen-header-bar.scrolled {
-  border-bottom-color: var(--color-border);
+.zen-header-bar.scrolled::after {
+  background: var(--color-border);
 }
 
 /* Left spacing area - aligned with content area */
+/* 100% here = container width - split-handle-width, so we add it back for correct alignment */
 .zen-header-drag-area {
-  width: max(12px, calc((100% - var(--editor-content-width)) / 2 + var(--editor-horizontal-padding) - var(--editor-split-handle-width)));
+  width: max(12px, calc((100% + var(--editor-split-handle-width) - var(--editor-content-width)) / 2 + var(--editor-horizontal-padding) - var(--editor-split-handle-width)));
   height: 100%;
   flex-shrink: 0;
 }

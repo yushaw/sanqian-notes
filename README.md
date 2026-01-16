@@ -77,6 +77,17 @@ MIT
 
 ## Changelog
 
+### 2026-01-16 - Floating Table of Contents
+
+Added Notion-style floating TOC to both normal editor and typewriter mode:
+
+- Collapsed state: horizontal lines indicating document structure (line width by heading level)
+- Expanded state: full heading list with level indentation
+- Hover to expand, leave to collapse (no delay, instant feedback)
+- Current position highlighting
+- Works in both normal edit mode and typewriter mode
+- Responsive: hidden on narrow screens (< 1200px for editor, < 1000px for typewriter)
+
 ### 2026-01-16 - Markdown Import Enhancement
 
 Enhanced Markdown importer to support both Markdown and plain text files:

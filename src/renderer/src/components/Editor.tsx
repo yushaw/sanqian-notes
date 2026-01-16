@@ -71,6 +71,7 @@ import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
 import { convertToEmbedUrl } from '../utils/embedUrl'
 import { ScrollText } from 'lucide-react'
+import { FloatingToc } from './FloatingToc'
 import 'katex/dist/katex.min.css'
 import './Editor.css'
 
@@ -2221,6 +2222,9 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         onClose={handleCloseContextMenu}
         hasSelection={contextMenuHasSelection}
       />
+
+      {/* Floating Table of Contents */}
+      <FloatingToc editor={editor} variant="editor" />
 
       {/* Agent Task Panel */}
       <AgentTaskPanel

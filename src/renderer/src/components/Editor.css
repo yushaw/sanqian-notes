@@ -16,6 +16,9 @@
   background: var(--color-card-solid);
   position: relative;
   overflow: hidden;
+  /* Enable container queries for child components */
+  container-type: inline-size;
+  container-name: editor;
 }
 
 /* ============================================

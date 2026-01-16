@@ -63,7 +63,7 @@ import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import 'katex/dist/katex.min.css'
 import { TypewriterToolbar } from './TypewriterToolbar'
-import { TypewriterToc } from './TypewriterToc'
+import { FloatingToc } from './FloatingToc'
 import { EditorContextMenu } from './EditorContextMenu'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
@@ -1211,7 +1211,7 @@ export function TypewriterMode({
         </div>
       </div>
 
-      <TypewriterToc editor={editor} />
+      <FloatingToc editor={editor} variant="typewriter" />
 
       <TypewriterToolbar
         wordCount={wordCount}

@@ -303,6 +303,13 @@ function getLayoutPaneIds(layout: MosaicNode<string> | string): string[] {
   return getLeaves(layout)
 }
 
+// Get effective focusedPaneId for a tab (fallback to first pane if null)
+function getEffectiveFocusedPaneId(tab: Tab): string | null {
+  if (tab.focusedPaneId) return tab.focusedPaneId
+  const paneIds = getLayoutPaneIds(tab.layout)
+  return paneIds[0] || null
+}
+
 // ============================================================================
 // Provider
 // ============================================================================
@@ -326,9 +333,9 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
   const [activeTabId, setActiveTabId] = useState<string | null>(initialActiveTabId)
   // 独立的焦点状态（参考 sanqian 的 focusedConversationId 实现）
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(() => {
-    // 初始化时从 activeTab 获取
+    // 初始化时从 activeTab 获取，自动 fallback 到第一个 pane
     const activeTab = initialTabs.find((t) => t.id === initialActiveTabId)
-    return activeTab?.focusedPaneId || null
+    return activeTab ? getEffectiveFocusedPaneId(activeTab) : null
   })
 
   // Layout cache for comparison
@@ -405,7 +412,7 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
           const newIdx = Math.min(idx, newTabs.length - 1)
           const newTab = newTabs[newIdx]
           setActiveTabId(newTab.id)
-          setFocusedPaneId(newTab.focusedPaneId)
+          setFocusedPaneId(getEffectiveFocusedPaneId(newTab))
         } else if (newTabs.length === 0) {
           setActiveTabId(null)
           setFocusedPaneId(null)
@@ -440,7 +447,7 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
           const newIdx = Math.min(minClosedIndex, newTabs.length - 1)
           const newTab = newTabs[newIdx]
           setActiveTabId(newTab.id)
-          setFocusedPaneId(newTab.focusedPaneId)
+          setFocusedPaneId(getEffectiveFocusedPaneId(newTab))
         } else if (newTabs.length === 0) {
           setActiveTabId(null)
           setFocusedPaneId(null)
@@ -457,7 +464,7 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
     // 同步焦点状态到新 tab 的 focusedPaneId（使用 ref 避免依赖 tabs 导致不必要的 re-render）
     const targetTab = tabsRef.current.find((t) => t.id === tabId)
     if (targetTab) {
-      setFocusedPaneId(targetTab.focusedPaneId)
+      setFocusedPaneId(getEffectiveFocusedPaneId(targetTab))
     }
   }, [])
 
@@ -542,8 +549,8 @@ export function TabProvider({ children }: TabProviderProps): JSX.Element {
 
       const { fromPaneId, noteId } = options || {}
       const currentLayout = activeTab.layout
-      // 如果指定了 fromPaneId，使用它；否则使用当前焦点 pane
-      const targetPaneId = fromPaneId || activeTab.focusedPaneId
+      // 如果指定了 fromPaneId，使用它；否则使用当前焦点 pane（fallback 到第一个 pane）
+      const targetPaneId = fromPaneId || getEffectiveFocusedPaneId(activeTab)
 
       if (!currentLayout || currentLayout === '' || !targetPaneId) {
         return

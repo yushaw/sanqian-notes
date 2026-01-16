@@ -1889,10 +1889,15 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     return () => clearTimeout(timer)
   }, [scrollTarget, editor, onScrollComplete])
 
-  // 当 isFocused 变为 true 时自动聚焦编辑器
+  // 当 isFocused 从 false 变为 true 时自动聚焦编辑器（切换 pane/tab 时）
+  // 首次加载时不触发，让用户点击自然聚焦到点击位置
+  const prevIsFocusedRef = useRef(isFocused)
   useEffect(() => {
-    if (isFocused && editor && !editor.isDestroyed) {
-      // 延迟聚焦，确保 DOM 已更新
+    const prevIsFocused = prevIsFocusedRef.current
+    prevIsFocusedRef.current = isFocused
+
+    // 只在 isFocused 从 false 变为 true 时触发
+    if (isFocused && !prevIsFocused && editor && !editor.isDestroyed) {
       requestAnimationFrame(() => {
         if (!editor.isDestroyed && !editor.isFocused) {
           editor.commands.focus()

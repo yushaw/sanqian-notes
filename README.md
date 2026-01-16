@@ -232,3 +232,32 @@ Added ability to reset templates to defaults (similar to AI Actions):
 - `src/renderer/src/env.d.ts` - updated Window.electron.templates type
 - `src/renderer/src/components/TemplateSettings.tsx` - added reset UI with confirmation
 - `src/renderer/src/i18n/translations.ts` - added resetToDefaults, resetConfirm, reset translations
+
+---
+
+### 2026-01-16 - Inline Title with Scroll-to-Pin
+
+Restored the inline title editing behavior:
+- Title displayed as textarea in content area (not always in header bar)
+- When scrolled up, title pins to header bar
+- Header bar draggable except for buttons and title text
+- Split pane drag handle (6-dot icon) remains clickable
+
+Technical:
+- CSS variables for layout constants (`--editor-header-height`, `--editor-content-width`, etc.)
+- `field-sizing: content` for auto-resize with CSS.supports fallback
+- Header bar starts from `left: 36px` to avoid blocking split handle
+
+---
+
+### 2026-01-16 - Fix editor focus on first click
+
+Fixed issue where clicking the editor for the first time would place cursor at the beginning instead of click position.
+
+Root cause:
+- `focusedPaneId` could be null on initial load (from persisted data)
+- Auto-focus useEffect would call `editor.commands.focus()` moving cursor to start
+
+Fix:
+- Added `getEffectiveFocusedPaneId()` helper to fallback to first pane when `focusedPaneId` is null
+- Modified auto-focus useEffect to only trigger when `isFocused` changes from false to true (tab/pane switch), not on initial load

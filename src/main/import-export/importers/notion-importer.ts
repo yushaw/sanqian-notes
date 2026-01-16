@@ -54,7 +54,8 @@ export class NotionImporter extends BaseImporter {
   private tempDir: string | null = null
 
   async parse(options: ImportOptions): Promise<ParsedNote[]> {
-    const { sourcePath } = options
+    // sourcePath is always a single string when called from index.ts
+    const sourcePath = Array.isArray(options.sourcePath) ? options.sourcePath[0] : options.sourcePath
 
     if (!existsSync(sourcePath)) {
       throw new Error(`Source file not found: ${sourcePath}`)

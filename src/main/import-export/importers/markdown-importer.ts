@@ -18,11 +18,13 @@ export class MarkdownImporter extends BaseImporter {
   readonly info: ImporterInfo = {
     id: 'markdown',
     name: 'Markdown',
-    description: 'Import Markdown files or folders',
-    extensions: ['md', 'markdown', 'mdown', 'mkd'],
+    description: 'Import Markdown and text files or folders',
+    extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'],
     supportsFolder: true,
     fileFilters: [
+      { name: 'Markdown & Text files', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] },
       { name: 'Markdown files', extensions: ['md', 'markdown', 'mdown', 'mkd'] },
+      { name: 'Text files', extensions: ['txt'] },
       { name: 'All files', extensions: ['*'] },
     ],
   }
@@ -33,16 +35,24 @@ export class MarkdownImporter extends BaseImporter {
     const stat = statSync(sourcePath)
 
     if (stat.isDirectory()) {
-      // 检查是否包含 Markdown 文件
-      return this.hasMarkdownFiles(sourcePath)
+      // 检查是否包含 Markdown 或 txt 文件
+      return this.hasImportableFiles(sourcePath)
     }
 
     // 单文件检查扩展名
-    return this.isMarkdownFile(sourcePath)
+    return this.isImportableFile(sourcePath)
+  }
+
+  /**
+   * 检查文件是否可导入（.md 或 .txt）
+   */
+  private isImportableFile(filePath: string): boolean {
+    return this.isMarkdownFile(filePath) || this.isTextFile(filePath)
   }
 
   async parse(options: ImportOptions): Promise<ParsedNote[]> {
-    const { sourcePath } = options
+    // sourcePath is always a single string when called from index.ts
+    const sourcePath = Array.isArray(options.sourcePath) ? options.sourcePath[0] : options.sourcePath
 
     if (!existsSync(sourcePath)) {
       throw new Error(`Source path does not exist: ${sourcePath}`)
@@ -53,7 +63,7 @@ export class MarkdownImporter extends BaseImporter {
     if (stat.isDirectory()) {
       return this.parseDirectory(sourcePath, options)
     } else {
-      return this.parseFile(sourcePath, sourcePath, options)
+      return this.parseFile(sourcePath, sourcePath, options, false)
     }
   }
 
@@ -65,11 +75,11 @@ export class MarkdownImporter extends BaseImporter {
     options: ImportOptions
   ): Promise<ParsedNote[]> {
     const notes: ParsedNote[] = []
-    const files = this.collectMarkdownFiles(rootPath)
+    const files = this.collectImportableFiles(rootPath)
 
     for (const filePath of files) {
       try {
-        const parsed = await this.parseFile(filePath, rootPath, options)
+        const parsed = await this.parseFile(filePath, rootPath, options, true)
         notes.push(...parsed)
       } catch (error) {
         console.error(`Failed to parse ${filePath}:`, error)
@@ -82,11 +92,13 @@ export class MarkdownImporter extends BaseImporter {
 
   /**
    * 解析单个文件
+   * @param isDirectoryImport 是否是目录导入（用于决定根级文件是否使用目录名作为 notebook）
    */
   private async parseFile(
     filePath: string,
     rootPath: string,
-    options: ImportOptions
+    options: ImportOptions,
+    isDirectoryImport: boolean = false
   ): Promise<ParsedNote[]> {
     const stat = statSync(filePath)
 
@@ -119,7 +131,7 @@ export class MarkdownImporter extends BaseImporter {
       // 由外部指定，这里不处理
       notebookName = undefined
     } else {
-      notebookName = this.resolveNotebookName(filePath, rootPath, options.folderStrategy)
+      notebookName = this.resolveNotebookName(filePath, rootPath, options.folderStrategy, isDirectoryImport)
     }
 
     // 提取标签
@@ -135,11 +147,14 @@ export class MarkdownImporter extends BaseImporter {
       ? this.collectAttachments(content, dirname(filePath))
       : []
 
-    // 收集内部链接
-    const links = this.collectWikiLinks(content)
+    // 收集内部链接（仅对 Markdown 文件有意义）
+    const links = this.isTextFile(filePath) ? [] : this.collectWikiLinks(content)
 
-    // 转换 Markdown 到 TipTap JSON
-    const tiptapContent = this.markdownToContent(content)
+    // 转换内容到 TipTap JSON
+    // txt 文件使用纯文本转换（不解析 Markdown 语法），md 文件使用 Markdown 转换
+    const tiptapContent = this.isTextFile(filePath)
+      ? this.plainTextToContent(content)
+      : this.markdownToContent(content)
 
     return [
       {
@@ -158,9 +173,9 @@ export class MarkdownImporter extends BaseImporter {
   }
 
   /**
-   * 递归收集目录中的所有 Markdown 文件
+   * 递归收集目录中的所有可导入文件（.md 和 .txt）
    */
-  private collectMarkdownFiles(dirPath: string): string[] {
+  private collectImportableFiles(dirPath: string): string[] {
     const files: string[] = []
 
     const entries = readdirSync(dirPath, { withFileTypes: true })
@@ -175,8 +190,8 @@ export class MarkdownImporter extends BaseImporter {
       if (entry.name === 'node_modules') continue
 
       if (entry.isDirectory()) {
-        files.push(...this.collectMarkdownFiles(fullPath))
-      } else if (entry.isFile() && this.isMarkdownFile(fullPath)) {
+        files.push(...this.collectImportableFiles(fullPath))
+      } else if (entry.isFile() && this.isImportableFile(fullPath)) {
         files.push(fullPath)
       }
     }
@@ -185,9 +200,9 @@ export class MarkdownImporter extends BaseImporter {
   }
 
   /**
-   * 检查目录是否包含 Markdown 文件
+   * 检查目录是否包含可导入文件（.md 或 .txt）
    */
-  private hasMarkdownFiles(dirPath: string): boolean {
+  private hasImportableFiles(dirPath: string): boolean {
     try {
       const entries = readdirSync(dirPath, { withFileTypes: true })
 
@@ -196,12 +211,12 @@ export class MarkdownImporter extends BaseImporter {
 
         const fullPath = join(dirPath, entry.name)
 
-        if (entry.isFile() && this.isMarkdownFile(fullPath)) {
+        if (entry.isFile() && this.isImportableFile(fullPath)) {
           return true
         }
 
         if (entry.isDirectory() && entry.name !== 'node_modules') {
-          if (this.hasMarkdownFiles(fullPath)) {
+          if (this.hasImportableFiles(fullPath)) {
             return true
           }
         }

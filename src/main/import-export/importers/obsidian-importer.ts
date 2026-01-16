@@ -40,7 +40,8 @@ export class ObsidianImporter extends BaseImporter {
   }
 
   async parse(options: ImportOptions): Promise<ParsedNote[]> {
-    const { sourcePath } = options
+    // sourcePath is always a single string when called from index.ts
+    const sourcePath = Array.isArray(options.sourcePath) ? options.sourcePath[0] : options.sourcePath
 
     if (!existsSync(sourcePath)) {
       throw new Error(`Source path does not exist: ${sourcePath}`)
@@ -62,10 +63,10 @@ export class ObsidianImporter extends BaseImporter {
       titleToPath.set(fileName.toLowerCase(), filePath)
     }
 
-    // 第二遍：解析每个文件
+    // 第二遍：解析每个文件（Obsidian 始终是目录导入）
     for (const filePath of files) {
       try {
-        const parsed = await this.parseFile(filePath, sourcePath, options, titleToPath)
+        const parsed = await this.parseFile(filePath, sourcePath, options, titleToPath, true)
         notes.push(...parsed)
       } catch (error) {
         console.error(`Failed to parse ${filePath}:`, error)
@@ -77,12 +78,14 @@ export class ObsidianImporter extends BaseImporter {
 
   /**
    * 解析单个文件
+   * @param isDirectoryImport 是否是目录导入
    */
   private async parseFile(
     filePath: string,
     rootPath: string,
     options: ImportOptions,
-    titleToPath: Map<string, string>
+    titleToPath: Map<string, string>,
+    isDirectoryImport: boolean = true
   ): Promise<ParsedNote[]> {
     const stat = statSync(filePath)
 
@@ -114,7 +117,7 @@ export class ObsidianImporter extends BaseImporter {
     if (options.folderStrategy === 'single-notebook') {
       notebookName = undefined
     } else {
-      notebookName = this.resolveNotebookName(filePath, rootPath, options.folderStrategy)
+      notebookName = this.resolveNotebookName(filePath, rootPath, options.folderStrategy, isDirectoryImport)
     }
 
     // 提取标签（支持 Obsidian 的 #tag 内联标签，在预处理前）

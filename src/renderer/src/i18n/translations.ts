@@ -858,6 +858,7 @@ export interface Translations {
     errors: string
     viewDetails: string
     close: string
+    filesSelected: string
     // 错误信息
     noSourceSelected: string
     noTargetSelected: string
@@ -1721,8 +1722,8 @@ const zh: Translations = {
     importButton: '导入笔记...',
     // 导入来源选项
     importFrom: '选择导入来源',
-    markdownImport: 'Markdown',
-    markdownImportDesc: '导入 .md 文件或文件夹',
+    markdownImport: 'Markdown / TXT',
+    markdownImportDesc: '导入 .md 或 .txt 文件，支持整个文件夹',
     notionImport: 'Notion',
     notionImportDesc: '选择 Markdown & CSV 格式导出的 ZIP 文件',
     notionExportGuide: '如何从 Notion 导出？',
@@ -1785,6 +1786,7 @@ const zh: Translations = {
     errors: '{n} 个错误',
     viewDetails: '查看详情',
     close: '关闭',
+    filesSelected: '个文件/文件夹已选择',
     // 错误信息
     noSourceSelected: '请选择要导入的文件或文件夹',
     noTargetSelected: '请选择导出目录',
@@ -2648,8 +2650,8 @@ const en: Translations = {
     importButton: 'Import Notes...',
     // Import source options
     importFrom: 'Import From',
-    markdownImport: 'Markdown',
-    markdownImportDesc: 'Import .md files or folders',
+    markdownImport: 'Markdown / TXT',
+    markdownImportDesc: 'Import .md or .txt files, supports folders',
     notionImport: 'Notion',
     notionImportDesc: 'Export as Markdown & CSV format',
     notionExportGuide: 'How to export from Notion?',
@@ -2712,6 +2714,7 @@ const en: Translations = {
     errors: '{n} errors',
     viewDetails: 'View Details',
     close: 'Close',
+    filesSelected: 'files/folders selected',
     // Error messages
     noSourceSelected: 'Please select a file or folder to import',
     noTargetSelected: 'Please select an output directory',

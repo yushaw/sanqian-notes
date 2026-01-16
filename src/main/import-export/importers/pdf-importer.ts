@@ -46,7 +46,8 @@ export class PdfImporter extends BaseImporter {
   }
 
   async parse(options: ImportOptions): Promise<ParsedNote[]> {
-    const { sourcePath } = options
+    // sourcePath is always a single string when called from index.ts
+    const sourcePath = Array.isArray(options.sourcePath) ? options.sourcePath[0] : options.sourcePath
 
     // 获取配置
     let serviceId: string

@@ -18,8 +18,8 @@ export type ImportProgressCallback = (event: ImportProgressEvent) => void
 
 /** 导入配置 */
 export interface ImportOptions {
-  /** 来源路径（文件/文件夹/ZIP） */
-  sourcePath: string
+  /** 来源路径（文件/文件夹/ZIP），支持多选 */
+  sourcePath: string | string[]
 
   /** 文件夹→笔记本映射策略 */
   folderStrategy: FolderStrategy

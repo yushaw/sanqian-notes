@@ -62,8 +62,8 @@ describe('MarkdownImporter', () => {
     })
 
     it('不能处理其他类型文件', async () => {
-      const filePath = path.join(tempDir, 'test.txt')
-      fs.writeFileSync(filePath, 'plain text')
+      const filePath = path.join(tempDir, 'test.json')
+      fs.writeFileSync(filePath, '{"key": "value"}')
 
       const result = await importer.canHandle(filePath)
       expect(result).toBe(false)
@@ -191,7 +191,8 @@ created: 2024-01-15
       expect(note1?.notebookName).toBe('笔记本A')
       expect(note2?.notebookName).toBe('笔记本A') // 子目录仍属于 笔记本A
       expect(note3?.notebookName).toBe('笔记本B')
-      expect(rootNote?.notebookName).toBeUndefined() // 根目录笔记无笔记本
+      // 根目录笔记使用导入目录名作为笔记本
+      expect(rootNote?.notebookName).toBe(path.basename(tempDir))
     })
 
     it('flatten-path 策略：完整路径作为笔记本名', async () => {

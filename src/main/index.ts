@@ -1853,15 +1853,16 @@ app.whenReady().then(() => {
 
     const result = await dialog.showOpenDialog({
       properties: importer?.supportsFolder
-        ? ['openFile', 'openDirectory']
-        : ['openFile'],
+        ? ['openFile', 'openDirectory', 'multiSelections']
+        : ['openFile', 'multiSelections'],
       filters: importer?.fileFilters || [
         { name: 'Markdown files', extensions: ['md', 'markdown'] },
         { name: 'All files', extensions: ['*'] },
       ],
     })
 
-    return result.canceled ? null : result.filePaths[0]
+    // Return all selected paths, or null if canceled
+    return result.canceled ? null : result.filePaths
   })
 
   ipcMain.handle('export:selectTarget', async () => {

@@ -228,7 +228,8 @@ tags: [工作, 重要]
 
       const workNotes = notes.filter((n) => n.notebookName === 'Work')
       const personalNotes = notes.filter((n) => n.notebookName === 'Personal')
-      const rootNotes = notes.filter((n) => !n.notebookName)
+      // 根目录文件使用导入目录名作为笔记本
+      const rootNotes = notes.filter((n) => n.notebookName === path.basename(tempDir))
 
       expect(workNotes.length).toBe(2)
       expect(personalNotes.length).toBe(1)

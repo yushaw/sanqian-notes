@@ -51,8 +51,8 @@ const exporters: Partial<Record<ExportFormat, MarkdownExporter>> = {
 // 缓存预览解析结果，避免 executeImport 重复解析
 
 interface PreviewCache {
-  sourcePath: string
-  importer: BaseImporter
+  sourcePaths: string[]
+  importerMap: Map<string, BaseImporter>  // path -> importer
   parsedNotes: ParsedNote[]
   timestamp: number
 }
@@ -60,9 +60,13 @@ interface PreviewCache {
 let previewCache: PreviewCache | null = null
 const CACHE_TTL = 5 * 60 * 1000 // 5 分钟过期
 
-function getCachedPreview(sourcePath: string): PreviewCache | null {
+function getCachedPreview(sourcePaths: string[]): PreviewCache | null {
   if (!previewCache) return null
-  if (previewCache.sourcePath !== sourcePath) return null
+  // 检查路径是否完全匹配
+  if (sourcePaths.length !== previewCache.sourcePaths.length) return null
+  const sortedNew = [...sourcePaths].sort()
+  const sortedCached = [...previewCache.sourcePaths].sort()
+  if (!sortedNew.every((p, i) => p === sortedCached[i])) return null
   if (Date.now() - previewCache.timestamp > CACHE_TTL) {
     previewCache = null
     return null
@@ -70,10 +74,14 @@ function getCachedPreview(sourcePath: string): PreviewCache | null {
   return previewCache
 }
 
-function setCachedPreview(sourcePath: string, importer: BaseImporter, parsedNotes: ParsedNote[]): void {
+function setCachedPreview(
+  sourcePaths: string[],
+  importerMap: Map<string, BaseImporter>,
+  parsedNotes: ParsedNote[]
+): void {
   previewCache = {
-    sourcePath,
-    importer,
+    sourcePaths,
+    importerMap,
     parsedNotes,
     timestamp: Date.now(),
   }
@@ -81,6 +89,11 @@ function setCachedPreview(sourcePath: string, importer: BaseImporter, parsedNote
 
 function clearPreviewCache(): void {
   previewCache = null
+}
+
+/** 标准化路径为数组 */
+function normalizePaths(sourcePath: string | string[]): string[] {
+  return Array.isArray(sourcePath) ? sourcePath : [sourcePath]
 }
 
 // ============ 导出 API ============
@@ -109,28 +122,39 @@ export async function detectImporter(sourcePath: string): Promise<ImporterInfo |
  * 解析结果会被缓存，供后续 executeImport 使用
  */
 export async function previewImport(options: ImportOptions): Promise<ImportPreview> {
+  const sourcePaths = normalizePaths(options.sourcePath)
+  const allParsedNotes: ParsedNote[] = []
+  const importerMap = new Map<string, BaseImporter>()
+  const importerNames = new Set<string>()
 
-  // 找到合适的导入器
-  let importer: BaseImporter | undefined
-  for (const imp of importers) {
-    if (await imp.canHandle(options.sourcePath)) {
-      importer = imp
-      break
+  // 处理每个路径
+  for (const path of sourcePaths) {
+    // 找到合适的导入器
+    let importer: BaseImporter | undefined
+    for (const imp of importers) {
+      if (await imp.canHandle(path)) {
+        importer = imp
+        break
+      }
     }
-  }
-  if (!importer) {
-    throw new Error('No suitable importer found for this source')
-  }
+    if (!importer) {
+      throw new Error(`No suitable importer found for: ${path}`)
+    }
 
-  // 解析文件
-  const parsedNotes = await importer.parse(options)
+    importerMap.set(path, importer)
+    importerNames.add(importer.info.name)
+
+    // 解析文件
+    const parsedNotes = await importer.parse({ ...options, sourcePath: path })
+    allParsedNotes.push(...parsedNotes)
+  }
 
   // 缓存解析结果
-  setCachedPreview(options.sourcePath, importer, parsedNotes)
+  setCachedPreview(sourcePaths, importerMap, allParsedNotes)
 
   // 收集笔记本名称
   const notebookNames = new Set<string>()
-  for (const note of parsedNotes) {
+  for (const note of allParsedNotes) {
     if (note.notebookName) {
       notebookNames.add(note.notebookName)
     }
@@ -138,21 +162,27 @@ export async function previewImport(options: ImportOptions): Promise<ImportPrevi
 
   // 统计附件数量
   let attachmentCount = 0
-  for (const note of parsedNotes) {
+  for (const note of allParsedNotes) {
     attachmentCount += note.attachments.length
   }
 
   // 文件预览（前 100 个）
-  const files = parsedNotes.slice(0, 100).map((n) => ({
+  const files = allParsedNotes.slice(0, 100).map((n) => ({
     path: n.sourcePath,
     title: n.title,
     notebookName: n.notebookName,
   }))
 
+  // 使用第一个导入器的信息，或者合并名称
+  const firstImporter = importerMap.values().next().value
+  const importerName = importerNames.size === 1
+    ? firstImporter?.info.name || 'Unknown'
+    : Array.from(importerNames).join(' + ')
+
   return {
-    importerId: importer.info.id,
-    importerName: importer.info.name,
-    noteCount: parsedNotes.length,
+    importerId: firstImporter?.info.id || 'markdown',
+    importerName,
+    noteCount: allParsedNotes.length,
     notebookNames: Array.from(notebookNames),
     attachmentCount,
     files,
@@ -175,39 +205,47 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
   // 进度回调辅助函数
   const emitProgress = options.onProgress || (() => {})
 
-  // 声明在 try 外部，以便 finally 中可以调用 cleanup
-  let importer: BaseImporter | undefined
+  // 声明在 try 外部，以便 finally 中可以调用 cleanup（使用 Set 去重）
+  const usedImporters = new Set<BaseImporter>()
   let parsedNotes: ParsedNote[]
+
+  const sourcePaths = normalizePaths(options.sourcePath)
 
   try {
 
     // 尝试使用缓存的预览结果
-    const cached = getCachedPreview(options.sourcePath)
+    const cached = getCachedPreview(sourcePaths)
     if (cached) {
-      importer = cached.importer
+      for (const imp of cached.importerMap.values()) {
+        usedImporters.add(imp)
+      }
       parsedNotes = cached.parsedNotes
       clearPreviewCache() // 使用后清除缓存
-      emitProgress({ type: 'parsing', message: `Using cached preview from ${importer.info.name}...` })
+      emitProgress({ type: 'parsing', message: `Using cached preview...` })
     } else {
       // 没有缓存，重新解析
       emitProgress({ type: 'scanning', message: 'Detecting importer...' })
 
-      let foundImporter: BaseImporter | undefined
-      for (const imp of importers) {
-        if (await imp.canHandle(options.sourcePath)) {
-          foundImporter = imp
-          break
+      parsedNotes = []
+      for (const path of sourcePaths) {
+        let foundImporter: BaseImporter | undefined
+        for (const imp of importers) {
+          if (await imp.canHandle(path)) {
+            foundImporter = imp
+            break
+          }
         }
-      }
 
-      if (!foundImporter) {
-        throw new Error('No suitable importer found for this source')
-      }
-      importer = foundImporter
+        if (!foundImporter) {
+          throw new Error(`No suitable importer found for: ${path}`)
+        }
+        usedImporters.add(foundImporter)
 
-      // 解析文件
-      emitProgress({ type: 'parsing', message: `Parsing files with ${importer.info.name}...` })
-      parsedNotes = await importer.parse(options)
+        // 解析文件
+        emitProgress({ type: 'parsing', message: `Parsing files with ${foundImporter.info.name}...` })
+        const notes = await foundImporter.parse({ ...options, sourcePath: path })
+        parsedNotes.push(...notes)
+      }
     }
 
     totalFiles = parsedNotes.length
@@ -453,7 +491,7 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
       skippedFiles,
       errors: [
         {
-          path: options.sourcePath,
+          path: sourcePaths.join(', '),
           error: error instanceof Error ? error.message : String(error),
         },
       ],
@@ -469,8 +507,8 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
     }
   } finally {
     // 清理导入器的临时资源（如 Notion 解压的临时目录）
-    if (importer) {
-      importer.cleanup()
+    for (const imp of usedImporters) {
+      imp.cleanup()
     }
   }
 }

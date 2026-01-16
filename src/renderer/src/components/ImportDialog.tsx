@@ -68,7 +68,7 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
 
   // 状态
   const [step, setStep] = useState<'select' | 'configure' | 'importing' | 'result'>('select')
-  const [sourcePath, setSourcePath] = useState('')
+  const [sourcePaths, setSourcePaths] = useState<string[]>([])
   const [preview, setPreview] = useState<ImportPreview | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState('')
@@ -93,12 +93,19 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
   // 选择来源
   const handleSelectSource = async () => {
     // 传递 importerType 作为 importerId，让 main 进程使用正确的文件选择配置
-    const path = await window.electron?.importExport?.selectSource(importerType)
+    const paths = await window.electron?.importExport?.selectSource(importerType)
 
-    if (path) {
-      setSourcePath(path)
+    if (paths && paths.length > 0) {
+      setSourcePaths(paths)
       setError('')
     }
+  }
+
+  // 格式化显示路径
+  const getDisplayPath = () => {
+    if (sourcePaths.length === 0) return ''
+    if (sourcePaths.length === 1) return sourcePaths[0]
+    return `${sourcePaths.length} ${t.importExport.filesSelected || 'files/folders selected'}`
   }
 
   // loading 状态
@@ -106,14 +113,14 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
 
   // 预览并进入配置步骤
   const handleNext = async () => {
-    if (!sourcePath || loading) return
+    if (sourcePaths.length === 0 || loading) return
 
     setError('')
     setLoading(true)
 
     try {
       const previewResult = await window.electron?.importExport?.preview({
-        sourcePath,
+        sourcePath: sourcePaths,
         folderStrategy,
         tagStrategy: 'keep-nested',  // 默认保持嵌套标签
         conflictStrategy,
@@ -143,7 +150,7 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
 
     try {
       const importResult = await window.electron?.importExport?.execute({
-        sourcePath,
+        sourcePath: sourcePaths,
         folderStrategy,
         targetNotebookId: folderStrategy === 'single-notebook' ? targetNotebookId : undefined,
         tagStrategy: 'keep-nested',  // 默认保持嵌套标签
@@ -234,9 +241,10 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    value={sourcePath}
+                    value={getDisplayPath()}
                     readOnly
                     placeholder={t.importExport.noSourceSelected}
+                    title={sourcePaths.join('\n')}
                     className="flex-1 px-3 py-2 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[var(--color-text)]"
                   />
                   <button
@@ -258,21 +266,16 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
           {step === 'configure' && preview && (
             <div className="space-y-5">
               {/* 预览信息 */}
-              <div className="p-3 bg-[var(--color-surface)] rounded-md text-sm">
-                <div className="font-medium text-[var(--color-text)] mb-1">
-                  {t.importExport.detected}: {preview.importerName}
-                </div>
-                <div className="text-[var(--color-muted)]">
-                  {t.importExport.noteCount.replace('{n}', String(preview.noteCount))}
-                  {preview.attachmentCount > 0 && (
-                    <span className="ml-2">
-                      {t.importExport.attachmentCount.replace(
-                        '{n}',
-                        String(preview.attachmentCount)
-                      )}
-                    </span>
-                  )}
-                </div>
+              <div className="p-3 bg-[var(--color-surface)] rounded-md text-sm text-[var(--color-muted)]">
+                {t.importExport.noteCount.replace('{n}', String(preview.noteCount))}
+                {preview.attachmentCount > 0 && (
+                  <span className="ml-2">
+                    {t.importExport.attachmentCount.replace(
+                      '{n}',
+                      String(preview.attachmentCount)
+                    )}
+                  </span>
+                )}
               </div>
 
               {/* 文件夹处理策略 */}
@@ -503,7 +506,7 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
               >
                 {t.actions.cancel}
               </button>
-              {sourcePath && (
+              {sourcePaths.length > 0 && (
                 <button
                   onClick={handleNext}
                   disabled={loading}

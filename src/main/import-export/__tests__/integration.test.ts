@@ -113,7 +113,8 @@ tags: [读书, CS]
       // 检查笔记本分组
       const workNotes = notes.filter((n) => n.notebookName === '工作')
       const personalNotes = notes.filter((n) => n.notebookName === '个人')
-      const rootNotes = notes.filter((n) => !n.notebookName)
+      // 根目录文件使用导入目录名作为笔记本
+      const rootNotes = notes.filter((n) => n.notebookName === path.basename(sourceDir))
 
       expect(workNotes.length).toBe(2)
       expect(personalNotes.length).toBe(2)
@@ -291,9 +292,9 @@ custom_field: 自定义值
       expect(canHandle).toBe(false)
     })
 
-    it('处理只包含非 Markdown 文件的目录', async () => {
-      fs.writeFileSync(path.join(sourceDir, 'file.txt'), 'text')
+    it('处理只包含非 Markdown/txt 文件的目录', async () => {
       fs.writeFileSync(path.join(sourceDir, 'file.json'), '{}')
+      fs.writeFileSync(path.join(sourceDir, 'file.xml'), '<root/>')
 
       const importer = new MarkdownImporter()
       const canHandle = await importer.canHandle(sourceDir)

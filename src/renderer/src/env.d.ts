@@ -285,7 +285,7 @@ interface Window {
         fileFilters: Array<{ name: string; extensions: string[] }>
       } | null>
       preview: (options: {
-        sourcePath: string
+        sourcePath: string | string[]
         folderStrategy: 'first-level' | 'flatten-path' | 'single-notebook'
         targetNotebookId?: string
         defaultNotebookId?: string | null
@@ -302,7 +302,7 @@ interface Window {
         files: Array<{ path: string; title: string; notebookName?: string }>
       }>
       execute: (options: {
-        sourcePath: string
+        sourcePath: string | string[]
         folderStrategy: 'first-level' | 'flatten-path' | 'single-notebook'
         targetNotebookId?: string
         defaultNotebookId?: string | null
@@ -325,7 +325,7 @@ interface Window {
           duration: number
         }
       }>
-      selectSource: (importerId?: string) => Promise<string | null>
+      selectSource: (importerId?: string) => Promise<string[] | null>
       export: (options: {
         noteIds: string[]
         notebookIds: string[]

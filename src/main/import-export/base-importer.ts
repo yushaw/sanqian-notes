@@ -51,6 +51,37 @@ export abstract class BaseImporter {
   }
 
   /**
+   * Plain text → TipTap JSON (no Markdown parsing)
+   * Split by newlines into paragraphs
+   */
+  protected plainTextToContent(text: string): string {
+    const lines = text.split(/\r?\n/)
+    const content: { type: string; content?: { type: string; text: string }[] }[] = []
+
+    for (const line of lines) {
+      if (line === '') {
+        // Empty line becomes empty paragraph
+        content.push({ type: 'paragraph' })
+      } else {
+        content.push({
+          type: 'paragraph',
+          content: [{ type: 'text', text: line }]
+        })
+      }
+    }
+
+    return JSON.stringify({ type: 'doc', content })
+  }
+
+  /**
+   * Check if file is a text file (.txt)
+   */
+  protected isTextFile(filePath: string): boolean {
+    const ext = extname(filePath).toLowerCase()
+    return ext === '.txt'
+  }
+
+  /**
    * 从文件路径、内容、front matter 提取标题
    * 优先级：front matter > 第一个 # 标题 > 文件名
    */
@@ -78,24 +109,33 @@ export abstract class BaseImporter {
 
   /**
    * 根据策略解析笔记本名称
+   * @param isDirectoryImport 是否是目录导入（用于决定根级文件是否使用目录名作为 notebook）
    */
   protected resolveNotebookName(
     filePath: string,
     rootPath: string,
-    strategy: FolderStrategy
+    strategy: FolderStrategy,
+    isDirectoryImport: boolean = false
   ): string | undefined {
     // 计算相对路径
     const relativePath = relative(rootPath, filePath)
     const dir = dirname(relativePath)
 
-    // 根级文件没有笔记本
+    // 根级文件
     if (dir === '.' || dir === '') {
+      // 如果是目录导入，根级文件使用目录名作为 notebook
+      if (isDirectoryImport && strategy !== 'single-notebook') {
+        return basename(rootPath)
+      }
       return undefined
     }
 
     // 分割路径
     const parts = dir.split(sep).filter(Boolean)
     if (parts.length === 0) {
+      if (isDirectoryImport && strategy !== 'single-notebook') {
+        return basename(rootPath)
+      }
       return undefined
     }
 

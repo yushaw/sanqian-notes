@@ -77,6 +77,25 @@ MIT
 
 ## Changelog
 
+### 2026-01-18 - FTS/Embedding Index Split
+
+Decoupled FTS (Full-text Search) and Embedding (Vector) indexing for imports:
+
+- FTS index is now built automatically after import (local computation, no API cost)
+- Embedding index requires user opt-in via checkbox in import dialogs
+- If embedding is globally disabled, the checkbox is disabled with a hint
+- When user enables embedding later and opens/switches to a note, embedding is auto-built
+- Applies to all import types: Markdown, PDF, and arXiv
+
+Database schema changes:
+- Added `fts_status` column: 'none' | 'indexed'
+- Added `embedding_status` column: 'none' | 'indexed' | 'pending' | 'error'
+
+Bug fixes:
+- Fixed: Restoring note from trash now rebuilds index (was missing before)
+- Fixed: Moving note to another notebook now updates notebook_id in index
+- Fixed: `note:checkIndex` had early return blocking FTS updates when embedding disabled
+
 ### 2026-01-16 - Floating Table of Contents
 
 Added Notion-style floating TOC to both normal editor and typewriter mode:

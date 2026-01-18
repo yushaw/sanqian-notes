@@ -120,6 +120,7 @@ import {
   getLastIndexedTime,
   indexingService,
   getDimensionsForModel,
+  updateNoteNotebookId,
   type EmbeddingConfig,
 } from './embedding'
 import { fetchEmbeddingConfigFromSanqian, fetchRerankConfigFromSanqian, updateSdkContexts } from './sanqian-sdk'
@@ -1564,11 +1565,20 @@ app.whenReady().then(() => {
     return addNote(note)
   })
   ipcMain.handle('note:update', (_, id, updates) => {
-    return updateNote(id, updates)
+    // Check if notebook_id is changing
+    const oldNote = getNoteById(id)
+    const result = updateNote(id, updates)
+    // If notebook_id changed, update index
+    if (result && oldNote && updates.notebook_id !== undefined && updates.notebook_id !== oldNote.notebook_id) {
+      updateNoteNotebookId(id, updates.notebook_id || '')
+    }
+    return result
   })
-  // 笔记失焦时触发增量索引检查
+  // 笔记失焦时触发索引检查
+  // checkAndIndex 会根据 embedding 配置决定索引方式：
+  // - embedding 启用：FTS + Embedding
+  // - embedding 禁用：仅 FTS
   ipcMain.handle('note:checkIndex', async (_, noteId: string, notebookId: string, content: string) => {
-    if (!getEmbeddingConfig().enabled) return false
     return indexingService.checkAndIndex(noteId, notebookId, content)
   })
 
@@ -1589,7 +1599,22 @@ app.whenReady().then(() => {
 
   // IPC handlers for trash operations
   ipcMain.handle('trash:getAll', () => getTrashNotes())
-  ipcMain.handle('trash:restore', (_, id) => restoreNote(id))
+  ipcMain.handle('trash:restore', async (_, id) => {
+    const result = restoreNote(id)
+    if (result) {
+      // Rebuild index for restored note
+      const note = getNoteById(id)
+      if (note && note.content) {
+        const config = getEmbeddingConfig()
+        if (config.enabled) {
+          indexingService.indexNoteFull(note.id, note.notebook_id || '', note.content).catch(console.error)
+        } else {
+          indexingService.indexNoteFtsOnly(note.id, note.notebook_id || '', note.content).catch(console.error)
+        }
+      }
+    }
+    return result
+  })
   ipcMain.handle('trash:permanentDelete', (_, id) => permanentlyDeleteNote(id))
   ipcMain.handle('trash:empty', () => emptyTrash())
   ipcMain.handle('trash:cleanup', () => cleanupOldTrash())
@@ -1927,6 +1952,7 @@ app.whenReady().then(() => {
         serviceConfig: Record<string, string>
         targetNotebookId?: string
         importImages: boolean
+        buildEmbedding?: boolean
       }
     ) => {
       const win = mainView
@@ -1997,6 +2023,7 @@ app.whenReady().then(() => {
               conflictStrategy: 'rename',
               importAttachments: options.importImages,
               parseFrontMatter: false,
+              buildEmbedding: options.buildEmbedding,
             })
 
             results.push({

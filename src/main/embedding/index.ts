@@ -42,6 +42,7 @@ export {
   getIndexStats,
   clearAllIndexData,
   getLastIndexedTime,
+  updateNoteNotebookId,
   type KeywordSearchResult
 } from './database'
 

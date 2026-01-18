@@ -52,6 +52,8 @@ export function ArxivImportDialog({ onClose }: ArxivImportDialogProps) {
   const [includeReferences, setIncludeReferences] = useState(false)
   const [downloadFigures, setDownloadFigures] = useState(true)
   const [preferHtml, setPreferHtml] = useState(true)
+  const [buildEmbedding, setBuildEmbedding] = useState(false)
+  const [embeddingEnabled, setEmbeddingEnabled] = useState(false)
 
   // 状态
   const [step, setStep] = useState<'input' | 'importing' | 'result'>('input')
@@ -60,15 +62,19 @@ export function ArxivImportDialog({ onClose }: ArxivImportDialogProps) {
   const [error, setError] = useState('')
   const [isCancelling, setIsCancelling] = useState(false)
 
-  // 加载笔记本列表
+  // 加载笔记本列表和 embedding 配置
   useEffect(() => {
-    const loadNotebooks = async () => {
+    const loadData = async () => {
       const nbs = await window.electron?.notebook?.getAll()
       if (nbs) {
         setNotebooks(nbs as Array<{ id: string; name: string }>)
       }
+
+      // 加载 embedding 配置
+      const embeddingConfig = await window.electron?.knowledgeBase?.getConfig()
+      setEmbeddingEnabled(embeddingConfig?.enabled ?? false)
     }
-    loadNotebooks()
+    loadData()
   }, [])
 
   // 监听进度
@@ -137,6 +143,7 @@ export function ArxivImportDialog({ onClose }: ArxivImportDialogProps) {
         includeReferences,
         downloadFigures,
         preferHtml,
+        buildEmbedding,
       })
 
       if (importResult) {
@@ -320,6 +327,27 @@ export function ArxivImportDialog({ onClose }: ArxivImportDialogProps) {
                     {t.arxivImport?.preferHtml || 'Prefer HTML format (falls back to PDF if unavailable)'}
                   </span>
                 </label>
+
+                {/* 向量索引选项 */}
+                <div>
+                  <label className={`flex items-center gap-2 ${embeddingEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                    <input
+                      type="checkbox"
+                      checked={buildEmbedding}
+                      onChange={(e) => setBuildEmbedding(e.target.checked)}
+                      disabled={!embeddingEnabled}
+                      className="rounded"
+                    />
+                    <span className={`text-sm ${embeddingEnabled ? 'text-[var(--color-text)]' : 'text-[var(--color-muted)]'}`}>
+                      {t.importExport.buildEmbedding}
+                    </span>
+                  </label>
+                  {!embeddingEnabled && (
+                    <span className="text-xs text-[var(--color-muted)] ml-6">
+                      {t.importExport.embeddingDisabledHint}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* 错误信息 */}

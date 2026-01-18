@@ -78,15 +78,20 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
   const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>('skip')
   const [importAttachments, setImportAttachments] = useState(true)
   const [parseFrontMatter, setParseFrontMatter] = useState(true)
+  const [buildEmbedding, setBuildEmbedding] = useState(false)
+  const [embeddingEnabled, setEmbeddingEnabled] = useState(false)
 
   // 笔记本列表（用于 single-notebook 策略）
   const [notebooks, setNotebooks] = useState<Array<{ id: string; name: string }>>([])
   const [targetNotebookId, setTargetNotebookId] = useState<string>('')
 
-  // 加载笔记本列表
+  // 加载笔记本列表和 embedding 配置
   useEffect(() => {
     window.electron?.notebook?.getAll().then((nbs) => {
       setNotebooks(nbs as Array<{ id: string; name: string }>)
+    })
+    window.electron?.knowledgeBase?.getConfig().then((config) => {
+      setEmbeddingEnabled(config?.enabled ?? false)
     })
   }, [])
 
@@ -157,6 +162,7 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
         conflictStrategy,
         importAttachments,
         parseFrontMatter,
+        buildEmbedding,
       })
       setResult(importResult)
       setStep('result')
@@ -427,6 +433,25 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
                     </span>
                   </label>
                 )}
+                {/* 向量索引选项 */}
+                <div>
+                  <label className={`flex items-center gap-2 ${embeddingEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                    <input
+                      type="checkbox"
+                      checked={buildEmbedding}
+                      onChange={(e) => setBuildEmbedding(e.target.checked)}
+                      disabled={!embeddingEnabled}
+                    />
+                    <span className={`text-sm ${embeddingEnabled ? 'text-[var(--color-text)]' : 'text-[var(--color-muted)]'}`}>
+                      {t.importExport.buildEmbedding}
+                    </span>
+                  </label>
+                  {!embeddingEnabled && (
+                    <span className="text-xs text-[var(--color-muted)] ml-6">
+                      {t.importExport.embeddingDisabledHint}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {error && (

@@ -102,6 +102,12 @@ export interface NoteChunk {
   createdAt: string
 }
 
+// FTS 索引状态
+export type FtsStatus = 'none' | 'indexed'
+
+// Embedding 索引状态
+export type EmbeddingStatus = 'none' | 'indexed' | 'pending' | 'error'
+
 // 笔记索引状态
 export interface NoteIndexStatus {
   noteId: string
@@ -109,8 +115,11 @@ export interface NoteIndexStatus {
   chunkCount: number
   modelName: string
   indexedAt: string
-  status: 'indexed' | 'pending' | 'error'
+  status: 'indexed' | 'pending' | 'error' // 保留用于向后兼容
   errorMessage?: string
+  // 新增：独立的 FTS 和 Embedding 状态
+  ftsStatus: FtsStatus
+  embeddingStatus: EmbeddingStatus
 }
 
 // 搜索结果

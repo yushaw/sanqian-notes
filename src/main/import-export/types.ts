@@ -42,6 +42,9 @@ export interface ImportOptions {
   /** 是否解析 YAML front matter */
   parseFrontMatter: boolean
 
+  /** 是否建立向量索引（默认 false，仅当全局 embedding 启用时有效） */
+  buildEmbedding?: boolean
+
   /** 进度回调（可选） */
   onProgress?: ImportProgressCallback
 }

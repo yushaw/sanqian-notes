@@ -246,7 +246,7 @@ function extractTextFromNodes(nodes: unknown[]): string {
   return parts.join('').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-class IndexingService {
+export class IndexingService {
   private webContents: WebContents | null = null
   private isRunning = false
   private indexingLocks = new Set<string>()  // 防止同一笔记并发索引
@@ -279,12 +279,18 @@ class IndexingService {
   /**
    * 笔记失焦时检查并索引
    * 这是主要的入口点，由前端在切换笔记时调用
+   *
+   * 逻辑：
+   * - 内容变化 + embedding 启用 → indexNoteIncremental (FTS + Embedding)
+   * - 内容变化 + embedding 禁用 → indexNoteFtsOnly (仅 FTS)
+   * - 内容未变 + embedding 启用 + embeddingStatus=none → buildEmbeddingForNote (补建)
+   * - 内容未变 + embedding 禁用 → 跳过
+   * - 内容未变 + embeddingStatus=indexed → 跳过
    */
   async checkAndIndex(noteId: string, notebookId: string, content: string): Promise<boolean> {
     if (!this.isRunning) return false
 
     const config = getEmbeddingConfig()
-    if (!config.enabled) return false
 
     // 防止同一笔记并发索引
     if (this.indexingLocks.has(noteId)) {
@@ -300,29 +306,49 @@ class IndexingService {
       return false
     }
 
-    // 检查内容是否有变化（快速判断）
+    const newHash = computeContentHash(text)
     const existingStatus = getNoteIndexStatus(noteId)
-    if (existingStatus) {
-      const newHash = computeContentHash(text)
-      // 只有内容相同且上次成功时才跳过（允许 error 状态重试）
-      if (existingStatus.contentHash === newHash && existingStatus.status === 'indexed') {
-        // 即使索引没变，也要检查是否缺少 summary
-        const summaryInfo = getNoteSummaryInfo(noteId)
-        if (!summaryInfo?.ai_summary) {
-          triggerSummary(noteId, 'no summary')
-        } else {
-          console.log(`[IndexingService] Note ${noteId} no change (hash match), skipping`)
-        }
-        return false
-      }
-    }
+    const contentChanged = !existingStatus || existingStatus.contentHash !== newHash
 
     // 加锁
     this.indexingLocks.add(noteId)
 
     try {
-      // 执行增量索引
-      return await this.indexNoteIncremental(noteId, notebookId, text)
+      if (contentChanged) {
+        // 内容变化：根据 embedding 配置决定索引方式
+        if (config.enabled) {
+          // FTS + Embedding
+          return await this.indexNoteIncremental(noteId, notebookId, text)
+        } else {
+          // 仅 FTS
+          return await this.indexNoteFtsOnly(noteId, notebookId, content)
+        }
+      } else {
+        // 内容未变化
+        if (existingStatus.status === 'error') {
+          // 上次失败，重试
+          if (config.enabled) {
+            return await this.indexNoteIncremental(noteId, notebookId, text)
+          } else {
+            return await this.indexNoteFtsOnly(noteId, notebookId, content)
+          }
+        }
+
+        // 检查是否需要补建 embedding
+        if (config.enabled && existingStatus.embeddingStatus === 'none') {
+          console.log(`[IndexingService] Note ${noteId} needs embedding build`)
+          return await this.buildEmbeddingForNote(noteId)
+        }
+
+        // 检查是否缺少 summary
+        const summaryInfo = getNoteSummaryInfo(noteId)
+        if (!summaryInfo?.ai_summary) {
+          triggerSummary(noteId, 'no summary')
+        } else {
+          console.log(`[IndexingService] Note ${noteId} no change, skipping`)
+        }
+        return false
+      }
     } finally {
       // 解锁
       this.indexingLocks.delete(noteId)
@@ -344,6 +370,9 @@ class IndexingService {
     if (!config.enabled) return false
 
     console.log(`[IndexingService] Incremental indexing note ${noteId} (${text.length} chars)`)
+
+    // 追踪 FTS 是否已写入，用于错误状态精确记录
+    let ftsWritten = false
 
     try {
       // 1. 分块（每个 chunk 已包含 chunkHash）
@@ -398,6 +427,7 @@ class IndexingService {
       // 8. 插入新 chunks 和 embeddings
       if (result.toAdd.length > 0) {
         insertNoteChunks(result.toAdd)
+        ftsWritten = true
 
         const embeddingData = result.toAdd.map((chunk, i) => ({
           chunkId: chunk.chunkId,
@@ -420,7 +450,9 @@ class IndexingService {
         chunkCount: newChunks.length,
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
-        status: 'indexed'
+        status: 'indexed',
+        ftsStatus: 'indexed',
+        embeddingStatus: 'indexed'
       }
       updateNoteIndexStatus(status)
 
@@ -449,7 +481,7 @@ class IndexingService {
     } catch (error) {
       console.error(`[IndexingService] Failed to index note ${noteId}:`, error)
 
-      // 更新错误状态
+      // 更新错误状态（精确记录 FTS 是否已写入）
       const status: NoteIndexStatus = {
         noteId,
         contentHash: computeContentHash(text),
@@ -457,7 +489,9 @@ class IndexingService {
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
         status: 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        ftsStatus: ftsWritten ? 'indexed' : 'none',
+        embeddingStatus: 'error'
       }
       updateNoteIndexStatus(status)
 
@@ -485,6 +519,156 @@ class IndexingService {
   }
 
   /**
+   * 仅建立 FTS 索引（不生成 Embedding）
+   *
+   * 用于导入场景：
+   * - 导入后默认建立 FTS 索引（本地计算，无成本）
+   * - Embedding 索引需要用户手动勾选
+   */
+  async indexNoteFtsOnly(noteId: string, notebookId: string, content: string): Promise<boolean> {
+    const text = extractTextFromTiptap(content)
+
+    // 内容太短，不索引
+    if (text.length < MIN_CONTENT_LENGTH) {
+      console.log(`[IndexingService] Note ${noteId} too short (${text.length} chars), skipping FTS`)
+      return false
+    }
+
+    console.log(`[IndexingService] FTS-only indexing note ${noteId} (${text.length} chars)`)
+
+    // 追踪 FTS 是否已写入，用于错误状态精确记录
+    let ftsWritten = false
+
+    try {
+      // 1. 分块
+      const chunks = chunkNote(noteId, notebookId, text)
+      if (chunks.length === 0) {
+        console.log(`[IndexingService] Note ${noteId} produced no chunks`)
+        return false
+      }
+
+      // 2. 删除旧数据（FTS 和 Embedding 都删）
+      deleteNoteChunks(noteId)
+      deleteNoteEmbeddings(noteId)
+
+      // 3. 存储新分块（自动写入 FTS 表）
+      insertNoteChunks(chunks)
+      ftsWritten = true
+
+      // 4. 更新索引状态：FTS 已完成，Embedding 未建立
+      const status: NoteIndexStatus = {
+        noteId,
+        contentHash: computeContentHash(text),
+        chunkCount: chunks.length,
+        modelName: '',  // FTS-only 不涉及 embedding model
+        indexedAt: new Date().toISOString(),
+        status: 'indexed',
+        ftsStatus: 'indexed',
+        embeddingStatus: 'none'
+      }
+      updateNoteIndexStatus(status)
+
+      console.log(`[IndexingService] Note ${noteId} FTS indexed (${chunks.length} chunks)`)
+      return true
+    } catch (error) {
+      console.error(`[IndexingService] Failed to FTS index note ${noteId}:`, error)
+
+      // 更新错误状态（精确记录 FTS 是否已写入）
+      const status: NoteIndexStatus = {
+        noteId,
+        contentHash: computeContentHash(text),
+        chunkCount: 0,
+        modelName: '',
+        indexedAt: new Date().toISOString(),
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        ftsStatus: ftsWritten ? 'indexed' : 'none',
+        embeddingStatus: 'none'
+      }
+      updateNoteIndexStatus(status)
+
+      return false
+    }
+  }
+
+  /**
+   * 为已有 FTS 的笔记补建 Embedding 索引
+   *
+   * 使用场景：
+   * - 用户后来启用了 Embedding，切换到之前只有 FTS 的笔记时自动补建
+   */
+  async buildEmbeddingForNote(noteId: string): Promise<boolean> {
+    const config = getEmbeddingConfig()
+    if (!config.enabled) {
+      console.log(`[IndexingService] Embedding disabled, skipping buildEmbeddingForNote`)
+      return false
+    }
+
+    // 获取已有的 chunks
+    const chunks = getNoteChunks(noteId)
+    if (chunks.length === 0) {
+      console.log(`[IndexingService] Note ${noteId} has no chunks, skipping embedding build`)
+      return false
+    }
+
+    console.log(`[IndexingService] Building embedding for note ${noteId} (${chunks.length} chunks)`)
+
+    try {
+      // 1. 获取 embeddings
+      const chunkTexts = chunks.map((c) => c.chunkText)
+      const embeddings = await getEmbeddings(chunkTexts)
+
+      // 2. 删除旧 embeddings（如果有）
+      deleteNoteEmbeddings(noteId)
+
+      // 3. 插入新 embeddings
+      const embeddingData = chunks.map((chunk, i) => ({
+        chunkId: chunk.chunkId,
+        noteId: chunk.noteId,
+        notebookId: chunk.notebookId,
+        embedding: embeddings[i]
+      }))
+      insertEmbeddings(embeddingData)
+
+      // 4. 更新索引状态
+      const existingStatus = getNoteIndexStatus(noteId)
+      const status: NoteIndexStatus = {
+        noteId,
+        contentHash: existingStatus?.contentHash || '',
+        chunkCount: chunks.length,
+        modelName: config.modelName,
+        indexedAt: new Date().toISOString(),
+        status: 'indexed',
+        ftsStatus: existingStatus?.ftsStatus || 'indexed',
+        embeddingStatus: 'indexed'
+      }
+      updateNoteIndexStatus(status)
+
+      console.log(`[IndexingService] Note ${noteId} embedding built successfully`)
+      return true
+    } catch (error) {
+      console.error(`[IndexingService] Failed to build embedding for note ${noteId}:`, error)
+
+      // 更新错误状态（保留 FTS 状态）
+      const existingStatus = getNoteIndexStatus(noteId)
+      const status: NoteIndexStatus = {
+        noteId,
+        contentHash: existingStatus?.contentHash || '',
+        chunkCount: existingStatus?.chunkCount || 0,
+        modelName: config.modelName,
+        indexedAt: new Date().toISOString(),
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        ftsStatus: existingStatus?.ftsStatus || 'indexed',
+        embeddingStatus: 'error'
+      }
+      updateNoteIndexStatus(status)
+
+      return false
+    }
+  }
+
+  /**
    * 全量索引单个笔记（用于首次索引或强制重建）
    */
   async indexNoteFull(noteId: string, notebookId: string, content: string): Promise<boolean> {
@@ -494,6 +678,9 @@ class IndexingService {
     const text = extractTextFromTiptap(content)
 
     console.log(`[IndexingService] Full indexing note ${noteId} (${text.length} chars)`)
+
+    // 追踪 FTS 是否已写入，用于错误状态精确记录
+    let ftsWritten = false
 
     try {
       // 1. 分块
@@ -513,8 +700,9 @@ class IndexingService {
       deleteNoteChunks(noteId)
       deleteNoteEmbeddings(noteId)
 
-      // 4. 存储新分块
+      // 4. 存储新分块 (FTS)
       insertNoteChunks(chunks)
+      ftsWritten = true
 
       // 5. 存储 embeddings
       const embeddingData = chunks.map((chunk, i) => ({
@@ -532,7 +720,9 @@ class IndexingService {
         chunkCount: chunks.length,
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
-        status: 'indexed'
+        status: 'indexed',
+        ftsStatus: 'indexed',
+        embeddingStatus: 'indexed'
       }
       updateNoteIndexStatus(status)
 
@@ -554,7 +744,7 @@ class IndexingService {
     } catch (error) {
       console.error(`[IndexingService] Failed to index note ${noteId}:`, error)
 
-      // 更新错误状态
+      // 更新错误状态（精确记录 FTS 是否已写入）
       const status: NoteIndexStatus = {
         noteId,
         contentHash: computeContentHash(text),
@@ -562,7 +752,9 @@ class IndexingService {
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
         status: 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        ftsStatus: ftsWritten ? 'indexed' : 'none',
+        embeddingStatus: 'error'
       }
       updateNoteIndexStatus(status)
 

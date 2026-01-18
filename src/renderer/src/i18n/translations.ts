@@ -831,6 +831,8 @@ export interface Translations {
     conflictOverwrite: string
     importAttachments: string
     parseFrontMatter: string
+    buildEmbedding: string
+    embeddingDisabledHint: string
     startImport: string
     // 导出对话框
     exportRange: string
@@ -1759,6 +1761,8 @@ const zh: Translations = {
     conflictOverwrite: '覆盖',
     importAttachments: '导入附件',
     parseFrontMatter: '解析 Front Matter',
+    buildEmbedding: '建立向量索引',
+    embeddingDisabledHint: '请先在设置中启用知识库',
     startImport: '开始导入',
     // 导出对话框
     exportRange: '导出范围',
@@ -2687,6 +2691,8 @@ const en: Translations = {
     conflictOverwrite: 'Overwrite',
     importAttachments: 'Import attachments',
     parseFrontMatter: 'Parse Front Matter',
+    buildEmbedding: 'Build embedding index',
+    embeddingDisabledHint: 'Enable knowledge base first',
     startImport: 'Start Import',
     // Export dialog
     exportRange: 'Export Range',

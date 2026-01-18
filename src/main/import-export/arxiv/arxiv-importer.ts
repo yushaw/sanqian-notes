@@ -12,6 +12,8 @@ import { markdownToTiptapString } from '../../markdown'
 import { copyAttachmentsAndUpdateContent } from '../utils/attachment-handler'
 import { pdfImporter } from '../importers/pdf-importer'
 import { getServiceConfig } from '../pdf-config'
+import { indexingService } from '../../embedding/indexing-service'
+import { getEmbeddingConfig } from '../../embedding/database'
 import {
   parseArxivInput,
   fetchMetadata,
@@ -165,7 +167,8 @@ export class ArxivImporter {
             metadata.title,
             tiptapContent,
             figures,
-            options.notebookId
+            options.notebookId,
+            options.buildEmbedding
           )
 
           onProgress?.({
@@ -281,7 +284,8 @@ export class ArxivImporter {
         metadata.title,
         tiptapContent,
         parsedNote.attachments,
-        options.notebookId
+        options.notebookId,
+        options.buildEmbedding
       )
 
       onProgress?.({
@@ -446,7 +450,8 @@ export class ArxivImporter {
     title: string,
     content: string,
     figures: ArxivFigure[],
-    notebookId?: string
+    notebookId?: string,
+    buildEmbedding?: boolean
   ): Promise<string> {
     // Resolve notebook
     let resolvedNotebookId = notebookId
@@ -482,6 +487,9 @@ export class ArxivImporter {
       is_favorite: false
     })
 
+    // Build search index
+    await this.buildIndex(note.id, resolvedNotebookId || '', finalContent, buildEmbedding)
+
     return note.id
   }
 
@@ -492,7 +500,8 @@ export class ArxivImporter {
     title: string,
     content: string,
     attachments: Array<{ originalRef: string; sourcePath: string }>,
-    notebookId?: string
+    notebookId?: string,
+    buildEmbedding?: boolean
   ): Promise<string> {
     // Resolve notebook
     let resolvedNotebookId = notebookId
@@ -520,7 +529,36 @@ export class ArxivImporter {
       is_favorite: false
     })
 
+    // Build search index
+    await this.buildIndex(note.id, resolvedNotebookId || '', finalContent, buildEmbedding)
+
     return note.id
+  }
+
+  /**
+   * Build search index for a note
+   */
+  private async buildIndex(
+    noteId: string,
+    notebookId: string,
+    content: string,
+    buildEmbedding?: boolean
+  ): Promise<void> {
+    try {
+      const embeddingConfig = getEmbeddingConfig()
+      const shouldBuildEmbedding = buildEmbedding && embeddingConfig.enabled
+
+      if (shouldBuildEmbedding) {
+        // FTS + Embedding
+        await indexingService.indexNoteFull(noteId, notebookId, content)
+      } else {
+        // FTS only
+        await indexingService.indexNoteFtsOnly(noteId, notebookId, content)
+      }
+    } catch (error) {
+      // Indexing failure doesn't affect note creation
+      console.error(`[ArXiv] Failed to build index for note ${noteId}:`, error)
+    }
   }
 
   /**

@@ -17,6 +17,8 @@ import {
   getNotes,
   updateNote,
 } from '../database'
+import { indexingService } from '../embedding/indexing-service'
+import { getEmbeddingConfig } from '../embedding/database'
 import type { NoteInput } from '../../shared/types'
 import type {
   ImportOptions,
@@ -456,6 +458,40 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
       } catch (error) {
         // 链接解析失败不影响导入结果，只记录日志
         console.error(`Failed to resolve links in note ${importedNote.id}:`, error)
+      }
+    }
+
+    // ========== 第三遍：建立搜索索引 ==========
+    // FTS 索引默认建立，Embedding 索引根据 options.buildEmbedding 决定
+    const embeddingConfig = getEmbeddingConfig()
+    const shouldBuildEmbedding = options.buildEmbedding && embeddingConfig.enabled
+
+    emitProgress({
+      type: 'creating',
+      message: shouldBuildEmbedding
+        ? 'Building FTS and embedding index...'
+        : 'Building FTS index...',
+    })
+
+    // 重新获取所有笔记以获取最新内容（链接解析后）
+    const finalNotes = getNotes()
+    const finalNotesById = new Map(finalNotes.map((n) => [n.id, n]))
+
+    for (const importedNote of importedNotes) {
+      try {
+        const note = finalNotesById.get(importedNote.id)
+        if (!note) continue
+
+        if (shouldBuildEmbedding) {
+          // FTS + Embedding
+          await indexingService.indexNoteFull(note.id, note.notebook_id || '', note.content)
+        } else {
+          // FTS only
+          await indexingService.indexNoteFtsOnly(note.id, note.notebook_id || '', note.content)
+        }
+      } catch (error) {
+        // 索引失败不影响导入结果，只记录日志
+        console.error(`Failed to index note ${importedNote.id}:`, error)
       }
     }
 

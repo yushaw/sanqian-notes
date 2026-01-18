@@ -101,6 +101,7 @@ export interface ArxivImportOptions {
   includeReferences?: boolean // 是否包含参考文献（默认 false）
   downloadFigures?: boolean // 是否下载图片（默认 true）
   preferHtml?: boolean // 优先 HTML（默认 true）
+  buildEmbedding?: boolean // 是否建立向量索引（默认 false）
 }
 
 /** 单篇导入结果 */

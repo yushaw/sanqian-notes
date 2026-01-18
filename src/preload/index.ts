@@ -319,6 +319,7 @@ contextBridge.exposeInMainWorld('electron', {
       serviceConfig: Record<string, string>
       targetNotebookId?: string
       importImages: boolean
+      buildEmbedding?: boolean
     }) => ipcRenderer.invoke('pdf:import', options),
     // 取消导入
     cancel: () => ipcRenderer.invoke('pdf:cancel'),
@@ -349,6 +350,7 @@ contextBridge.exposeInMainWorld('electron', {
       includeReferences?: boolean
       downloadFigures?: boolean
       preferHtml?: boolean
+      buildEmbedding?: boolean
     }) => ipcRenderer.invoke('arxiv:import', options),
     // 取消导入
     cancel: () => ipcRenderer.invoke('arxiv:cancel'),

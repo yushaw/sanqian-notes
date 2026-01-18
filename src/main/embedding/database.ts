@@ -412,6 +412,33 @@ function migrateDatabase(database: Database.Database): void {
 
   // 确保 chunk_hash 索引存在（无论新表还是迁移后的表）
   database.exec('CREATE INDEX IF NOT EXISTS idx_chunks_hash ON note_chunks(chunk_hash)')
+
+  // 迁移：为 note_index_status 添加 fts_status 和 embedding_status 列
+  const statusColumns = database.prepare("PRAGMA table_info(note_index_status)").all() as Array<{ name: string }>
+  const hasFtsStatus = statusColumns.some(col => col.name === 'fts_status')
+  const hasEmbeddingStatus = statusColumns.some(col => col.name === 'embedding_status')
+
+  if (!hasFtsStatus) {
+    console.log('[Embedding] Migrating: adding fts_status column')
+    database.exec("ALTER TABLE note_index_status ADD COLUMN fts_status TEXT DEFAULT 'none'")
+    // 已有数据：如果 status='indexed' 且 chunk_count > 0，设置 fts_status='indexed'
+    database.exec(`
+      UPDATE note_index_status
+      SET fts_status = 'indexed'
+      WHERE status = 'indexed' AND chunk_count > 0
+    `)
+  }
+
+  if (!hasEmbeddingStatus) {
+    console.log('[Embedding] Migrating: adding embedding_status column')
+    database.exec("ALTER TABLE note_index_status ADD COLUMN embedding_status TEXT DEFAULT 'none'")
+    // 已有数据：如果 status='indexed' 且 chunk_count > 0，假设已有 embedding（因为之前是绑定的）
+    database.exec(`
+      UPDATE note_index_status
+      SET embedding_status = 'indexed'
+      WHERE status = 'indexed' AND chunk_count > 0
+    `)
+  }
 }
 
 /**
@@ -738,6 +765,18 @@ export function deleteNoteChunks(noteId: string): void {
 }
 
 /**
+ * 更新笔记在索引中的 notebook_id（笔记移动到其他笔记本时调用）
+ */
+export function updateNoteNotebookId(noteId: string, newNotebookId: string): void {
+  const database = getDb()
+  database.prepare('UPDATE note_chunks SET notebook_id = ? WHERE note_id = ?').run(newNotebookId, noteId)
+  if (ftsEnabled && !ftsRebuildRunning) {
+    database.prepare('UPDATE note_chunks_fts SET notebook_id = ? WHERE note_id = ?').run(newNotebookId, noteId)
+  }
+  // note_embeddings 表没有 notebook_id 字段，不需要更新
+}
+
+/**
  * 获取笔记的所有块
  */
 export function getNoteChunks(noteId: string): NoteChunk[] {
@@ -840,8 +879,8 @@ export function updateNoteIndexStatus(status: NoteIndexStatus): void {
     .prepare(
       `
     INSERT OR REPLACE INTO note_index_status
-    (note_id, content_hash, chunk_count, model_name, indexed_at, status, error_message)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (note_id, content_hash, chunk_count, model_name, indexed_at, status, error_message, fts_status, embedding_status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -851,7 +890,9 @@ export function updateNoteIndexStatus(status: NoteIndexStatus): void {
       status.modelName,
       status.indexedAt,
       status.status,
-      status.errorMessage || null
+      status.errorMessage || null,
+      status.ftsStatus || 'none',
+      status.embeddingStatus || 'none'
     )
 }
 
@@ -869,6 +910,8 @@ export function getNoteIndexStatus(noteId: string): NoteIndexStatus | null {
       indexed_at: string
       status: string
       error_message: string | null
+      fts_status: string | null
+      embedding_status: string | null
     }
     | undefined
 
@@ -881,7 +924,9 @@ export function getNoteIndexStatus(noteId: string): NoteIndexStatus | null {
     modelName: row.model_name,
     indexedAt: row.indexed_at,
     status: row.status as 'indexed' | 'pending' | 'error',
-    errorMessage: row.error_message || undefined
+    errorMessage: row.error_message || undefined,
+    ftsStatus: (row.fts_status as 'none' | 'indexed') || 'none',
+    embeddingStatus: (row.embedding_status as 'none' | 'indexed' | 'pending' | 'error') || 'none'
   }
 }
 
@@ -906,6 +951,8 @@ export function getAllIndexStatus(): NoteIndexStatus[] {
     indexed_at: string
     status: string
     error_message: string | null
+    fts_status: string | null
+    embedding_status: string | null
   }>
 
   return rows.map((row) => ({
@@ -915,7 +962,9 @@ export function getAllIndexStatus(): NoteIndexStatus[] {
     modelName: row.model_name,
     indexedAt: row.indexed_at,
     status: row.status as 'indexed' | 'pending' | 'error',
-    errorMessage: row.error_message || undefined
+    errorMessage: row.error_message || undefined,
+    ftsStatus: (row.fts_status as 'none' | 'indexed') || 'none',
+    embeddingStatus: (row.embedding_status as 'none' | 'indexed' | 'pending' | 'error') || 'none'
   }))
 }
 

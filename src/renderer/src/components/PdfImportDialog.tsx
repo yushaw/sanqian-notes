@@ -65,6 +65,8 @@ export function PdfImportDialog({ onClose }: PdfImportDialogProps) {
 
   // 选项
   const [importImages, setImportImages] = useState(true)
+  const [buildEmbedding, setBuildEmbedding] = useState(false)
+  const [embeddingEnabled, setEmbeddingEnabled] = useState(false)
 
   // 状态
   const [step, setStep] = useState<'config' | 'importing' | 'result'>('config')
@@ -97,6 +99,10 @@ export function PdfImportDialog({ onClose }: PdfImportDialogProps) {
       if (nbs) {
         setNotebooks(nbs as Array<{ id: string; name: string }>)
       }
+
+      // 加载 embedding 配置
+      const embeddingConfig = await window.electron?.knowledgeBase?.getConfig()
+      setEmbeddingEnabled(embeddingConfig?.enabled ?? false)
     }
     loadData()
   }, [])
@@ -172,6 +178,7 @@ export function PdfImportDialog({ onClose }: PdfImportDialogProps) {
         serviceConfig,
         targetNotebookId: targetNotebookId || undefined,
         importImages,
+        buildEmbedding,
       })
 
       if (importResult) {
@@ -389,7 +396,7 @@ export function PdfImportDialog({ onClose }: PdfImportDialogProps) {
               </div>
 
               {/* 选项 */}
-              <div>
+              <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -400,6 +407,25 @@ export function PdfImportDialog({ onClose }: PdfImportDialogProps) {
                     {t.pdfImport?.importImages || 'Import images as attachments'}
                   </span>
                 </label>
+                {/* 向量索引选项 */}
+                <div>
+                  <label className={`flex items-center gap-2 ${embeddingEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                    <input
+                      type="checkbox"
+                      checked={buildEmbedding}
+                      onChange={(e) => setBuildEmbedding(e.target.checked)}
+                      disabled={!embeddingEnabled}
+                    />
+                    <span className={`text-sm ${embeddingEnabled ? 'text-[var(--color-text)]' : 'text-[var(--color-muted)]'}`}>
+                      {t.importExport.buildEmbedding}
+                    </span>
+                  </label>
+                  {!embeddingEnabled && (
+                    <span className="text-xs text-[var(--color-muted)] ml-6">
+                      {t.importExport.embeddingDisabledHint}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* 错误信息 */}

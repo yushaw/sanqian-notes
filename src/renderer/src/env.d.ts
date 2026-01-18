@@ -310,6 +310,7 @@ interface Window {
         conflictStrategy: 'skip' | 'rename' | 'overwrite'
         importAttachments: boolean
         parseFrontMatter: boolean
+        buildEmbedding?: boolean
       }) => Promise<{
         success: boolean
         importedNotes: Array<{ id: string; title: string; sourcePath: string }>
@@ -397,6 +398,7 @@ interface Window {
         serviceConfig: Record<string, string>
         targetNotebookId?: string
         importImages: boolean
+        buildEmbedding?: boolean
       }) => Promise<{
         results: Array<{
           path: string
@@ -428,6 +430,7 @@ interface Window {
         includeReferences?: boolean
         downloadFigures?: boolean
         preferHtml?: boolean
+        buildEmbedding?: boolean
       }) => Promise<{
         success: boolean
         imported: number

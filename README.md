@@ -367,3 +367,20 @@ Fixed multiple issues with arXiv HTML import:
 2. **Empty h2 heading**: Skip sections with empty titles in importer
 3. **Equation extra newlines**: Remove redundant `\n` wrapping from equation blocks
 4. **List extra newlines**: Unified list processing to use dedicated `processListElement` instead of duplicate code with extra newlines
+
+---
+
+### 2026-01-19 - Mermaid & Math editor UI refinement
+
+Redesigned Mermaid diagram editor and Math formula editor with minimalist zen aesthetic:
+
+**Mermaid editor:**
+- Removed all borders (wrapper and textarea)
+- Edit area uses subtle 3% background tint for visual separation
+- Buttons changed from solid to text-link style
+- Added fade effect: action buttons default 50% opacity, full opacity on hover/focus
+
+**Math editor:**
+- Removed border, using subtle 4% background tint instead
+- Increased padding for better breathing room
+- Updated both Editor.css and Typewriter.css for consistency

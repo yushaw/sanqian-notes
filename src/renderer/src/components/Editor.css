@@ -2058,14 +2058,17 @@ span.zen-header-title {
 
 .mermaid-wrapper {
   margin: 16px 0;
-  border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
-  transition: border-color var(--transition-fast);
+  transition: all var(--transition-fast);
+}
+
+.mermaid-wrapper:has(.mermaid-editor) {
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
 }
 
 .mermaid-wrapper.selected {
-  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
 
 .mermaid-preview {
@@ -2116,62 +2119,69 @@ span.zen-header-title {
 .mermaid-editor {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  background: var(--color-card);
+  padding: 20px 16px 12px;
+  background: transparent;
 }
 
 .mermaid-textarea {
   width: 100%;
-  min-height: 150px;
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-surface);
+  min-height: 120px;
+  padding: 16px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.5;
-  resize: vertical;
+  line-height: 1.6;
+  resize: none;
   outline: none;
 }
 
-.mermaid-textarea:focus {
-  border-color: var(--color-accent);
+.mermaid-textarea::placeholder {
+  color: var(--color-muted);
+  opacity: 0.5;
 }
 
 .mermaid-editor-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 16px;
+  padding-top: 8px;
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+}
+
+.mermaid-editor:hover .mermaid-editor-actions,
+.mermaid-editor:focus-within .mermaid-editor-actions {
+  opacity: 1;
 }
 
 .mermaid-btn {
-  padding: 6px 16px;
+  padding: 4px 0;
   border: none;
-  border-radius: 6px;
-  font-size: 13px;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .mermaid-btn-cancel {
-  background: var(--color-surface);
   color: var(--color-muted);
 }
 
 .mermaid-btn-cancel:hover {
-  background: var(--color-surface-hover);
   color: var(--color-text);
 }
 
 .mermaid-btn-save {
-  background: var(--color-accent);
-  color: white;
+  color: var(--color-muted);
 }
 
 .mermaid-btn-save:hover {
-  background: var(--color-accent-hover);
+  color: var(--color-accent);
 }
 
 /* ============================================
@@ -2857,26 +2867,49 @@ span.zen-header-title {
 }
 
 .math-input {
-  border: 1px solid var(--color-accent);
-  background: var(--color-surface);
+  border: none;
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--color-text);
   outline: none;
-  width: 100%;
-  min-width: 200px;
-  max-width: 100%;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 4px;
   resize: none;
   overflow: hidden;
-  display: block;
 }
 
-.math-node-wrapper.editing {
+.math-input::placeholder {
+  color: var(--color-muted);
+  opacity: 0.5;
+}
+
+/* Display mode (block formula) */
+.math-node-wrapper.display-mode.editing {
   display: block;
   margin: 8px 0;
+}
+
+.math-node-wrapper.display-mode .math-input {
+  width: 100%;
+  min-width: 200px;
+  display: block;
+  padding: 12px 16px;
+}
+
+/* Inline mode */
+.math-node-wrapper.inline-mode.editing {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.math-node-wrapper.inline-mode .math-input {
+  display: inline-block;
+  width: auto;
+  min-width: 80px;
+  max-width: 400px;
+  vertical-align: middle;
 }
 
 /* ============================================

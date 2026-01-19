@@ -126,7 +126,7 @@ export function MathView({ node, updateAttributes, selected, deleteNode, editor 
   return (
     <NodeViewWrapper
       as="span"
-      className={`math-node-wrapper ${selected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`}
+      className={`math-node-wrapper ${selected ? 'selected' : ''} ${isEditing ? 'editing' : ''} ${isDisplayMode ? 'display-mode' : 'inline-mode'}`}
     >
       {isEditing ? (
         <textarea

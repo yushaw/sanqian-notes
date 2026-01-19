@@ -986,41 +986,33 @@
   background: color-mix(in srgb, #d65f5f 10%, transparent);
 }
 
+.typewriter-editor-content .ProseMirror .mermaid-wrapper:has(.mermaid-editor) {
+  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
+}
+
 .typewriter-editor-content .ProseMirror .mermaid-editor {
-  background: color-mix(in srgb, var(--tw-bg) 95%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tw-text) 15%, transparent);
+  background: transparent;
 }
 
 .typewriter-editor-content .ProseMirror .mermaid-textarea {
-  background: color-mix(in srgb, var(--tw-text) 3%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tw-text) 10%, transparent);
+  background: transparent;
   color: var(--tw-text);
-}
-
-.typewriter-editor-content .ProseMirror .mermaid-textarea:focus {
-  border-color: var(--tw-accent);
-}
-
-.typewriter-editor-content .ProseMirror .mermaid-btn {
-  border-radius: 4px;
 }
 
 .typewriter-editor-content .ProseMirror .mermaid-btn-cancel {
-  background: color-mix(in srgb, var(--tw-text) 8%, transparent);
-  color: var(--tw-text);
+  color: color-mix(in srgb, var(--tw-text) 50%, transparent);
 }
 
 .typewriter-editor-content .ProseMirror .mermaid-btn-cancel:hover {
-  background: color-mix(in srgb, var(--tw-text) 12%, transparent);
+  color: var(--tw-text);
 }
 
 .typewriter-editor-content .ProseMirror .mermaid-btn-save {
-  background: var(--tw-accent);
-  color: white;
+  color: color-mix(in srgb, var(--tw-text) 50%, transparent);
 }
 
 .typewriter-editor-content .ProseMirror .mermaid-btn-save:hover {
-  opacity: 0.9;
+  color: var(--tw-accent);
 }
 
 /**
@@ -1128,8 +1120,7 @@
 }
 
 .typewriter-editor-content .ProseMirror .math-input {
-  background: color-mix(in srgb, var(--tw-text) 5%, transparent);
-  border-color: var(--tw-accent);
+  background: color-mix(in srgb, var(--tw-text) 4%, transparent);
   color: var(--tw-focus-text);
 }
 

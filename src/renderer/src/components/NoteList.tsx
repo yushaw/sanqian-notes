@@ -5,8 +5,10 @@ import { useTranslations } from '../i18n'
 import { isMacOS } from '../utils/platform'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { getPreview } from '../utils/notePreview'
+import { formatShortcut } from '../utils/shortcut'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { NotePreviewPopover } from './NotePreviewPopover'
+import { Tooltip } from './Tooltip'
 
 // 检测是否为 macOS
 const isMac = isMacOS()
@@ -454,15 +456,16 @@ export function NoteList({
                 </svg>
               </button>
               {showCreateButton && (
-                <button
-                  onClick={onCreateNote}
-                  className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-all duration-150"
-                  title={t.noteList.newNote}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
+                <Tooltip content={`${t.noteList.newNote} (${formatShortcut('Command+N')})`} placement="bottom">
+                  <button
+                    onClick={onCreateNote}
+                    className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-all duration-150"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </button>
+                </Tooltip>
               )}
             </div>
           </>

@@ -39,6 +39,11 @@ const AlignRightIcon = () => (
 // 全局事件名，用于触发 lightbox
 export const IMAGE_LIGHTBOX_EVENT = 'image-lightbox-open'
 
+// 图片默认尺寸限制
+const IMAGE_MAX_WIDTH = 640
+const IMAGE_MAX_HEIGHT = 500
+const IMAGE_TARGET_AREA = 180000
+
 export function ResizableImageView({ node, updateAttributes, selected }: NodeViewProps) {
   const attrs = node.attrs as ImageAttrs
   const containerRef = useRef<HTMLDivElement>(null)
@@ -86,36 +91,41 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
       setAspectRatio(ratio)
       setImageError(false)
 
-      // 如果没有设置尺寸，且图片超出默认限制，自动设置限制后的尺寸
+      // 如果没有设置尺寸，根据面积和尺寸限制计算默认大小
       if (!attrs.width && !attrs.height) {
-        // 动态计算最大尺寸：宽度为容器的一半，高度为视口的 1/3
-        const containerWidth = containerRef.current?.parentElement?.offsetWidth || 800
-        const viewportHeight = window.innerHeight
-        const maxDefaultWidth = Math.round(containerWidth / 2)
-        const maxDefaultHeight = Math.round(viewportHeight / 3)
+        const originalArea = naturalWidth * naturalHeight
+
+        // 如果原图在所有限制内，保持原尺寸
+        if (originalArea <= IMAGE_TARGET_AREA && naturalWidth <= IMAGE_MAX_WIDTH && naturalHeight <= IMAGE_MAX_HEIGHT) {
+          return
+        }
 
         let newWidth = naturalWidth
         let newHeight = naturalHeight
 
-        // 先按宽度限制
-        if (newWidth > maxDefaultWidth) {
-          newWidth = maxDefaultWidth
+        // 先按面积缩放
+        if (originalArea > IMAGE_TARGET_AREA) {
+          const scale = Math.sqrt(IMAGE_TARGET_AREA / originalArea)
+          newWidth = Math.round(naturalWidth * scale)
+          newHeight = Math.round(naturalHeight * scale)
+        }
+
+        // 再检查宽度限制
+        if (newWidth > IMAGE_MAX_WIDTH) {
+          newWidth = IMAGE_MAX_WIDTH
           newHeight = Math.round(newWidth / ratio)
         }
 
-        // 再按高度限制
-        if (newHeight > maxDefaultHeight) {
-          newHeight = maxDefaultHeight
+        // 再检查高度限制
+        if (newHeight > IMAGE_MAX_HEIGHT) {
+          newHeight = IMAGE_MAX_HEIGHT
           newWidth = Math.round(newHeight * ratio)
         }
 
-        // 如果需要调整尺寸，更新属性
-        if (newWidth !== naturalWidth || newHeight !== naturalHeight) {
-          updateAttributes({
-            width: newWidth,
-            height: newHeight,
-          })
-        }
+        updateAttributes({
+          width: newWidth,
+          height: newHeight,
+        })
       }
     }
   }

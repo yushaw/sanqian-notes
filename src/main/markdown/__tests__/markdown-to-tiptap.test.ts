@@ -25,11 +25,10 @@ describe('markdownToTiptap', () => {
 
     it('多行文本', () => {
       const result = markdownToTiptap('第一段\n\n第二段') as AnyNode
-      // 两个段落之间的空行会生成一个空段落
-      expect(result.content).toHaveLength(3)
+      // 标准 Markdown: \n\n 只是分隔符，不产生空段落
+      expect(result.content).toHaveLength(2)
       expect(result.content[0].content[0].text).toBe('第一段')
-      expect(result.content[1].type).toBe('paragraph') // 空段落
-      expect(result.content[2].content[0].text).toBe('第二段')
+      expect(result.content[1].content[0].text).toBe('第二段')
     })
   })
 
@@ -160,8 +159,10 @@ describe('markdownToTiptap', () => {
   describe('分割线', () => {
     it('水平分割线', () => {
       const result = markdownToTiptap('上面\n\n---\n\n下面') as AnyNode
-      // 空行会生成空段落，所以 horizontalRule 在索引 2
-      expect(result.content[2].type).toBe('horizontalRule')
+      // \n\n 只是分隔符，horizontalRule 在索引 1
+      expect(result.content[0].type).toBe('paragraph')
+      expect(result.content[1].type).toBe('horizontalRule')
+      expect(result.content[2].type).toBe('paragraph')
     })
   })
 
@@ -275,6 +276,19 @@ describe('markdownToTiptap', () => {
 
     it('只有空白字符', () => {
       expect(markdownToTiptap('   \n\n   ')).toEqual({ type: 'doc', content: [] })
+    })
+
+    it('零宽空格段落转换为真正的空段落', () => {
+      // tiptap-to-markdown 输出 \u200B 来保持空行
+      // markdown-to-tiptap 应该将其还原为真正的空段落 { content: [] }
+      // 这样用户只需一次退格就能删除空行
+      const result = markdownToTiptap('第一段\n\n\u200B\n\n第二段') as AnyNode
+      expect(result.content).toHaveLength(3)
+      expect(result.content[0].content[0].text).toBe('第一段')
+      // 中间应该是真正的空段落，没有内容
+      expect(result.content[1].type).toBe('paragraph')
+      expect(result.content[1].content).toEqual([])
+      expect(result.content[2].content[0].text).toBe('第二段')
     })
   })
 })

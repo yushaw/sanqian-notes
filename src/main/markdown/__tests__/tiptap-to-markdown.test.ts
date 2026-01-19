@@ -45,7 +45,8 @@ describe('tiptapToMarkdown', () => {
           { type: 'paragraph', content: [{ type: 'text', text: '后面' }] }
         ]
       }
-      expect(tiptapToMarkdown(doc)).toBe('前面\n\n\n\n后面')
+      // 空段落输出零宽空格，便于往返转换时保持段落数量
+      expect(tiptapToMarkdown(doc)).toBe('前面\n\n\u200B\n\n后面')
     })
   })
 
@@ -616,5 +617,32 @@ describe('往返转换一致性', () => {
     expect(backToTiptap.content![0]!.type).toBe('toggle')
     expect(backToTiptap.content![0]!.attrs!.summary).toBe('代码示例')
     expect(backToTiptap.content![0]!.content!.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('空段落往返转换 - 应保持段落数量不变', () => {
+    // 原始：3 个段落（内容, 空, 内容）
+    const originalDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: '产品侧' }] },
+        { type: 'paragraph', content: [] },  // 空段落
+        { type: 'paragraph', content: [{ type: 'text', text: '能力实现' }] }
+      ]
+    }
+
+    // TipTap → Markdown: 空段落输出为 \u200B
+    const markdown = tiptapToMarkdown(originalDoc)
+    expect(markdown).toBe('产品侧\n\n\u200B\n\n能力实现')
+
+    // Markdown → TipTap: \u200B 还原为真正的空段落
+    // 这样用户只需一次退格就能删除空行（而不是两次）
+    const backToTiptap = markdownToTiptap(markdown)
+    // 往返后应该还是 3 个段落
+    expect(backToTiptap.content?.length).toBe(3)
+    expect(backToTiptap.content?.[0].content?.[0].text).toBe('产品侧')
+    // 中间是真正的空段落，不是包含 \u200B 的段落
+    expect(backToTiptap.content?.[1].type).toBe('paragraph')
+    expect(backToTiptap.content?.[1].content).toEqual([])
+    expect(backToTiptap.content?.[2].content?.[0].text).toBe('能力实现')
   })
 })

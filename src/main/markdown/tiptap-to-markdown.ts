@@ -146,8 +146,12 @@ function convertNode(node: TiptapNode, ctx: ConvertContext): string {
     case 'text':
       return applyMarks(node.text || '', node.marks)
 
-    case 'paragraph':
-      return convertChildren(node, ctx)
+    case 'paragraph': {
+      const content = convertChildren(node, ctx)
+      // 空段落输出零宽空格，避免 join 时产生过多换行
+      // 这样 markdown-to-tiptap 能正确还原为单个空段落
+      return content || '\u200B'
+    }
 
     case 'heading': {
       const level = (node.attrs?.level as number) || 1

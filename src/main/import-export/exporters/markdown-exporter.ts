@@ -122,7 +122,8 @@ export class MarkdownExporter extends BaseExporter {
         }
 
         // 转换内容为 Markdown
-        let markdown = this.contentToMarkdown(note.content)
+        // 清理零宽空格（内部用于保持空行，导出时不需要）
+        let markdown = this.contentToMarkdown(note.content).replace(/\u200B/g, '')
 
         // 处理附件
         if (options.includeAttachments) {

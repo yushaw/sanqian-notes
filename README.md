@@ -77,6 +77,45 @@ MIT
 
 ## Changelog
 
+### 2026-01-19 - SDK update_note Enhancements
+
+**Position-based Insert for append/prepend:**
+- Added `after` parameter for `append` mode: insert content after specified anchor text
+- Added `before` parameter for `prepend` mode: insert content before specified anchor text
+- Uses normalized text matching (handles Chinese/English punctuation differences)
+- Falls back to default behavior (end/start) if anchor not found
+
+**Editor Cursor Preservation:**
+- External content updates now preserve cursor position when editor has focus
+- Uses blockId + offset + absolutePos strategy for accurate cursor restoration
+- Cursor is saved before setContent and restored after
+- Falls back to original absolute position if blockId not found (not last block position)
+
+**Empty Paragraph Round-trip Fix:**
+- Fixed: Empty paragraphs were being duplicated during Markdown conversion round-trip
+- Root cause: `\n\n` was incorrectly treated as creating empty paragraphs
+- Fix: Empty paragraphs now output `\u200B` (zero-width space) in Markdown
+- Fix: Space token handler now correctly calculates empty paragraph count (`newlineCount - 2`)
+- Fix: `\u200B`-only paragraphs are converted back to truly empty paragraphs on import
+- Fix: Markdown exporter cleans up `\u200B` for clean external output
+- UX: Users can delete empty lines with single backspace (not two)
+
+**Code Quality Fixes (from review):**
+- Fixed: `mergeNode` no longer creates attrs on nodes that shouldn't have them
+- Fixed: `setCursorByBlockId` now has proper boundary protection with try-catch
+- Fixed: Parameter combination validation (`after` requires `append`, `before` requires `prepend`)
+
+Files modified:
+- `src/main/sanqian-sdk.ts` - Added after/before parameters
+- `src/main/i18n.ts` - Added i18n strings
+- `src/renderer/src/components/Editor.tsx` - Added cursor preservation
+- `src/renderer/src/utils/cursor.ts` - Added absolutePos fallback, boundary protection
+- `src/main/markdown/tiptap-to-markdown.ts` - Empty paragraph outputs `\u200B`
+- `src/main/markdown/markdown-to-tiptap.ts` - Fixed space token handling, convert `\u200B` to empty
+- `src/main/markdown/tiptap-merge.ts` - Fixed attrs handling in mergeNode
+- `src/main/import-export/exporters/markdown-exporter.ts` - Clean `\u200B` on export
+- `src/main/markdown/__tests__/*.test.ts` - Updated tests
+
 ### 2026-01-18 - FTS/Embedding Index Split
 
 Decoupled FTS (Full-text Search) and Embedding (Vector) indexing for imports:

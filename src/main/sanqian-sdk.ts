@@ -41,7 +41,7 @@ import {
 } from './database'
 import { hybridSearch } from './embedding/semantic-search'
 import { t } from './i18n'
-import { jsonToMarkdown, jsonToMarkdownWithMeta, markdownToTiptapString, countWords, getAllHeadingsFromJson, type DocumentHeading, type ConvertResult } from './markdown'
+import { jsonToMarkdown, jsonToMarkdownWithMeta, markdownToTiptapString, countWords, getAllHeadingsFromJson, mergeDocumentsJson, type DocumentHeading, type ConvertResult } from './markdown'
 
 /**
  * Normalize quotes and punctuation for fuzzy matching
@@ -555,6 +555,14 @@ function buildTools(): AppToolDefinition[] {
             type: 'string',
             description: tools.updateNote.prependDesc
           },
+          after: {
+            type: 'string',
+            description: tools.updateNote.afterDesc
+          },
+          before: {
+            type: 'string',
+            description: tools.updateNote.beforeDesc
+          },
           edit: {
             type: 'object',
             description: tools.updateNote.editDesc,
@@ -575,6 +583,8 @@ function buildTools(): AppToolDefinition[] {
           const content = args.content as string | undefined
           const append = args.append as string | undefined
           const prepend = args.prepend as string | undefined
+          const after = args.after as string | undefined
+          const before = args.before as string | undefined
           const edit = args.edit as { old_string: string; new_string: string; replace_all?: boolean } | undefined
 
           const note = getNoteById(id)
@@ -582,31 +592,114 @@ function buildTools(): AppToolDefinition[] {
             throw new Error(`${tools.updateNote.notFound}: ${id}`)
           }
 
+          // Validate parameter combinations
+          if (after && !append) {
+            throw new Error(tools.updateNote.afterRequiresAppend)
+          }
+          if (before && !prepend) {
+            throw new Error(tools.updateNote.beforeRequiresPrepend)
+          }
+
           const updates: Partial<NoteInput> = {}
           if (title !== undefined) updates.title = title
+
+          // Helper: find node index containing anchor text
+          const findAnchorIndex = (nodes: unknown[], anchor: string): number => {
+            const normalizedAnchor = normalizeForMatching(anchor)
+            for (let i = 0; i < nodes.length; i++) {
+              const nodeMarkdown = jsonToMarkdown(JSON.stringify({ type: 'doc', content: [nodes[i]] }))
+              if (normalizeForMatching(nodeMarkdown).includes(normalizedAnchor)) {
+                return i
+              }
+            }
+            return -1
+          }
 
           // Handle different content update modes
           let replacements: number | undefined
 
           if (content !== undefined) {
-            // Mode 1: Full replacement
-            updates.content = markdownToTiptapString(content)
+            // Mode 1: Full replacement with merge to preserve blockId for unchanged parts
+            const newDocJson = markdownToTiptapString(content)
+            const originalDocJson = note.content || '{"type":"doc","content":[]}'
+            updates.content = mergeDocumentsJson(originalDocJson, newDocJson)
           } else if (append !== undefined) {
-            // Mode 2: Append
-            const currentMarkdown = jsonToMarkdown(note.content || '').trim()
-            const newMarkdown = currentMarkdown ? currentMarkdown + '\n\n' + append : append
-            updates.content = markdownToTiptapString(newMarkdown)
+            // Mode 2: Append - with optional position via "after" parameter
+            try {
+              const originalDoc = JSON.parse(note.content || '{"type":"doc","content":[]}')
+              const appendDoc = JSON.parse(markdownToTiptapString(append))
+              const appendContent = appendDoc.content || []
+              const originalContent = originalDoc.content || []
+
+              if (after) {
+                // Insert after anchor text
+                const anchorIndex = findAnchorIndex(originalContent, after)
+                if (anchorIndex === -1) {
+                  throw new Error(tools.updateNote.anchorNotFound)
+                }
+                // Insert after the anchor node
+                const mergedContent = [
+                  ...originalContent.slice(0, anchorIndex + 1),
+                  ...appendContent,
+                  ...originalContent.slice(anchorIndex + 1)
+                ]
+                updates.content = JSON.stringify({ type: 'doc', content: mergedContent })
+              } else {
+                // Default: append to end
+                const mergedContent = [...originalContent, ...appendContent]
+                updates.content = JSON.stringify({ type: 'doc', content: mergedContent })
+              }
+            } catch (e) {
+              if (e instanceof Error && e.message === tools.updateNote.anchorNotFound) {
+                throw e
+              }
+              // Fallback to old behavior if JSON parsing fails
+              const currentMarkdown = jsonToMarkdown(note.content || '').trim()
+              const newMarkdown = currentMarkdown ? currentMarkdown + '\n\n' + append : append
+              updates.content = markdownToTiptapString(newMarkdown)
+            }
           } else if (prepend !== undefined) {
-            // Mode 2: Prepend
-            const currentMarkdown = jsonToMarkdown(note.content || '').trim()
-            const newMarkdown = currentMarkdown ? prepend + '\n\n' + currentMarkdown : prepend
-            updates.content = markdownToTiptapString(newMarkdown)
+            // Mode 2: Prepend - with optional position via "before" parameter
+            try {
+              const originalDoc = JSON.parse(note.content || '{"type":"doc","content":[]}')
+              const prependDoc = JSON.parse(markdownToTiptapString(prepend))
+              const prependContent = prependDoc.content || []
+              const originalContent = originalDoc.content || []
+
+              if (before) {
+                // Insert before anchor text
+                const anchorIndex = findAnchorIndex(originalContent, before)
+                if (anchorIndex === -1) {
+                  throw new Error(tools.updateNote.anchorNotFound)
+                }
+                // Insert before the anchor node
+                const mergedContent = [
+                  ...originalContent.slice(0, anchorIndex),
+                  ...prependContent,
+                  ...originalContent.slice(anchorIndex)
+                ]
+                updates.content = JSON.stringify({ type: 'doc', content: mergedContent })
+              } else {
+                // Default: prepend to start
+                const mergedContent = [...prependContent, ...originalContent]
+                updates.content = JSON.stringify({ type: 'doc', content: mergedContent })
+              }
+            } catch (e) {
+              if (e instanceof Error && e.message === tools.updateNote.anchorNotFound) {
+                throw e
+              }
+              // Fallback to old behavior if JSON parsing fails
+              const currentMarkdown = jsonToMarkdown(note.content || '').trim()
+              const newMarkdown = currentMarkdown ? prepend + '\n\n' + currentMarkdown : prepend
+              updates.content = markdownToTiptapString(newMarkdown)
+            }
           } else if (edit !== undefined) {
             // Mode 3: Edit (old_string/new_string replacement)
+            // Uses Diff + Merge algorithm to preserve blockId for unchanged nodes
             const currentMarkdown = jsonToMarkdown(note.content || '')
             const { old_string, new_string, replace_all } = edit
 
-            // 空字符串检查：避免 ''.includes('') 永远为 true 的问题
+            // Empty string check: avoid ''.includes('') always being true
             if (!old_string) {
               throw new Error(tools.updateNote.editEmptyString)
             }
@@ -634,7 +727,13 @@ function buildTools(): AppToolDefinition[] {
               ? currentMarkdown.split(matchedString).join(new_string)
               : currentMarkdown.replace(matchedString, new_string)
 
-            updates.content = markdownToTiptapString(newMarkdown)
+            // Convert to new TipTap JSON
+            const newDocJson = markdownToTiptapString(newMarkdown)
+
+            // Merge with original document, preserving blockId for unchanged nodes
+            const originalDocJson = note.content || '{"type":"doc","content":[]}'
+            updates.content = mergeDocumentsJson(originalDocJson, newDocJson)
+
             replacements = replace_all ? occurrences : 1
 
             // Log if normalized match was used (for debugging)

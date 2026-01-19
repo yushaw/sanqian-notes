@@ -666,14 +666,15 @@ function parseToken(token: Token, mathContext: MathContext): TiptapNode[] {
     }
 
     case 'space': {
-      // space token 表示段落之间的空行
-      // 每个空行都应该显示为一个空段落（不带 content 字段，与手动创建的格式一致）
+      // space token 表示段落之间的空白
+      // 标准 Markdown: \n\n 只是分隔符，不产生空段落
+      // 3+ 换行才产生额外空段落：3 换行 = 1 空段落，4 换行 = 2 空段落
       const spaceToken = token as Tokens.Space
       const newlineCount = (spaceToken.raw.match(/\n/g) || []).length
-      // 2个换行 = 1个空行，3个换行 = 2个空行，以此类推
-      if (newlineCount >= 2) {
+      const emptyCount = Math.max(0, newlineCount - 2)
+      if (emptyCount > 0) {
         const emptyParagraphs: TiptapNode[] = []
-        for (let i = 1; i < newlineCount; i++) {
+        for (let i = 0; i < emptyCount; i++) {
           emptyParagraphs.push({ type: 'paragraph', attrs: { blockId: null } })
         }
         return emptyParagraphs
@@ -927,6 +928,34 @@ function postProcessMath(nodes: TiptapNode[], mathContext: MathContext): TiptapN
 }
 
 /**
+ * 后处理：将只含零宽空格的段落转换为真正的空段落
+ * tiptap-to-markdown 输出 \u200B 来保持空行，这里还原为空段落
+ * 这样用户只需一次退格就能删除空行（而不是两次）
+ */
+function convertZwspParagraphsToEmpty(nodes: TiptapNode[]): TiptapNode[] {
+  return nodes.map(node => {
+    // 检查是否是只含 \u200B 的段落
+    if (
+      node.type === 'paragraph' &&
+      node.content &&
+      node.content.length === 1 &&
+      node.content[0].type === 'text' &&
+      node.content[0].text === '\u200B'
+    ) {
+      // 转换为真正的空段落
+      return { ...node, content: [] }
+    }
+
+    // 递归处理子节点
+    if (node.content && Array.isArray(node.content)) {
+      return { ...node, content: convertZwspParagraphsToEmpty(node.content) }
+    }
+
+    return node
+  })
+}
+
+/**
  * 后处理：移除空文本节点
  * TipTap 不允许空文本节点，会导致 "Empty text nodes are not allowed" 错误
  */
@@ -1013,8 +1042,11 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
   // 后处理：处理行内数学公式
   const processedContent = postProcessMath(content, mathContext)
 
+  // 后处理：将 \u200B 段落转换为真正的空段落
+  const normalizedContent = convertZwspParagraphsToEmpty(processedContent)
+
   // 后处理：移除空文本节点（TipTap 不允许）
-  const cleanedContent = removeEmptyTextNodes(processedContent)
+  const cleanedContent = removeEmptyTextNodes(normalizedContent)
 
   return {
     type: 'doc',

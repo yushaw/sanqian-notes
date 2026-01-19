@@ -9,6 +9,7 @@ import { tiptapToMarkdown, jsonToMarkdown, tiptapToMarkdownWithMeta, jsonToMarkd
 export { tiptapToMarkdown, jsonToMarkdown, tiptapToMarkdownWithMeta, jsonToMarkdownWithMeta, getAllHeadings, getAllHeadingsFromJson }
 export type { DocumentHeading, ConvertResult } from './tiptap-to-markdown'
 export { markdownToTiptap, markdownToTiptapString } from './markdown-to-tiptap'
+export { mergePreservingBlockIds, mergeDocumentsJson, nodesContentEqual } from './tiptap-merge'
 
 /**
  * 检测内容格式

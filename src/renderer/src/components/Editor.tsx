@@ -22,7 +22,7 @@ import { useTheme } from '../theme'
 import { NoteLink } from './extensions/NoteLink'
 import { BlockId } from './extensions/BlockId'
 import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
-import { getCursorInfo, getCursorContext, type CursorInfo, type CursorContext } from '../utils/cursor'
+import { getCursorInfo, setCursorByBlockId, getCursorContext, type CursorInfo, type CursorContext } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
 // 新增扩展
 import { CustomHighlight } from './extensions/Highlight'
@@ -948,11 +948,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       return
     }
 
-    // 如果编辑器有焦点且不是切换笔记，说明用户正在输入，跳过同步
-    // 这避免了异步数据库更新导致的竞态条件
-    if (editor.isFocused && !isNoteSwitch) {
-      return
-    }
+    // 检测是否需要保留光标位置（编辑器有焦点且不是切换笔记）
+    // 使用 blockId + offset 方案保存光标，内容更新后恢复
+    const shouldPreserveCursor = editor.isFocused && !isNoteSwitch
+    const savedCursorInfo = shouldPreserveCursor ? getCursorInfo(editor) : null
 
     // 解析外部传入的内容
     const parseContent = () => {
@@ -992,6 +991,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           },
         })
         editorContentRef.current = JSON.stringify(editor.getJSON())
+        // 恢复光标位置
+        if (savedCursorInfo) {
+          setCursorByBlockId(editor, savedCursorInfo)
+        }
       })
       return
     }
@@ -1022,6 +1025,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         // 使用 setContent 同步，emitUpdate: false 避免触发 onUpdate 回调造成循环
         editor.commands.setContent(externalContent, { emitUpdate: false })
         editorContentRef.current = contentToSync
+        // 恢复光标位置（使用 blockId + offset 方案）
+        if (savedCursorInfo) {
+          setCursorByBlockId(editor, savedCursorInfo)
+        }
       })
     }
   }, [editor, note.content, note.id])
@@ -1738,7 +1745,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     if (onTypewriterModeToggle) {
       // 使用缓存的光标位置（因为点击按钮时焦点已经离开编辑器）
       const cursorInfo = lastCursorInfo.current || getCursorInfo(editor)
-      onTypewriterModeToggle(cursorInfo || { blockId: '', offsetInBlock: 0 })
+      onTypewriterModeToggle(cursorInfo || { blockId: '', offsetInBlock: 0, absolutePos: 0 })
     } else {
       setIsTypewriterMode(prev => !prev)
     }

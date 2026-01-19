@@ -300,3 +300,20 @@ Root cause:
 Fix:
 - Added `getEffectiveFocusedPaneId()` helper to fallback to first pane when `focusedPaneId` is null
 - Modified auto-focus useEffect to only trigger when `isFocused` changes from false to true (tab/pane switch), not on initial load
+
+---
+
+### 2026-01-19 - Notebook drag-and-drop reordering
+
+Added ability to reorder notebooks in the sidebar via drag-and-drop.
+
+Features:
+- Drag notebooks to reorder in expanded sidebar
+- Blue indicator line shows drop position
+- Dragged notebook appears semi-transparent
+- Existing note-to-notebook drag still works (distinguished by dataTransfer type)
+
+Technical:
+- `reorderNotebooks()` in database.ts with transaction and validation
+- Optimistic UI update with error recovery (reload from DB on failure)
+- `setDropTargetIndex(prev => ...)` to avoid unnecessary re-renders during drag

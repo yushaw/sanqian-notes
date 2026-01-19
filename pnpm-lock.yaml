@@ -7,6 +7,7 @@ settings:
 overrides:
   '@tiptap/core': 3.15.3
   '@tiptap/pm': 3.15.3
+  entities: ^6.0.0
 
 importers:
 
@@ -2694,10 +2695,6 @@ packages:
 
   end-of-stream@1.4.5:
     resolution: {integrity: sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==}
-
-  entities@4.5.0:
-    resolution: {integrity: sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw==}
-    engines: {node: '>=0.12'}
 
   entities@6.0.1:
     resolution: {integrity: sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g==}
@@ -7958,7 +7955,7 @@ snapshots:
     dependencies:
       domelementtype: 2.3.0
       domhandler: 5.0.3
-      entities: 4.5.0
+      entities: 6.0.1
 
   domelementtype@2.3.0: {}
 
@@ -8086,8 +8083,6 @@ snapshots:
   end-of-stream@1.4.5:
     dependencies:
       once: 1.4.0
-
-  entities@4.5.0: {}
 
   entities@6.0.1: {}
 
@@ -9361,7 +9356,7 @@ snapshots:
   markdown-it@14.1.0:
     dependencies:
       argparse: 2.0.1
-      entities: 4.5.0
+      entities: 6.0.1
       linkify-it: 5.0.0
       mdurl: 2.0.0
       punycode.js: 2.3.1

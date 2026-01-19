@@ -115,7 +115,8 @@
   "pnpm": {
     "overrides": {
       "@tiptap/core": "3.15.3",
-      "@tiptap/pm": "3.15.3"
+      "@tiptap/pm": "3.15.3",
+      "entities": "^6.0.0"
     }
   },
   "author": "yushaw",

@@ -42,6 +42,25 @@ function parseDocumentInOrder($: CheerioAPI, figures: ArxivFigure[]): ArxivSecti
   }
   if ($document.length === 0) return sections
 
+  // Process top-level figures that appear before sections (e.g., between abstract and first section)
+  const topLevelFigures: string[] = []
+  $document.children('figure.ltx_figure, .ltx_figure').each((_, figEl) => {
+    const figureMarkdown = processFigure($(figEl), $, seenFigureUrls, figures)
+    if (figureMarkdown) {
+      topLevelFigures.push(figureMarkdown)
+    }
+  })
+
+  // If there are top-level figures, add them as a pseudo-section before the first real section
+  if (topLevelFigures.length > 0) {
+    sections.push({
+      level: 1,
+      title: '',
+      content: topLevelFigures.join('\n\n'),
+      id: 'top-level-figures'
+    })
+  }
+
   // Process all top-level sections (direct children of the document)
   $document.children('section.ltx_section, .ltx_section').each((_, sectionEl) => {
     processSection($(sectionEl), $, sections, 1, seenFigureUrls, figures)

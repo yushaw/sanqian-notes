@@ -381,9 +381,12 @@ export class ArxivImporter {
 
     // Sections (figures and tables are already inline)
     for (const section of content.sections) {
-      const heading = '#'.repeat(section.level + 1) // ## for level 1
-      parts.push(`${heading} ${section.title}`)
-      parts.push('')
+      // Only add heading if title is not empty
+      if (section.title) {
+        const heading = '#'.repeat(section.level + 1) // ## for level 1
+        parts.push(`${heading} ${section.title}`)
+        parts.push('')
+      }
       if (section.content) {
         // Replace remote image URLs with local paths
         let sectionContent = section.content

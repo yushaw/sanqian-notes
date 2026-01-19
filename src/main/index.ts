@@ -1260,39 +1260,42 @@ app.whenReady().then(() => {
   initializeLanguage()
 
   // Set custom application menu to fix toggleDevTools issue with WebContentsView
-  if (is.dev) {
-    const isMac = process.platform === 'darwin'
-    const template: Electron.MenuItemConstructorOptions[] = [
-      ...(isMac ? [{ role: 'appMenu' as const }] : []),
-      { role: 'fileMenu' as const },
-      { role: 'editMenu' as const },
-      {
-        label: 'View',
-        submenu: [
-          { role: 'reload' as const },
-          { role: 'forceReload' as const },
-          {
-            label: 'Toggle Developer Tools (Main)',
-            accelerator: 'Alt+CommandOrControl+I',
-            click: () => mainView?.webContents?.openDevTools({ mode: 'detach' }),
-          },
-          {
-            label: 'Toggle Developer Tools (Chat)',
-            accelerator: 'Shift+CommandOrControl+I',
-            click: () => chatPanel?.getWebContents()?.openDevTools({ mode: 'detach' }),
-          },
-          { type: 'separator' as const },
-          { role: 'resetZoom' as const },
-          { role: 'zoomIn' as const },
-          { role: 'zoomOut' as const },
-          { type: 'separator' as const },
-          { role: 'togglefullscreen' as const },
-        ],
-      },
-      { role: 'windowMenu' as const },
-    ]
-    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-  }
+  // (default menu's toggleDevTools doesn't work with BaseWindow + WebContentsView)
+  const isMac = process.platform === 'darwin'
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    { role: 'fileMenu' as const },
+    { role: 'editMenu' as const },
+    {
+      label: 'View',
+      submenu: [
+        ...(is.dev
+          ? [
+              { role: 'reload' as const },
+              { role: 'forceReload' as const },
+              {
+                label: 'Toggle Developer Tools (Main)',
+                accelerator: 'Alt+CommandOrControl+I',
+                click: () => mainView?.webContents?.openDevTools({ mode: 'detach' }),
+              },
+              {
+                label: 'Toggle Developer Tools (Chat)',
+                accelerator: 'Shift+CommandOrControl+I',
+                click: () => chatPanel?.getWebContents()?.openDevTools({ mode: 'detach' }),
+              },
+              { type: 'separator' as const },
+            ]
+          : []),
+        { role: 'resetZoom' as const },
+        { role: 'zoomIn' as const },
+        { role: 'zoomOut' as const },
+        { type: 'separator' as const },
+        { role: 'togglefullscreen' as const },
+      ],
+    },
+    { role: 'windowMenu' as const },
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 
   // Note: This only triggers for BrowserWindow, not BaseWindow.
   // MainWindow (BaseWindow) won't get F12 shortcut - use View menu instead.

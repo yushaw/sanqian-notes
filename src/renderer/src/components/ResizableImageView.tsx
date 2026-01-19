@@ -40,7 +40,7 @@ const AlignRightIcon = () => (
 export const IMAGE_LIGHTBOX_EVENT = 'image-lightbox-open'
 
 // 图片默认尺寸限制
-const IMAGE_MAX_WIDTH = 640
+const IMAGE_MAX_WIDTH = 600
 const IMAGE_MAX_HEIGHT = 500
 const IMAGE_TARGET_AREA = 180000
 

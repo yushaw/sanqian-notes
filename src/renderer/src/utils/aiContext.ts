@@ -245,6 +245,8 @@ export interface AIContext {
 
 /**
  * Get the current block's content and position
+ * Traverses up from cursor position to find the nearest textblock,
+ * then narrows down to the hardBreak-separated line if applicable
  */
 function getCurrentBlock(editor: Editor): {
   text: string
@@ -255,26 +257,52 @@ function getCurrentBlock(editor: Editor): {
 } | null {
   const { selection } = editor.state
   const { $from } = selection
+  const cursorPos = $from.pos
 
-  // Find the parent block node
-  const blockNode = $from.parent
+  // Traverse up to find the nearest textblock (paragraph, heading, etc.)
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth)
+    if (node.isTextblock) {
+      const textStart = $from.start(depth)
+      const textEnd = $from.end(depth)
+      const blockFrom = $from.before(depth)
+      const blockTo = $from.after(depth)
 
-  if (!blockNode || !blockNode.isBlock) {
-    return null
+      // Find hardBreak positions within this textblock
+      // Each position marks the start of a new line segment (after the hardBreak)
+      const hardBreakPositions: number[] = [textStart]
+      const hardBreakSizes: number[] = [0] // No hardBreak before first segment
+      node.forEach((child, offset) => {
+        if (child.type.name === 'hardBreak') {
+          // offset is relative to parent content start
+          // Position after hardBreak = textStart + offset + nodeSize
+          hardBreakPositions.push(textStart + offset + child.nodeSize)
+          hardBreakSizes.push(child.nodeSize)
+        }
+      })
+      hardBreakPositions.push(textEnd)
+
+      // Find which segment the cursor is in
+      let segmentFrom = textStart
+      let segmentTo = textEnd
+      for (let i = 0; i < hardBreakPositions.length - 1; i++) {
+        const start = hardBreakPositions[i]
+        const end = hardBreakPositions[i + 1]
+        if (cursorPos >= start && cursorPos <= end) {
+          segmentFrom = start
+          // If not the last segment, exclude the hardBreak node
+          const isLastSegment = i === hardBreakPositions.length - 2
+          segmentTo = isLastSegment ? end : end - hardBreakSizes[i + 1]
+          break
+        }
+      }
+
+      const text = editor.state.doc.textBetween(segmentFrom, segmentTo, '\n')
+      return { text, from: segmentFrom, to: segmentTo, blockFrom, blockTo }
+    }
   }
 
-  // Get the start and end positions of the text content
-  const textStart = $from.start()
-  const textEnd = $from.end()
-
-  // Get the node boundaries (for deleting entire block)
-  const blockFrom = $from.before()
-  const blockTo = $from.after()
-
-  // Get the text content of the block
-  const text = editor.state.doc.textBetween(textStart, textEnd, '\n')
-
-  return { text, from: textStart, to: textEnd, blockFrom, blockTo }
+  return null
 }
 
 /**

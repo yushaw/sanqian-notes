@@ -173,7 +173,7 @@ span.zen-header-title {
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  background: color-mix(in srgb, var(--color-card) 85%, transparent);
+  background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: 10px;
   box-shadow: var(--shadow-elevated);
@@ -181,8 +181,6 @@ span.zen-header-title {
   pointer-events: none;
   transition: opacity var(--transition-normal), transform var(--transition-normal);
   transform: translateX(-50%) translateY(8px);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .zen-toolbar.visible {
@@ -206,7 +204,6 @@ span.zen-header-title {
 }
 
 .zen-toolbar-btn:hover {
-  background: var(--color-surface);
   color: var(--color-text);
 }
 

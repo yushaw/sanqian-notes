@@ -294,6 +294,7 @@ export interface Translations {
     thinking: string
     connecting: string
     connectionFailed: string
+    noContentToProcess: string
     ensureSanqianRunning: string
     visitSanqian: string
     retry: string
@@ -1228,6 +1229,7 @@ const zh: Translations = {
     thinking: '思考中',
     connecting: '正在连接...',
     connectionFailed: '无法连接到 AI 服务',
+    noContentToProcess: '请选中内容或将光标定位到有内容的位置',
     ensureSanqianRunning: '请确保 Sanqian 已安装并运行。',
     visitSanqian: '访问 sanqian.io',
     retry: '重试',
@@ -2158,6 +2160,7 @@ const en: Translations = {
     thinking: 'Thinking',
     connecting: 'Connecting...',
     connectionFailed: 'Unable to connect to AI service',
+    noContentToProcess: 'Please select content or position cursor on a line with content',
     ensureSanqianRunning: 'Please ensure Sanqian is installed and running.',
     visitSanqian: 'Visit sanqian.io',
     retry: 'Retry',

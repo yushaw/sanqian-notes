@@ -65,8 +65,8 @@ import { AgentTaskIndicators } from './AgentTaskIndicators'
 import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlockIds, updateTask } from '../utils/agentTaskStorage'
 import { setupOutputListener } from '../utils/editorOutputHandler'
 import { useAIActions } from '../hooks/useAIActions'
-import { useAIWriting } from '../hooks/useAIWriting'
-import { getAIContext, getMarkdownContent, getNearestHeadingForBlock } from '../utils/aiContext'
+import { useAIActionExecutor } from '../hooks/useAIActionExecutor'
+import { getMarkdownContent, getNearestHeadingForBlock } from '../utils/aiContext'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
 import { convertToEmbedUrl } from '../utils/embedUrl'
@@ -867,13 +867,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     })
   }, [editor, note.id, note.notebook_id, resolvedNoteTitle, currentNotebookName])
 
-  // AI actions hook
-  const { getContextMenuActions } = useAIActions()
-  const aiActions = getContextMenuActions()
+  // AI actions hook - 底栏使用 showInShortcut 过滤的 actions
+  const { getShortcutActions } = useAIActions()
+  const aiActions = getShortcutActions()
 
-  // AI Writing hook for executing actions
-  const { executeAction: executeAIAction, isProcessing: isAIProcessing } = useAIWriting({
+  // AI action executor with unified loading indicators
+  const { executeAction: handleAIActionClick, isProcessing: isAIProcessing } = useAIActionExecutor({
     editor,
+    t,
     onComplete: () => {
       editor?.commands.focus()
     },
@@ -881,15 +882,6 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       console.error('[AI Writing] Error:', errorCode)
     }
   })
-
-  const handleAIActionClick = useCallback((action: AIAction) => {
-    if (!editor) return
-    const context = getAIContext(editor)
-    if (!context) return
-
-    const insertMode = action.mode === 'insert' ? 'insertAfter' : 'replace'
-    executeAIAction(action.prompt, context, insertMode)
-  }, [editor, executeAIAction])
 
   // 跟踪编辑器自身的内容版本，用于区分外部更新和内部更新
   const editorContentRef = useRef<string | null>(null)
@@ -2429,6 +2421,7 @@ function EditorToolbar({
         <div className="zen-toolbar-dropdown" ref={aiMenuRef}>
           <button
             className={`zen-toolbar-btn zen-toolbar-dropdown-trigger ${isAIProcessing ? 'active' : ''} ${showAIMenu ? 'open' : ''}`}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => setShowAIMenu(!showAIMenu)}
           >
             {ToolbarIcons.sparkles}
@@ -2440,6 +2433,7 @@ function EditorToolbar({
                 <button
                   key={action.id}
                   className="zen-toolbar-ai-menu-item"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     onAIActionClick(action)
                     setShowAIMenu(false)
@@ -2528,6 +2522,7 @@ function EditorToolbar({
       <div className="zen-toolbar-dropdown" ref={aiMenuRef}>
         <button
           className={`zen-toolbar-btn zen-toolbar-dropdown-trigger ${isAIProcessing ? 'active' : ''} ${showAIMenu ? 'open' : ''}`}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => setShowAIMenu(!showAIMenu)}
         >
           {ToolbarIcons.sparkles}
@@ -2539,6 +2534,7 @@ function EditorToolbar({
               <button
                 key={action.id}
                 className="zen-toolbar-ai-menu-item"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onAIActionClick(action)
                   setShowAIMenu(false)

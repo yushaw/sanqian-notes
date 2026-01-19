@@ -2,17 +2,12 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { Editor } from '@tiptap/react'
 import { useTranslations } from '../i18n'
 import { shortcuts } from '../utils/shortcuts'
-import { useAIWriting } from '../hooks/useAIWriting'
 import { useAIActions } from '../hooks/useAIActions'
+import { useAIActionExecutor } from '../hooks/useAIActionExecutor'
 import { SLASH_AI_ACTION_EVENT, type SlashAIActionDetail } from './extensions/SlashCommand'
-import { getAIContext, type AIContext, formatAIPrompt } from '../utils/aiContext'
-import { createPopup, updatePopupContent, updatePopupStreaming, deletePopup } from '../utils/popupStorage'
-import { toast } from '../utils/toast'
-import { v4 as uuidv4 } from 'uuid'
+import { getAIContext, type AIContext } from '../utils/aiContext'
 import { AGENT_TASK_TARGET_TYPES } from './extensions/AgentTask'
-
-// 时间常量
-const CLEANUP_DELAY_MS = 300
+import { v4 as uuidv4 } from 'uuid'
 
 interface ContextMenuPosition {
   x: number
@@ -216,43 +211,20 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
   const [aiSubmenuPosition, setAISubmenuPosition] = useState({ top: 0, left: 0 })
   const [aiContext, setAIContext] = useState<AIContext | null>(null)
   const closeTimeoutRef = useRef<number | null>(null)
-  // Track current temp popup ID for cleanup (race condition prevented by useAIWriting's processingLockRef)
-  const currentTempPopupIdRef = useRef<string | null>(null)
 
-  // 清理当前临时图标的函数
-  const cleanupTempIcon = useCallback(() => {
-    const tempPopupId = currentTempPopupIdRef.current
-    if (!tempPopupId || !editor) return
-
-    // 查找并删除临时图标
-    editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === 'aiPopupMark' && node.attrs.popupId === tempPopupId) {
-        editor.chain().deleteRange({ from: pos, to: pos + 1 }).run()
-        return false
-      }
-      return true
-    })
-
-    // 清理存储
-    deletePopup(tempPopupId)
-    currentTempPopupIdRef.current = null
-  }, [editor])
-
-  // AI Writing hook
-  const { isProcessing, executeAction } = useAIWriting({
+  // AI action executor with unified loading indicators
+  const {
+    isProcessing,
+    executeActionWithContext,
+    executeWithParams
+  } = useAIActionExecutor({
     editor,
+    t,
     onComplete: () => {
-      // 延迟清理临时图标
-      setTimeout(cleanupTempIcon, CLEANUP_DELAY_MS)
-      // Focus editor after AI completes
       editor?.commands.focus()
     },
     onError: (errorCode) => {
-      // 出错时也清理临时图标
-      cleanupTempIcon()
       console.error('[AI Writing] Error code:', errorCode)
-      // Error codes: 'connectionFailed' | 'disconnected' | 'generic'
-      // Could show toast notification using t.ai.errorConnectionFailed etc.
     }
   })
 
@@ -393,127 +365,14 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     setShowAISubmenu(true)
   }, [editor, aiActions.length, clearCloseTimeout])
 
-  // 启动 popup 模式的 AI 流式请求
-  const startPopupStream = useCallback(async (popupId: string, prompt: string, context: AIContext) => {
-    const streamId = popupId // 使用 popupId 作为 streamId
-    let accumulated = ''
-
-    // 标记开始 streaming
-    updatePopupStreaming(popupId, true)
-
-    try {
-      await window.electron.chat.acquireReconnect()
-
-      const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
-        if (sid !== streamId) return
-        const event = rawEvent as { type: string; content?: string }
-
-        if (event.type === 'text' && event.content) {
-          accumulated += event.content
-          // 更新存储 (hover 预览会从 popupStorage 读取)
-          updatePopupContent(popupId, accumulated)
-        }
-
-        if (event.type === 'done' || event.type === 'error') {
-          // 标记结束 streaming
-          updatePopupStreaming(popupId, false)
-          cleanup()
-          window.electron.chat.releaseReconnect()
-        }
-      })
-
-      const { prompt: fullPrompt } = formatAIPrompt(context, prompt)
-      await window.electron.chat.stream({
-        streamId,
-        agentId: 'writing',
-        messages: [{ role: 'user', content: fullPrompt }]
-      })
-    } catch (err) {
-      console.error('[Popup] Stream error:', err)
-      // 连接失败：删除 sparkles icon 和 popup 数据，显示 toast
-      updatePopupStreaming(popupId, false)
-      deletePopup(popupId)
-      // 删除编辑器中的 AIPopupMark 节点
-      editor?.commands.deleteAIPopupMark(popupId)
-      // 显示错误提示
-      toast(t.ai.connectionFailed, { type: 'error' })
-      window.electron.chat.releaseReconnect()
-    }
-  }, [editor, t.ai.connectionFailed])
-
-  // 处理 popup 模式的 AI 操作
-  const handlePopupAction = useCallback((prompt: string, actionName: string, context: AIContext) => {
-    if (!editor) return
-
-    // 1. 生成 popupId
-    const popupId = uuidv4()
-
-    // 2. 创建 popup 数据并标记为 streaming
-    createPopup({
-      popupId,
-      prompt,
-      actionName,
-      context: {
-        targetText: context.targetMarkdown,
-        documentTitle: context.documentTitle
-      }
-    })
-    updatePopupStreaming(popupId, true) // 立即标记为 streaming，让 sparkles 图标显示动画
-
-    // 3. 在选区结束位置插入 AIPopupMark 节点（先将光标移到选区末尾，避免覆盖选中内容）
-    editor.chain()
-      .focus()
-      .setTextSelection(context.targetTo)  // 移动光标到选区末尾
-      .insertAIPopupMark({ popupId })
-      .run()
-
-    // 4. 开始流式请求 (不再打开独立 popup 窗口，只用 hover 预览)
-    startPopupStream(popupId, prompt, context)
-  }, [editor, startPopupStream])
-
   // 处理 AI 操作
   const handleAIAction = useCallback((action: AIAction) => {
     if (!aiContext || !editor) return
 
-    if (action.mode === 'popup') {
-      // Popup 模式：插入图标 + 打开独立窗口
-      setShowAISubmenu(false)
-      handlePopupAction(action.prompt, action.name, aiContext)
-      onClose()
-    } else {
-      // Replace/Insert 模式：插入临时图标 + 执行操作 + 完成后删除图标
-      setShowAISubmenu(false)
-
-      // 1. 生成临时 popupId
-      const tempPopupId = uuidv4()
-      currentTempPopupIdRef.current = tempPopupId
-
-      // 2. 创建临时 popup 数据（用于 streaming 状态）
-      createPopup({
-        popupId: tempPopupId,
-        prompt: action.prompt,
-        actionName: action.name,
-        context: {
-          targetText: aiContext.targetMarkdown,
-          documentTitle: aiContext.documentTitle
-        }
-      })
-      updatePopupStreaming(tempPopupId, true)
-
-      // 3. 在选区结束位置插入临时图标
-      editor.chain()
-        .focus()
-        .setTextSelection(aiContext.targetTo)
-        .insertAIPopupMark({ popupId: tempPopupId })
-        .run()
-
-      // 4. 执行 AI 操作（完成后会通过 onComplete 回调清理图标）
-      const insertMode = action.mode === 'insert' ? 'insertAfter' : 'replace'
-      executeAction(action.prompt, aiContext, insertMode)
-
-      onClose()
-    }
-  }, [executeAction, aiContext, editor, onClose, handlePopupAction])
+    setShowAISubmenu(false)
+    executeActionWithContext(action, aiContext)
+    onClose()
+  }, [executeActionWithContext, aiContext, editor, onClose])
 
   // 处理 Ask AI (打开 Chat，选区通过 Session Resource 推送，输入框预填引导语)
   const handleAskAI = useCallback(() => {
@@ -688,26 +547,14 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       if (matchedAction) {
         e.preventDefault()
         e.stopPropagation()
-
-        // 获取 AI 上下文
-        const context = getAIContext(editor)
-        if (!context) return
-
-        if (matchedAction.mode === 'popup') {
-          // Popup 模式：插入图标 + 打开独立窗口
-          handlePopupAction(matchedAction.prompt, matchedAction.name, context)
-        } else {
-          // 直接执行 AI 操作
-          const insertMode = matchedAction.mode === 'insert' ? 'insertAfter' : 'replace'
-          executeAction(matchedAction.prompt, context, insertMode)
-        }
+        executeWithParams(matchedAction.prompt, matchedAction.name, matchedAction.mode)
       }
     }
 
     // 使用 capture: true 使 AI 快捷键优先于编辑器内置快捷键（如 Cmd+B 加粗）
     document.addEventListener('keydown', handleAIShortcut, { capture: true })
     return () => document.removeEventListener('keydown', handleAIShortcut, { capture: true })
-  }, [editor, aiActions, executeAction, handlePopupAction])
+  }, [editor, aiActions, executeWithParams])
 
   // 监听 Slash Command 触发的 AI 操作
   useEffect(() => {
@@ -716,27 +563,12 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
       if (!detail || !editor) return
 
       const { prompt, mode, actionName } = detail
-
-      // 获取 AI 上下文（选中文本或当前 block）
-      const context = getAIContext(editor)
-      if (!context) {
-        console.warn('[SlashCommand] AI action requires content (selection or block)')
-        return
-      }
-
-      if (mode === 'popup') {
-        // Popup 模式：插入图标 + 打开独立窗口
-        handlePopupAction(prompt, actionName, context)
-      } else {
-        // 执行 replace/insert 操作
-        const insertMode = mode === 'insert' ? 'insertAfter' : 'replace'
-        executeAction(prompt, context, insertMode)
-      }
+      executeWithParams(prompt, actionName, mode)
     }
 
     window.addEventListener(SLASH_AI_ACTION_EVENT, handleSlashAIAction)
     return () => window.removeEventListener(SLASH_AI_ACTION_EVENT, handleSlashAIAction)
-  }, [editor, executeAction, handlePopupAction])
+  }, [editor, executeWithParams])
 
   // 剪切
   const handleCut = useCallback(() => {

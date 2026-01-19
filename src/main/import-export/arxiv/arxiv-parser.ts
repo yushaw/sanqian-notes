@@ -781,6 +781,26 @@ function processInlineContent($el: Cheerio, $: CheerioAPI): string {
           const latex = extractLatex($node, $)
           return `$$${latex}$$`
         }
+        // Handle equation groups (span/div with ltx_equationgroup or ltx_eqn_table)
+        if ($node.hasClass('ltx_equationgroup') || $node.hasClass('ltx_eqn_table')) {
+          const eqnParts: string[] = []
+          $node.find('.ltx_eqn_row').each((_, row) => {
+            const $row = $(row)
+            const rowLatex: string[] = []
+            $row.find('math').each((_, mathEl) => {
+              const latex = extractLatex($(mathEl), $)
+              if (latex) {
+                rowLatex.push(latex)
+              }
+            })
+            if (rowLatex.length > 0) {
+              eqnParts.push(rowLatex.join(' '))
+            }
+          })
+          if (eqnParts.length > 0) {
+            return '$$\n' + eqnParts.join(' \\\\\n') + '\n$$'
+          }
+        }
         // Handle bold class
         if ($node.hasClass('ltx_font_bold')) {
           const innerText = $node
@@ -836,6 +856,39 @@ function processInlineContent($el: Cheerio, $: CheerioAPI): string {
 
       case 'br':
         return '\n'
+
+      case 'table': {
+        // Handle equation tables (ltx_equationgroup, ltx_eqn_table, etc.)
+        if (
+          $node.hasClass('ltx_equationgroup') ||
+          $node.hasClass('ltx_eqn_table') ||
+          $node.hasClass('ltx_equation')
+        ) {
+          const eqnParts: string[] = []
+          $node.find('tr.ltx_eqn_row, tr.ltx_equation').each((_, row) => {
+            const $row = $(row)
+            const rowLatex: string[] = []
+            $row.find('math').each((_, mathEl) => {
+              const latex = extractLatex($(mathEl), $)
+              if (latex) {
+                rowLatex.push(latex)
+              }
+            })
+            if (rowLatex.length > 0) {
+              eqnParts.push(rowLatex.join(' '))
+            }
+          })
+          if (eqnParts.length > 0) {
+            return '$$\n' + eqnParts.join(' \\\\\n') + '\n$$'
+          }
+        }
+        // For other tables, recursively process
+        return $node
+          .contents()
+          .map((_, child) => processNode(child as cheerio.Element))
+          .get()
+          .join('')
+      }
 
       case 'sup':
         return `^${$node.text().trim()}^`
@@ -897,7 +950,8 @@ function processInlineContent($el: Cheerio, $: CheerioAPI): string {
     if (result) parts.push(result)
   })
 
-  return parts.join('').trim()
+  // Normalize whitespace: collapse multiple newlines into single newline
+  return parts.join('').replace(/\n{2,}/g, '\n').trim()
 }
 
 /**

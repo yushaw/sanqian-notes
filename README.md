@@ -77,6 +77,22 @@ MIT
 
 ## Changelog
 
+### 2026-01-19 - v0.4.1 Dependencies Update
+
+Upgraded dependencies to latest compatible versions:
+
+**Core:**
+- @tiptap/* (all packages): 3.13.x/3.14.x -> 3.15.3
+- better-sqlite3: 12.5.0 -> 12.6.2
+- electron-updater: 6.6.2 -> 6.7.3
+- framer-motion: 12.0.0 -> 12.27.1
+
+**Dev:**
+- @typescript-eslint/*: 8.52.0 -> 8.53.0
+- vitest + coverage: 4.0.16 -> 4.0.17
+
+---
+
 ### 2026-01-19 - SDK update_note Enhancements
 
 **Position-based Insert for append/prepend:**

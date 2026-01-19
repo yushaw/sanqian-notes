@@ -139,6 +139,12 @@ function processSection(
             if (eqnParts.length > 0) {
               paraParts.push(`$$${eqnParts.join(' \\\\ ')}$$`)
             }
+          } else if (paraChildTag === 'ul' || paraChildTag === 'ol') {
+            // Handle lists - use dedicated list processor
+            const listContent = processListElement($paraChild, $, paraChildTag)
+            if (listContent.trim()) {
+              paraParts.push(listContent)
+            }
           } else if (paraChildTag === 'p' || paraChildClass.includes('ltx_p')) {
             const content = processInlineContent($paraChild, $)
             if (content.trim()) {
@@ -839,28 +845,8 @@ function processInlineContent($el: Cheerio, $: CheerioAPI): string {
 
       case 'ul':
       case 'ol': {
-        const items: string[] = []
-        $node.find('> li, > .ltx_item').each((i, li) => {
-          const $li = $(li)
-          const prefix = tagName === 'ol' ? `${i + 1}. ` : '- '
-          // Skip ltx_tag (bullet/number marker) and get actual content
-          const contentParts: string[] = []
-          $li.children().each((_, child) => {
-            const $child = $(child)
-            // Skip the tag/marker span
-            if ($child.hasClass('ltx_tag') || $child.hasClass('ltx_tag_item')) {
-              return
-            }
-            const childContent = processNode(child as cheerio.Element)
-            if (childContent.trim()) {
-              contentParts.push(childContent.trim())
-            }
-          })
-          if (contentParts.length > 0) {
-            items.push(prefix + contentParts.join(' '))
-          }
-        })
-        return '\n' + items.join('\n') + '\n'
+        // Use dedicated list processor to avoid extra newlines
+        return processListElement($node, $, tagName)
       }
 
       case 'li':

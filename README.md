@@ -317,3 +317,14 @@ Technical:
 - `reorderNotebooks()` in database.ts with transaction and validation
 - Optimistic UI update with error recovery (reload from DB on failure)
 - `setDropTargetIndex(prev => ...)` to avoid unnecessary re-renders during drag
+
+---
+
+### 2026-01-19 - arXiv import improvements
+
+Fixed multiple issues with arXiv HTML import:
+
+1. **Missing Figure 1**: Process top-level figures (outside sections) before processing sections
+2. **Empty h2 heading**: Skip sections with empty titles in importer
+3. **Equation extra newlines**: Remove redundant `\n` wrapping from equation blocks
+4. **List extra newlines**: Unified list processing to use dedicated `processListElement` instead of duplicate code with extra newlines

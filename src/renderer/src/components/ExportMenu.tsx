@@ -313,7 +313,7 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
                 <button className="more-menu-item" onClick={() => { setMenuOpen(false); onOpenSearch() }}>
                   {Icons.search}
                   <span>{t.search?.title || 'Find'}</span>
-                  <span className="more-menu-shortcut">⌘F</span>
+                  <span className="more-menu-shortcut">{formatShortcut('Command+F')}</span>
                 </button>
               )}
               {onOpenSearch && (onSplitHorizontal || onSplitVertical || onInsertContent || noteId) && <div className="more-menu-divider" />}

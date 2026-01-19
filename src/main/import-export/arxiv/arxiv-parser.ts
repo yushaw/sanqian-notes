@@ -113,10 +113,51 @@ function processSection(
       }
 
       // Process child elements (ltx_para divs contain the actual content)
+      // Need to handle equation tables specially, same as main ltx_para processing
       $child.children('.ltx_para, p').each((_, paraEl) => {
-        const content = processInlineContent($(paraEl), $)
-        if (content.trim()) {
-          paraParts.push(content)
+        const $paraEl = $(paraEl)
+        $paraEl.children().each((_, paraChild) => {
+          const $paraChild = $(paraChild)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const paraChildTag = ((paraChild as any).tagName || (paraChild as any).name || '').toLowerCase()
+          const paraChildClass = $paraChild.attr('class') || ''
+
+          // Check if this is an equation table
+          if (
+            paraChildTag === 'table' &&
+            (paraChildClass.includes('ltx_equationgroup') ||
+              paraChildClass.includes('ltx_eqn_table') ||
+              paraChildClass.includes('ltx_equation'))
+          ) {
+            const eqnParts: string[] = []
+            $paraChild.find('math').each((_, mathEl) => {
+              const latex = extractLatex($(mathEl), $)
+              if (latex) {
+                eqnParts.push(latex)
+              }
+            })
+            if (eqnParts.length > 0) {
+              paraParts.push(`$$${eqnParts.join(' \\\\ ')}$$`)
+            }
+          } else if (paraChildTag === 'p' || paraChildClass.includes('ltx_p')) {
+            const content = processInlineContent($paraChild, $)
+            if (content.trim()) {
+              paraParts.push(content)
+            }
+          } else {
+            const content = processInlineContent($paraChild, $)
+            if (content.trim()) {
+              paraParts.push(content)
+            }
+          }
+        })
+
+        // If ltx_para has no children but has direct text content
+        if ($paraEl.children().length === 0) {
+          const content = processInlineContent($paraEl, $)
+          if (content.trim()) {
+            paraParts.push(content)
+          }
         }
       })
 
@@ -197,7 +238,7 @@ function processSection(
             })
           }
           if (eqnParts.length > 0) {
-            contentParts.push(`\n$$${eqnParts.join(' \\\\ ')}$$\n`)
+            contentParts.push(`$$${eqnParts.join(' \\\\ ')}$$`)
           }
         } else if (paraChildTag === 'p' || paraChildClass.includes('ltx_p')) {
           // Process paragraph content
@@ -294,7 +335,7 @@ function processSection(
         })
       }
       if (eqnParts.length > 0) {
-        contentParts.push(`\n$$${eqnParts.join(' \\\\ ')}$$\n`)
+        contentParts.push(`$$${eqnParts.join(' \\\\ ')}$$`)
       }
       return
     }
@@ -303,7 +344,7 @@ function processSection(
     if (tagName !== 'table' && (className.includes('ltx_equation') || className.includes('ltx_eqn'))) {
       const latex = extractLatex($child, $)
       if (latex) {
-        contentParts.push(`\n$$${latex}$$\n`)
+        contentParts.push(`$$${latex}$$`)
       }
       return
     }
@@ -721,7 +762,7 @@ function processInlineContent($el: Cheerio, $: CheerioAPI): string {
       case 'math': {
         const latex = extractLatex($node, $)
         const display = $node.attr('display') === 'block' || $node.hasClass('ltx_displaymath')
-        return display ? `\n$$${latex}$$\n` : `$${latex}$`
+        return display ? `$$${latex}$$` : `$${latex}$`
       }
 
       case 'span':
@@ -732,7 +773,7 @@ function processInlineContent($el: Cheerio, $: CheerioAPI): string {
         }
         if ($node.hasClass('ltx_displaymath') || $node.hasClass('ltx_eqn_cell')) {
           const latex = extractLatex($node, $)
-          return `\n$$${latex}$$\n`
+          return `$$${latex}$$`
         }
         // Handle bold class
         if ($node.hasClass('ltx_font_bold')) {

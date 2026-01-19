@@ -991,6 +991,36 @@ function AppContent() {
     }
   }, [])
 
+  // Handle reorder notebooks
+  const handleReorderNotebooks = useCallback(async (orderedIds: string[]) => {
+    try {
+      // Optimistic update: reorder local state first
+      setNotebooks(prev => {
+        const notebookMap = new Map(prev.map(n => [n.id, n]))
+        // Only include ids that exist in current state
+        const reordered = orderedIds
+          .filter(id => notebookMap.has(id))
+          .map((id, index) => ({ ...notebookMap.get(id)!, order_index: index }))
+        // Validate: must have same count
+        if (reordered.length !== prev.length) {
+          console.warn('Reorder mismatch, keeping original order')
+          return prev
+        }
+        return reordered
+      })
+      await window.electron.notebook.reorder(orderedIds)
+    } catch (error) {
+      console.error('Failed to reorder notebooks:', error)
+      // Reload from database on error
+      try {
+        const fresh = await window.electron.notebook.getAll()
+        setNotebooks(fresh)
+      } catch (reloadError) {
+        console.error('Failed to reload notebooks:', reloadError)
+      }
+    }
+  }, [])
+
   // Handle delete note (soft delete - move to trash)
   const handleDeleteNote = useCallback(async (id: string) => {
     try {
@@ -1452,6 +1482,7 @@ function AppContent() {
         onDeleteNotebook={handleShowDeleteConfirm}
         onOpenSettings={handleOpenSettings}
         onMoveNoteToNotebook={handleMoveToNotebook}
+        onReorderNotebooks={handleReorderNotebooks}
         noteCounts={noteCounts}
         onCollapsedChange={setIsSidebarCollapsed}
       />

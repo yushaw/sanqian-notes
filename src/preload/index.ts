@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('electron', {
     add: (notebook: unknown) => ipcRenderer.invoke('notebook:add', notebook),
     update: (id: string, updates: unknown) => ipcRenderer.invoke('notebook:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('notebook:delete', id),
+    reorder: (orderedIds: string[]) => ipcRenderer.invoke('notebook:reorder', orderedIds),
   },
   context: {
     sync: (context: {

@@ -103,6 +103,7 @@ interface SidebarProps {
   onDeleteNotebook: (notebook: Notebook) => void
   onOpenSettings: () => void
   onMoveNoteToNotebook: (noteIds: string[], notebookId: string | null) => void
+  onReorderNotebooks: (orderedIds: string[]) => void
   noteCounts: {
     all: number
     daily: number
@@ -135,6 +136,7 @@ export function Sidebar({
   onDeleteNotebook,
   onOpenSettings,
   onMoveNoteToNotebook,
+  onReorderNotebooks,
   noteCounts,
   onCollapsedChange,
 }: SidebarProps) {
@@ -173,6 +175,10 @@ export function Sidebar({
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const t = useTranslations()
   const [dragOverNotebookId, setDragOverNotebookId] = useState<string | null>(null)
+
+  // Notebook drag-and-drop reorder state
+  const [draggingNotebookId, setDraggingNotebookId] = useState<string | null>(null)
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null)
 
   // Handle right click on notebook
   const handleContextMenu = (e: React.MouseEvent, notebook: Notebook) => {
@@ -391,7 +397,7 @@ export function Sidebar({
         </div>
 
         {/* Notebooks Section */}
-        <div>
+        <div data-notebook-list>
           <div className="flex items-center justify-between px-2.5 mb-1.5">
             <span className="text-[0.733rem] font-medium text-[var(--color-muted)] uppercase tracking-wider">
               {t.sidebar.notebooks}
@@ -408,54 +414,105 @@ export function Sidebar({
           </div>
 
           {notebooks.length > 0 && (
-            notebooks.map((notebook) => (
-              <button
-                key={notebook.id}
-                onClick={() => onSelectNotebook(notebook.id)}
-                onContextMenu={(e) => handleContextMenu(e, notebook)}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  e.dataTransfer.dropEffect = 'move'
-                  setDragOverNotebookId(notebook.id)
-                }}
-                onDragLeave={() => {
-                  setDragOverNotebookId(null)
-                }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  // Support both JSON array and plain text (backwards compatible)
-                  const jsonData = e.dataTransfer.getData('application/json')
-                  const plainData = e.dataTransfer.getData('text/plain')
-                  let noteIds: string[] = []
-                  if (jsonData) {
-                    try {
-                      noteIds = JSON.parse(jsonData)
-                    } catch {
-                      noteIds = plainData ? [plainData] : []
+            notebooks.map((notebook, index) => (
+              <div key={notebook.id} className="relative">
+                {/* Drop indicator line - shows before this item */}
+                {dropTargetIndex === index && draggingNotebookId && (
+                  <div className="absolute top-0 left-2.5 right-2.5 h-0.5 bg-[var(--color-accent)] rounded-full -translate-y-0.5" />
+                )}
+                <button
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggingNotebookId(notebook.id)
+                    e.dataTransfer.setData('application/x-notebook-id', notebook.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
+                  onDragEnd={() => {
+                    setDraggingNotebookId(null)
+                    setDropTargetIndex(null)
+                  }}
+                  onClick={() => onSelectNotebook(notebook.id)}
+                  onContextMenu={(e) => handleContextMenu(e, notebook)}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    const isNotebookDrag = e.dataTransfer.types.includes('application/x-notebook-id')
+                    if (isNotebookDrag && draggingNotebookId) {
+                      e.dataTransfer.dropEffect = 'move'
+                      // Calculate drop position based on mouse Y
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const midY = rect.top + rect.height / 2
+                      const targetIndex = e.clientY < midY ? index : index + 1
+                      setDropTargetIndex(prev => prev === targetIndex ? prev : targetIndex)
+                    } else if (!isNotebookDrag) {
+                      // Note drag - show notebook highlight
+                      e.dataTransfer.dropEffect = 'move'
+                      setDragOverNotebookId(notebook.id)
                     }
-                  } else if (plainData) {
-                    noteIds = [plainData]
-                  }
-                  if (noteIds.length > 0) {
-                    onMoveNoteToNotebook(noteIds, notebook.id)
-                  }
-                  setDragOverNotebookId(null)
-                }}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[0.867rem] transition-all duration-150 ${
-                  selectedNotebookId === notebook.id
-                    ? 'text-[var(--color-text)]'
-                    : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)]'
-                } ${dragOverNotebookId === notebook.id ? 'ring-2 ring-[var(--color-accent)] ring-opacity-50' : ''}`}
-                style={selectedNotebookId === notebook.id ? { backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  <NotebookIcon icon={notebook.icon} className="flex-shrink-0" />
-                  <span className="truncate">{notebook.name}</span>
-                </span>
-                <span className="text-[0.733rem] text-[var(--color-muted)] tabular-nums">
-                  {noteCounts.notebooks[notebook.id] || 0}
-                </span>
-              </button>
+                  }}
+                  onDragLeave={(e) => {
+                    // Only clear if leaving to outside
+                    const relatedTarget = e.relatedTarget as HTMLElement | null
+                    if (!relatedTarget?.closest?.('[data-notebook-list]')) {
+                      setDropTargetIndex(null)
+                    }
+                    setDragOverNotebookId(null)
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    const notebookIdData = e.dataTransfer.getData('application/x-notebook-id')
+                    if (notebookIdData && dropTargetIndex !== null && notebooks.length > 1) {
+                      // Notebook reorder
+                      const draggedIndex = notebooks.findIndex(n => n.id === notebookIdData)
+                      if (draggedIndex !== -1 && draggedIndex !== dropTargetIndex && draggedIndex !== dropTargetIndex - 1) {
+                        const newOrder = [...notebooks]
+                        const [removed] = newOrder.splice(draggedIndex, 1)
+                        const insertIndex = dropTargetIndex > draggedIndex ? dropTargetIndex - 1 : dropTargetIndex
+                        newOrder.splice(insertIndex, 0, removed)
+                        onReorderNotebooks(newOrder.map(n => n.id))
+                      }
+                    } else {
+                      // Note move to notebook
+                      const jsonData = e.dataTransfer.getData('application/json')
+                      const plainData = e.dataTransfer.getData('text/plain')
+                      let noteIds: string[] = []
+                      if (jsonData) {
+                        try {
+                          noteIds = JSON.parse(jsonData)
+                        } catch {
+                          noteIds = plainData ? [plainData] : []
+                        }
+                      } else if (plainData) {
+                        noteIds = [plainData]
+                      }
+                      if (noteIds.length > 0) {
+                        onMoveNoteToNotebook(noteIds, notebook.id)
+                      }
+                    }
+                    setDragOverNotebookId(null)
+                    setDropTargetIndex(null)
+                  }}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[0.867rem] transition-all duration-150 ${
+                    selectedNotebookId === notebook.id
+                      ? 'text-[var(--color-text)]'
+                      : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)]'
+                  } ${dragOverNotebookId === notebook.id ? 'ring-2 ring-[var(--color-accent)] ring-opacity-50' : ''} ${
+                    draggingNotebookId === notebook.id ? 'opacity-50' : ''
+                  }`}
+                  style={selectedNotebookId === notebook.id ? { backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <NotebookIcon icon={notebook.icon} className="flex-shrink-0" />
+                    <span className="truncate">{notebook.name}</span>
+                  </span>
+                  <span className="text-[0.733rem] text-[var(--color-muted)] tabular-nums">
+                    {noteCounts.notebooks[notebook.id] || 0}
+                  </span>
+                </button>
+                {/* Drop indicator line - shows after the last item */}
+                {dropTargetIndex === notebooks.length && index === notebooks.length - 1 && draggingNotebookId && (
+                  <div className="absolute bottom-0 left-2.5 right-2.5 h-0.5 bg-[var(--color-accent)] rounded-full translate-y-0.5" />
+                )}
+              </div>
             ))
           )}
         </div>

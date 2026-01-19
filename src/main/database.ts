@@ -2100,6 +2100,25 @@ export function deleteNotebook(id: string): boolean {
   return result.changes > 0
 }
 
+export function reorderNotebooks(orderedIds: string[]): void {
+  // Validate: check all ids exist and count matches
+  const existingIds = new Set(
+    (db.prepare('SELECT id FROM notebooks').all() as { id: string }[]).map(r => r.id)
+  )
+  const validIds = orderedIds.filter(id => existingIds.has(id))
+  if (validIds.length !== existingIds.size) {
+    throw new Error(`reorderNotebooks: id mismatch, expected ${existingIds.size} got ${validIds.length}`)
+  }
+
+  const stmt = db.prepare('UPDATE notebooks SET order_index = ? WHERE id = ?')
+  const reorder = db.transaction(() => {
+    validIds.forEach((id, index) => {
+      stmt.run(index, id)
+    })
+  })
+  reorder()
+}
+
 // ============ Notebook Helpers ============
 
 /**

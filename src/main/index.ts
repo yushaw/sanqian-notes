@@ -18,6 +18,7 @@ import {
   addNotebook,
   updateNotebook,
   deleteNotebook,
+  reorderNotebooks,
   getTags,
   getTagsByNote,
   createDemoNote,
@@ -1624,6 +1625,7 @@ app.whenReady().then(() => {
   ipcMain.handle('notebook:add', (_, notebook) => addNotebook(notebook))
   ipcMain.handle('notebook:update', (_, id, updates) => updateNotebook(id, updates))
   ipcMain.handle('notebook:delete', (_, id) => deleteNotebook(id))
+  ipcMain.handle('notebook:reorder', (_, orderedIds: string[]) => reorderNotebooks(orderedIds))
 
   // IPC handlers for user context (for agent tools)
   ipcMain.handle('context:sync', (_, context: Partial<UserContext>) => {

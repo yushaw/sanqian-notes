@@ -70,6 +70,7 @@ interface Window {
       add: (notebook: NotebookInput) => Promise<Notebook>
       update: (id: string, updates: Partial<NotebookInput>) => Promise<Notebook | null>
       delete: (id: string) => Promise<boolean>
+      reorder: (orderedIds: string[]) => Promise<void>
     }
     context: {
       sync: (context: {

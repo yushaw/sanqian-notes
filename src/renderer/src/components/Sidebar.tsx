@@ -19,13 +19,11 @@ const SHIFT = isMac ? '⇧' : 'Shift'
 // 快捷键帮助弹窗组件
 function ShortcutsPopover({ isOpen, t }: { isOpen: boolean; t: ReturnType<typeof useTranslations> }) {
   const shortcuts = useMemo(() => [
-    { category: t.shortcuts.textFormat, items: [
-      { label: t.shortcuts.bold, key: `${MOD} B` },
-      { label: t.shortcuts.italic, key: `${MOD} I` },
-      { label: t.shortcuts.underline, key: `${MOD} U` },
-      { label: t.shortcuts.strikethrough, key: `${MOD} ${SHIFT} S` },
-      { label: t.shortcuts.highlight, key: `${MOD} ${SHIFT} H` },
-      { label: t.shortcuts.inlineCode, key: `${MOD} ${SHIFT} E` },
+    { category: t.shortcuts.editing, items: [
+      { label: t.shortcuts.newNote, key: `${MOD} N` },
+      { label: t.shortcuts.newTab, key: `${MOD} T` },
+      { label: t.shortcuts.undo, key: `${MOD} Z` },
+      { label: t.shortcuts.redo, key: `${MOD} ${SHIFT} Z` },
     ]},
     { category: t.shortcuts.blocks, items: [
       { label: t.shortcuts.slashCommand, key: '/ 、' },
@@ -33,11 +31,13 @@ function ShortcutsPopover({ isOpen, t }: { isOpen: boolean; t: ReturnType<typeof
       { label: t.shortcuts.mathFormula, key: '$...$' },
       { label: t.shortcuts.noteLink, key: '[[' },
     ]},
-    { category: t.shortcuts.editing, items: [
-      { label: t.shortcuts.newNote, key: `${MOD} N` },
-      { label: t.shortcuts.undo, key: `${MOD} Z` },
-      { label: t.shortcuts.redo, key: `${MOD} ${SHIFT} Z` },
-      { label: t.shortcuts.save, key: `${MOD} S` },
+    { category: t.shortcuts.textFormat, items: [
+      { label: t.shortcuts.bold, key: `${MOD} B` },
+      { label: t.shortcuts.italic, key: `${MOD} I` },
+      { label: t.shortcuts.underline, key: `${MOD} U` },
+      { label: t.shortcuts.strikethrough, key: `${MOD} ${SHIFT} S` },
+      { label: t.shortcuts.highlight, key: `${MOD} ${SHIFT} H` },
+      { label: t.shortcuts.inlineCode, key: `${MOD} ${SHIFT} E` },
     ]},
   ], [t])
 

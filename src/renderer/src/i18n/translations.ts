@@ -645,6 +645,7 @@ export interface Translations {
     redo: string
     save: string
     newNote: string
+    newTab: string
   }
   contextMenu: {
     cut: string
@@ -1577,7 +1578,8 @@ const zh: Translations = {
     undo: '撤销',
     redo: '重做',
     save: '保存',
-    newNote: '新建笔记'
+    newNote: '新建笔记',
+    newTab: '新标签页'
   },
   contextMenu: {
     cut: '剪切',
@@ -2508,7 +2510,8 @@ const en: Translations = {
     undo: 'Undo',
     redo: 'Redo',
     save: 'Save',
-    newNote: 'New Note'
+    newNote: 'New Note',
+    newTab: 'New Tab'
   },
   contextMenu: {
     cut: 'Cut',

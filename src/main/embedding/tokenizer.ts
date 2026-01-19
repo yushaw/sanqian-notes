@@ -20,7 +20,6 @@ let jiebaInitError: string | null = null
 function getDefaultDictPath(): string | null {
   try {
     // Lazy require to avoid issues in non-Electron contexts (scripts/tests).
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { app } = require('electron')
     if (app?.getPath) {
       return path.join(app.getPath('userData'), 'jieba.dict.txt')

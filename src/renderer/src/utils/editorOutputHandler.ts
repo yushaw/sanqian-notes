@@ -13,21 +13,10 @@ import type {
   OutputOperation,
   InsertOutputData,
 } from '../../../shared/types'
+import { parseInlineMarkdown, TiptapNode } from '../../../shared/markdown/inline-parser'
 
 // Re-export types for backwards compatibility
 export type { EditorOutputContext as OutputContext, OutputOperation, InsertOutputData }
-
-// ============================================
-// Operation Converters
-// ============================================
-
-interface TiptapNode {
-  type: string
-  attrs?: Record<string, unknown>
-  content?: TiptapNode[]
-  text?: string
-  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
-}
 
 /**
  * Convert paragraph operation to Tiptap nodes
@@ -39,7 +28,7 @@ function convertParagraph(content: { paragraphs: string[] }, managerBlockId: str
       blockId: generateBlockId(),
       managedBy: managerBlockId,
     },
-    content: text ? [{ type: 'text', text }] : [],
+    content: parseInlineMarkdown(text),
   }))
 }
 
@@ -72,7 +61,7 @@ function convertList(
     content: [
       {
         type: 'paragraph',
-        content: item.text ? [{ type: 'text', text: item.text }] : [],
+        content: parseInlineMarkdown(item.text),
       },
     ],
   }))
@@ -104,7 +93,7 @@ function convertHeading(
         blockId: generateBlockId(),
         managedBy: managerBlockId,
       },
-      content: content.text ? [{ type: 'text', text: content.text }] : [],
+      content: parseInlineMarkdown(content.text),
     },
   ]
 }
@@ -143,7 +132,7 @@ function convertBlockquote(content: { text: string }, managerBlockId: string): T
       content: [
         {
           type: 'paragraph',
-          content: content.text ? [{ type: 'text', text: content.text }] : [],
+          content: parseInlineMarkdown(content.text),
         },
       ],
     },
@@ -164,7 +153,7 @@ function convertTable(
       content: [
         {
           type: 'paragraph',
-          content: header ? [{ type: 'text', text: header }] : [],
+          content: parseInlineMarkdown(header),
         },
       ],
     })),
@@ -177,7 +166,7 @@ function convertTable(
       content: [
         {
           type: 'paragraph',
-          content: cell ? [{ type: 'text', text: cell }] : [],
+          content: parseInlineMarkdown(cell),
         },
       ],
     })),

@@ -6,20 +6,11 @@
  */
 
 import { marked, Token, Tokens } from 'marked'
-
-// TipTap 节点类型定义
-interface TiptapMark {
-  type: string
-  attrs?: Record<string, unknown>
-}
-
-interface TiptapNode {
-  type: string
-  attrs?: Record<string, unknown>
-  content?: TiptapNode[]
-  text?: string
-  marks?: TiptapMark[]
-}
+import {
+  parseInlineTokens,
+  parseInlineMarkdown,
+  TiptapNode,
+} from '../../shared/markdown/inline-parser'
 
 interface TiptapDoc {
   type: 'doc'
@@ -170,164 +161,6 @@ function preprocessMarkdown(markdown: string): { result: string; mathContext: Ma
   })
 
   return { result, mathContext }
-}
-
-/**
- * 解析行内 tokens
- */
-function parseInlineTokens(tokens: Token[]): TiptapNode[] {
-  const nodes: TiptapNode[] = []
-
-  for (const token of tokens) {
-    switch (token.type) {
-      case 'text': {
-        const textToken = token as Tokens.Text
-        const text = textToken.text
-
-        // 处理自定义标记（高亮和下划线）
-        if (text.includes('\x00HIGHLIGHT_START\x00') || text.includes('\x00UNDERLINE_START\x00')) {
-          // 先处理高亮
-          let segments: { text: string; marks: TiptapMark[] }[] = [{ text, marks: [] }]
-
-          // 处理高亮标记 - 需要在 filter 之前记录原始索引
-          segments = segments.flatMap(seg => {
-            if (!seg.text.includes('\x00HIGHLIGHT_START\x00')) return [seg]
-            const parts = seg.text.split(/\x00HIGHLIGHT_START\x00|\x00HIGHLIGHT_END\x00/)
-            const result: { text: string; marks: TiptapMark[] }[] = []
-            for (let i = 0; i < parts.length; i++) {
-              if (parts[i]) {
-                result.push({
-                  text: parts[i],
-                  marks: i % 2 === 1 ? [...seg.marks, { type: 'highlight' }] : seg.marks
-                })
-              }
-            }
-            return result
-          })
-
-          // 处理下划线标记 - 同样需要在 filter 之前记录原始索引
-          segments = segments.flatMap(seg => {
-            if (!seg.text.includes('\x00UNDERLINE_START\x00')) return [seg]
-            const parts = seg.text.split(/\x00UNDERLINE_START\x00|\x00UNDERLINE_END\x00/)
-            const result: { text: string; marks: TiptapMark[] }[] = []
-            for (let i = 0; i < parts.length; i++) {
-              if (parts[i]) {
-                result.push({
-                  text: parts[i],
-                  marks: i % 2 === 1 ? [...seg.marks, { type: 'underline' }] : seg.marks
-                })
-              }
-            }
-            return result
-          })
-
-          for (const seg of segments) {
-            nodes.push({
-              type: 'text',
-              text: seg.text,
-              ...(seg.marks.length > 0 ? { marks: seg.marks } : {})
-            })
-          }
-        } else {
-          nodes.push({ type: 'text', text })
-        }
-        break
-      }
-
-      case 'strong': {
-        const strongToken = token as Tokens.Strong
-        const children = parseInlineTokens(strongToken.tokens || [])
-        for (const child of children) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'bold' }]
-          }
-          nodes.push(child)
-        }
-        break
-      }
-
-      case 'em': {
-        const emToken = token as Tokens.Em
-        const children = parseInlineTokens(emToken.tokens || [])
-        for (const child of children) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'italic' }]
-          }
-          nodes.push(child)
-        }
-        break
-      }
-
-      case 'del': {
-        const delToken = token as Tokens.Del
-        const children = parseInlineTokens(delToken.tokens || [])
-        for (const child of children) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'strike' }]
-          }
-          nodes.push(child)
-        }
-        break
-      }
-
-      case 'codespan': {
-        const codeToken = token as Tokens.Codespan
-        nodes.push({
-          type: 'text',
-          text: codeToken.text,
-          marks: [{ type: 'code' }]
-        })
-        break
-      }
-
-      case 'link': {
-        const linkToken = token as Tokens.Link
-        const linkText = linkToken.tokens ? parseInlineTokens(linkToken.tokens) : [{ type: 'text', text: linkToken.text }]
-        for (const child of linkText) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'link', attrs: { href: linkToken.href } }]
-          }
-          nodes.push(child)
-        }
-        break
-      }
-
-      case 'image': {
-        const imgToken = token as Tokens.Image
-        nodes.push({
-          type: 'image',
-          attrs: {
-            blockId: null,
-            src: imgToken.href,
-            alt: imgToken.text || '',
-            title: imgToken.title || null,
-            width: null,
-            height: null,
-            align: 'left'
-          }
-        })
-        break
-      }
-
-      case 'br':
-        nodes.push({ type: 'hardBreak' })
-        break
-
-      case 'escape': {
-        const escapeToken = token as Tokens.Escape
-        nodes.push({ type: 'text', text: escapeToken.text })
-        break
-      }
-
-      default:
-        // 尝试提取 raw 文本
-        if ('raw' in token && typeof token.raw === 'string') {
-          nodes.push({ type: 'text', text: token.raw })
-        }
-    }
-  }
-
-  return nodes
 }
 
 /**
@@ -733,7 +566,7 @@ function parseHtmlTable(html: string): TiptapNode | null {
           attrs: colspan > 1 ? { colspan } : undefined,
           content: [{
             type: 'paragraph',
-            content: cellContent ? [{ type: 'text', text: cellContent }] : []
+            content: parseInlineMarkdown(cellContent)
           }]
         }
 

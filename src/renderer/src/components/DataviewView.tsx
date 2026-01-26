@@ -159,7 +159,8 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
       hoverTimerRef.current = window.setTimeout(async () => {
         try {
           const note = await window.electron.note.getById(noteId)
-          if (note) {
+          // Only show preview if note has summary
+          if (note && note.ai_summary?.trim()) {
             setHoveredNote(note as Note)
             setHoverAnchor(element)
           }

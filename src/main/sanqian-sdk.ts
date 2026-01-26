@@ -167,6 +167,7 @@ function getLaunchCommand(): string | undefined {
 let client: SanqianAppClient | null = null
 let assistantAgentId: string | null = null
 let writingAgentId: string | null = null
+let generatorAgentId: string | null = null
 let formatterAgentId: string | null = null
 let syncingPromise: Promise<void> | null = null
 let onDataChangeCallback: (() => void) | null = null
@@ -219,6 +220,13 @@ function buildAgentConfigs(): AppAgentConfig[] {
       name: sdk.writingName,
       description: sdk.writingDescription,
       systemPrompt: sdk.writingSystemPrompt,
+      tools: []
+    },
+    {
+      agentId: 'generator',
+      name: sdk.generatorName,
+      description: sdk.generatorDescription,
+      systemPrompt: sdk.generatorSystemPrompt,
       tools: []
     },
     // Formatter Agent for formatting output
@@ -1137,8 +1145,13 @@ async function syncPrivateAgents(): Promise<void> {
       writingAgentId = writingInfo.agentId
       console.log('[Notes SDK] Writing agent synced:', writingAgentId)
 
+      const generatorAgent = agents[2]
+      const generatorInfo = await client!.createAgent(generatorAgent)
+      generatorAgentId = generatorInfo.agentId
+      console.log('[Notes SDK] Generator agent synced:', generatorAgentId)
+
       // Sync Formatter Agent for output formatting
-      const formatterAgent = agents[2]
+      const formatterAgent = agents[3]
       if (formatterAgent) {
         const formatterInfo = await client!.createAgent(formatterAgent)
         formatterAgentId = formatterInfo.agentId
@@ -1193,6 +1206,7 @@ export async function initializeSanqianSDK(): Promise<void> {
     console.log('[Notes SDK] Disconnected from Sanqian')
     assistantAgentId = null
     writingAgentId = null
+    generatorAgentId = null
     formatterAgentId = null
   })
 
@@ -1223,6 +1237,7 @@ export async function stopSanqianSDK(): Promise<void> {
     await client.disconnect()
     assistantAgentId = null
     writingAgentId = null
+    generatorAgentId = null
     formatterAgentId = null
     syncingPromise = null
   }
@@ -1286,6 +1301,13 @@ export function getWritingAgentId(): string | null {
 }
 
 /**
+ * Get the generator agent ID (for content generation)
+ */
+export function getGeneratorAgentId(): string | null {
+  return generatorAgentId
+}
+
+/**
  * Get the formatter agent ID (for output formatting)
  */
 export function getFormatterAgentId(): string | null {
@@ -1303,7 +1325,7 @@ export function getClient(): SanqianAppClient | null {
  * Ensure client is connected and agents are ready
  */
 export async function ensureAgentReady(
-  agentType: 'assistant' | 'writing' = 'assistant'
+  agentType: 'assistant' | 'writing' | 'generator' = 'assistant'
 ): Promise<{ client: SanqianAppClient; agentId: string }> {
   if (!client) {
     throw new Error('Client not initialized')
@@ -1311,7 +1333,12 @@ export async function ensureAgentReady(
 
   await client.ensureReady()
 
-  const agentId = agentType === 'assistant' ? assistantAgentId : writingAgentId
+  const agentIdMap = {
+    assistant: assistantAgentId,
+    writing: writingAgentId,
+    generator: generatorAgentId
+  }
+  const agentId = agentIdMap[agentType]
 
   if (agentId) {
     return { client, agentId }
@@ -1319,7 +1346,11 @@ export async function ensureAgentReady(
 
   await syncPrivateAgents()
 
-  const finalAgentId = agentType === 'assistant' ? assistantAgentId : writingAgentId
+  // Re-read global variables after sync (agentIdMap captured old null values)
+  const finalAgentId =
+    agentType === 'assistant' ? assistantAgentId :
+    agentType === 'writing' ? writingAgentId :
+    generatorAgentId
 
   if (!finalAgentId) {
     throw new Error(`Failed to sync ${agentType} agent`)

@@ -335,6 +335,8 @@ export interface Translations {
     generate: string
     generatePlaceholder: string
     mermaidPlaceholder: string
+    mathPlaceholder: string
+    dataviewPlaceholder: string
   }
   export: {
     title: string
@@ -1275,6 +1277,8 @@ const zh: Translations = {
     generate: 'AI 生成',
     generatePlaceholder: '描述你想要生成的内容...',
     mermaidPlaceholder: '描述你想要的图表...',
+    mathPlaceholder: '描述你想要的公式...',
+    dataviewPlaceholder: '描述你想要的查询...',
   },
   export: {
     title: '导出',
@@ -2211,6 +2215,8 @@ const en: Translations = {
     generate: 'AI Generate',
     generatePlaceholder: 'Describe what you want to generate...',
     mermaidPlaceholder: 'Describe the diagram you want...',
+    mathPlaceholder: 'Describe the formula you want...',
+    dataviewPlaceholder: 'Describe the query you want...',
   },
   export: {
     title: 'Export',

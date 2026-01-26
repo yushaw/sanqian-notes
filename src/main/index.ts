@@ -1480,7 +1480,9 @@ app.whenReady().then(() => {
 
     try {
       // Ensure agent is ready (handles connection and agent sync)
-      const agentType = params.agentId === 'writing' ? 'writing' : 'assistant'
+      const agentType: 'assistant' | 'writing' | 'generator' =
+        params.agentId === 'writing' ? 'writing' :
+        params.agentId === 'generator' ? 'generator' : 'assistant'
       const { agentId } = await ensureAgentReady(agentType)
 
       // Track if cancelled

@@ -7,8 +7,10 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { Sparkles } from 'lucide-react'
 import { useBlockAIGenerate, type BlockType } from '../hooks/useBlockAIGenerate'
 import { useI18n } from '../i18n/context'
+import { toast } from '../utils/toast'
 
 interface BlockAIGenerateButtonProps {
   blockType: BlockType
@@ -40,6 +42,7 @@ export function BlockAIGenerateButton({
     },
     onError: (error) => {
       console.error('[BlockAIGenerate] Error:', error)
+      toast(error, { type: 'error' })
     }
   })
 
@@ -96,6 +99,7 @@ export function BlockAIGenerateButton({
       <button
         ref={buttonRef}
         className="block-ai-generate-btn"
+        onMouseDown={(e) => e.preventDefault()} // Prevent blur on adjacent inputs
         onClick={() => setIsOpen(!isOpen)}
         title={t.ai?.generate || 'AI Generate'}
         disabled={isGenerating}
@@ -103,14 +107,16 @@ export function BlockAIGenerateButton({
         {isGenerating ? (
           <span className="block-ai-generate-spinner" />
         ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 17l-6.3 4 2.3-7-6-4.6h7.6L12 2z" />
-          </svg>
+          <Sparkles size={14} strokeWidth={1.5} />
         )}
       </button>
 
       {isOpen && (
-        <div ref={popoverRef} className="block-ai-generate-popover">
+        <div
+          ref={popoverRef}
+          className="block-ai-generate-popover"
+          onMouseDown={(e) => e.preventDefault()} // Prevent blur on adjacent inputs
+        >
           <textarea
             ref={inputRef}
             value={inputValue}

@@ -1,7 +1,11 @@
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import katex from 'katex'
+import { Sparkles, X, ArrowRight } from 'lucide-react'
 import { useTranslations } from '../i18n'
+import { BlockAIGenerateButton } from './BlockAIGenerateButton'
+import { useBlockAIGenerate } from '../hooks/useBlockAIGenerate'
+import { toast } from '../utils/toast'
 
 interface MathAttrs {
   latex: string
@@ -13,11 +17,34 @@ export function MathView({ node, updateAttributes, selected, deleteNode, editor 
   // 空内容时自动进入编辑模式（从斜杠菜单插入的新节点）
   const [isEditing, setIsEditing] = useState(!attrs.latex)
   const [latex, setLatex] = useState(attrs.latex)
+  const [showInlineAI, setShowInlineAI] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const renderRef = useRef<HTMLSpanElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const aiInputRef = useRef<HTMLTextAreaElement>(null)
   const t = useTranslations()
 
   const isDisplayMode = attrs.display === 'yes'
+
+  // AI generate hook for inline mode
+  const { generate, isGenerating } = useBlockAIGenerate({
+    onComplete: (result) => {
+      setLatex(result)
+      setShowInlineAI(false)
+      setAiPrompt('')
+      // Auto-save for inline-mode
+      if (!isDisplayMode) {
+        updateAttributes({ latex: result })
+      }
+      // Refocus the math textarea
+      textareaRef.current?.focus()
+    },
+    onError: (error) => {
+      console.error('[MathView AI] Error:', error)
+      toast(error, { type: 'error' })
+    }
+  })
 
   // Render KaTeX
   useEffect(() => {
@@ -81,42 +108,51 @@ export function MathView({ node, updateAttributes, selected, deleteNode, editor 
     setIsEditing(true)
   }, [])
 
-  const handleBlur = useCallback(() => {
+  // Shared exit logic for blur handling
+  const exitEditMode = useCallback((currentLatex: string) => {
     setIsEditing(false)
     // 如果内容为空，删除这个公式节点
-    if (!latex?.trim()) {
+    if (!currentLatex?.trim()) {
       deleteNode()
       // 删除后将焦点还给编辑器，确保可以 undo
       editor.commands.focus()
       return
     }
-    if (latex !== attrs.latex) {
-      updateAttributes({ latex })
+    if (currentLatex !== attrs.latex) {
+      updateAttributes({ latex: currentLatex })
     }
-  }, [latex, attrs.latex, updateAttributes, deleteNode, editor])
+  }, [attrs.latex, updateAttributes, deleteNode, editor])
+
+  // Container-level blur handler - fires when focus leaves the entire container
+  const handleContainerBlur = useCallback((e: React.FocusEvent) => {
+    const relatedTarget = e.relatedTarget as HTMLElement | null
+    // Only exit if focus is moving outside the container
+    if (!relatedTarget || !containerRef.current?.contains(relatedTarget)) {
+      // Skip if AI is generating
+      if (isGenerating) return
+      exitEditMode(latex)
+    }
+  }, [latex, isGenerating, exitEditMode])
+
+  const handleBlur = useCallback((e: React.FocusEvent) => {
+    // Check if focus is moving to an element inside the container (e.g., AI button)
+    const relatedTarget = e.relatedTarget as HTMLElement | null
+    if (relatedTarget && containerRef.current?.contains(relatedTarget)) {
+      return // Don't exit edit mode if focus stays within container
+    }
+
+    exitEditMode(latex)
+  }, [latex, exitEditMode])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault()
-      setIsEditing(false)
-      // Escape 时如果内容为空也删除
-      if (!latex?.trim()) {
-        deleteNode()
-        // 删除后将焦点还给编辑器，确保可以 undo
-        editor.commands.focus()
-        return
-      }
-      if (latex !== attrs.latex) {
-        updateAttributes({ latex })
-      }
+      exitEditMode(latex)
     } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      setIsEditing(false)
-      if (latex !== attrs.latex) {
-        updateAttributes({ latex })
-      }
+      exitEditMode(latex)
     }
-  }, [latex, attrs.latex, updateAttributes, deleteNode, editor])
+  }, [latex, exitEditMode])
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setLatex(e.target.value)
@@ -129,15 +165,104 @@ export function MathView({ node, updateAttributes, selected, deleteNode, editor 
       className={`math-node-wrapper ${selected ? 'selected' : ''} ${isEditing ? 'editing' : ''} ${isDisplayMode ? 'display-mode' : 'inline-mode'}`}
     >
       {isEditing ? (
-        <textarea
-          ref={textareaRef}
-          value={latex}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className="math-input"
-          rows={1}
-        />
+        <div className="math-editor-container" ref={containerRef} onBlur={handleContainerBlur}>
+          {isDisplayMode && (
+            <div className="math-editor-header">
+              <BlockAIGenerateButton
+                blockType="math"
+                currentContent={latex}
+                onGenerated={(content) => setLatex(content)}
+                placeholder={t.ai?.mathPlaceholder || 'Describe the formula...'}
+              />
+            </div>
+          )}
+          {!isDisplayMode && showInlineAI ? (
+            <>
+              <textarea
+                ref={aiInputRef}
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                onBlur={(e) => {
+                  // Let container-level blur handle exit if focus moves outside
+                  const relatedTarget = e.relatedTarget as HTMLElement | null
+                  if (relatedTarget && containerRef.current?.contains(relatedTarget)) {
+                    return
+                  }
+                  if (!isGenerating) {
+                    setShowInlineAI(false)
+                    setAiPrompt('')
+                    exitEditMode(latex)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && aiPrompt.trim() && !isGenerating) {
+                    e.preventDefault()
+                    generate('math', aiPrompt, latex)
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setShowInlineAI(false)
+                    setAiPrompt('')
+                    setTimeout(() => textareaRef.current?.focus(), 0)
+                  }
+                }}
+                placeholder={t.ai?.mathPlaceholder || 'Describe the formula...'}
+                className="math-input math-ai-input"
+                rows={1}
+                disabled={isGenerating}
+              />
+              <button
+                className="math-inline-ai-btn math-inline-ai-run"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (aiPrompt.trim() && !isGenerating) {
+                    generate('math', aiPrompt, latex)
+                  }
+                }}
+                disabled={!aiPrompt.trim() || isGenerating}
+                title={t.ai?.generate || 'Generate'}
+              >
+                {isGenerating ? <span className="math-inline-ai-spinner" /> : <ArrowRight size={12} strokeWidth={2} />}
+              </button>
+              <button
+                className="math-inline-ai-btn"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setShowInlineAI(false)
+                  setAiPrompt('')
+                  setTimeout(() => textareaRef.current?.focus(), 0)
+                }}
+                title={t.actions?.cancel || 'Cancel'}
+              >
+                <X size={12} strokeWidth={1.5} />
+              </button>
+            </>
+          ) : (
+            <>
+              <textarea
+                ref={textareaRef}
+                value={latex}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className="math-input"
+                rows={1}
+              />
+              {!isDisplayMode && (
+                <button
+                  className="math-inline-ai-btn"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setShowInlineAI(true)
+                    setTimeout(() => aiInputRef.current?.focus(), 0)
+                  }}
+                  title={t.ai?.generate || 'AI Generate'}
+                >
+                  <Sparkles size={12} strokeWidth={1.5} />
+                </button>
+              )}
+            </>
+          )}
+        </div>
       ) : (
         <span
           ref={renderRef}

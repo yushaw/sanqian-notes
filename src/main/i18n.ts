@@ -117,6 +117,15 @@ const translations = {
 2. 直接输出结果，不要任何解释、前言、标签或代码块
 3. 保持原文格式（列表、段落等）
 4. 保持原文语言（除非指令要求翻译）`,
+      generatorName: 'Generator',
+      generatorDescription: '内容生成助手，用于生成图表、公式、代码等结构化内容',
+      generatorSystemPrompt: `你是内容生成助手，专门生成结构化内容（图表、公式、代码、查询语句等）。
+
+规则：
+- 只输出请求的内容本身，不要包含任何解释、前言或代码块标记
+- 如果提供了当前内容，根据用户请求进行修改或优化
+- 如果没有当前内容，根据用户描述生成新内容
+- 确保输出的内容语法正确、可直接使用`,
       formatterName: 'Formatter',
       formatterDescription: '精炼内容并格式化输出到笔记编辑器',
     },
@@ -362,6 +371,15 @@ Your job:
 2. Output the result directly, without any explanation, preamble, tags, or code blocks
 3. Preserve the original format (lists, paragraphs, etc.)
 4. Keep the original language (unless the instruction requires translation)`,
+      generatorName: 'Generator',
+      generatorDescription: 'Content generator for diagrams, formulas, code, and other structured content',
+      generatorSystemPrompt: `You are a content generation assistant, specialized in generating structured content (diagrams, formulas, code, queries, etc.).
+
+Rules:
+- Output only the requested content itself, without any explanation, preamble, or code block markers
+- If current content is provided, modify or optimize it based on the user's request
+- If no current content is provided, generate new content based on the user's description
+- Ensure the output is syntactically correct and ready to use`,
       formatterName: 'Formatter',
       formatterDescription: 'Refine content and format output to note editor',
     },

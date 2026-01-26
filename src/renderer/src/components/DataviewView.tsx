@@ -13,6 +13,7 @@ import { useTranslations } from '../i18n'
 import { parseDataviewQuery, ParseResult } from '../utils/dataviewParser'
 import { executeDataviewQuery, formatFieldValue, QueryResult } from '../utils/dataviewExecutor'
 import { NotePreviewPopover } from './NotePreviewPopover'
+import { BlockAIGenerateButton } from './BlockAIGenerateButton'
 import { isMacOS } from '../utils/platform'
 import type { Note } from '../../../shared/types'
 
@@ -272,6 +273,12 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
           </div>
         </div>
         <div className="dataview-header-right">
+          <BlockAIGenerateButton
+            blockType="dataview"
+            currentContent={localQuery}
+            onGenerated={(content) => setLocalQuery(content)}
+            placeholder={t.ai?.dataviewPlaceholder || 'Describe the query...'}
+          />
           <button
             className="dataview-action dataview-run-btn"
             onClick={handleRun}

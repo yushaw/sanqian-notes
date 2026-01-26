@@ -17,44 +17,73 @@ interface StreamEvent {
 
 /**
  * System prompts for different block types
+ * Supports both generation (from scratch) and optimization (improve existing)
  */
 const BLOCK_SYSTEM_PROMPTS: Record<BlockType, string> = {
-  mermaid: `You are a Mermaid diagram expert. Generate Mermaid code based on user's description.
+  mermaid: `You are a Mermaid diagram expert.
 
 Rules:
 - Output ONLY valid Mermaid code
-- Do NOT include \`\`\`mermaid markers or any other markdown
-- Do NOT include any explanation or comments
-- Support all Mermaid diagram types: flowchart, sequence, class, state, er, gantt, pie, etc.
-- Use clear and readable node labels
-- If the user provides existing code, modify/improve it based on their request`,
+- Do NOT include \`\`\`mermaid markers or any markdown wrapper
+- Do NOT include any explanation, comments or preamble
+- Support all diagram types: flowchart, sequence, class, state, er, gantt, pie, etc.
+- Use clear, readable node labels`,
 
-  dataview: `You are a Dataview query expert for Obsidian. Generate Dataview queries based on user's description.
+  dataview: `You are a Dataview query expert for Obsidian.
 
 Rules:
 - Output ONLY valid Dataview query code
-- Do NOT include \`\`\`dataview markers or any other markdown
+- Do NOT include \`\`\`dataview markers or any markdown wrapper
 - Do NOT include any explanation
 - Support TABLE, LIST, TASK query types
-- Use proper Dataview syntax: FROM, WHERE, SORT, GROUP BY, etc.`,
+- Use proper syntax: FROM, WHERE, SORT, GROUP BY, etc.`,
 
-  math: `You are a LaTeX math expert. Generate LaTeX math formulas based on user's description.
+  math: `You are a LaTeX math expert.
 
 Rules:
 - Output ONLY the LaTeX math code
-- Do NOT include $$ markers or any other delimiters
+- Do NOT include $$ markers or any delimiters
 - Do NOT include any explanation
-- Use standard LaTeX math syntax
-- Support all common math notation: fractions, integrals, matrices, etc.`,
+- Use standard LaTeX math syntax`,
 
-  codeBlock: `You are a code generation expert. Generate code based on user's description.
+  codeBlock: `You are a code generation expert.
 
 Rules:
 - Output ONLY the code
 - Do NOT include \`\`\` markers or language identifiers
-- Do NOT include any explanation or comments unless specifically requested
-- Follow best practices for the target language
-- Write clean, readable code`,
+- Do NOT include any explanation unless specifically requested
+- Follow best practices for the target language`,
+}
+
+/**
+ * Build the full prompt with current content context
+ */
+function buildPrompt(blockType: BlockType, userRequest: string, currentContent?: string): string {
+  const systemPrompt = BLOCK_SYSTEM_PROMPTS[blockType]
+
+  let prompt = systemPrompt + '\n\n'
+
+  if (currentContent?.trim()) {
+    prompt += `<current_content>
+${currentContent}
+</current_content>
+
+`
+  }
+
+  prompt += `<user_request>
+${userRequest}
+</user_request>
+
+`
+
+  if (currentContent?.trim()) {
+    prompt += `Based on the current content and user's request, output the improved/modified result.`
+  } else {
+    prompt += `Based on user's request, generate the content.`
+  }
+
+  return prompt
 }
 
 interface UseBlockAIGenerateOptions {
@@ -76,6 +105,12 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
   const cleanupRef = useRef<(() => void) | null>(null)
   const abortedRef = useRef(false)
 
+  // Use refs to avoid regenerating callbacks when handlers change
+  const onCompleteRef = useRef(onComplete)
+  const onErrorRef = useRef(onError)
+  onCompleteRef.current = onComplete
+  onErrorRef.current = onError
+
   const cancel = useCallback(() => {
     abortedRef.current = true
     if (cleanupRef.current) {
@@ -83,6 +118,7 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
       cleanupRef.current = null
     }
     setIsGenerating(false)
+    setStreamedContent('')
   }, [])
 
   const generate = useCallback(async (
@@ -106,11 +142,7 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
     let accumulated = ''
 
     // Build the prompt
-    const systemPrompt = BLOCK_SYSTEM_PROMPTS[blockType]
-    let fullPrompt = `${systemPrompt}\n\nUser request: ${userPrompt}`
-    if (currentContent?.trim()) {
-      fullPrompt += `\n\nCurrent content:\n${currentContent}`
-    }
+    const fullPrompt = buildPrompt(blockType, userPrompt, currentContent)
 
     try {
       await window.electron.chat.acquireReconnect()
@@ -129,7 +161,7 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
           setIsGenerating(false)
-          onComplete?.(finalContent)
+          onCompleteRef.current?.(finalContent)
           window.electron.chat.releaseReconnect()
         }
 
@@ -137,7 +169,7 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
           setIsGenerating(false)
-          onError?.(event.error || 'Unknown error')
+          onErrorRef.current?.(event.error || 'Unknown error')
           window.electron.chat.releaseReconnect()
         }
       }) as (() => void) | void
@@ -148,15 +180,15 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
 
       await window.electron.chat.stream({
         streamId,
-        agentId: 'writing',
+        agentId: 'generator',
         messages: [{ role: 'user', content: fullPrompt }]
       })
     } catch (error) {
       setIsGenerating(false)
-      onError?.(error instanceof Error ? error.message : 'Connection failed')
+      onErrorRef.current?.(error instanceof Error ? error.message : 'Connection failed')
       window.electron.chat.releaseReconnect()
     }
-  }, [onComplete, onError])
+  }, [])
 
   return {
     generate,

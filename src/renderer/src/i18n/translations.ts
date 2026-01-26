@@ -331,6 +331,10 @@ export interface Translations {
     // Popup actions
     copied: string
     copyFailed: string
+    // Block AI generate
+    generate: string
+    generatePlaceholder: string
+    mermaidPlaceholder: string
   }
   export: {
     title: string
@@ -1267,6 +1271,10 @@ const zh: Translations = {
     // Popup actions
     copied: '已复制',
     copyFailed: '复制失败',
+    // Block AI generate
+    generate: 'AI 生成',
+    generatePlaceholder: '描述你想要生成的内容...',
+    mermaidPlaceholder: '描述你想要的图表...',
   },
   export: {
     title: '导出',
@@ -2199,6 +2207,10 @@ const en: Translations = {
     // Popup actions
     copied: 'Copied',
     copyFailed: 'Copy failed',
+    // Block AI generate
+    generate: 'AI Generate',
+    generatePlaceholder: 'Describe what you want to generate...',
+    mermaidPlaceholder: 'Describe the diagram you want...',
   },
   export: {
     title: 'Export',

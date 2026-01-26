@@ -2,6 +2,7 @@ import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import mermaid from 'mermaid'
 import { useI18n } from '../i18n/context'
+import { BlockAIGenerateButton } from './BlockAIGenerateButton'
 
 // Initialize mermaid config
 mermaid.initialize({
@@ -81,6 +82,14 @@ export function MermaidView({ node, updateAttributes, selected }: NodeViewProps)
     <NodeViewWrapper className={`mermaid-wrapper ${selected ? 'selected' : ''}`}>
       {isEditing ? (
         <div className="mermaid-editor">
+          <div className="mermaid-editor-header">
+            <BlockAIGenerateButton
+              blockType="mermaid"
+              currentContent={code}
+              onGenerated={(content) => setCode(content)}
+              placeholder={t.ai?.mermaidPlaceholder || 'Describe the diagram you want...'}
+            />
+          </div>
           <textarea
             ref={textareaRef}
             value={code}

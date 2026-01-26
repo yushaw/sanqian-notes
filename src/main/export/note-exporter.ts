@@ -17,8 +17,8 @@ import { t } from '../i18n'
 import katex from 'katex'
 import hljs from 'highlight.js'
 
-/** Wait time for CSS rendering before PDF generation (ms) */
-const PDF_RENDER_DELAY_MS = 200
+/** Wait time for CSS/fonts rendering before PDF generation (ms) */
+const PDF_RENDER_DELAY_MS = 500
 
 // ============ PDF 预览模板（内联） ============
 
@@ -82,11 +82,9 @@ summary { font-weight: 500; cursor: pointer; padding: 4px 0; }
 .math-block { margin: 1em 0; text-align: center; overflow-x: auto; }
 video, audio { max-width: 100%; margin: 1em 0; border-radius: 8px; }
 /* Mermaid 图表样式 */
-.mermaid-container { margin: 1em 0; text-align: left; background: #f6f8fa; padding: 1em; border-radius: 8px; border: 1px solid #e1e4e8; }
+.mermaid-container { margin: 1em 0; text-align: center; background: #f6f8fa; padding: 1em; border-radius: 8px; border: 1px solid #e1e4e8; overflow-x: auto; }
 .mermaid-container svg { max-width: 100%; height: auto; }
-.mermaid-source { margin: 0; background: transparent; border: none; }
-.mermaid-source code { background: transparent; font-size: 12px; }
-.mermaid-note { margin: 8px 0 0 0; font-size: 12px; color: #6a737d; }
+.mermaid-container .mermaid { background: transparent; }
 /* 文件附件 */
 .file-attachment { display: inline-flex; align-items: center; padding: 2px 8px; background: #f3f4f6; border-radius: 4px; font-size: 0.9em; }
 .file-attachment a { color: #2563eb; text-decoration: none; }
@@ -150,12 +148,34 @@ video, audio { max-width: 100%; margin: 1em 0; border-radius: 8px; }
 }
 `
 
-// 获取 node_modules 中的 CSS 文件
-function getKatexCss(): string {
+// 获取 KaTeX CSS 并将字体转为 base64 内联
+function getKatexCssWithInlineFonts(): string {
   try {
     const require = createRequire(import.meta.url)
     const katexCssPath = require.resolve('katex/dist/katex.min.css')
-    return readFileSync(katexCssPath, 'utf-8')
+    const katexDir = path.dirname(katexCssPath)
+    let css = readFileSync(katexCssPath, 'utf-8')
+
+    // 将字体文件 URL 替换为 base64 data URI
+    css = css.replace(/url\(fonts\/([^)]+)\)/g, (match, fontFile) => {
+      const fontPath = path.join(katexDir, 'fonts', fontFile)
+      try {
+        if (existsSync(fontPath)) {
+          const fontData = readFileSync(fontPath)
+          const base64 = fontData.toString('base64')
+          const ext = path.extname(fontFile).toLowerCase()
+          const mimeType = ext === '.woff2' ? 'font/woff2' :
+                          ext === '.woff' ? 'font/woff' :
+                          ext === '.ttf' ? 'font/ttf' : 'application/octet-stream'
+          return `url(data:${mimeType};base64,${base64})`
+        }
+      } catch (err) {
+        console.warn(`[PDF Export] Failed to inline font: ${fontFile}`, err)
+      }
+      return match
+    })
+
+    return css
   } catch (err) {
     console.warn('[PDF Export] Failed to load KaTeX CSS:', err)
     return ''
@@ -188,12 +208,25 @@ function getHighlightCss(): string {
 // 缓存 PDF 模板
 let cachedPdfTemplate: string | null = null
 
+// 获取 Mermaid JS（从 node_modules）
+function getMermaidJs(): string {
+  try {
+    const require = createRequire(import.meta.url)
+    const mermaidPath = require.resolve('mermaid/dist/mermaid.min.js')
+    return readFileSync(mermaidPath, 'utf-8')
+  } catch (err) {
+    console.warn('[PDF Export] Failed to load Mermaid JS:', err)
+    return ''
+  }
+}
+
 // 生成 PDF HTML 模板（不依赖外部 CDN）
 function getPdfTemplate(): string {
   if (cachedPdfTemplate) return cachedPdfTemplate
 
-  const katexCss = getKatexCss()
+  const katexCss = getKatexCssWithInlineFonts()
   const hljsCss = getHighlightCss()
+  const mermaidJs = getMermaidJs()
 
   cachedPdfTemplate = `<!DOCTYPE html>
 <html lang="zh-CN" style="color-scheme: light;">
@@ -211,6 +244,17 @@ function getPdfTemplate(): string {
     ${hljsCss}
     ${PDF_STYLES}
   </style>
+  <script>${mermaidJs}</script>
+  <script>
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+      window.renderMermaid = async function() {
+        await mermaid.run({ nodes: document.querySelectorAll('.mermaid') });
+      };
+    } else {
+      window.renderMermaid = function() { return Promise.resolve(); };
+    }
+  </script>
 </head>
 <body>
   <div class="document">
@@ -604,11 +648,8 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
 
     case 'mermaid': {
       const code = attrs.code as string || ''
-      // Mermaid 图表显示为代码块（服务端无法渲染 SVG）
-      return `<div class="mermaid-container">
-        <pre class="mermaid-source"><code>${escapeHTML(code)}</code></pre>
-        <p class="mermaid-note"><em>${t().export.mermaidSourceNote}</em></p>
-      </div>`
+      // 输出 Mermaid 代码块，将在 PDF 窗口中由 Mermaid.js 渲染
+      return `<div class="mermaid-container"><pre class="mermaid">${escapeHTML(code)}</pre></div>`
     }
 
     case 'callout': {
@@ -1096,7 +1137,10 @@ export async function exportNoteAsPDF(
     // 加载临时文件
     await win.loadFile(tempFile)
 
-    // 等待 CSS 样式应用（loadFile 完成后 DOM 已加载，这里等待渲染）
+    // 等待 Mermaid 图表渲染完成
+    await win.webContents.executeJavaScript('window.renderMermaid ? window.renderMermaid() : Promise.resolve()')
+
+    // 等待 CSS 样式应用和渲染完成
     await new Promise((resolve) => setTimeout(resolve, PDF_RENDER_DELAY_MS))
 
     // 生成 PDF

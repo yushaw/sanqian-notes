@@ -49,7 +49,7 @@
     "@tiptap/react": "^3.15.3",
     "@tiptap/starter-kit": "^3.15.3",
     "@tiptap/suggestion": "^3.15.3",
-    "@yushaw/sanqian-chat": "^0.2.19",
+    "@yushaw/sanqian-chat": "^0.2.20",
     "better-sqlite3": "^12.6.2",
     "cheerio": "^1.1.2",
     "clsx": "^2.1.1",

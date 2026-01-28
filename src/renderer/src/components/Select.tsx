@@ -20,9 +20,10 @@ interface SelectProps {
   compact?: boolean
   alignRight?: boolean
   maxWidth?: number
+  onOpenChange?: (isOpen: boolean) => void
 }
 
-export function Select({ options, value, onChange, disabled, placeholder = '-', compact, alignRight, maxWidth = 280 }: SelectProps) {
+export function Select({ options, value, onChange, disabled, placeholder = '-', compact, alignRight, maxWidth = 280, onOpenChange }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [position, setPosition] = useState({ top: 0, bottom: 0, left: 0, right: 0, width: 0, openUpward: false, alignRight: false })
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -63,6 +64,12 @@ export function Select({ options, value, onChange, disabled, placeholder = '-', 
     updatePosition()
     setIsOpen(true)
   }, [disabled, updatePosition])
+
+  // Notify parent when open state changes
+  useEffect(() => {
+    onOpenChange?.(isOpen)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在 isOpen 变化时触发，使用最新的 onOpenChange 引用
+  }, [isOpen])
 
   // Close dropdown when clicking outside (use capture phase to bypass stopPropagation)
   useEffect(() => {

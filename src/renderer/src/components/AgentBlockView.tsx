@@ -78,6 +78,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
   const isMountedRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
   const outputRef = useRef<HTMLDivElement>(null)
+  const lastAgentLoadTimeRef = useRef(0)
 
   // Get page context from editor
   const getPageContext = useCallback(() => {
@@ -173,31 +174,47 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     [updateAttributes, t]
   )
 
-  // Load agents list (only on mount)
-  useEffect(() => {
-    setAgentsLoading(true)
-    window.electron.agent
-      .list()
-      .then((list) => {
-        const orderedAgents = prioritizeSanqianNotesAgents(list)
-        setAgents(orderedAgents)
-        // 如果没有选择 agent，按优先级选择：本地缓存 > meta agent > 第一个
-        if (!agentId && orderedAgents.length > 0) {
-          const cachedAgentId = localStorage.getItem('agent-block-last-agent-id')
-          const cachedAgent = cachedAgentId ? orderedAgents.find((a) => a.id === cachedAgentId) : null
-          const metaAgent = orderedAgents.find((a) => a.id === 'meta' || a.name.toLowerCase() === 'meta')
+  // Load agents list
+  const loadAgents = useCallback(async (isInitialLoad = false) => {
+    const now = Date.now()
+    // 5秒内不重复请求（初始加载除外）
+    if (!isInitialLoad && now - lastAgentLoadTimeRef.current < 5000) {
+      return
+    }
+    lastAgentLoadTimeRef.current = now
 
-          const defaultAgent = cachedAgent || metaAgent || orderedAgents[0]
-          updateAttributes({
-            agentId: defaultAgent.id,
-            agentName: defaultAgent.name,
-          })
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to load agents:', error)
-      })
-      .finally(() => setAgentsLoading(false))
+    // 只在初始加载时显示 loading spinner，刷新时静默更新
+    if (isInitialLoad) {
+      setAgentsLoading(true)
+    }
+    try {
+      const list = await window.electron.agent.list()
+      const orderedAgents = prioritizeSanqianNotesAgents(list)
+      setAgents(orderedAgents)
+      // 只在初始加载且没有选择 agent 时，按优先级选择：本地缓存 > meta agent > 第一个
+      if (isInitialLoad && !agentId && orderedAgents.length > 0) {
+        const cachedAgentId = localStorage.getItem('agent-block-last-agent-id')
+        const cachedAgent = cachedAgentId ? orderedAgents.find((a) => a.id === cachedAgentId) : null
+        const metaAgent = orderedAgents.find((a) => a.id === 'meta' || a.name.toLowerCase() === 'meta')
+
+        const defaultAgent = cachedAgent || metaAgent || orderedAgents[0]
+        updateAttributes({
+          agentId: defaultAgent.id,
+          agentName: defaultAgent.name,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load agents:', error)
+    } finally {
+      if (isInitialLoad) {
+        setAgentsLoading(false)
+      }
+    }
+  }, [agentId, updateAttributes])
+
+  // Load agents on mount
+  useEffect(() => {
+    loadAgents(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在挂载时加载一次
   }, [])
 
@@ -571,6 +588,9 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
                   compact
                   alignRight
                   maxWidth={220}
+                  onOpenChange={(isOpen) => {
+                    if (isOpen) loadAgents()
+                  }}
                 />
               )}
             </div>

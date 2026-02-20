@@ -83,6 +83,7 @@ export function NoteList({
 
   // Optimize selection checks with Set (O(1) instead of O(n))
   const selectedIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds])
+  const displayNotes = useMemo(() => (searchResults !== null ? searchResults : notes), [searchResults, notes])
 
   // Hover preview state
   const [hoveredNote, setHoveredNote] = useState<Note | null>(null)
@@ -137,19 +138,40 @@ export function NoteList({
   // Cmd+F 快捷键 - 仅在中栏聚焦时生效
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 检查焦点是否在中栏（NoteList 或 Sidebar）
-      const activeEl = document.activeElement
-      const isInNoteList = activeEl?.closest('[data-note-list], [data-sidebar]')
+      const activeEl = document.activeElement as HTMLElement | null
+      const isInMiddleColumn = Boolean(activeEl?.closest('[data-note-list]'))
+      const isInMiddleArea = Boolean(activeEl?.closest('[data-note-list], [data-sidebar]'))
+      const isInEditable = Boolean(activeEl?.closest('input, textarea, [contenteditable="true"], .ProseMirror'))
 
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
         // 只有当焦点在中栏时才激活中栏搜索
-        if (isInNoteList) {
+        if (isInMiddleArea) {
           e.preventDefault()
           setIsSearching(true)
           setTimeout(() => searchInputRef.current?.focus(), 0)
         }
         // 否则不处理，让编辑器等其他组件处理
       }
+
+      const hasModifier = e.metaKey || e.ctrlKey || e.altKey
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !hasModifier && isInMiddleColumn && !isInEditable && displayNotes.length > 0) {
+        const currentSelectedId = [...selectedNoteIds]
+          .reverse()
+          .find((id) => displayNotes.some((note) => note.id === id))
+        if (!currentSelectedId) return
+
+        const currentIndex = displayNotes.findIndex((note) => note.id === currentSelectedId)
+        if (currentIndex < 0) return
+
+        const nextIndex = e.key === 'ArrowUp'
+          ? Math.max(0, currentIndex - 1)
+          : Math.min(displayNotes.length - 1, currentIndex + 1)
+        if (nextIndex === currentIndex) return
+
+        e.preventDefault()
+        onSelectNote(displayNotes[nextIndex].id)
+      }
+
       if (e.key === 'Escape' && isSearching) {
         setIsSearching(false)
         setSearchQuery('')
@@ -158,7 +180,18 @@ export function NoteList({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isSearching])
+  }, [displayNotes, isSearching, onSelectNote, selectedNoteIds])
+
+  // 键盘切换时确保选中的笔记保持在可视区域内
+  useEffect(() => {
+    const currentSelectedId = [...selectedNoteIds]
+      .reverse()
+      .find((id) => displayNotes.some((note) => note.id === id))
+    if (!currentSelectedId) return
+
+    const noteEl = document.querySelector<HTMLElement>(`[data-note-id="${currentSelectedId}"]`)
+    noteEl?.scrollIntoView?.({ block: 'nearest' })
+  }, [displayNotes, selectedNoteIds])
 
   // 聚焦搜索框
   useEffect(() => {
@@ -406,8 +439,6 @@ export function NoteList({
   // Dragging state
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
 
-  const displayNotes = searchResults !== null ? searchResults : notes
-
   return (
     <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col drag-region" data-note-list>
       {/* Header */}
@@ -509,6 +540,7 @@ export function NoteList({
               return (
                 <button
                   key={note.id}
+                  data-note-id={note.id}
                   draggable
                   onClick={(e) => onSelectNote(note.id, e)}
                   onContextMenu={(e) => handleContextMenu(e, note)}
@@ -528,7 +560,7 @@ export function NoteList({
                     e.preventDefault()
                     setDraggingNoteId(null)
                   }}
-                  className={`w-full text-left px-4 py-2.5 transition-all duration-50 hover:bg-[var(--color-surface)] select-none ${draggingNoteId === note.id ? 'opacity-50' : ''}`}
+                  className={`w-full text-left px-4 py-2.5 transition-all duration-50 hover:bg-[var(--color-surface)] select-none focus:outline-none focus-visible:outline-none ${draggingNoteId === note.id ? 'opacity-50' : ''}`}
                   style={isSelected ? { backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' } : undefined}
                 >
                   <div className="flex items-center justify-between gap-2">

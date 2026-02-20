@@ -17,6 +17,7 @@ import {
   type AIActionMode,
   type Note,
   type NoteInput,
+  type NoteUpdateSafeResult,
   type NoteSearchFilter,
   type Tag,
   type TagWithSource,
@@ -126,6 +127,7 @@ export function initDatabase(): void {
       daily_date TEXT,
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_pinned INTEGER NOT NULL DEFAULT 0,
+      revision INTEGER NOT NULL DEFAULT 0,
       deleted_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -279,6 +281,15 @@ function runMigrations(): void {
     console.log('Adding is_pinned column to notes table...')
     db.exec('ALTER TABLE notes ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0')
     console.log('Migration completed: is_pinned column added.')
+  }
+
+  // Migration: Add revision column to notes table (optimistic concurrency)
+  const hasRevision = noteColumns.some(col => col.name === 'revision')
+
+  if (!hasRevision) {
+    console.log('Adding revision column to notes table...')
+    db.exec('ALTER TABLE notes ADD COLUMN revision INTEGER NOT NULL DEFAULT 0')
+    console.log('Migration completed: revision column added.')
   }
 
   // Migration: Remove color column and add icon column to notebooks table
@@ -1682,7 +1693,7 @@ const TAGS_SUBQUERY = `(
 
 /** Common SELECT columns for Note queries */
 const NOTE_SELECT_COLUMNS = `n.id, n.title, n.content, n.notebook_id, n.is_daily, n.daily_date,
-  n.is_favorite, n.is_pinned, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
+  n.is_favorite, n.is_pinned, n.revision, n.created_at, n.updated_at, n.deleted_at, n.ai_summary,
   ${TAGS_SUBQUERY}`
 
 /** Convert database row to Note object */
@@ -1696,6 +1707,7 @@ function rowToNote(row: Record<string, unknown>): Note {
     daily_date: row.daily_date as string | null,
     is_favorite: Boolean(row.is_favorite),
     is_pinned: Boolean(row.is_pinned),
+    revision: Number(row.revision ?? 0),
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     deleted_at: row.deleted_at as string | null,
@@ -1780,7 +1792,7 @@ export function updateNote(id: string, updates: Partial<NoteInput>): Note | null
   const now = new Date().toISOString()
   const stmt = db.prepare(`
     UPDATE notes
-    SET title = ?, content = ?, notebook_id = ?, is_daily = ?, daily_date = ?, is_favorite = ?, is_pinned = ?, updated_at = ?
+    SET title = ?, content = ?, notebook_id = ?, is_daily = ?, daily_date = ?, is_favorite = ?, is_pinned = ?, updated_at = ?, revision = revision + 1
     WHERE id = ?
   `)
 
@@ -1797,6 +1809,41 @@ export function updateNote(id: string, updates: Partial<NoteInput>): Note | null
   )
 
   return getNoteById(id)
+}
+
+export function updateNoteSafe(id: string, updates: Partial<NoteInput>, expectedRevision: number): NoteUpdateSafeResult {
+  const existing = getNoteById(id)
+  if (!existing) return { status: 'not_found' }
+
+  const now = new Date().toISOString()
+  const stmt = db.prepare(`
+    UPDATE notes
+    SET title = ?, content = ?, notebook_id = ?, is_daily = ?, daily_date = ?, is_favorite = ?, is_pinned = ?, updated_at = ?, revision = revision + 1
+    WHERE id = ? AND revision = ?
+  `)
+
+  const result = stmt.run(
+    updates.title ?? existing.title,
+    updates.content ?? existing.content,
+    updates.notebook_id !== undefined ? updates.notebook_id : existing.notebook_id,
+    updates.is_daily !== undefined ? (updates.is_daily ? 1 : 0) : (existing.is_daily ? 1 : 0),
+    updates.daily_date !== undefined ? updates.daily_date : existing.daily_date,
+    updates.is_favorite !== undefined ? (updates.is_favorite ? 1 : 0) : (existing.is_favorite ? 1 : 0),
+    updates.is_pinned !== undefined ? (updates.is_pinned ? 1 : 0) : (existing.is_pinned ? 1 : 0),
+    now,
+    id,
+    expectedRevision
+  )
+
+  if (result.changes > 0) {
+    const updated = getNoteById(id)
+    if (!updated) return { status: 'not_found' }
+    return { status: 'updated', note: updated }
+  }
+
+  const current = getNoteById(id)
+  if (!current) return { status: 'not_found' }
+  return { status: 'conflict', current }
 }
 
 // Soft delete - move to trash

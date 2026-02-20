@@ -435,6 +435,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const titleRef = useRef<HTMLTextAreaElement>(null)
   const headerTitleRef = useRef<HTMLInputElement>(null)
   const headerTitleClickPosRef = useRef<number | null>(null)
+  const isEditorComposingRef = useRef(false)
+  const isTitleComposingRef = useRef(false)
 
   // Ref for AgentTask panel callback (to avoid circular dependency with useEditor)
   const openAgentTaskRef = useRef<(blockIds: string[], taskId: string | null, blockContent: string) => void>(() => {})
@@ -687,6 +689,16 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         'data-notebook-id': note.notebook_id || '',
         'data-notebook-name': currentNotebookName,
       },
+      handleDOMEvents: {
+        compositionstart: () => {
+          isEditorComposingRef.current = true
+          return false
+        },
+        compositionend: () => {
+          isEditorComposingRef.current = false
+          return false
+        },
+      },
       // 自定义剪贴板纯文本序列化，正确处理列表格式
       clipboardTextSerializer: (slice) => {
         const lines: string[] = []
@@ -781,7 +793,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     },
     onUpdate: ({ editor }) => {
       const json = editor.getJSON()
-      onUpdate(note.id, { content: JSON.stringify(json) })
+      // Avoid persisting IME intermediate text (e.g., pinyin composition)
+      if (!isEditorComposingRef.current && !editor.view.composing) {
+        onUpdate(note.id, { content: JSON.stringify(json) })
+      }
 
       // Check for [[ trigger
       const { state } = editor
@@ -1355,7 +1370,20 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     const newTitle = e.target.value
     setTitle(newTitle)
-    onUpdate(note.id, { title: newTitle })
+    if (!isTitleComposingRef.current) {
+      onUpdate(note.id, { title: newTitle })
+    }
+  }, [note.id, onUpdate])
+
+  const handleTitleCompositionStart = useCallback(() => {
+    isTitleComposingRef.current = true
+  }, [])
+
+  const handleTitleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLTextAreaElement | HTMLInputElement>) => {
+    isTitleComposingRef.current = false
+    const committedTitle = e.currentTarget.value
+    setTitle(committedTitle)
+    onUpdate(note.id, { title: committedTitle })
   }, [note.id, onUpdate])
 
   // Handle title keydown - Enter moves to editor, Escape blurs
@@ -1975,6 +2003,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
                 style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                 value={title}
                 onChange={handleTitleChange}
+                onCompositionStart={handleTitleCompositionStart}
+                onCompositionEnd={handleTitleCompositionEnd}
                 placeholder={t.editor.titlePlaceholder}
                 autoFocus
                 onFocus={(e) => {
@@ -1987,6 +2017,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
                 }}
                 onBlur={() => setIsEditingHeaderTitle(false)}
                 onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing) return
                   if (e.key === 'Enter' || e.key === 'Tab') {
                     e.preventDefault()
                     setIsEditingHeaderTitle(false)
@@ -2102,6 +2133,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             ref={titleRef}
             value={title}
             onChange={handleTitleChange}
+            onCompositionStart={handleTitleCompositionStart}
+            onCompositionEnd={handleTitleCompositionEnd}
             onKeyDown={handleTitleKeyDown}
             placeholder={t.editor.titlePlaceholder}
             className="zen-title"

@@ -12,6 +12,7 @@ import {
   getNotesByIds,
   addNote,
   updateNote,
+  updateNoteSafe,
   deleteNote,
   searchNotes,
   getNotebooks,
@@ -1576,6 +1577,19 @@ app.whenReady().then(() => {
     const result = updateNote(id, updates)
     // If notebook_id changed, update index
     if (result && oldNote && updates.notebook_id !== undefined && updates.notebook_id !== oldNote.notebook_id) {
+      updateNoteNotebookId(id, updates.notebook_id || '')
+    }
+    return result
+  })
+  ipcMain.handle('note:updateSafe', (_, id: string, updates, expectedRevision: number) => {
+    const oldNote = getNoteById(id)
+    const result = updateNoteSafe(id, updates, expectedRevision)
+    if (
+      result.status === 'updated' &&
+      oldNote &&
+      updates?.notebook_id !== undefined &&
+      updates.notebook_id !== oldNote.notebook_id
+    ) {
       updateNoteNotebookId(id, updates.notebook_id || '')
     }
     return result

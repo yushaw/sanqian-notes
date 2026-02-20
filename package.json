@@ -6,6 +6,7 @@
   "scripts": {
     "postinstall": "electron-rebuild",
     "dev": "electron-vite dev",
+    "dev:debug": "electron-vite dev -- --remote-debugging-port=9222",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "build:mac": "npm run build && electron-builder --mac",

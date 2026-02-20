@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('electron', {
     getByIds: (ids: string[]) => ipcRenderer.invoke('note:getByIds', ids),
     add: (note: unknown) => ipcRenderer.invoke('note:add', note),
     update: (id: string, updates: unknown) => ipcRenderer.invoke('note:update', id, updates),
+    updateSafe: (id: string, updates: unknown, expectedRevision: number) =>
+      ipcRenderer.invoke('note:updateSafe', id, updates, expectedRevision),
     delete: (id: string) => ipcRenderer.invoke('note:delete', id),
     search: (query: string, filter?: NoteSearchFilter) => ipcRenderer.invoke('note:search', query, filter),
     createDemo: () => ipcRenderer.invoke('note:createDemo'),

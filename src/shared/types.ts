@@ -25,12 +25,18 @@ export interface Note {
   daily_date: string | null // YYYY-MM-DD format
   is_favorite: boolean
   is_pinned: boolean
+  revision: number // Optimistic concurrency revision
   created_at: string
   updated_at: string
   deleted_at: string | null // Soft delete timestamp (trash)
   ai_summary: string | null // AI-generated summary
   tags: TagWithSource[] // Tags with source (user/ai)
 }
+
+export type NoteUpdateSafeResult =
+  | { status: 'updated'; note: Note }
+  | { status: 'conflict'; current: Note }
+  | { status: 'not_found' }
 
 export interface NoteInput {
   title: string

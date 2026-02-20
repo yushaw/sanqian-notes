@@ -134,6 +134,8 @@ export function TypewriterMode({
   // ==================== Refs ====================
   const contentRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLTextAreaElement>(null)
+  const isEditorComposingRef = useRef(false)
+  const isTitleComposingRef = useRef(false)
 
   // 防止循环触发的标志位
   const isProgrammaticScroll = useRef(false)
@@ -504,6 +506,16 @@ export function TypewriterMode({
     content: getInitialContent(),
     editorProps: {
       attributes: { class: 'typewriter-editor', spellcheck: 'false' },
+      handleDOMEvents: {
+        compositionstart: () => {
+          isEditorComposingRef.current = true
+          return false
+        },
+        compositionend: () => {
+          isEditorComposingRef.current = false
+          return false
+        },
+      },
       // 自定义剪贴板纯文本序列化，正确处理列表格式
       clipboardTextSerializer: (slice) => {
         const lines: string[] = []
@@ -602,7 +614,9 @@ export function TypewriterMode({
     },
     onUpdate: ({ editor }) => {
       const json = editor.getJSON()
-      onUpdate(note.id, { content: JSON.stringify(json) })
+      if (!isEditorComposingRef.current && !editor.view.composing) {
+        onUpdate(note.id, { content: JSON.stringify(json) })
+      }
       setWordCount(countWordsFromEditor(editor))
 
       // 检测 [[ 链接弹窗
@@ -1114,7 +1128,20 @@ export function TypewriterMode({
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newTitle = e.target.value
     setTitle(newTitle)
-    onUpdate(note.id, { title: newTitle })
+    if (!isTitleComposingRef.current) {
+      onUpdate(note.id, { title: newTitle })
+    }
+  }, [note.id, onUpdate])
+
+  const handleTitleCompositionStart = useCallback(() => {
+    isTitleComposingRef.current = true
+  }, [])
+
+  const handleTitleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    isTitleComposingRef.current = false
+    const committedTitle = e.currentTarget.value
+    setTitle(committedTitle)
+    onUpdate(note.id, { title: committedTitle })
   }, [note.id, onUpdate])
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -1200,6 +1227,8 @@ export function TypewriterMode({
             ref={titleRef}
             value={title}
             onChange={handleTitleChange}
+            onCompositionStart={handleTitleCompositionStart}
+            onCompositionEnd={handleTitleCompositionEnd}
             onKeyDown={handleTitleKeyDown}
             placeholder={t.editor.titlePlaceholder}
             className="typewriter-title"

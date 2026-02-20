@@ -7,7 +7,8 @@ import type {
   ChatStreamEvent,
   ConversationInfo,
   ConversationDetail,
-  NoteSearchFilter
+  NoteSearchFilter,
+  NoteUpdateSafeResult
 } from '../shared/types'
 
 export {
@@ -40,6 +41,7 @@ declare global {
         getByIds: (ids: string[]) => Promise<unknown[]>
         add: (note: unknown) => Promise<unknown>
         update: (id: string, updates: unknown) => Promise<unknown | null>
+        updateSafe: (id: string, updates: unknown, expectedRevision: number) => Promise<NoteUpdateSafeResult>
         delete: (id: string) => Promise<boolean>
         search: (query: string, filter?: NoteSearchFilter) => Promise<unknown[]>
         createDemo: () => Promise<void>

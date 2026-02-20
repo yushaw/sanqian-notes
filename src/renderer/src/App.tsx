@@ -20,7 +20,7 @@ import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext 
 import { formatDailyDate } from './utils/dateFormat'
 import { toast } from './utils/toast'
 import { useChatShortcut } from './utils/shortcut'
-import { RECENT_DAYS, type Note, type Notebook, type NoteSearchFilter, type SmartViewId } from './types/note'
+import { RECENT_DAYS, type Note, type Notebook, type NoteInput, type NoteSearchFilter, type SmartViewId } from './types/note'
 
 // 全局 Lightbox 组件
 function ImageLightbox() {
@@ -156,6 +156,52 @@ function ImageLightbox() {
 const STORAGE_KEY_VIEW = 'sanqian-notes-last-view'
 const STORAGE_KEY_NOTEBOOK = 'sanqian-notes-last-notebook'
 const STORAGE_KEY_NOTE = 'sanqian-notes-last-note'
+type EditorNoteUpdate = Partial<Pick<NoteInput, 'title' | 'content'>>
+const EDITOR_UPDATE_RETRY_BASE_MS = 200
+const EDITOR_UPDATE_RETRY_MAX_MS = 3000
+const EDITOR_UPDATE_FAILURE_PAUSE_THRESHOLD = 10
+const EDITOR_UPDATE_FAILURE_PAUSE_MS = 30000
+const FLUSH_WAIT_TIMEOUT_MS = 2500
+const DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS = 8000
+const FLUSH_TIMEOUT_TOAST_COOLDOWN_MS = 4000
+const RETRY_PAUSE_TOAST_COOLDOWN_MS = 10000
+const BULK_NOTE_PATCH_CONCURRENCY = 8
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+type ConcurrencyTaskResult<T> =
+  | { item: T; ok: true }
+  | { item: T; ok: false; error: unknown }
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<ConcurrencyTaskResult<T>[]> {
+  if (items.length === 0) return []
+
+  const maxConcurrency = Math.max(1, Math.min(concurrency, items.length))
+  let index = 0
+  const results: ConcurrencyTaskResult<T>[] = []
+
+  await Promise.all(
+    Array.from({ length: maxConcurrency }, async () => {
+      while (true) {
+        const currentIndex = index++
+        if (currentIndex >= items.length) break
+        const item = items[currentIndex]
+        try {
+          await worker(item)
+          results.push({ item, ok: true })
+        } catch (error) {
+          results.push({ item, ok: false, error })
+        }
+      }
+    })
+  )
+
+  return results
+}
 
 function AppContent() {
   const t = useTranslations()
@@ -241,9 +287,309 @@ function AppContent() {
   // 使用 ref 保存 notes，避免 triggerIndexCheck 依赖 notes 导致的性能问题
   const notesRef = useRef<Note[]>(notes)
   notesRef.current = notes
+  // Editor update queue (per note): local-first, serial persistence.
+  const pendingEditorUpdatesRef = useRef<Map<string, EditorNoteUpdate>>(new Map())
+  const editorUpdateInFlightRef = useRef<Set<string>>(new Set())
+  const editorUpdateWaitersRef = useRef<Map<string, Array<() => void>>>(new Map())
+  const editorUpdateRetryCountRef = useRef<Map<string, number>>(new Map())
+  const editorUpdatePausedUntilRef = useRef<Map<string, number>>(new Map())
+  const editorUpdateResumeTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const lastFlushTimeoutToastAtRef = useRef(0)
+  const lastRetryPauseToastAtRef = useRef(0)
 
   // Debounce timer for index check
   const indexCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const resolveEditorUpdateWaiters = useCallback((noteId: string) => {
+    const waiters = editorUpdateWaitersRef.current.get(noteId)
+    if (!waiters || waiters.length === 0) return
+    editorUpdateWaitersRef.current.delete(noteId)
+    waiters.forEach((resolve) => resolve())
+  }, [])
+
+  const addEditorUpdateWaiter = useCallback((noteId: string, waiter: () => void) => {
+    const waiters = editorUpdateWaitersRef.current.get(noteId) ?? []
+    waiters.push(waiter)
+    editorUpdateWaitersRef.current.set(noteId, waiters)
+  }, [])
+
+  const removeEditorUpdateWaiter = useCallback((noteId: string, waiter: () => void) => {
+    const waiters = editorUpdateWaitersRef.current.get(noteId)
+    if (!waiters || waiters.length === 0) return
+    const nextWaiters = waiters.filter((item) => item !== waiter)
+    if (nextWaiters.length === 0) {
+      editorUpdateWaitersRef.current.delete(noteId)
+      return
+    }
+    editorUpdateWaitersRef.current.set(noteId, nextWaiters)
+  }, [])
+
+  const notifyFlushTimeout = useCallback(() => {
+    const now = Date.now()
+    if (now - lastFlushTimeoutToastAtRef.current < FLUSH_TIMEOUT_TOAST_COOLDOWN_MS) return
+    lastFlushTimeoutToastAtRef.current = now
+    toast(
+      isZh
+        ? '同步较慢，变更会继续在后台保存。'
+        : 'Sync is slow. Changes will continue saving in the background.',
+      { type: 'info' }
+    )
+  }, [isZh])
+
+  const notifyFlushRequired = useCallback(() => {
+    toast(
+      isZh
+        ? '保存仍在进行，请稍后重试当前操作。'
+        : 'Save is still in progress. Please retry this action in a moment.',
+      { type: 'error' }
+    )
+  }, [isZh])
+
+  const notifyRetryPause = useCallback(() => {
+    const now = Date.now()
+    if (now - lastRetryPauseToastAtRef.current < RETRY_PAUSE_TOAST_COOLDOWN_MS) return
+    lastRetryPauseToastAtRef.current = now
+    toast(
+      isZh
+        ? '保存暂时失败，系统会稍后自动重试。'
+        : 'Saving is temporarily paused. It will retry automatically.',
+      { type: 'info' }
+    )
+  }, [isZh])
+
+  const mergeAndSetPendingEditorUpdate = useCallback((noteId: string, basePatch: EditorNoteUpdate): EditorNoteUpdate => {
+    const latestPending = pendingEditorUpdatesRef.current.get(noteId)
+    const mergedPending = { ...basePatch, ...latestPending }
+    pendingEditorUpdatesRef.current.set(noteId, mergedPending)
+    return mergedPending
+  }, [])
+
+  const resetEditorUpdateRetryCount = useCallback((noteId: string) => {
+    editorUpdateRetryCountRef.current.delete(noteId)
+  }, [])
+
+  const clearEditorUpdateResumeTimer = useCallback((noteId: string) => {
+    const timer = editorUpdateResumeTimerRef.current.get(noteId)
+    if (timer) {
+      clearTimeout(timer)
+      editorUpdateResumeTimerRef.current.delete(noteId)
+    }
+  }, [])
+
+  const clearAllEditorUpdateResumeTimers = useCallback(() => {
+    editorUpdateResumeTimerRef.current.forEach((timer) => clearTimeout(timer))
+    editorUpdateResumeTimerRef.current.clear()
+  }, [])
+
+  const resetEditorUpdatePauseState = useCallback((noteId: string) => {
+    editorUpdatePausedUntilRef.current.delete(noteId)
+    clearEditorUpdateResumeTimer(noteId)
+  }, [clearEditorUpdateResumeTimer])
+
+  const getNextEditorUpdateRetry = useCallback((noteId: string): { retryCount: number; retryDelayMs: number } => {
+    const nextRetryCount = (editorUpdateRetryCountRef.current.get(noteId) ?? 0) + 1
+    editorUpdateRetryCountRef.current.set(noteId, nextRetryCount)
+    const retryDelayMs = Math.min(
+      EDITOR_UPDATE_RETRY_BASE_MS * (2 ** (nextRetryCount - 1)),
+      EDITOR_UPDATE_RETRY_MAX_MS
+    )
+    return { retryCount: nextRetryCount, retryDelayMs }
+  }, [])
+
+  const clearEditorUpdateRuntimeState = useCallback((noteId: string, keepPending: boolean = false) => {
+    if (!keepPending) {
+      pendingEditorUpdatesRef.current.delete(noteId)
+    }
+    resetEditorUpdateRetryCount(noteId)
+    resetEditorUpdatePauseState(noteId)
+  }, [resetEditorUpdatePauseState, resetEditorUpdateRetryCount])
+
+  const processEditorUpdateQueue = useCallback(async (noteId: string) => {
+    const pausedUntil = editorUpdatePausedUntilRef.current.get(noteId)
+    if (pausedUntil && pausedUntil > Date.now()) {
+      if (!editorUpdateResumeTimerRef.current.has(noteId)) {
+        const delayMs = Math.max(0, pausedUntil - Date.now())
+        const timer = setTimeout(() => {
+          editorUpdateResumeTimerRef.current.delete(noteId)
+          void processEditorUpdateQueue(noteId)
+        }, delayMs)
+        editorUpdateResumeTimerRef.current.set(noteId, timer)
+      }
+      return
+    }
+    if (pausedUntil) {
+      resetEditorUpdatePauseState(noteId)
+    }
+
+    if (editorUpdateInFlightRef.current.has(noteId)) return
+    editorUpdateInFlightRef.current.add(noteId)
+
+    try {
+      while (true) {
+        const pending = pendingEditorUpdatesRef.current.get(noteId)
+        if (!pending) break
+
+        pendingEditorUpdatesRef.current.delete(noteId)
+
+        try {
+          const localNote = notesRef.current.find(note => note.id === noteId)
+          if (!localNote) {
+            resetEditorUpdateRetryCount(noteId)
+            resetEditorUpdatePauseState(noteId)
+            console.warn(`[App] Note not found locally while flushing updates: ${noteId}`)
+            continue
+          }
+
+          const result = await window.electron.note.updateSafe(noteId, pending, localNote.revision)
+
+          if (result.status === 'not_found') {
+            resetEditorUpdateRetryCount(noteId)
+            resetEditorUpdatePauseState(noteId)
+            console.warn(`[App] Note not found while persisting updates: ${noteId}`)
+            continue
+          }
+
+          if (result.status === 'conflict') {
+            // Requeue local patch on top of latest server snapshot, then retry.
+            const mergedPending = mergeAndSetPendingEditorUpdate(noteId, pending)
+
+            const mergedCurrent = { ...result.current, ...mergedPending }
+            notesRef.current = notesRef.current.map((note) => (note.id === noteId ? mergedCurrent : note))
+            setNotes(prev => prev.map(note => note.id === noteId ? mergedCurrent : note))
+            resetEditorUpdateRetryCount(noteId)
+            resetEditorUpdatePauseState(noteId)
+            continue
+          }
+
+          resetEditorUpdateRetryCount(noteId)
+          resetEditorUpdatePauseState(noteId)
+          const latestPending = pendingEditorUpdatesRef.current.get(noteId)
+          const mergedNote = latestPending ? { ...result.note, ...latestPending } : result.note
+
+          notesRef.current = notesRef.current.map((note) => (note.id === noteId ? mergedNote : note))
+          setNotes(prev => prev.map(note => note.id === noteId ? mergedNote : note))
+        } catch (error) {
+          mergeAndSetPendingEditorUpdate(noteId, pending)
+          const { retryCount, retryDelayMs } = getNextEditorUpdateRetry(noteId)
+          console.error('[App] Failed to persist queued note update:', error)
+          if (retryCount >= EDITOR_UPDATE_FAILURE_PAUSE_THRESHOLD) {
+            const nextPausedUntil = Date.now() + EDITOR_UPDATE_FAILURE_PAUSE_MS
+            editorUpdatePausedUntilRef.current.set(noteId, nextPausedUntil)
+            console.warn(
+              `[App] Pausing note update retries for ${EDITOR_UPDATE_FAILURE_PAUSE_MS}ms after ${retryCount} failures: ${noteId}`
+            )
+            notifyRetryPause()
+            break
+          }
+          console.warn(`[App] Requeued note update for retry in ${retryDelayMs}ms: ${noteId}`)
+          await wait(retryDelayMs)
+        }
+      }
+    } finally {
+      editorUpdateInFlightRef.current.delete(noteId)
+
+      if (pendingEditorUpdatesRef.current.has(noteId)) {
+        const nextPausedUntil = editorUpdatePausedUntilRef.current.get(noteId)
+        if (nextPausedUntil && nextPausedUntil > Date.now()) {
+          if (!editorUpdateResumeTimerRef.current.has(noteId)) {
+            const delayMs = Math.max(0, nextPausedUntil - Date.now())
+            const timer = setTimeout(() => {
+              editorUpdateResumeTimerRef.current.delete(noteId)
+              void processEditorUpdateQueue(noteId)
+            }, delayMs)
+            editorUpdateResumeTimerRef.current.set(noteId, timer)
+          }
+        } else {
+          if (nextPausedUntil) {
+            resetEditorUpdatePauseState(noteId)
+          }
+          // New updates arrived while flushing; keep draining.
+          void processEditorUpdateQueue(noteId)
+        }
+      } else {
+        resetEditorUpdateRetryCount(noteId)
+        resetEditorUpdatePauseState(noteId)
+        resolveEditorUpdateWaiters(noteId)
+      }
+    }
+  }, [
+    getNextEditorUpdateRetry,
+    mergeAndSetPendingEditorUpdate,
+    notifyRetryPause,
+    resetEditorUpdatePauseState,
+    resetEditorUpdateRetryCount,
+    resolveEditorUpdateWaiters,
+  ])
+
+  const flushQueuedEditorUpdates = useCallback(async (
+    noteId: string | null,
+    timeoutMs: number = FLUSH_WAIT_TIMEOUT_MS
+  ): Promise<boolean> => {
+    if (!noteId) return true
+
+    const hasPending = pendingEditorUpdatesRef.current.has(noteId)
+    const isInFlight = editorUpdateInFlightRef.current.has(noteId)
+    if (!hasPending && !isInFlight) return true
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+
+      const finish = (flushed: boolean) => {
+        if (settled) return
+        settled = true
+        removeEditorUpdateWaiter(noteId, waiter)
+        if (timeoutHandle) clearTimeout(timeoutHandle)
+        resolve(flushed)
+      }
+
+      const waiter = () => finish(true)
+      addEditorUpdateWaiter(noteId, waiter)
+      if (timeoutMs > 0) {
+        timeoutHandle = setTimeout(() => finish(false), timeoutMs)
+      }
+      void processEditorUpdateQueue(noteId)
+    })
+  }, [addEditorUpdateWaiter, processEditorUpdateQueue, removeEditorUpdateWaiter])
+
+  const flushQueuedEditorUpdatesForNotes = useCallback(async (
+    noteIds: string[],
+    timeoutMs: number = FLUSH_WAIT_TIMEOUT_MS
+  ): Promise<boolean> => {
+    const uniqueIds = [...new Set(noteIds.filter((id): id is string => Boolean(id)))]
+    const results = await Promise.all(uniqueIds.map((id) => flushQueuedEditorUpdates(id, timeoutMs)))
+    return results.every(Boolean)
+  }, [flushQueuedEditorUpdates])
+
+  const applyNonEditorNotePatch = useCallback(async (id: string, patch: Partial<NoteInput>): Promise<Note | null> => {
+    const syncLocalNote = (next: Note) => {
+      notesRef.current = notesRef.current.map((note) => (note.id === id ? next : note))
+      setNotes(prev => prev.map(note => note.id === id ? next : note))
+    }
+
+    const localNote = notesRef.current.find(note => note.id === id)
+    if (!localNote) return null
+
+    const first = await window.electron.note.updateSafe(id, patch, localNote.revision)
+    if (first.status === 'not_found') return null
+    if (first.status === 'updated') {
+      syncLocalNote(first.note)
+      return first.note
+    }
+
+    // Conflict: sync latest server snapshot and retry once.
+    syncLocalNote(first.current)
+    const retry = await window.electron.note.updateSafe(id, patch, first.current.revision)
+    if (retry.status === 'updated') {
+      syncLocalNote(retry.note)
+      return retry.note
+    }
+    if (retry.status === 'conflict') {
+      syncLocalNote(retry.current)
+    }
+
+    return null
+  }, [])
 
   // 触发增量索引检查（失焦时调用）
   // Debounce 300ms 避免快速切换时的大量 IPC 调用
@@ -310,8 +656,9 @@ function AppContent() {
       if (indexCheckTimerRef.current) {
         clearTimeout(indexCheckTimerRef.current)
       }
+      clearAllEditorUpdateResumeTimers()
     }
-  }, [])
+  }, [clearAllEditorUpdateResumeTimers])
 
   // Load data from database and validate restored navigation state
   useEffect(() => {
@@ -440,7 +787,12 @@ function AppContent() {
           window.electron.note.getAll(),
           window.electron.notebook.getAll()
         ])
-        setNotes(notesData as Note[])
+        const mergedNotes = (notesData as Note[]).map((note) => {
+          const pending = pendingEditorUpdatesRef.current.get(note.id)
+          return pending ? { ...note, ...pending } : note
+        })
+        notesRef.current = mergedNotes
+        setNotes(mergedNotes)
         setNotebooks(notebooksData as Notebook[])
       } catch (error) {
         console.error('[App] Failed to reload data:', error)
@@ -456,7 +808,10 @@ function AppContent() {
       try {
         const updatedNote = await window.electron.note.getById(noteId)
         if (updatedNote) {
-          setNotes(prev => prev.map(n => n.id === noteId ? updatedNote : n))
+          const pending = pendingEditorUpdatesRef.current.get(noteId)
+          const mergedNote = pending ? { ...updatedNote, ...pending } : updatedNote
+          notesRef.current = notesRef.current.map((note) => (note.id === noteId ? mergedNote : note))
+          setNotes(prev => prev.map(n => n.id === noteId ? mergedNote : n))
         }
       } catch (error) {
         console.error('[App] Failed to update note summary:', error)
@@ -566,13 +921,17 @@ function AppContent() {
   // Uses notesRef to always get the latest notes (avoids closure issues)
   const deleteEmptyNoteIfNeeded = useCallback(async (noteId: string | null) => {
     if (!noteId) return
+    const flushed = await flushQueuedEditorUpdates(noteId, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+    if (!flushed) return
     const note = notesRef.current.find(n => n.id === noteId)
     if (note && isNoteEmpty(note)) {
       // Empty notes are permanently deleted, not moved to trash
       await window.electron.trash.permanentDelete(noteId)
+      clearEditorUpdateRuntimeState(noteId)
       setNotes(prev => prev.filter(n => n.id !== noteId))
+      notesRef.current = notesRef.current.filter(n => n.id !== noteId)
     }
-  }, [isNoteEmpty])
+  }, [clearEditorUpdateRuntimeState, flushQueuedEditorUpdates, isNoteEmpty])
 
   // Track previous tabFocusedNoteId for empty note cleanup
   const prevTabFocusedNoteIdRef = useRef<string | null>(null)
@@ -624,7 +983,7 @@ function AppContent() {
 
   // Handle selecting a note (with empty note cleanup and index check)
   // Supports multi-select with Cmd/Ctrl+Click (toggle) and Shift+Click (range)
-  const handleSelectNote = useCallback((noteId: string, event?: React.MouseEvent) => {
+  const handleSelectNote = useCallback(async (noteId: string, event?: React.MouseEvent) => {
     const isMultiSelectKey = event && (event.metaKey || event.ctrlKey)
     const isRangeSelectKey = event && event.shiftKey
 
@@ -632,6 +991,11 @@ function AppContent() {
     if (!isMultiSelectKey && !isRangeSelectKey) {
       // Don't do anything if selecting the same single note
       if (selectedNoteIds.length === 1 && selectedNoteIds[0] === noteId) return
+
+      const flushed = await flushQueuedEditorUpdates(selectedNoteId)
+      if (!flushed) {
+        notifyFlushTimeout()
+      }
 
       // Trigger incremental index check for the note being left
       triggerIndexCheck(selectedNoteId)
@@ -683,14 +1047,14 @@ function AppContent() {
         }
       }
     }
-  }, [selectedNoteIds, selectedNoteId, anchorNoteId, filteredNotes, triggerIndexCheck, deleteEmptyNoteIfNeeded, openNoteInPane])
+  }, [selectedNoteIds, selectedNoteId, anchorNoteId, filteredNotes, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, openNoteInPane])
 
   // Listen for note:navigate events (from Dataview, Transclusion, etc.)
   useEffect(() => {
     const handleNoteNavigate = (event: CustomEvent<{ noteId: string }>) => {
       const { noteId } = event.detail
       if (noteId) {
-        handleSelectNote(noteId)
+        void handleSelectNote(noteId)
       }
     }
     window.addEventListener('note:navigate', handleNoteNavigate as EventListener)
@@ -721,6 +1085,10 @@ function AppContent() {
 
   // Handle selecting a notebook
   const handleSelectNotebook = useCallback(async (id: string | null) => {
+    const flushed = await flushQueuedEditorUpdates(selectedNoteId)
+    if (!flushed) {
+      notifyFlushTimeout()
+    }
     // Trigger incremental index check for the note being left
     triggerIndexCheck(selectedNoteId)
     await deleteEmptyNoteIfNeeded(selectedNoteId)
@@ -728,10 +1096,14 @@ function AppContent() {
     setSelectedSmartView(null)
     setSelectedNoteIds([])
     setAnchorNoteId(null)
-  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded])
+  }, [selectedNoteId, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
   // Handle selecting a smart view
   const handleSelectSmartView = useCallback(async (view: SmartViewId) => {
+    const flushed = await flushQueuedEditorUpdates(selectedNoteId)
+    if (!flushed) {
+      notifyFlushTimeout()
+    }
     // Trigger incremental index check for the note being left
     triggerIndexCheck(selectedNoteId)
     await deleteEmptyNoteIfNeeded(selectedNoteId)
@@ -771,7 +1143,7 @@ function AppContent() {
       setSelectedNoteIds([])
       setAnchorNoteId(null)
     }
-  }, [selectedNoteId, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh, selectSingleNote])
+  }, [selectedNoteId, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh, selectSingleNote])
 
   // Handle creating a new note
   const handleCreateNote = useCallback(async () => {
@@ -835,17 +1207,21 @@ function AppContent() {
     }
   }, [notes, isZh, selectSingleNote])
 
-  // Handle updating a note
-  const handleUpdateNote = useCallback(async (id: string, updates: { title?: string; content?: string }) => {
-    try {
-      const updatedNote = await window.electron.note.update(id, updates)
-      if (updatedNote) {
-        setNotes(prev => prev.map(note => note.id === id ? updatedNote as Note : note))
-      }
-    } catch (error) {
-      console.error('Failed to update note:', error)
-    }
-  }, [])
+  // Handle frequent editor updates (title/content) with local-first queue.
+  const handleUpdateNote = useCallback((id: string, updates: { title?: string; content?: string }) => {
+    const patch: EditorNoteUpdate = {}
+    if (updates.title !== undefined) patch.title = updates.title
+    if (updates.content !== undefined) patch.content = updates.content
+    if (Object.keys(patch).length === 0) return
+
+    // Optimistic local update for smooth typing.
+    notesRef.current = notesRef.current.map((note) => (note.id === id ? { ...note, ...patch } : note))
+    setNotes(prev => prev.map(note => note.id === id ? { ...note, ...patch } : note))
+
+    const pending = pendingEditorUpdatesRef.current.get(id)
+    pendingEditorUpdatesRef.current.set(id, { ...pending, ...patch })
+    void processEditorUpdateQueue(id)
+  }, [processEditorUpdateQueue])
 
   // 跳转目标（用于跳转到标题/block）
   const [scrollTarget, setScrollTarget] = useState<{ type: 'heading' | 'block'; value: string } | null>(null)
@@ -942,10 +1318,15 @@ function AppContent() {
   // Handle toggle pinned
   const handleTogglePinned = useCallback(async (id: string) => {
     try {
-      const note = notes.find(n => n.id === id)
+      const flushed = await flushQueuedEditorUpdates(id, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+      if (!flushed) {
+        notifyFlushRequired()
+        return
+      }
+      const note = notesRef.current.find(n => n.id === id)
       if (!note) return
 
-      const updated = await window.electron.note.update(id, { is_pinned: !note.is_pinned })
+      const updated = await applyNonEditorNotePatch(id, { is_pinned: !note.is_pinned })
       if (updated) {
         setNotes(prev => {
           const newNotes = prev.map(n => n.id === id ? updated as Note : n)
@@ -959,37 +1340,55 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to toggle pinned:', error)
     }
-  }, [notes])
+  }, [applyNonEditorNotePatch, flushQueuedEditorUpdates, notifyFlushRequired])
 
   // Handle toggle favorite
   const handleToggleFavorite = useCallback(async (id: string) => {
     try {
-      const note = notes.find(n => n.id === id)
+      const flushed = await flushQueuedEditorUpdates(id, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+      if (!flushed) {
+        notifyFlushRequired()
+        return
+      }
+      const note = notesRef.current.find(n => n.id === id)
       if (!note) return
 
-      const updated = await window.electron.note.update(id, { is_favorite: !note.is_favorite })
-      if (updated) {
-        setNotes(prev => prev.map(n => n.id === id ? updated as Note : n))
-      }
+      await applyNonEditorNotePatch(id, { is_favorite: !note.is_favorite })
     } catch (error) {
       console.error('Failed to toggle favorite:', error)
     }
-  }, [notes])
+  }, [applyNonEditorNotePatch, flushQueuedEditorUpdates, notifyFlushRequired])
 
   // Handle move note(s) to notebook - supports both single and bulk
   const handleMoveToNotebook = useCallback(async (noteIdOrIds: string | string[], notebookId: string | null) => {
     const ids = Array.isArray(noteIdOrIds) ? noteIdOrIds : [noteIdOrIds]
+    const uniqueIds = [...new Set(ids)]
     try {
-      for (const id of ids) {
-        await window.electron.note.update(id, { notebook_id: notebookId })
+      const flushed = await flushQueuedEditorUpdatesForNotes(uniqueIds, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+      if (!flushed) {
+        notifyFlushRequired()
+        return
       }
-      setNotes(prev => prev.map(n =>
-        ids.includes(n.id) ? { ...n, notebook_id: notebookId } : n
-      ))
+      const results = await runWithConcurrency(uniqueIds, BULK_NOTE_PATCH_CONCURRENCY, async (id) => {
+        const updated = await applyNonEditorNotePatch(id, { notebook_id: notebookId })
+        if (!updated) {
+          throw new Error(`Note move failed: ${id}`)
+        }
+      })
+      const failed = results.filter((result): result is { item: string; ok: false; error: unknown } => !result.ok)
+      if (failed.length > 0) {
+        console.warn('[App] Partial move-to-notebook failure:', failed)
+        toast(
+          isZh
+            ? `部分笔记移动失败（${failed.length}/${uniqueIds.length}）`
+            : `Some notes failed to move (${failed.length}/${uniqueIds.length})`,
+          { type: 'error' }
+        )
+      }
     } catch (error) {
       console.error('Failed to move note(s) to notebook:', error)
     }
-  }, [])
+  }, [applyNonEditorNotePatch, flushQueuedEditorUpdatesForNotes, isZh, notifyFlushRequired])
 
   // Handle reorder notebooks
   const handleReorderNotebooks = useCallback(async (orderedIds: string[]) => {
@@ -1024,8 +1423,14 @@ function AppContent() {
   // Handle delete note (soft delete - move to trash)
   const handleDeleteNote = useCallback(async (id: string) => {
     try {
-      const noteToDelete = notes.find(n => n.id === id)
+      const flushed = await flushQueuedEditorUpdates(id, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+      if (!flushed) {
+        notifyFlushRequired()
+        return
+      }
+      const noteToDelete = notesRef.current.find(n => n.id === id)
       await window.electron.note.delete(id)
+      clearEditorUpdateRuntimeState(id)
       setNotes(prev => prev.filter(n => n.id !== id))
       if (noteToDelete) {
         // Add to trash with deleted_at timestamp
@@ -1039,12 +1444,17 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to delete note:', error)
     }
-  }, [notes])
+  }, [clearEditorUpdateRuntimeState, flushQueuedEditorUpdates, notifyFlushRequired])
 
   // Handle duplicate note
   const handleDuplicateNote = useCallback(async (id: string) => {
     try {
-      const noteToDuplicate = notes.find(n => n.id === id)
+      const flushed = await flushQueuedEditorUpdates(id, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+      if (!flushed) {
+        notifyFlushRequired()
+        return
+      }
+      const noteToDuplicate = notesRef.current.find(n => n.id === id)
       if (!noteToDuplicate) return
 
       const suffix = isZh ? '副本' : 'Copy'
@@ -1093,7 +1503,7 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to duplicate note:', error)
     }
-  }, [notes, isZh, selectSingleNote])
+  }, [flushQueuedEditorUpdates, isZh, notes, notifyFlushRequired, selectSingleNote])
 
   // Handle search - keyword search only
   // Results are filtered based on current view (notebook, daily, favorites, etc.)
@@ -1201,8 +1611,17 @@ function AppContent() {
     try {
       // Soft-delete all notes in this notebook first (move to trash)
       const notesInNotebook = notes.filter(n => n.notebook_id === notebookToDelete.id)
+      const flushed = await flushQueuedEditorUpdatesForNotes(
+        notesInNotebook.map(note => note.id),
+        DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS
+      )
+      if (!flushed) {
+        notifyFlushRequired()
+        return
+      }
       for (const note of notesInNotebook) {
         await window.electron.note.delete(note.id)
+        clearEditorUpdateRuntimeState(note.id)
       }
 
       // Delete the notebook
@@ -1229,7 +1648,7 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to delete notebook:', error)
     }
-  }, [notebookToDelete, notes, selectedNotebookId])
+  }, [clearEditorUpdateRuntimeState, notebookToDelete, notes, selectedNotebookId, flushQueuedEditorUpdatesForNotes, notifyFlushRequired])
 
   // Handle deleting notebook from modal (legacy, keep for modal delete button)
   const handleDeleteNotebook = useCallback(async () => {
@@ -1281,9 +1700,14 @@ function AppContent() {
     // 先从数据库重新加载笔记内容（因为 TypewriterMode 可能修改了内容）
     if (selectedNoteId) {
       try {
-        const updatedNote = await window.electron.note.getById(selectedNoteId)
-        if (updatedNote) {
-          setNotes(prev => prev.map(n => n.id === selectedNoteId ? updatedNote as Note : n))
+        const flushed = await flushQueuedEditorUpdates(selectedNoteId)
+        if (!flushed) {
+          notifyFlushTimeout()
+        } else {
+          const updatedNote = await window.electron.note.getById(selectedNoteId)
+          if (updatedNote) {
+            setNotes(prev => prev.map(n => n.id === selectedNoteId ? updatedNote as Note : n))
+          }
         }
       } catch (error) {
         console.error('Failed to reload note:', error)
@@ -1312,7 +1736,7 @@ function AppContent() {
       }
       setTimeout(() => trySetCursor(), 150)
     }
-  }, [selectedNoteId, scrollEditorToCursor])
+  }, [flushQueuedEditorUpdates, selectedNoteId, notifyFlushTimeout, scrollEditorToCursor])
 
   // 从 editor 获取当前光标信息
   const getCursorInfoFromEditor = useCallback((): CursorInfo => {
@@ -1418,12 +1842,18 @@ function AppContent() {
   // Bulk delete notes
   const handleBulkDelete = useCallback(async (ids: string[]) => {
     try {
+      const flushed = await flushQueuedEditorUpdatesForNotes(ids, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+      if (!flushed) {
+        notifyFlushRequired()
+        return
+      }
       const now = new Date().toISOString()
       const notesToTrash: Note[] = []
 
       for (const id of ids) {
-        const noteToDelete = notes.find(n => n.id === id)
+        const noteToDelete = notesRef.current.find(n => n.id === id)
         await window.electron.note.delete(id)
+        clearEditorUpdateRuntimeState(id)
         if (noteToDelete) {
           notesToTrash.push({ ...noteToDelete, deleted_at: now })
         }
@@ -1437,28 +1867,44 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to bulk delete notes:', error)
     }
-  }, [notes])
+  }, [clearEditorUpdateRuntimeState, flushQueuedEditorUpdatesForNotes, notifyFlushRequired])
 
   // Bulk toggle favorite on notes
   const handleBulkToggleFavorite = useCallback(async (ids: string[]) => {
+    const uniqueIds = [...new Set(ids)]
     try {
+      const flushed = await flushQueuedEditorUpdatesForNotes(uniqueIds, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+      if (!flushed) {
+        notifyFlushRequired()
+        return
+      }
       // Set all to favorite (if any unfavorited, set all to favorite)
-      const anyUnfavorited = ids.some(id => {
-        const note = notes.find(n => n.id === id)
+      const anyUnfavorited = uniqueIds.some(id => {
+        const note = notesRef.current.find(n => n.id === id)
         return note && !note.is_favorite
       })
       const newFavoriteStatus = anyUnfavorited
 
-      for (const id of ids) {
-        await window.electron.note.update(id, { is_favorite: newFavoriteStatus })
+      const results = await runWithConcurrency(uniqueIds, BULK_NOTE_PATCH_CONCURRENCY, async (id) => {
+        const updated = await applyNonEditorNotePatch(id, { is_favorite: newFavoriteStatus })
+        if (!updated) {
+          throw new Error(`Bulk favorite update failed: ${id}`)
+        }
+      })
+      const failed = results.filter((result): result is { item: string; ok: false; error: unknown } => !result.ok)
+      if (failed.length > 0) {
+        console.warn('[App] Partial bulk favorite failure:', failed)
+        toast(
+          isZh
+            ? `部分笔记更新失败（${failed.length}/${uniqueIds.length}）`
+            : `Some notes failed to update (${failed.length}/${uniqueIds.length})`,
+          { type: 'error' }
+        )
       }
-      setNotes(prev => prev.map(n =>
-        ids.includes(n.id) ? { ...n, is_favorite: newFavoriteStatus } : n
-      ))
     } catch (error) {
       console.error('Failed to bulk toggle favorite:', error)
     }
-  }, [notes])
+  }, [applyNonEditorNotePatch, flushQueuedEditorUpdatesForNotes, isZh, notifyFlushRequired])
 
   if (isLoading) {
     return (

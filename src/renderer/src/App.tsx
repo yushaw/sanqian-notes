@@ -20,6 +20,7 @@ import { getCursorInfo, setCursorByBlockId, type CursorInfo, type CursorContext 
 import { formatDailyDate } from './utils/dateFormat'
 import { toast } from './utils/toast'
 import { useChatShortcut } from './utils/shortcut'
+import { setAndPersistNoteScrollPosition } from './utils/noteScrollStorage'
 import { RECENT_DAYS, type Note, type Notebook, type NoteInput, type NoteSearchFilter, type SmartViewId } from './types/note'
 
 // 全局 Lightbox 组件
@@ -299,6 +300,18 @@ function AppContent() {
 
   // Debounce timer for index check
   const indexCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 切换前兜底保存当前笔记滚动位置（防止组件卸载时机导致丢失）
+  const captureNoteScrollPosition = useCallback((noteId: string | null, paneId?: string | null) => {
+    if (!noteId) return
+
+    const scrollWrapper = editorRef.current?.getScrollContainer()
+    if (!scrollWrapper) return
+
+    const resolvedPaneId = paneId ?? focusedPaneId ?? null
+    const scrollTop = Math.max(0, Math.floor(scrollWrapper.scrollTop))
+    setAndPersistNoteScrollPosition(noteId, scrollTop, resolvedPaneId)
+  }, [focusedPaneId])
 
   const resolveEditorUpdateWaiters = useCallback((noteId: string) => {
     const waiters = editorUpdateWaitersRef.current.get(noteId)
@@ -958,6 +971,10 @@ function AppContent() {
         setSelectedNoteIds([])
         setAnchorNoteId(null)
       }
+    } else {
+      // Focused pane is empty; keep list selection in sync with editor focus.
+      setSelectedNoteIds([])
+      setAnchorNoteId(null)
     }
 
     // Update ref for next comparison
@@ -967,7 +984,11 @@ function AppContent() {
   // Helper to select a single note and set anchor (for consistency)
   // Also handles cleanup of empty notes when switching away
   const selectSingleNote = useCallback((noteId: string) => {
-    const prevNoteId = selectedNoteId
+    // Use the focused pane as the single source of truth for "leaving note".
+    const prevFocusedNoteId = tabFocusedNoteId
+
+    // 切换前保存当前笔记滚动位置
+    captureNoteScrollPosition(prevFocusedNoteId, focusedPaneId)
 
     // First update selection and open new note
     setSelectedNoteIds([noteId])
@@ -976,34 +997,39 @@ function AppContent() {
 
     // Then delete previous empty note if switching away
     // Run in background without blocking selection
-    if (prevNoteId && prevNoteId !== noteId) {
-      deleteEmptyNoteIfNeeded(prevNoteId)
+    if (prevFocusedNoteId && prevFocusedNoteId !== noteId) {
+      deleteEmptyNoteIfNeeded(prevFocusedNoteId)
     }
-  }, [selectedNoteId, deleteEmptyNoteIfNeeded, openNoteInPane])
+  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, deleteEmptyNoteIfNeeded, openNoteInPane])
 
   // Handle selecting a note (with empty note cleanup and index check)
   // Supports multi-select with Cmd/Ctrl+Click (toggle) and Shift+Click (range)
   const handleSelectNote = useCallback(async (noteId: string, event?: React.MouseEvent) => {
     const isMultiSelectKey = event && (event.metaKey || event.ctrlKey)
     const isRangeSelectKey = event && event.shiftKey
+    // Use focused pane note as the only "leaving note".
+    const leavingFocusedNoteId = tabFocusedNoteId
 
     // Single click without modifiers: clear selection and select only this note
     if (!isMultiSelectKey && !isRangeSelectKey) {
       // Don't do anything if selecting the same single note
       if (selectedNoteIds.length === 1 && selectedNoteIds[0] === noteId) return
 
-      const flushed = await flushQueuedEditorUpdates(selectedNoteId)
+      // 切换前保存当前笔记滚动位置
+      captureNoteScrollPosition(leavingFocusedNoteId, focusedPaneId)
+
+      const flushed = await flushQueuedEditorUpdates(leavingFocusedNoteId)
       if (!flushed) {
         notifyFlushTimeout()
       }
 
       // Trigger incremental index check for the note being left
-      triggerIndexCheck(selectedNoteId)
+      triggerIndexCheck(leavingFocusedNoteId)
 
       // Delete empty note if switching away from it
       // Run in background without blocking selection
-      if (selectedNoteId && selectedNoteId !== noteId) {
-        deleteEmptyNoteIfNeeded(selectedNoteId)
+      if (leavingFocusedNoteId && leavingFocusedNoteId !== noteId) {
+        deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
       }
 
       setSelectedNoteIds([noteId])
@@ -1047,7 +1073,7 @@ function AppContent() {
         }
       }
     }
-  }, [selectedNoteIds, selectedNoteId, anchorNoteId, filteredNotes, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, openNoteInPane])
+  }, [selectedNoteIds, tabFocusedNoteId, selectedNoteId, anchorNoteId, filteredNotes, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, openNoteInPane])
 
   // Listen for note:navigate events (from Dataview, Transclusion, etc.)
   useEffect(() => {
@@ -1085,28 +1111,34 @@ function AppContent() {
 
   // Handle selecting a notebook
   const handleSelectNotebook = useCallback(async (id: string | null) => {
-    const flushed = await flushQueuedEditorUpdates(selectedNoteId)
+    const leavingFocusedNoteId = tabFocusedNoteId
+    captureNoteScrollPosition(leavingFocusedNoteId, focusedPaneId)
+
+    const flushed = await flushQueuedEditorUpdates(leavingFocusedNoteId)
     if (!flushed) {
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
-    triggerIndexCheck(selectedNoteId)
-    await deleteEmptyNoteIfNeeded(selectedNoteId)
+    triggerIndexCheck(leavingFocusedNoteId)
+    await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
     setSelectedNotebookId(id)
     setSelectedSmartView(null)
     setSelectedNoteIds([])
     setAnchorNoteId(null)
-  }, [selectedNoteId, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded])
+  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded])
 
   // Handle selecting a smart view
   const handleSelectSmartView = useCallback(async (view: SmartViewId) => {
-    const flushed = await flushQueuedEditorUpdates(selectedNoteId)
+    const leavingFocusedNoteId = tabFocusedNoteId
+    captureNoteScrollPosition(leavingFocusedNoteId, focusedPaneId)
+
+    const flushed = await flushQueuedEditorUpdates(leavingFocusedNoteId)
     if (!flushed) {
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
-    triggerIndexCheck(selectedNoteId)
-    await deleteEmptyNoteIfNeeded(selectedNoteId)
+    triggerIndexCheck(leavingFocusedNoteId)
+    await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
     setSelectedSmartView(view)
     setSelectedNotebookId(null)
 
@@ -1143,7 +1175,7 @@ function AppContent() {
       setSelectedNoteIds([])
       setAnchorNoteId(null)
     }
-  }, [selectedNoteId, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh, selectSingleNote])
+  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh, selectSingleNote])
 
   // Handle creating a new note
   const handleCreateNote = useCallback(async () => {
@@ -1241,6 +1273,9 @@ function AppContent() {
       return
     }
 
+    // 跳转前先保存当前焦点笔记的滚动位置
+    captureNoteScrollPosition(tabFocusedNoteId, focusedPaneId)
+
     // 设置滚动目标
     if (target) {
       setScrollTarget(target)
@@ -1269,7 +1304,7 @@ function AppContent() {
 
     // 在新 tab 打开
     createTab(noteId)
-  }, [notes, t, tabFocusedNoteId, focusedPaneId, openNoteInPane, findPaneWithNote, selectTab, focusPane, createTab])
+  }, [notes, t, tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, openNoteInPane, findPaneWithNote, selectTab, focusPane, createTab])
 
   // Listen for note:navigate IPC events (from chat window via sanqian-notes:// links)
   useEffect(() => {
@@ -2001,6 +2036,7 @@ function AppContent() {
                   <Editor
                     ref={isFocused ? editorRef : undefined}
                     note={note || null}
+                    paneId={paneId}
                     notes={notes}
                     notebooks={notebooks}
                     onUpdate={handleUpdateNote}

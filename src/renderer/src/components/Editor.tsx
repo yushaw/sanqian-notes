@@ -66,6 +66,7 @@ import { initTaskCache, refreshTaskCache, deleteTaskByBlockId, preloadTasksByBlo
 import { setupOutputListener } from '../utils/editorOutputHandler'
 import { useAIActions } from '../hooks/useAIActions'
 import { useAIActionExecutor } from '../hooks/useAIActionExecutor'
+import { useNoteScrollPersistence } from '../hooks/useNoteScrollPersistence'
 import { getMarkdownContent, getNearestHeadingForBlock } from '../utils/aiContext'
 import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
 import { shortcuts } from '../utils/shortcuts'
@@ -317,6 +318,7 @@ export type { CursorInfo, CursorContext } from '../utils/cursor'
 
 interface EditorProps {
   note: Note | null
+  paneId?: string | null
   notes: Note[]
   notebooks?: import('../types/note').Notebook[]
   onUpdate: (id: string, updates: { title?: string; content?: string }) => void
@@ -339,11 +341,13 @@ interface EditorProps {
 // 暴露给外部的 Editor 实例接口
 export interface EditorHandle {
   getEditor: () => ReturnType<typeof useEditor> | null
+  getScrollContainer: () => HTMLDivElement | null
 }
 
 // Zen Editor component
 interface ZenEditorProps {
   note: Note
+  paneId?: string | null
   notes: Note[]
   notebooks?: import('../types/note').Notebook[]
   onUpdate: (id: string, updates: { title?: string; content?: string }) => void
@@ -364,6 +368,7 @@ interface ZenEditorProps {
 
 const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   note,
+  paneId,
   notes,
   notebooks = [],
   onUpdate,
@@ -862,6 +867,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // 暴露 editor 实例给外部
   useImperativeHandle(ref, () => ({
     getEditor: () => editor,
+    getScrollContainer: () => contentRef.current,
   }), [editor])
 
   useEffect(() => {
@@ -1849,6 +1855,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     }
   }, [])
 
+  useNoteScrollPersistence({
+    editor,
+    noteId: note.id,
+    paneId,
+    scrollTarget,
+    contentRef,
+  })
+
   // Detect if inline title is scrolled out of view (for showing/hiding header title)
   useEffect(() => {
     const container = contentRef.current
@@ -2277,7 +2291,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 })
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
-  { note, notes, notebooks, onUpdate, onNoteClick, onCreateNote, onSelectNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange, onSplitHorizontal, onSplitVertical, onClosePane, showPaneControls, isFocused },
+  { note, paneId, notes, notebooks, onUpdate, onNoteClick, onCreateNote, onSelectNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange, onSplitHorizontal, onSplitVertical, onClosePane, showPaneControls, isFocused },
   ref
 ) {
   const t = useTranslations()
@@ -2358,6 +2372,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           key={note.id}
           ref={ref}
           note={note}
+          paneId={paneId}
           notes={notes}
           notebooks={notebooks}
           onUpdate={onUpdate}

@@ -300,6 +300,13 @@ function AppContent() {
 
   // Debounce timer for index check
   const indexCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Monotonic version to ignore stale async note-selection flows.
+  const noteSelectionVersionRef = useRef(0)
+
+  const invalidateNoteSelectionVersion = useCallback(() => {
+    noteSelectionVersionRef.current += 1
+    return noteSelectionVersionRef.current
+  }, [])
 
   // 切换前兜底保存当前笔记滚动位置（防止组件卸载时机导致丢失）
   const captureNoteScrollPosition = useCallback((noteId: string | null, paneId?: string | null) => {
@@ -984,6 +991,8 @@ function AppContent() {
   // Helper to select a single note and set anchor (for consistency)
   // Also handles cleanup of empty notes when switching away
   const selectSingleNote = useCallback((noteId: string) => {
+    invalidateNoteSelectionVersion()
+
     // Use the focused pane as the single source of truth for "leaving note".
     const prevFocusedNoteId = tabFocusedNoteId
 
@@ -1000,11 +1009,12 @@ function AppContent() {
     if (prevFocusedNoteId && prevFocusedNoteId !== noteId) {
       deleteEmptyNoteIfNeeded(prevFocusedNoteId)
     }
-  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, deleteEmptyNoteIfNeeded, openNoteInPane])
+  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, deleteEmptyNoteIfNeeded, openNoteInPane, invalidateNoteSelectionVersion])
 
   // Handle selecting a note (with empty note cleanup and index check)
   // Supports multi-select with Cmd/Ctrl+Click (toggle) and Shift+Click (range)
   const handleSelectNote = useCallback(async (noteId: string, event?: React.MouseEvent) => {
+    const selectionVersion = invalidateNoteSelectionVersion()
     const isMultiSelectKey = event && (event.metaKey || event.ctrlKey)
     const isRangeSelectKey = event && event.shiftKey
     // Use focused pane note as the only "leaving note".
@@ -1019,6 +1029,7 @@ function AppContent() {
       captureNoteScrollPosition(leavingFocusedNoteId, focusedPaneId)
 
       const flushed = await flushQueuedEditorUpdates(leavingFocusedNoteId)
+      if (selectionVersion !== noteSelectionVersionRef.current) return
       if (!flushed) {
         notifyFlushTimeout()
       }
@@ -1073,7 +1084,7 @@ function AppContent() {
         }
       }
     }
-  }, [selectedNoteIds, tabFocusedNoteId, selectedNoteId, anchorNoteId, filteredNotes, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, openNoteInPane])
+  }, [selectedNoteIds, tabFocusedNoteId, selectedNoteId, anchorNoteId, filteredNotes, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, openNoteInPane, invalidateNoteSelectionVersion])
 
   // Listen for note:navigate events (from Dataview, Transclusion, etc.)
   useEffect(() => {
@@ -1111,34 +1122,40 @@ function AppContent() {
 
   // Handle selecting a notebook
   const handleSelectNotebook = useCallback(async (id: string | null) => {
+    const selectionVersion = invalidateNoteSelectionVersion()
     const leavingFocusedNoteId = tabFocusedNoteId
     captureNoteScrollPosition(leavingFocusedNoteId, focusedPaneId)
 
     const flushed = await flushQueuedEditorUpdates(leavingFocusedNoteId)
+    if (selectionVersion !== noteSelectionVersionRef.current) return
     if (!flushed) {
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
     triggerIndexCheck(leavingFocusedNoteId)
     await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
+    if (selectionVersion !== noteSelectionVersionRef.current) return
     setSelectedNotebookId(id)
     setSelectedSmartView(null)
     setSelectedNoteIds([])
     setAnchorNoteId(null)
-  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded])
+  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, invalidateNoteSelectionVersion])
 
   // Handle selecting a smart view
   const handleSelectSmartView = useCallback(async (view: SmartViewId) => {
+    const selectionVersion = invalidateNoteSelectionVersion()
     const leavingFocusedNoteId = tabFocusedNoteId
     captureNoteScrollPosition(leavingFocusedNoteId, focusedPaneId)
 
     const flushed = await flushQueuedEditorUpdates(leavingFocusedNoteId)
+    if (selectionVersion !== noteSelectionVersionRef.current) return
     if (!flushed) {
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
     triggerIndexCheck(leavingFocusedNoteId)
     await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
+    if (selectionVersion !== noteSelectionVersionRef.current) return
     setSelectedSmartView(view)
     setSelectedNotebookId(null)
 
@@ -1154,6 +1171,7 @@ function AppContent() {
         try {
           const title = formatDailyDate(todayStr, isZh)
           const newNote = await window.electron.daily.create(todayStr, title)
+          if (selectionVersion !== noteSelectionVersionRef.current) return
           // Use flushSync to ensure notes state is updated before selecting
           flushSync(() => {
             setNotes(prev => {
@@ -1167,6 +1185,7 @@ function AppContent() {
           selectSingleNote((newNote as Note).id)
         } catch (error) {
           console.error('Failed to create today daily note:', error)
+          if (selectionVersion !== noteSelectionVersionRef.current) return
           setSelectedNoteIds([])
           setAnchorNoteId(null)
         }
@@ -1175,7 +1194,7 @@ function AppContent() {
       setSelectedNoteIds([])
       setAnchorNoteId(null)
     }
-  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh, selectSingleNote])
+  }, [tabFocusedNoteId, focusedPaneId, captureNoteScrollPosition, flushQueuedEditorUpdates, notifyFlushTimeout, triggerIndexCheck, deleteEmptyNoteIfNeeded, notes, isZh, selectSingleNote, invalidateNoteSelectionVersion])
 
   // Handle creating a new note
   const handleCreateNote = useCallback(async () => {

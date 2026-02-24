@@ -177,4 +177,28 @@ describe('NoteList keyboard navigation', () => {
 
     expect(onSelectNote).not.toHaveBeenCalled()
   })
+
+  it('hides dividers around selected note boundaries', () => {
+    const { container } = render(
+      <NoteList
+        {...defaultProps}
+        selectedNoteIds={['note-2']}
+      />
+    )
+
+    const note1 = container.querySelector('[data-note-id="note-1"]')
+    const note2 = container.querySelector('[data-note-id="note-2"]')
+    const note3 = container.querySelector('[data-note-id="note-3"]')
+
+    expect(note1).toBeTruthy()
+    expect(note2).toBeTruthy()
+    expect(note3).toBeTruthy()
+
+    // note-1 divider is hidden because next item is selected
+    expect(note1?.querySelector('[data-note-divider]')).toBeNull()
+    // note-2 divider is hidden because itself is selected
+    expect(note2?.querySelector('[data-note-divider]')).toBeNull()
+    // note-3 divider keeps normal rendering
+    expect(note3?.querySelector('[data-note-divider]')).not.toBeNull()
+  })
 })

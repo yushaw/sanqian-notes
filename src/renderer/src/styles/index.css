@@ -567,7 +567,7 @@ html.text-extra-large {
 
 .daily-view-item {
   padding: 6px 10px;
-  margin-bottom: 2px;
+  margin-bottom: 0;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -578,7 +578,7 @@ html.text-extra-large {
 }
 
 .daily-view-item.selected {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-card-solid));
 }
 
 .daily-view-item-date {

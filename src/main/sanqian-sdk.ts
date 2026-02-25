@@ -42,6 +42,10 @@ import {
 import { hybridSearch } from './embedding/semantic-search'
 import { t } from './i18n'
 import { jsonToMarkdown, jsonToMarkdownWithMeta, markdownToTiptapString, countWords, getAllHeadingsFromJson, mergeDocumentsJson, type DocumentHeading, type ConvertResult } from './markdown'
+import {
+  buildNotesOverviewContext,
+  buildNotebooksOverviewContext,
+} from './context-overview'
 
 /**
  * Normalize quotes and punctuation for fuzzy matching
@@ -1000,6 +1004,9 @@ function buildContextProviders(): AppContextProvider[] {
       id: 'notes',
       name: t().contexts.notes.name,
       description: t().contexts.notes.description,
+      getCurrent: async () => {
+        return buildNotesOverviewContext(getRawUserContext())
+      },
       getList: async (options) => {
         const query = options?.query?.trim()
         const offset = options?.offset ?? 0
@@ -1071,6 +1078,9 @@ function buildContextProviders(): AppContextProvider[] {
       id: 'notebooks',
       name: t().contexts.notebooks.name,
       description: t().contexts.notebooks.description,
+      getCurrent: async () => {
+        return buildNotebooksOverviewContext(getRawUserContext())
+      },
       getList: async () => {
         const notebooks = getNotebooks()
         const noteCounts = getNoteCountByNotebook()

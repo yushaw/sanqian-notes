@@ -2151,7 +2151,7 @@ app.whenReady().then(() => {
       win?.webContents.send('pdf:importProgress', progress)
     }
 
-    // Parse PDF to markdown
+    // Parse PDF to TipTap JSON (with attachment:// image URLs)
     pdfImporter.setRuntimeConfig({
       serviceId: config.activeService,
       serviceConfig,
@@ -2159,7 +2159,7 @@ app.whenReady().then(() => {
     })
 
     try {
-      const parseResult = await pdfImporter.parseFile(pdfPath)
+      const parseResult = await pdfImporter.parseFileToTiptap(pdfPath)
       return { content: parseResult.content, path: pdfPath }
     } finally {
       pdfImporter.cleanup()
@@ -2174,9 +2174,9 @@ app.whenReady().then(() => {
       win?.webContents.send('pdf:importProgress', progress)
     }
 
-    // fetchAsMarkdown throws on error, which will be propagated to renderer
-    const result = await arxivImporter.fetchAsMarkdown(arxivId, onPdfProgress)
-    return { content: result.markdown, title: result.title }
+    // fetchAsTiptap throws on error, which will be propagated to renderer.
+    const result = await arxivImporter.fetchAsTiptap(arxivId, onPdfProgress)
+    return { content: result.content, title: result.title }
   })
 
   ipcMain.handle('app:getDataPath', () => {

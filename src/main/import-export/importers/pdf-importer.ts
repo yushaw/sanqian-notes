@@ -7,6 +7,7 @@ import { existsSync, readFileSync, statSync, mkdirSync, writeFileSync, rmSync } 
 import { join, basename, extname } from 'path'
 import { app } from 'electron'
 import { BaseImporter, MAX_FILE_SIZE } from '../base-importer'
+import { copyAttachmentsAndUpdateContent } from '../utils/attachment-handler'
 import { getPdfService, getDefaultPdfService } from '../pdf-services'
 import { getServiceConfig } from '../pdf-config'
 import type { ImporterInfo, ImportOptions, ParsedNote } from '../types'
@@ -204,6 +205,40 @@ export class PdfImporter extends BaseImporter {
       return { content: result.markdown }
     } finally {
       // 清理 runtimeConfig（parseFile 不使用 tempDir，所以只清理配置）
+      this.runtimeConfig = null
+    }
+  }
+
+  /**
+   * Parse a PDF file and return TipTap JSON content.
+   * This path keeps image attachments by copying them into attachment:// URLs.
+   */
+  async parseFileToTiptap(sourcePath: string): Promise<{ content: string }> {
+    try {
+      const parsedNotes = await this.parse({
+        sourcePath,
+        importAttachments: true,
+        folderStrategy: 'first-level',
+        tagStrategy: 'keep-nested',
+        conflictStrategy: 'rename',
+        parseFrontMatter: false,
+      })
+
+      if (parsedNotes.length === 0) {
+        throw new Error('PDF parsing returned no content')
+      }
+
+      const parsedNote = parsedNotes[0]
+      let tiptapContent = parsedNote.content
+
+      if (parsedNote.attachments.length > 0) {
+        const copyResult = await copyAttachmentsAndUpdateContent(tiptapContent, parsedNote.attachments)
+        tiptapContent = copyResult.updatedContent
+      }
+
+      return { content: tiptapContent }
+    } finally {
+      // Keep parseFile behavior consistent: clear runtimeConfig after one-shot parse.
       this.runtimeConfig = null
     }
   }

@@ -22,6 +22,7 @@ import {
   downloadImage
 } from './arxiv-fetcher'
 import { parseArxivHtml } from './arxiv-parser'
+import { prependMarkdownToTiptapContent } from './tiptap-utils'
 import type {
   ArxivImportOptions,
   ArxivImportResult,
@@ -274,10 +275,9 @@ export class ArxivImporter {
 
       const parsedNote = parsedNotes[0]
 
-      // Add metadata header to content
+      // Add metadata header to parsed TipTap content
       const metadataMarkdown = this.generateMetadataHeader(metadata)
-      const fullMarkdown = metadataMarkdown + '\n\n' + this.tiptapToMarkdown(parsedNote.content)
-      const tiptapContent = markdownToTiptapString(fullMarkdown)
+      const tiptapContent = prependMarkdownToTiptapContent(metadataMarkdown, parsedNote.content)
 
       // Create note with attachments
       const noteId = await this.createNoteWithAttachments(
@@ -565,24 +565,13 @@ export class ArxivImporter {
   }
 
   /**
-   * Simple conversion from TipTap JSON back to markdown (for prepending metadata)
-   * This is a simplified version - we just need the text content
-   */
-  private tiptapToMarkdown(_tiptapJson: string): string {
-    // For PDF fallback, the content is already in TipTap JSON format from pdfImporter
-    // We don't need to convert back to markdown - just return empty string
-    // The PDF content will be used as-is
-    return ''
-  }
-
-  /**
-   * Fetch arXiv paper as Markdown (without creating a note)
+   * Fetch arXiv paper as TipTap JSON (without creating a note)
    * Used for inline import at cursor position
    */
-  async fetchAsMarkdown(
+  async fetchAsTiptap(
     input: string,
     onPdfProgress?: (progress: { stage: string; message: string }) => void
-  ): Promise<{ markdown: string; title: string }> {
+  ): Promise<{ content: string; title: string }> {
     this.abortController = new AbortController()
     const signal = this.abortController.signal
 
@@ -612,13 +601,14 @@ export class ArxivImporter {
           }
 
           // 6. Convert to markdown (with local image paths)
-          let markdown = this.contentToMarkdown(
+          const markdown = this.contentToMarkdown(
             metadata,
             { ...content, figures },
             { inputs: [], includeAbstract: true, includeReferences: true }
           )
+          let tiptapContent = markdownToTiptapString(markdown)
 
-          // 7. Copy images to attachments directory and update paths in markdown
+          // 7. Copy images to attachments directory and update paths in TipTap JSON
           const attachments = figures
             .filter((f) => f.localPath)
             .map((f) => ({
@@ -627,11 +617,11 @@ export class ArxivImporter {
             }))
 
           if (attachments.length > 0) {
-            const copyResult = await copyAttachmentsAndUpdateContent(markdown, attachments)
-            markdown = copyResult.updatedContent
+            const copyResult = await copyAttachmentsAndUpdateContent(tiptapContent, attachments)
+            tiptapContent = copyResult.updatedContent
           }
 
-          return { markdown, title: metadata.title }
+          return { content: tiptapContent, title: metadata.title }
         } catch (htmlError) {
           console.warn(`[ArXiv] HTML parsing failed for ${id}, falling back to PDF:`, htmlError)
           // Fall through to PDF
@@ -639,9 +629,9 @@ export class ArxivImporter {
       }
 
       // 8. Fallback to PDF
-      return await this.fetchAsMarkdownViaPdf(id, version, metadata, onPdfProgress)
+      return await this.fetchAsTiptapViaPdf(id, version, metadata, onPdfProgress)
     } catch (error) {
-      console.error('[ArXiv] fetchAsMarkdown failed:', error)
+      console.error('[ArXiv] fetchAsTiptap failed:', error)
       // Re-throw with more context for better error messages
       throw error
     } finally {
@@ -650,14 +640,14 @@ export class ArxivImporter {
   }
 
   /**
-   * Fetch as markdown via PDF (fallback path)
+   * Fetch as TipTap JSON via PDF (fallback path)
    */
-  private async fetchAsMarkdownViaPdf(
+  private async fetchAsTiptapViaPdf(
     id: string,
     version: number | undefined,
     metadata: ArxivMetadata,
     onPdfProgress?: (progress: { stage: string; message: string }) => void
-  ): Promise<{ markdown: string; title: string }> {
+  ): Promise<{ content: string; title: string }> {
     const signal = this.abortController?.signal
 
     // Check if PDF service is configured
@@ -685,14 +675,14 @@ export class ArxivImporter {
         abortSignal: signal
       })
 
-      // Parse PDF to get markdown content
-      const parseResult = await pdfImporter.parseFile(tempPdfPath)
+      // Parse PDF to TipTap content with image attachments resolved
+      const parseResult = await pdfImporter.parseFileToTiptap(tempPdfPath)
 
-      // Add metadata header
+      // Add metadata header to parsed TipTap content
       const metadataMarkdown = this.generateMetadataHeader(metadata)
-      const markdown = metadataMarkdown + '\n\n' + parseResult.content
+      const content = prependMarkdownToTiptapContent(metadataMarkdown, parseResult.content)
 
-      return { markdown, title: metadata.title }
+      return { content, title: metadata.title }
     } finally {
       pdfImporter.cleanup()
       if (existsSync(tempPdfDir)) {

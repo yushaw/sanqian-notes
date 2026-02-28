@@ -7,6 +7,7 @@ import {
   getRelativePathDisplayName,
   replaceRelativePathPrefix,
 } from '../../utils/localFolderNavigation'
+import { createLocalResourceId } from '../../utils/localResourceId'
 import type {
   Notebook,
   LocalFolderTreeResult,
@@ -63,6 +64,10 @@ export interface LocalFolderDialogsDeps {
   onMetadataRemove: (notebookId: string, relativePath: string, kind: 'file' | 'folder') => void
   onAutoDraftClearIfNeeded: (notebookId: string, relativePath: string, kind: 'file' | 'folder') => void
   onLocalEditorClear: () => void
+
+  // For updating allViewLocalEditorTarget on rename
+  allViewLocalEditorTarget: { noteId: string; notebookId: string; relativePath: string } | null
+  setAllViewLocalEditorTarget: import('react').Dispatch<import('react').SetStateAction<{ noteId: string; notebookId: string; relativePath: string } | null>>
 }
 
 export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
@@ -86,6 +91,8 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
     onMetadataRemove,
     onAutoDraftClearIfNeeded,
     onLocalEditorClear,
+    allViewLocalEditorTarget,
+    setAllViewLocalEditorTarget,
   } = deps
 
   const [createDialog, setCreateDialog] = useState<LocalCreateDialogState | null>(null)
@@ -379,6 +386,26 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
 
       onAutoDraftClearIfNeeded(selectedNotebookId, oldRelativePath, renameDialog.kind)
 
+      // Fix: update allViewLocalEditorTarget to new path
+      if (allViewLocalEditorTarget && allViewLocalEditorTarget.notebookId === selectedNotebookId) {
+        if (renameDialog.kind === 'file' && allViewLocalEditorTarget.relativePath === oldRelativePath) {
+          setAllViewLocalEditorTarget({
+            noteId: createLocalResourceId(selectedNotebookId, newRelativePath),
+            notebookId: selectedNotebookId,
+            relativePath: newRelativePath,
+          })
+        } else if (renameDialog.kind === 'folder') {
+          const nextPath = replaceRelativePathPrefix(allViewLocalEditorTarget.relativePath, oldRelativePath, newRelativePath)
+          if (nextPath) {
+            setAllViewLocalEditorTarget({
+              noteId: createLocalResourceId(selectedNotebookId, nextPath),
+              notebookId: selectedNotebookId,
+              relativePath: nextPath,
+            })
+          }
+        }
+      }
+
       setRenameDialog(null)
       setRenameName('')
       suppressLocalWatchRefresh(selectedNotebookId)
@@ -394,6 +421,7 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
       setRenameSubmitting(false)
     }
   }, [
+    allViewLocalEditorTarget,
     flushLocalFileSave,
     getOpenFileInfo,
     onAutoDraftClearIfNeeded,
@@ -407,6 +435,7 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
     selectedLocalFilePath,
     selectedLocalFolderPath,
     selectedNotebookId,
+    setAllViewLocalEditorTarget,
     suppressLocalWatchRefresh,
     t.notebook.createErrorInvalidName,
     t.notebook.renameFailed,

@@ -11,6 +11,7 @@ import {
 export {
   createLocalResourceId,
   createLocalResourceIdFromUid,
+  getLocalResourceFileTitle,
   isLocalResourceId,
   isLocalResourceUidRef,
   parseLocalResourceId,

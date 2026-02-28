@@ -160,6 +160,7 @@ interface EditorProps {
   onSelectNote?: (noteId: string) => void
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
   onScrollComplete?: (found: boolean) => void
+  onTitleCommit?: (id: string, title: string) => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
   onSelectionChange?: (blockId: string | null, selectedText: string | null, cursorContext: CursorContext | null) => void
   // 分屏控制
@@ -190,6 +191,7 @@ interface ZenEditorProps {
   onCreateNote: (title: string) => Promise<Note>
   scrollTarget?: { type: 'heading' | 'block'; value: string } | null
   onScrollComplete?: (found: boolean) => void
+  onTitleCommit?: (id: string, title: string) => void
   onTypewriterModeToggle?: (cursorInfo: CursorInfo) => void
   onSelectionChange?: (blockId: string | null, selectedText: string | null, cursorContext: CursorContext | null) => void
   // 分屏控制
@@ -211,6 +213,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   onUpdate,
   onNoteClick,
   onCreateNote,
+  onTitleCommit,
   scrollTarget,
   onScrollComplete,
   onTypewriterModeToggle,
@@ -247,6 +250,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const headerTitleClickPosRef = useRef<number | null>(null)
   const isEditorComposingRef = useRef(false)
   const isTitleComposingRef = useRef(false)
+  const skipNextTitleCommitRef = useRef(false)
 
   // Ref for AgentTask panel callback (to avoid circular dependency with useEditor)
   const openAgentTaskRef = useRef<(blockIds: string[], taskId: string | null, blockContent: string) => void>(() => {})
@@ -748,9 +752,15 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     }
   }, [editor])
 
-  // Sync title when note changes
+  // Sync title when note changes (skip if user is editing the title field)
   useEffect(() => {
-    setTitle(note.title)
+    const isTitleFocused = (
+      document.activeElement === titleRef.current
+      || document.activeElement === headerTitleRef.current
+    )
+    if (!isTitleFocused) {
+      setTitle(note.title)
+    }
   }, [note.id, note.title])
 
   // Track blocks for cleanup, edit detection, and agent task caching
@@ -918,7 +928,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     onUpdate(note.id, { title: committedTitle })
   }, [note.id, onUpdate, titleEditable])
 
-  // Handle title keydown - Enter moves to editor, Escape blurs
+  // Handle title keydown - Enter moves to editor, Escape blurs (cancels for local files)
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Skip if IME is composing (e.g., Chinese/Japanese input)
     if (e.nativeEvent.isComposing) return
@@ -928,9 +938,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       editor?.commands.focus('start')
     } else if (e.key === 'Escape') {
       e.preventDefault()
+      if (onTitleCommit) {
+        setTitle(note.title)
+        skipNextTitleCommitRef.current = true
+      }
       editor?.commands.focus()
     }
-  }, [editor])
+  }, [editor, note.title, onTitleCommit])
 
   // Auto-resize title textarea (fallback for browsers without field-sizing support)
   useEffect(() => {
@@ -1266,7 +1280,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
                   }
                   headerTitleClickPosRef.current = null
                 }}
-                onBlur={() => setIsEditingHeaderTitle(false)}
+                onBlur={() => {
+                  if (skipNextTitleCommitRef.current) {
+                    skipNextTitleCommitRef.current = false
+                  } else {
+                    onTitleCommit?.(note.id, title)
+                  }
+                  setIsEditingHeaderTitle(false)
+                }}
                 onKeyDown={(e) => {
                   if (e.nativeEvent.isComposing) return
                   if (e.key === 'Enter' || e.key === 'Tab') {
@@ -1274,6 +1295,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
                     setIsEditingHeaderTitle(false)
                     editor?.commands.focus('start')
                   } else if (e.key === 'Escape') {
+                    if (onTitleCommit) {
+                      setTitle(note.title)
+                      skipNextTitleCommitRef.current = true
+                    }
                     setIsEditingHeaderTitle(false)
                     editor?.commands.focus()
                   }
@@ -1398,6 +1423,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             onCompositionStart={handleTitleCompositionStart}
             onCompositionEnd={handleTitleCompositionEnd}
             onKeyDown={handleTitleKeyDown}
+            onBlur={() => {
+              if (skipNextTitleCommitRef.current) {
+                skipNextTitleCommitRef.current = false
+                return
+              }
+              onTitleCommit?.(note.id, title)
+            }}
             placeholder={t.editor.titlePlaceholder}
             className="zen-title"
             rows={1}
@@ -1540,7 +1572,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 })
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
-  { note, paneId, notes, notebooks, titleEditable, editable, onUpdate, onNoteClick, onCreateNote, onSelectNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange, onSplitHorizontal, onSplitVertical, onClosePane, showPaneControls, isFocused },
+  { note, paneId, notes, notebooks, titleEditable, editable, onUpdate, onNoteClick, onCreateNote, onTitleCommit, onSelectNote, scrollTarget, onScrollComplete, onTypewriterModeToggle, onSelectionChange, onSplitHorizontal, onSplitVertical, onClosePane, showPaneControls, isFocused },
   ref
 ) {
   const t = useTranslations()
@@ -1629,6 +1661,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
           onUpdate={onUpdate}
           onNoteClick={onNoteClick}
           onCreateNote={onCreateNote}
+          onTitleCommit={onTitleCommit}
           scrollTarget={scrollTarget}
           onScrollComplete={onScrollComplete}
           onTypewriterModeToggle={onTypewriterModeToggle}

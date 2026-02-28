@@ -6,6 +6,7 @@
  */
 
 import { Marked, Token, Tokens } from 'marked'
+import { INLINE_MATH_RE, INLINE_MATH_CONTENT } from '../../shared/markdown/math-patterns'
 
 // Isolated marked instance to avoid global state pollution
 const marked = new Marked({ gfm: true, breaks: true })
@@ -187,8 +188,7 @@ function preprocessMarkdown(markdown: string): { result: string; mathContext: Ma
   })
 
   // 保护行内数学公式 $...$（防止 _ 被误解析为斜体）
-  // 这些占位符会保留到 postProcessMath 阶段
-  result = result.replace(/\$([^$\n]+)\$/g, (_, latex) => {
+  result = result.replace(INLINE_MATH_RE, (_, latex) => {
     mathContext.protectedInlineMaths.push(latex)
     return `\x00INLINE_MATH_${mathContext.protectedInlineMaths.length - 1}\x00`
   })
@@ -309,9 +309,10 @@ function parseToken(token: Token, mathContext: MathContext): TiptapNode[] {
         // 解析行内数学公式
         const inlineNodes: TiptapNode[] = []
         let remaining = text
+        const inlineMathWithContextRe = new RegExp(`^(.*?)\\$(${INLINE_MATH_CONTENT})\\$(.*)$`)
 
         while (remaining) {
-          const inlineMathMatch = remaining.match(/^(.*?)\$([^$\n]+)\$(.*)$/)
+          const inlineMathMatch = remaining.match(inlineMathWithContextRe)
           if (inlineMathMatch) {
             const [, before, latex, after] = inlineMathMatch
             if (before) {
@@ -781,6 +782,10 @@ function parseListItemContent(item: Tokens.ListItem, mathContext: MathContext): 
 // Node types that can contain inline text children with math placeholders
 const INLINE_CONTAINER_TYPES = new Set(['paragraph', 'heading'])
 
+// Precompiled regexes for postProcessMath (avoid repeated compilation in loops)
+const MATH_SPLIT_RE = new RegExp(`(\\x00INLINE_MATH_\\d+\\x00|\\x00BLOCK_MATH_\\d+\\x00|\\$${INLINE_MATH_CONTENT}\\$)`)
+const RAW_INLINE_MATH_RE = new RegExp(`^\\$(${INLINE_MATH_CONTENT})\\$$`)
+
 function postProcessMath(nodes: TiptapNode[], mathContext: MathContext): TiptapNode[] {
   return nodes.map(node => {
     if (INLINE_CONTAINER_TYPES.has(node.type) && node.content) {
@@ -789,8 +794,7 @@ function postProcessMath(nodes: TiptapNode[], mathContext: MathContext): TiptapN
       for (const child of node.content) {
         if (child.type === 'text' && child.text) {
           // 处理数学公式占位符和原始 $...$ 格式
-          // 使用占位符模式和原始模式
-          const parts = child.text.split(/(\x00INLINE_MATH_\d+\x00|\x00BLOCK_MATH_\d+\x00|\$[^$\n]+\$)/)
+          const parts = child.text.split(MATH_SPLIT_RE)
           for (const part of parts) {
             if (!part) continue
 
@@ -819,7 +823,7 @@ function postProcessMath(nodes: TiptapNode[], mathContext: MathContext): TiptapN
             }
 
             // 检查原始的行内数学公式格式 $...$（向后兼容）
-            const rawMathMatch = part.match(/^\$([^$\n]+)\$$/)
+            const rawMathMatch = part.match(RAW_INLINE_MATH_RE)
             if (rawMathMatch) {
               newContent.push({
                 type: 'inlineMath',

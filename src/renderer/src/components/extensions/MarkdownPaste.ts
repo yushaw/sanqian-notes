@@ -2,6 +2,7 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { INLINE_MATH_GUARDED_RE, INLINE_MATH_DETECT_RE } from '../../../../shared/markdown/math-patterns'
 
 /**
  * MarkdownPaste 扩展
@@ -91,11 +92,9 @@ function preprocessMarkdown(text: string): string {
     }
   )
 
-  // 3. 处理行内数学公式: $...$
-  // 注意：避免匹配 $$ 和纯数字如 $100
-  // 支持单字符如 $x$
+  // 3. 处理行内数学公式: $...$ (see math-patterns.ts for convention details)
   result = result.replace(
-    /(?<!\$)\$(?!\$)([^$\n]+)\$(?!\$)/g,
+    INLINE_MATH_GUARDED_RE,
     (_match, latex) => {
       const trimmedLatex = latex.trim()
       // 跳过看起来像货币的情况 (纯数字)
@@ -153,7 +152,7 @@ export function looksLikeMarkdown(text: string): boolean {
     /^>\s+\S/m,                               // 引用: > text
     /^>\s*\[!\w+\]/m,                         // Callout: > [!note]
     /\$\$[\s\S]+?\$\$/,                       // 块级公式: $$...$$
-    /(?<!\$)\$(?!\$)[^$\n]+\$(?!\$)/,         // 行内公式: $...$
+    INLINE_MATH_DETECT_RE,                    // 行内公式: $...$
     /==[^=]+==/,                              // 高亮: ==text==
     /^\s*[-*]\s+\[[ x]\]/mi,                  // 任务列表: - [ ] or - [x]
     /\[\^\w+\]/,                              // 脚注: [^1]

@@ -309,6 +309,30 @@ aliases:
       expect(content[1].attrs.latex).toBe('E=mc^2')
     })
 
+    it('行内数学公式不误匹配货币符号', () => {
+      const result = markdownToTiptap('Price is $50 and formula is $E=mc^2$') as AnyNode
+      const content = result.content[0].content
+      // $50 should remain as plain text, only $E=mc^2$ should be inlineMath
+      const mathNodes = content.filter((n: AnyNode) => n.type === 'inlineMath')
+      expect(mathNodes).toHaveLength(1)
+      expect(mathNodes[0].attrs.latex).toBe('E=mc^2')
+      // $50 should be in plain text
+      const textContent = content
+        .filter((n: AnyNode) => n.type === 'text')
+        .map((n: AnyNode) => n.text)
+        .join('')
+      expect(textContent).toContain('$50')
+    })
+
+    it('多个行内数学公式', () => {
+      const result = markdownToTiptap('$a+b$ and $c+d$') as AnyNode
+      const content = result.content[0].content
+      const mathNodes = content.filter((n: AnyNode) => n.type === 'inlineMath')
+      expect(mathNodes).toHaveLength(2)
+      expect(mathNodes[0].attrs.latex).toBe('a+b')
+      expect(mathNodes[1].attrs.latex).toBe('c+d')
+    })
+
     it('块级数学公式', () => {
       const result = markdownToTiptap('$$\n\\int_0^\\infty e^{-x^2} dx\n$$') as AnyNode
       // 统一使用 inlineMath + display: 'yes'，包裹在 paragraph 中

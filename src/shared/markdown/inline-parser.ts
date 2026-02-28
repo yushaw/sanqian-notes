@@ -7,6 +7,7 @@
 
 import { Marked, Token, Tokens } from 'marked'
 import { parseAIPopupMarkerFromHtml } from '../ai-popup-marker'
+import { INLINE_MATH_RE } from './math-patterns'
 
 // Isolated marked instance to avoid global state pollution
 const marked = new Marked({ gfm: true, breaks: true })
@@ -66,8 +67,8 @@ function preprocessInlineText(text: string): string {
   // Underline: ++text++ (non-greedy to support content with + signs)
   result = result.replace(/\+\+(.+?)\+\+/g, '\x00UNDERLINE_START\x00$1\x00UNDERLINE_END\x00')
 
-  // Protect inline math: $...$
-  result = result.replace(/\$([^$\n]+)\$/g, '\x00INLINE_MATH:$1\x00')
+  // Protect inline math: $...$ (see math-patterns.ts for convention details)
+  result = result.replace(INLINE_MATH_RE, '\x00INLINE_MATH:$1\x00')
 
   return result
 }

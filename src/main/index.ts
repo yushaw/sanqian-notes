@@ -1,4 +1,4 @@
-import { app, shell, BaseWindow, WebContentsView, ipcMain, nativeTheme, protocol, net, Tray, Menu, nativeImage, globalShortcut } from 'electron'
+import { app, shell, BaseWindow, WebContentsView, ipcMain, nativeTheme, protocol, net, Tray, Menu, nativeImage, globalShortcut, dialog } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { pathToFileURL } from 'url'
@@ -841,10 +841,25 @@ app.whenReady().then(() => {
   })
 
   // Initialize database
-  initDatabase()
+  try {
+    initDatabase()
+  } catch (err) {
+    console.error('[Main] Failed to initialize database:', err)
+    dialog.showErrorBox(
+      'Database Initialization Failed',
+      `Failed to open or migrate the database. The app cannot start.\n\n${err instanceof Error ? err.message : String(err)}`
+    )
+    app.quit()
+    return
+  }
 
   // Initialize vector database for knowledge base
-  initVectorDatabase()
+  try {
+    initVectorDatabase()
+  } catch (err) {
+    console.error('[Main] Failed to initialize vector database:', err)
+    // Vector DB failure is non-fatal: search/embedding won't work but app can still run
+  }
 
   // Start indexing service (mainWindow is set in createWindow)
   indexingService.start()

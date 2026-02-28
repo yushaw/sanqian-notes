@@ -22,7 +22,7 @@ import {
   type NotebookStatus,
   type LocalNoteMetadata,
 } from '../types/note'
-import { createLocalResourceId, isLocalResourceId, parseLocalResourceId } from '../utils/localResourceId'
+import { createLocalResourceId, getLocalResourceFileTitle, parseLocalResourceId } from '../utils/localResourceId'
 import type { Translations } from '../i18n'
 
 // ---------------------------------------------------------------------------
@@ -82,11 +82,7 @@ export interface UseLocalFolderStateOptions {
   notebooks: Notebook[]
   selectedNotebookId: string | null
   selectedSmartView: SmartViewId | null
-  notes: Note[]
-  allSourceLocalNotes: Note[]
   allViewLocalEditorTarget: { noteId: string; notebookId: string; relativePath: string } | null
-  setAllSourceLocalNotes: Dispatch<SetStateAction<Note[]>>
-  setGlobalSmartViewNotes: Dispatch<SetStateAction<Note[]>>
   setNotebooks: Dispatch<SetStateAction<Notebook[]>>
   setAllViewLocalEditorTarget: Dispatch<SetStateAction<{ noteId: string; notebookId: string; relativePath: string } | null>>
   setSelectedNotebookId: Dispatch<SetStateAction<string | null>>
@@ -106,11 +102,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     notebooks,
     selectedNotebookId,
     selectedSmartView,
-    notes,
-    allSourceLocalNotes,
     allViewLocalEditorTarget,
-    setAllSourceLocalNotes,
-    setGlobalSmartViewNotes,
     setNotebooks,
     setAllViewLocalEditorTarget,
     setSelectedNotebookId,
@@ -180,16 +172,13 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   const localSaveTaskRef = useRef<Promise<void> | null>(null)
   const localFileReadVersionRef = useRef(0)
   const localTreeLoadVersionRef = useRef(0)
-  const allSourceLocalReloadVersionRef = useRef(0)
-  const allSourceLocalReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const globalSmartViewReloadVersionRef = useRef(0)
-  const globalSmartViewReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localWatchRefreshTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const localWatchRefreshSuppressUntilRef = useRef<Map<string, number>>(new Map())
   const localStatusToastAtRef = useRef<Map<string, number>>(new Map())
   const localWatchSequenceRef = useRef<Map<string, number>>(new Map())
   const localFileErrorMessageResolverRef = useRef<(errorCode: LocalFolderFileErrorCode) => string>(null!)
   const flushLocalFileSaveRef = useRef<() => Promise<void>>(null!)
+  const localRenameInFlightRef = useRef(false)
   const localFolderDialogsResetRef = useRef<() => void>(() => {})
 
   // ---------------------------------------------------------------------------
@@ -317,80 +306,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       console.error('Failed to refresh local folder statuses:', error)
     }
   }, [])
-
-  // ---------------------------------------------------------------------------
-  // useCallback: reloadAllSourceLocalNotes
-  // ---------------------------------------------------------------------------
-
-  const reloadAllSourceLocalNotes = useCallback(async () => {
-    const requestVersion = allSourceLocalReloadVersionRef.current + 1
-    allSourceLocalReloadVersionRef.current = requestVersion
-
-    try {
-      const allSourceNotes = await window.electron.note.getAll({ includeLocal: true })
-      if (requestVersion !== allSourceLocalReloadVersionRef.current) return
-      setAllSourceLocalNotes((allSourceNotes as Note[]).filter((note) => isLocalResourceId(note.id)))
-    } catch (error) {
-      if (requestVersion !== allSourceLocalReloadVersionRef.current) return
-      console.error('Failed to reload all-source local notes:', error)
-    }
-  }, [setAllSourceLocalNotes])
-
-  // ---------------------------------------------------------------------------
-  // useCallback: scheduleAllSourceLocalReload
-  // ---------------------------------------------------------------------------
-
-  const scheduleAllSourceLocalReload = useCallback((delayMs: number = 180) => {
-    if (allSourceLocalReloadTimerRef.current) {
-      clearTimeout(allSourceLocalReloadTimerRef.current)
-    }
-    allSourceLocalReloadTimerRef.current = setTimeout(() => {
-      allSourceLocalReloadTimerRef.current = null
-      void reloadAllSourceLocalNotes()
-    }, Math.max(0, delayMs))
-  }, [reloadAllSourceLocalNotes])
-
-  // ---------------------------------------------------------------------------
-  // useCallback: reloadGlobalSmartViewNotes
-  // ---------------------------------------------------------------------------
-
-  const reloadGlobalSmartViewNotes = useCallback(async () => {
-    const isGlobalSmartView = !selectedNotebookId && selectedSmartView !== 'daily' && selectedSmartView !== 'trash'
-    if (!isGlobalSmartView) {
-      setGlobalSmartViewNotes([])
-      return
-    }
-
-    const requestVersion = globalSmartViewReloadVersionRef.current + 1
-    globalSmartViewReloadVersionRef.current = requestVersion
-
-    try {
-      const viewType = selectedSmartView || 'all'
-      const projectedNotes = await window.electron.note.getAll({
-        includeLocal: true,
-        viewType,
-      })
-      if (requestVersion !== globalSmartViewReloadVersionRef.current) return
-      setGlobalSmartViewNotes(projectedNotes as Note[])
-    } catch (error) {
-      if (requestVersion !== globalSmartViewReloadVersionRef.current) return
-      console.error('Failed to reload global smart-view notes:', error)
-    }
-  }, [selectedNotebookId, selectedSmartView, setGlobalSmartViewNotes])
-
-  // ---------------------------------------------------------------------------
-  // useCallback: scheduleGlobalSmartViewReload
-  // ---------------------------------------------------------------------------
-
-  const scheduleGlobalSmartViewReload = useCallback((delayMs: number = 220) => {
-    if (globalSmartViewReloadTimerRef.current) {
-      clearTimeout(globalSmartViewReloadTimerRef.current)
-    }
-    globalSmartViewReloadTimerRef.current = setTimeout(() => {
-      globalSmartViewReloadTimerRef.current = null
-      void reloadGlobalSmartViewNotes()
-    }, Math.max(0, delayMs))
-  }, [reloadGlobalSmartViewNotes])
 
   // ---------------------------------------------------------------------------
   // useCallback: warmupLocalNotebookSummaries
@@ -555,10 +470,9 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     } finally {
       if (requestVersion === localTreeLoadVersionRef.current) {
         setLocalFolderTreeLoading(false)
-        scheduleAllSourceLocalReload(120)
       }
     }
-  }, [refreshLocalFolderStatuses, scheduleAllSourceLocalReload])
+  }, [refreshLocalFolderStatuses])
 
   // ---------------------------------------------------------------------------
   // useCallback: processLocalFileSaveQueue
@@ -1190,17 +1104,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         ai_summary: metadata.ai_summary ?? null,
       }
     })
-
-    setAllSourceLocalNotes((prev) => prev.map((note) => {
-      if (note.id !== localId) return note
-      return {
-        ...note,
-        is_favorite: metadata.is_favorite,
-        is_pinned: metadata.is_pinned,
-        ai_summary: metadata.ai_summary ?? note.ai_summary,
-      }
-    }))
-  }, [setAllSourceLocalNotes])
+  }, [])
 
   // ---------------------------------------------------------------------------
   // useCallback: migrateLocalNoteMetadataInState
@@ -1390,6 +1294,8 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       setLocalSaveConflictDialog(null)
       localPendingContentRef.current = null
     },
+    allViewLocalEditorTarget,
+    setAllViewLocalEditorTarget,
   })
   localFolderDialogsResetRef.current = localFolderDialogs.resetDialogs
 
@@ -1844,7 +1750,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     isLocalFolderNotebookSelected,
     localFolderMissingText: t.notebook.localFolderMissing,
     localFolderPermissionRequiredText: t.notebook.localFolderPermissionRequired,
-    scheduleAllSourceLocalReload,
     refreshLocalFolderTree,
     refreshOpenLocalFileFromDisk,
     onLocalMountUnavailable: handleLocalMountUnavailable,
@@ -1901,47 +1806,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       }
     }
   }, [notebooks])
-
-  // ---------------------------------------------------------------------------
-  // useEffect: Schedule all-source local reload for global views
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (!isGlobalLocalAwareView) return
-    scheduleAllSourceLocalReload(0)
-  }, [isGlobalLocalAwareView, scheduleAllSourceLocalReload])
-
-  // ---------------------------------------------------------------------------
-  // useEffect: Global smart view reload control
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (selectedNotebookId || selectedSmartView === 'daily' || selectedSmartView === 'trash') {
-      globalSmartViewReloadVersionRef.current += 1
-      if (globalSmartViewReloadTimerRef.current) {
-        clearTimeout(globalSmartViewReloadTimerRef.current)
-        globalSmartViewReloadTimerRef.current = null
-      }
-      setGlobalSmartViewNotes([])
-      return
-    }
-    scheduleGlobalSmartViewReload(0)
-  }, [scheduleGlobalSmartViewReload, selectedNotebookId, selectedSmartView, setGlobalSmartViewNotes])
-
-  // ---------------------------------------------------------------------------
-  // useEffect: Schedule global smart view reload on data changes
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (selectedNotebookId || selectedSmartView === 'daily' || selectedSmartView === 'trash') return
-    scheduleGlobalSmartViewReload(280)
-  }, [
-    notes,
-    allSourceLocalNotes,
-    selectedNotebookId,
-    selectedSmartView,
-    scheduleGlobalSmartViewReload,
-  ])
 
   // ---------------------------------------------------------------------------
   // useEffect: Clear allViewLocalEditorTarget when leaving all-source view
@@ -2018,8 +1882,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         const mounts = await window.electron.localFolder.list()
         if (cancelled) return
         await warmupLocalNotebookSummaries(mounts, { notebookIds: staleNotebookIds })
-        if (cancelled) return
-        scheduleAllSourceLocalReload(80)
       } catch (error) {
         console.warn('[local-folder] all-view warmup failed:', error)
       }
@@ -2035,7 +1897,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     localFolderStatuses,
     localFolderTreeDirty,
     localFolderTreeCache,
-    scheduleAllSourceLocalReload,
     warmupLocalNotebookSummaries,
   ])
 
@@ -2116,12 +1977,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         clearTimeout(localSaveTimerRef.current)
         localSaveTimerRef.current = null
       }
-      if (allSourceLocalReloadTimerRef.current) {
-        clearTimeout(allSourceLocalReloadTimerRef.current)
-      }
-      if (globalSmartViewReloadTimerRef.current) {
-        clearTimeout(globalSmartViewReloadTimerRef.current)
-      }
       for (const timer of localWatchRefreshTimers.values()) {
         clearTimeout(timer)
       }
@@ -2129,6 +1984,126 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       void flushLocalFileSave()
     }
   }, [flushLocalFileSave])
+
+  // ---------------------------------------------------------------------------
+  // useCallback: commitLocalFileTitleRename
+  // ---------------------------------------------------------------------------
+
+  const commitLocalFileTitleRename = useCallback(async (noteId: string, newTitle: string) => {
+    const openFile = localOpenFileRef.current
+    if (!openFile) return
+    const { notebookId, relativePath } = openFile
+
+    // Must match the currently open file
+    const currentNoteId = createLocalResourceId(notebookId, relativePath)
+    if (currentNoteId !== noteId) return
+
+    // Guard: no concurrent rename, no conflict, no loading
+    if (localRenameInFlightRef.current) return
+    if (localSaveBlockedByConflictRef.current) return
+
+    const originalTitle = getLocalResourceFileTitle(relativePath)
+    const trimmedTitle = newTitle.trim()
+
+    // No-op if title unchanged
+    if (trimmedTitle === originalTitle) return
+
+    // Empty title -> revert
+    if (!trimmedTitle) {
+      setLocalEditorNote((prev) => {
+        if (!prev || prev.id !== currentNoteId) return prev
+        if (prev.title === originalTitle) return prev
+        return { ...prev, title: originalTitle }
+      })
+      return
+    }
+
+    localRenameInFlightRef.current = true
+    try {
+      // Flush pending content save to old path first
+      await flushLocalFileSave()
+
+      const result = await window.electron.localFolder.renameEntry({
+        notebook_id: notebookId,
+        relative_path: relativePath,
+        kind: 'file',
+        new_name: trimmedTitle,
+      })
+
+      if (!result.success) {
+        toast(resolveLocalFileErrorMessage(result.errorCode), { type: 'error' })
+        // Revert title
+        setLocalEditorNote((prev) => {
+          if (!prev || prev.id !== currentNoteId) return prev
+          return { ...prev, title: originalTitle }
+        })
+        return
+      }
+
+      const newRelativePath = result.result.relative_path
+
+      // Stale check: user may have navigated to a different file during the async IPC.
+      // If so, skip in-place state swap to avoid corrupting the new file's state.
+      const currentRef = localOpenFileRef.current
+      const isStale = !currentRef
+        || currentRef.notebookId !== notebookId
+        || currentRef.relativePath !== relativePath
+      if (isStale) {
+        // Rename succeeded on disk but we can't do in-place swap.
+        // Just refresh tree and migrate metadata so the sidebar reflects the new name.
+        migrateLocalNoteMetadataInState(notebookId, relativePath, newRelativePath, 'file')
+        suppressLocalWatchRefresh(notebookId)
+        void refreshLocalFolderTree(notebookId, { showLoading: false })
+        return
+      }
+
+      // In-place state swap (no openLocalFile re-read needed)
+      migrateLocalNoteMetadataInState(notebookId, relativePath, newRelativePath, 'file')
+      setSelectedLocalFilePath(newRelativePath)
+      localOpenFileRef.current = { notebookId, relativePath: newRelativePath }
+      // Invalidate etag (contains old path)
+      localOpenFileMetaRef.current = null
+
+      const newNoteId = createLocalResourceId(notebookId, newRelativePath)
+      setLocalEditorNote((prev) => {
+        if (!prev || prev.id !== currentNoteId) return prev
+        return { ...prev, id: newNoteId, title: trimmedTitle }
+      })
+
+      setAllViewLocalEditorTarget((prev) =>
+        prev && prev.notebookId === notebookId && prev.relativePath === relativePath
+          ? { noteId: newNoteId, notebookId, relativePath: newRelativePath }
+          : prev
+      )
+
+      // Clear auto draft if it references the old path
+      const autoDraft = localAutoDraftRef.current
+      if (autoDraft && autoDraft.notebookId === notebookId && autoDraft.relativePath === relativePath) {
+        localAutoDraftRef.current = null
+      }
+
+      suppressLocalWatchRefresh(notebookId)
+      void refreshLocalFolderTree(notebookId, { showLoading: false })
+    } catch (error) {
+      console.error('Failed to rename local file via title edit:', error)
+      toast(t.notebook.renameFailed, { type: 'error' })
+      // Revert title
+      setLocalEditorNote((prev) => {
+        if (!prev || prev.id !== currentNoteId) return prev
+        return { ...prev, title: originalTitle }
+      })
+    } finally {
+      localRenameInFlightRef.current = false
+    }
+  }, [
+    flushLocalFileSave,
+    migrateLocalNoteMetadataInState,
+    refreshLocalFolderTree,
+    resolveLocalFileErrorMessage,
+    setAllViewLocalEditorTarget,
+    suppressLocalWatchRefresh,
+    t.notebook.renameFailed,
+  ])
 
   // ---------------------------------------------------------------------------
   // Return
@@ -2199,6 +2174,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     handleRecoverLocalFolderAccess,
     resetLocalEditorState,
     cleanupUnmountedLocalNotebook,
+    commitLocalFileTitleRename,
 
     // Dialog hook
     localFolderDialogs,

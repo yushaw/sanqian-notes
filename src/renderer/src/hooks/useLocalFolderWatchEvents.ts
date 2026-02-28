@@ -15,7 +15,6 @@ interface UseLocalFolderWatchEventsOptions {
   isLocalFolderNotebookSelected: boolean
   localFolderMissingText: string
   localFolderPermissionRequiredText: string
-  scheduleAllSourceLocalReload: (delayMs?: number) => void
   refreshLocalFolderTree: (notebookId: string, options?: { showLoading?: boolean }) => Promise<LocalFolderTreeResult | null>
   refreshOpenLocalFileFromDisk: (options?: { changedRelativePath?: string | null }) => Promise<void>
   onLocalMountUnavailable: (notebookId: string) => void
@@ -40,7 +39,6 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
     isLocalFolderNotebookSelected,
     localFolderMissingText,
     localFolderPermissionRequiredText,
-    scheduleAllSourceLocalReload,
     refreshLocalFolderTree,
     refreshOpenLocalFileFromDisk,
     onLocalMountUnavailable,
@@ -102,7 +100,6 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
           return next
         })
       }
-      scheduleAllSourceLocalReload(120)
 
       const isActiveSelectedLocalNotebook = event.notebook_id === selectedNotebookId
       const isActiveAllViewLocalNotebook = Boolean(
@@ -173,7 +170,6 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
     onLocalMountUnavailable,
     refreshOpenLocalFileFromDisk,
     refreshLocalFolderTree,
-    scheduleAllSourceLocalReload,
     selectedNotebookId,
     setLocalFolderStatuses,
     setLocalFolderTreeCache,

@@ -1,5 +1,6 @@
-import { RECENT_DAYS } from '../shared/types'
 import type { Note, NoteGetAllOptions, LocalNoteMetadata, LocalFolderTreeResult, LocalFolderNotebookMount } from '../shared/types'
+import { applyViewTypeFilter } from '../shared/note-filters'
+export { applyViewTypeFilter, resolveRecentThresholdMs } from '../shared/note-filters'
 import { createLocalResourceId } from '../shared/local-resource-id'
 import {
   getNotes,
@@ -30,37 +31,6 @@ export function compareNotesByPinnedAndUpdated(left: Note, right: Note): number 
   }
 
   return left.id.localeCompare(right.id, undefined, { sensitivity: 'base', numeric: true })
-}
-
-export function resolveRecentThresholdMs(recentDays?: number): number {
-  const normalizedDays = typeof recentDays === 'number' && Number.isFinite(recentDays) && recentDays > 0
-    ? Math.floor(recentDays)
-    : RECENT_DAYS
-  return Date.now() - normalizedDays * 24 * 60 * 60 * 1000
-}
-
-export function applyViewTypeFilter(notes: Note[], options?: NoteGetAllOptions): Note[] {
-  const viewType = options?.viewType
-  if (!viewType) return notes
-
-  switch (viewType) {
-    case 'all':
-      return notes.filter((note) => !note.is_daily)
-    case 'recent': {
-      const thresholdMs = resolveRecentThresholdMs(options?.recentDays)
-      return notes.filter((note) => !note.is_daily && new Date(note.updated_at).getTime() > thresholdMs)
-    }
-    case 'favorites':
-      return notes.filter((note) => note.is_favorite)
-    case 'daily':
-      return notes
-        .filter((note) => note.is_daily)
-        .sort((left, right) => (right.daily_date || '').localeCompare(left.daily_date || ''))
-    case 'trash':
-      return []
-    default:
-      return notes
-  }
 }
 
 export function buildLocalMetadataMap(items: LocalNoteMetadata[]): Map<string, LocalNoteMetadata> {

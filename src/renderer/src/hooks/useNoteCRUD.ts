@@ -75,7 +75,6 @@ export interface UseNoteCRUDOptions {
   setNotes: React.Dispatch<React.SetStateAction<Note[]>>
   setTrashNotes: React.Dispatch<React.SetStateAction<Note[]>>
   setNotebookFolders: React.Dispatch<React.SetStateAction<NotebookFolder[]>>
-  setAllSourceLocalNotes: React.Dispatch<React.SetStateAction<Note[]>>
   setSelectedNoteIds: React.Dispatch<React.SetStateAction<string[]>>
   setAnchorNoteId: React.Dispatch<React.SetStateAction<string | null>>
 
@@ -145,7 +144,6 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
     setNotes,
     setTrashNotes,
     setNotebookFolders,
-    setAllSourceLocalNotes,
     setSelectedNoteIds,
     setAnchorNoteId,
     pendingEditorUpdatesRef,
@@ -171,9 +169,8 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
   // ---------------------------------------------------------------------------
 
   const refreshInternalNotebookData = useCallback(async () => {
-    const [notesData, allSourceNotesData, trashData, notebookFolderData] = await Promise.all([
+    const [notesData, trashData, notebookFolderData] = await Promise.all([
       window.electron.note.getAll(),
-      window.electron.note.getAll({ includeLocal: true }),
       window.electron.trash.getAll(),
       window.electron.notebookFolder.list(),
     ])
@@ -184,10 +181,9 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
     })
     notesRef.current = mergedNotes
     setNotes(mergedNotes)
-    setAllSourceLocalNotes((allSourceNotesData as Note[]).filter((note) => isLocalResourceId(note.id)))
     setTrashNotes(trashData as Note[])
     setNotebookFolders(notebookFolderData as NotebookFolder[])
-  }, [pendingEditorUpdatesRef, notesRef, setNotes, setAllSourceLocalNotes, setTrashNotes, setNotebookFolders])
+  }, [pendingEditorUpdatesRef, notesRef, setNotes, setTrashNotes, setNotebookFolders])
 
   // ---------------------------------------------------------------------------
   // isNoteEmpty

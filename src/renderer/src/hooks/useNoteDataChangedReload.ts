@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
-import { isLocalResourceId } from '../utils/localResourceId'
 import { buildLocalNoteMetadataMap, mergeLocalNotebookStatuses, mergeNotebooksWithLocalMounts } from '../utils/localFolderNavigation'
 import type {
   LocalFolderNotebookMount,
@@ -18,7 +17,6 @@ interface UseNoteDataChangedReloadOptions {
   localOpenFileRef: MutableRefObject<{ notebookId: string; relativePath: string } | null>
   pendingEditorUpdatesRef: MutableRefObject<Map<string, Partial<Pick<NoteInput, 'title' | 'content'>>>>
   setNotes: Dispatch<SetStateAction<Note[]>>
-  setAllSourceLocalNotes: Dispatch<SetStateAction<Note[]>>
   setNotebooks: Dispatch<SetStateAction<Notebook[]>>
   setNotebookFolders: Dispatch<SetStateAction<NotebookFolder[]>>
   setLocalNoteMetadataById: Dispatch<SetStateAction<Record<string, LocalNoteMetadata>>>
@@ -33,7 +31,6 @@ export function useNoteDataChangedReload(options: UseNoteDataChangedReloadOption
     localOpenFileRef,
     pendingEditorUpdatesRef,
     setNotes,
-    setAllSourceLocalNotes,
     setNotebooks,
     setNotebookFolders,
     setLocalNoteMetadataById,
@@ -44,9 +41,8 @@ export function useNoteDataChangedReload(options: UseNoteDataChangedReloadOption
     const cleanup = window.electron.note.onDataChanged(async () => {
       console.log('[App] Data changed, reloading data...')
       try {
-        const [notesData, allSourceNotesData, notebooksData, localMounts, notebookFolderData, localMetadataResponse] = await Promise.all([
+        const [notesData, notebooksData, localMounts, notebookFolderData, localMetadataResponse] = await Promise.all([
           window.electron.note.getAll(),
-          window.electron.note.getAll({ includeLocal: true }),
           window.electron.notebook.getAll(),
           window.electron.localFolder.list(),
           window.electron.notebookFolder.list(),
@@ -64,7 +60,6 @@ export function useNoteDataChangedReload(options: UseNoteDataChangedReloadOption
         })
         notesRef.current = mergedNotes
         setNotes(mergedNotes)
-        setAllSourceLocalNotes((allSourceNotesData as Note[]).filter((note) => isLocalResourceId(note.id)))
         setNotebooks(mergedNotebooks)
         setNotebookFolders(notebookFolderData as NotebookFolder[])
         setLocalNoteMetadataById(buildLocalNoteMetadataMap(localMetadataItems))
@@ -86,7 +81,6 @@ export function useNoteDataChangedReload(options: UseNoteDataChangedReloadOption
     pendingEditorUpdatesRef,
     refreshLocalFolderTree,
     refreshOpenLocalFileFromDisk,
-    setAllSourceLocalNotes,
     setLocalFolderStatuses,
     setLocalNoteMetadataById,
     setNotebookFolders,

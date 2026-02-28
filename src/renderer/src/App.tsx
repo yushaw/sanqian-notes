@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useDeferredValue, useCallback, useEffect, useRef } from 'react'
 import { Dialog } from './components/Dialog'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
@@ -41,7 +41,11 @@ import {
   type NotebookFolder,
   type LocalFolderNotebookMount,
 } from './types/note'
-import { isLocalResourceId, parseLocalResourceId } from './utils/localResourceId'
+import { parseLocalResourceId } from './utils/localResourceId'
+import { buildAllSourceLocalNotes, mergeAllSourceNotes } from './utils/allSourceNotes'
+import { applyViewTypeFilter } from '../../shared/note-filters'
+
+const EMPTY_NOTES: Note[] = []
 
 function AppContent() {
   const t = useTranslations()
@@ -66,8 +70,7 @@ function AppContent() {
 
   const [notebooks, setNotebooks] = useState<Notebook[]>([])
   const [notes, setNotes] = useState<Note[]>([])
-  const [allSourceLocalNotes, setAllSourceLocalNotes] = useState<Note[]>([])
-  const [globalSmartViewNotes, setGlobalSmartViewNotes] = useState<Note[]>([])
+  // allSourceLocalNotes and globalSmartViewNotes are derived below via useMemo (after useLocalFolderState)
   const [trashNotes, setTrashNotes] = useState<Note[]>([])
   const [notebookFolders, setNotebookFolders] = useState<NotebookFolder[]>([])
   const [selectedInternalFolderPath, setSelectedInternalFolderPath] = useState<string | null>(null)
@@ -160,11 +163,7 @@ function AppContent() {
     notebooks,
     selectedNotebookId,
     selectedSmartView,
-    notes,
-    allSourceLocalNotes,
     allViewLocalEditorTarget,
-    setAllSourceLocalNotes,
-    setGlobalSmartViewNotes,
     setNotebooks,
     setAllViewLocalEditorTarget,
     setSelectedNotebookId,
@@ -234,9 +233,36 @@ function AppContent() {
     handleRecoverLocalFolderAccess,
     resetLocalEditorState,
     cleanupUnmountedLocalNotebook,
+    commitLocalFileTitleRename,
     // Dialog hook
     localFolderDialogs,
   } = localFolder
+
+  // Derive allSourceLocalNotes from renderer-side cache (replaces async IPC fetch)
+  const allSourceLocalNotes = useMemo(() =>
+    buildAllSourceLocalNotes({
+      notebooks,
+      localFolderTreeCache,
+      localFolderStatuses,
+      localNoteMetadataById,
+    }),
+    [notebooks, localFolderTreeCache, localFolderStatuses, localNoteMetadataById]
+  )
+
+  // Defer notes for globalSmartViewNotes so that merge+sort (O(n log n) with Date
+  // parsing) doesn't run synchronously on every keystroke during editing.
+  // React schedules the deferred update during idle time, similar to the old 280ms
+  // debounce but with framework-level scheduling.
+  const deferredNotes = useDeferredValue(notes)
+
+  // Derive globalSmartViewNotes from merged notes (replaces async IPC fetch)
+  const globalSmartViewNotes = useMemo(() => {
+    if (selectedNotebookId || selectedSmartView === 'daily' || selectedSmartView === 'trash') {
+      return EMPTY_NOTES
+    }
+    const merged = mergeAllSourceNotes(deferredNotes, allSourceLocalNotes)
+    return applyViewTypeFilter(merged, { viewType: selectedSmartView || 'all' })
+  }, [deferredNotes, allSourceLocalNotes, selectedNotebookId, selectedSmartView])
 
   // Ref for selectSingleNote (populated below) to break circular dependency
   const selectSingleNoteRef = useRef<(noteId: string) => void>(() => {})
@@ -255,7 +281,6 @@ function AppContent() {
     setNotes,
     setTrashNotes,
     setNotebookFolders,
-    setAllSourceLocalNotes,
     setSelectedNoteIds,
     setAnchorNoteId,
     pendingEditorUpdatesRef,
@@ -461,9 +486,8 @@ function AppContent() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [notesData, allSourceNotesData, notebooksData, trashData, localMounts, notebookFolderData, localMetadataResponse] = await Promise.all([
+        const [notesData, notebooksData, trashData, localMounts, notebookFolderData, localMetadataResponse] = await Promise.all([
           window.electron.note.getAll(),
-          window.electron.note.getAll({ includeLocal: true }),
           window.electron.notebook.getAll(),
           window.electron.trash.getAll(),
           window.electron.localFolder.list(),
@@ -479,13 +503,12 @@ function AppContent() {
         }
         notesRef.current = loadedNotes
         setNotes(loadedNotes)
-        setAllSourceLocalNotes((allSourceNotesData as Note[]).filter((note) => isLocalResourceId(note.id)))
         setNotebooks(loadedNotebooks)
         setTrashNotes(trashData as Note[])
         setNotebookFolders(notebookFolderData as NotebookFolder[])
         setLocalNoteMetadataById(buildLocalNoteMetadataMap(localMetadataItems))
         setLocalFolderStatuses((prev) => mergeLocalNotebookStatuses(prev, loadedNotebooks, localMountSnapshots))
-        void warmupLocalNotebookSummaries(localMountSnapshots)
+        await warmupLocalNotebookSummaries(localMountSnapshots)
 
         // Validate restored navigation state
         // Check if saved notebook still exists
@@ -536,7 +559,6 @@ function AppContent() {
     localOpenFileRef,
     pendingEditorUpdatesRef,
     setNotes,
-    setAllSourceLocalNotes,
     setNotebooks,
     setNotebookFolders,
     setLocalNoteMetadataById,
@@ -827,8 +849,9 @@ function AppContent() {
                   note={localEditorNote}
                   notes={editorCandidateNotes}
                   notebooks={notebooks}
-                  titleEditable={false}
+                  titleEditable={true}
                   editable={!localEditorLoading}
+                  onTitleCommit={commitLocalFileTitleRename}
                   onUpdate={handleUpdateLocalFile}
                   onNoteClick={handleNoteClick}
                   onCreateNote={handleCreateNoteFromLink}

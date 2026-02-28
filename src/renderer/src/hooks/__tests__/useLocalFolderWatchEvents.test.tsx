@@ -30,7 +30,6 @@ function createOptions(overrides?: Partial<Parameters<typeof useLocalFolderWatch
     isLocalFolderNotebookSelected: true,
     localFolderMissingText: 'missing',
     localFolderPermissionRequiredText: 'permission required',
-    scheduleAllSourceLocalReload: vi.fn(),
     refreshLocalFolderTree: vi.fn(async () => null),
     refreshOpenLocalFileFromDisk: vi.fn(async () => undefined),
     onLocalMountUnavailable: vi.fn(),
@@ -104,7 +103,6 @@ describe('useLocalFolderWatchEvents', () => {
       })
     })
 
-    expect(options.scheduleAllSourceLocalReload).toHaveBeenCalledTimes(1)
     expect(options.refreshLocalFolderTree).not.toHaveBeenCalled()
     expect(options.refreshOpenLocalFileFromDisk).not.toHaveBeenCalled()
 

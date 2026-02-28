@@ -22,6 +22,8 @@ vi.mock('../../i18n', () => ({
       collapse: 'Collapse',
       expand: 'Expand',
       settings: 'Settings',
+      updateAvailable: 'Update available',
+      updateReady: 'Update ready',
     },
     shortcuts: {
       title: 'Shortcuts',
@@ -60,6 +62,19 @@ vi.mock('../../i18n', () => ({
     common: {
       loading: 'Loading...',
     },
+  }),
+}))
+
+vi.mock('../../contexts/UpdateContext', () => ({
+  useUpdate: () => ({
+    status: 'idle',
+    version: null,
+    progress: 0,
+    error: null,
+    releaseNotes: null,
+    checkForUpdates: vi.fn(),
+    downloadUpdate: vi.fn(),
+    installUpdate: vi.fn(),
   }),
 }))
 

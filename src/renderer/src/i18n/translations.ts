@@ -18,6 +18,8 @@ export interface Translations {
     expand: string
     trash: string
     settings: string
+    updateAvailable: string
+    updateReady: string
   }
   trash: {
     title: string
@@ -1017,7 +1019,9 @@ const zh: Translations = {
     collapse: '收起',
     expand: '展开',
     trash: '回收站',
-    settings: '设置'
+    settings: '设置',
+    updateAvailable: '有新版本',
+    updateReady: '更新已就绪，重启后生效'
   },
   trash: {
     title: '回收站',
@@ -2011,7 +2015,9 @@ const en: Translations = {
     collapse: 'Collapse',
     expand: 'Expand',
     trash: 'Trash',
-    settings: 'Settings'
+    settings: 'Settings',
+    updateAvailable: 'Update available',
+    updateReady: 'Update ready, restart to apply'
   },
   trash: {
     title: 'Trash',

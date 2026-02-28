@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import type { Notebook, SmartViewId, LocalFolderTreeNode, NotebookFolderTreeNode } from '../types/note'
 import { useTranslations } from '../i18n'
+import { useUpdate } from '../contexts/UpdateContext'
 import { Tooltip } from './Tooltip'
 import { isMacOS } from '../utils/platform'
 import { useTodayDateNumber } from '../hooks/useTodayDate'
@@ -105,7 +106,7 @@ interface SidebarProps {
   onOpenLocalFolderInFileManager?: (notebookId: string) => void
   onEditNotebook: (notebook: Notebook) => void
   onDeleteNotebook: (notebook: Notebook) => void
-  onOpenSettings: () => void
+  onOpenSettings: (tab?: string) => void
   onMoveNoteToNotebook: (noteIds: string[], notebookId: string | null) => void
   onReorderNotebooks: (orderedIds: string[]) => void
   noteCounts: {
@@ -508,6 +509,8 @@ export function Sidebar({
   useEffect(() => {
     onCollapsedChange?.(isCollapsed)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const { status: updateStatus } = useUpdate()
+  const showUpdateButton = updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'ready'
   const [showShortcuts, setShowShortcuts] = useState(false)
   const shortcutsTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -1212,10 +1215,25 @@ export function Sidebar({
             </button>
           </Tooltip>
 
+          {/* 更新按钮 */}
+          {showUpdateButton && (
+            <Tooltip content={updateStatus === 'ready' ? t.sidebar.updateReady : t.sidebar.updateAvailable}>
+              <button
+                onClick={() => onOpenSettings('about')}
+                className="p-2 rounded-md text-[var(--color-accent)] hover:bg-[var(--color-surface)] transition-all duration-150"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M1 4v6h6M23 20v-6h-6" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
+
           {/* 设置按钮 */}
           <Tooltip content={t.sidebar.settings}>
             <button
-              onClick={onOpenSettings}
+              onClick={() => onOpenSettings()}
               className="p-2 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-all duration-150"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1234,37 +1252,51 @@ export function Sidebar({
       {/* Drag region - top area for window dragging, aligned with NoteList header */}
       <div className="h-[42px] flex-shrink-0 drag-region" />
 
-      {/* Shortcuts help button - absolute top right in title bar area */}
-      <div
-        className="absolute top-[9px] right-2 z-10 no-drag"
-        onMouseEnter={() => {
-          // Clear any existing timer
-          if (shortcutsTimerRef.current) {
-            clearTimeout(shortcutsTimerRef.current)
-          }
-          // Show shortcuts after 300ms delay
-          shortcutsTimerRef.current = setTimeout(() => {
-            setShowShortcuts(true)
-          }, 300)
-        }}
-        onMouseLeave={() => {
-          // Clear timer and hide immediately
-          if (shortcutsTimerRef.current) {
-            clearTimeout(shortcutsTimerRef.current)
-            shortcutsTimerRef.current = null
-          }
-          setShowShortcuts(false)
-        }}
-      >
-        <button
-          className="p-1 rounded text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-card)] transition-all duration-150"
-          title={t.shortcuts.title}
+      {/* Top right buttons in title bar area */}
+      <div className="absolute top-[9px] right-2 z-10 no-drag flex items-center gap-0.5">
+        {/* Update available button */}
+        {showUpdateButton && (
+          <Tooltip content={updateStatus === 'ready' ? t.sidebar.updateReady : t.sidebar.updateAvailable}>
+            <button
+              onClick={() => onOpenSettings('about')}
+              className="p-1 rounded text-[var(--color-accent)] hover:bg-[var(--color-card)] transition-all duration-150"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M1 4v6h6M23 20v-6h-6" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
+              </svg>
+            </button>
+          </Tooltip>
+        )}
+
+        {/* Shortcuts help button */}
+        <div
+          onMouseEnter={() => {
+            if (shortcutsTimerRef.current) {
+              clearTimeout(shortcutsTimerRef.current)
+            }
+            shortcutsTimerRef.current = setTimeout(() => {
+              setShowShortcuts(true)
+            }, 300)
+          }}
+          onMouseLeave={() => {
+            if (shortcutsTimerRef.current) {
+              clearTimeout(shortcutsTimerRef.current)
+              shortcutsTimerRef.current = null
+            }
+            setShowShortcuts(false)
+          }}
         >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-          </svg>
-        </button>
-        <ShortcutsPopover isOpen={showShortcuts} t={t} />
+          <button
+            className="p-1 rounded text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-card)] transition-all duration-150"
+            title={t.shortcuts.title}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+            </svg>
+          </button>
+          <ShortcutsPopover isOpen={showShortcuts} t={t} />
+        </div>
       </div>
 
       {/* Sidebar content */}
@@ -1482,7 +1514,7 @@ export function Sidebar({
 
         {/* Settings button */}
         <button
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings()}
           className="flex items-center gap-2 px-2.5 py-1.5 text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors duration-150 rounded-md hover:bg-[var(--color-card)]"
           style={{
             marginLeft: `-${TREE_TOGGLE_BG_SIDE_EXTEND}px`,

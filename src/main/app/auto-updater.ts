@@ -61,13 +61,13 @@ export function setupAutoUpdater(): void {
   }
 
   // Configure auto-updater
-  autoUpdater.autoDownload = false
+  autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
-  // Update available
+  // Update available - auto-download starts in background
   autoUpdater.on('update-available', (info) => {
-    console.log('Update available:', info.version)
-    updateStatus = 'available'
+    console.log('Update available:', info.version, '- downloading in background')
+    updateStatus = 'downloading'
     updateVersion = info.version
     updateError = null
     // Extract release notes - can be string, array of ReleaseNoteInfo, or null
@@ -95,11 +95,13 @@ export function setupAutoUpdater(): void {
     sendUpdateStatus()
   })
 
-  // Download progress
+  // Download progress (deduplicate to avoid flooding renderer with redundant IPC)
   autoUpdater.on('download-progress', (progressInfo) => {
-    updateStatus = 'downloading'
-    updateProgress = Math.round(progressInfo.percent)
+    const rounded = Math.round(progressInfo.percent)
     mainWindowGetter?.()?.setProgressBar(progressInfo.percent / 100)
+    if (updateStatus === 'downloading' && updateProgress === rounded) return
+    updateStatus = 'downloading'
+    updateProgress = rounded
     sendUpdateStatus()
   })
 

@@ -16,6 +16,7 @@ import { ImageLightbox } from './components/ImageLightbox'
 import { TabBar } from './components/TabBar'
 import { PaneLayout } from './components/PaneLayout'
 import { TabProvider, useTabs } from './contexts/TabContext'
+import { UpdateProvider } from './contexts/UpdateContext'
 import { useEditorUpdateQueue } from './hooks/useEditorUpdateQueue'
 import { useLocalFolderState } from './hooks/useLocalFolderState'
 import { useNoteCRUD } from './hooks/useNoteCRUD'
@@ -117,6 +118,7 @@ function AppContent() {
   const [anchorNoteId, setAnchorNoteId] = useState<string | null>(null)
 
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined)
   const [isLoading, setIsLoading] = useState(true)
 
   // Typewriter mode state
@@ -580,12 +582,14 @@ function AppContent() {
   }, [])
 
   // Handle settings toggle
-  const handleOpenSettings = useCallback(() => {
+  const handleOpenSettings = useCallback((tab?: string) => {
+    setSettingsInitialTab(tab)
     setShowSettings(true)
   }, [])
 
   const handleCloseSettings = useCallback(() => {
     setShowSettings(false)
+    setSettingsInitialTab(undefined)
   }, [])
 
   // Toggle typewriter mode - 现在接收 cursorInfo 参数
@@ -967,7 +971,7 @@ function AppContent() {
       )}
 
       {/* Settings Modal */}
-      {showSettings && <Settings onClose={handleCloseSettings} />}
+      {showSettings && <Settings onClose={handleCloseSettings} initialTab={settingsInitialTab} />}
 
       {/* Notebook Modal */}
       {showNotebookModal && (
@@ -1036,11 +1040,13 @@ function App() {
   return (
     <ThemeProvider>
       <I18nProvider>
-        <TabProvider>
-          <ErrorBoundary>
-            <AppContent />
-          </ErrorBoundary>
-        </TabProvider>
+        <UpdateProvider>
+          <TabProvider>
+            <ErrorBoundary>
+              <AppContent />
+            </ErrorBoundary>
+          </TabProvider>
+        </UpdateProvider>
       </I18nProvider>
     </ThemeProvider>
   )

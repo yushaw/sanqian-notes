@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useI18n } from '../i18n'
 import type { Language } from '../i18n'
 import { useTheme, themes, type ThemeKey, type FontSize, type ColorModeSetting } from '../theme'
+import { useUpdate } from '../contexts/UpdateContext'
 import { AIActionsSettings } from './AIActionsSettings'
 import { KnowledgeBaseSettings } from './KnowledgeBaseSettings'
 import { DataSettings } from './DataSettings'
@@ -15,16 +16,6 @@ const themeColorOrder: ThemeKey[] = ['coral', 'blush', 'sunset', 'amber', 'emera
 
 type SettingsTab = 'general' | 'appearance' | 'ai-actions' | 'templates' | 'knowledge-base' | 'data' | 'about'
 
-type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'ready' | 'error'
-
-interface UpdateState {
-  status: UpdateStatus
-  version: string | null
-  progress: number
-  error: string | null
-  releaseNotes: string | null
-}
-
 // Resizable modal constants
 const STORAGE_KEY = 'sanqian-notes-settings-size'
 const MIN_WIDTH = 420
@@ -33,20 +24,23 @@ const DEFAULT_RATIO = 0.7
 
 interface SettingsProps {
   onClose: () => void
+  initialTab?: string
 }
 
-export function Settings({ onClose }: SettingsProps) {
+export function Settings({ onClose, initialTab }: SettingsProps) {
   const { language, setLanguage, t } = useI18n()
   const { themeColor, setThemeColor, colorMode, setColorMode, fontSize, setFontSize } = useTheme()
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const {
+    status: updateStatus,
+    version: updateVersion,
+    progress: updateProgress,
+    releaseNotes: updateReleaseNotes,
+    checkForUpdates,
+    downloadUpdate,
+    installUpdate,
+  } = useUpdate()
+  const [activeTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab) || 'general')
   const [appVersion, setAppVersion] = useState<string>('')
-  const [updateState, setUpdateState] = useState<UpdateState>({
-    status: 'idle',
-    version: null,
-    progress: 0,
-    error: null,
-    releaseNotes: null
-  })
   const [syncSelectionToChat, setSyncSelectionToChat] = useState<boolean>(true)
   const [chatShortcut, setChatShortcut] = useState<string>(DEFAULT_CHAT_SHORTCUT)
   const [isRecordingShortcut, setIsRecordingShortcut] = useState(false)
@@ -76,36 +70,12 @@ export function Settings({ onClose }: SettingsProps) {
     }
   }
 
-  // Fetch app version and setup updater status listener
+  // Fetch app version
   useEffect(() => {
     window.electron?.app?.getVersion().then((version) => {
       setAppVersion(version)
     })
-
-    window.electron?.updater?.getStatus().then((status) => {
-      setUpdateState(status as UpdateState)
-    })
-
-    const cleanup = window.electron?.updater?.onStatus((status) => {
-      setUpdateState(status as UpdateState)
-    })
-
-    return () => {
-      cleanup?.()
-    }
   }, [])
-
-  const handleCheckUpdate = async () => {
-    await window.electron?.updater?.check()
-  }
-
-  const handleDownloadUpdate = async () => {
-    await window.electron?.updater?.download()
-  }
-
-  const handleInstallUpdate = async () => {
-    await window.electron?.updater?.install()
-  }
 
   // Resizable modal state
   const getSavedRatio = useCallback(() => {
@@ -579,61 +549,61 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="p-4 rounded-xl bg-black/5 dark:bg-white/5">
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
-                      {updateState.status === 'checking' && (
+                      {updateStatus === 'checking' && (
                         <p className="text-sm text-[var(--color-muted)]">{t.settings.updating.checking}</p>
                       )}
-                      {updateState.status === 'available' && (
-                        <p className="text-sm text-[var(--color-text)]">{t.settings.updating.available(updateState.version || '')}</p>
+                      {updateStatus === 'available' && (
+                        <p className="text-sm text-[var(--color-text)]">{t.settings.updating.available(updateVersion || '')}</p>
                       )}
-                      {updateState.status === 'downloading' && (
+                      {updateStatus === 'downloading' && (
                         <div className="space-y-2">
-                          <p className="text-sm text-[var(--color-text)]">{t.settings.updating.downloading(updateState.progress)}</p>
+                          <p className="text-sm text-[var(--color-text)]">{t.settings.updating.downloading(updateProgress)}</p>
                           <div className="w-full h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-[var(--color-accent)] transition-all"
-                              style={{ width: `${updateState.progress}%` }}
+                              style={{ width: `${updateProgress}%` }}
                             />
                           </div>
                         </div>
                       )}
-                      {updateState.status === 'ready' && (
+                      {updateStatus === 'ready' && (
                         <p className="text-sm text-green-600 dark:text-green-400">{t.settings.updating.ready}</p>
                       )}
-                      {(updateState.status === 'idle' || updateState.status === 'not-available') && (
+                      {(updateStatus === 'idle' || updateStatus === 'not-available') && (
                         <p className="text-sm text-[var(--color-muted)]">{t.settings.updating.upToDate}</p>
                       )}
-                      {updateState.status === 'error' && (
+                      {updateStatus === 'error' && (
                         <p className="text-sm text-red-500">{t.settings.updating.error}</p>
                       )}
                     </div>
                     <div className="ml-4 flex-shrink-0">
-                      {(updateState.status === 'idle' || updateState.status === 'not-available') && (
+                      {(updateStatus === 'idle' || updateStatus === 'not-available') && (
                         <button
-                          onClick={handleCheckUpdate}
+                          onClick={checkForUpdates}
                           className="px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)]/10 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
                         >
                           {t.settings.checkUpdate}
                         </button>
                       )}
-                      {updateState.status === 'available' && (
+                      {updateStatus === 'available' && (
                         <button
-                          onClick={handleDownloadUpdate}
+                          onClick={downloadUpdate}
                           className="px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent)]/90 transition-colors"
                         >
                           {t.settings.buttons.download}
                         </button>
                       )}
-                      {updateState.status === 'ready' && (
+                      {updateStatus === 'ready' && (
                         <button
-                          onClick={handleInstallUpdate}
+                          onClick={installUpdate}
                           className="px-3 py-1.5 text-sm font-medium rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors"
                         >
                           {t.settings.buttons.restart}
                         </button>
                       )}
-                      {updateState.status === 'error' && (
+                      {updateStatus === 'error' && (
                         <button
-                          onClick={handleCheckUpdate}
+                          onClick={checkForUpdates}
                           className="px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent)]/10 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
                         >
                           {t.settings.buttons.retry}
@@ -644,7 +614,7 @@ export function Settings({ onClose }: SettingsProps) {
                 </div>
 
                 {/* Release Notes */}
-                {updateState.releaseNotes && (updateState.status === 'available' || updateState.status === 'downloading' || updateState.status === 'ready') && (
+                {updateReleaseNotes && (updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'ready') && (
                   <div className="p-4 rounded-xl bg-black/5 dark:bg-white/5">
                     <p className="text-xs text-[var(--color-muted)] mb-2">{t.settings.updating.releaseNotes}</p>
                     <div
@@ -660,7 +630,7 @@ export function Settings({ onClose }: SettingsProps) {
                         }
                       }}
                       dangerouslySetInnerHTML={{
-                        __html: DOMPurify.sanitize(marked.parse(updateState.releaseNotes, { async: false }) as string)
+                        __html: DOMPurify.sanitize(marked.parse(updateReleaseNotes, { async: false }) as string)
                       }}
                     />
                   </div>

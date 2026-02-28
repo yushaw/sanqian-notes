@@ -9,6 +9,7 @@ export function CalloutView({ node, updateAttributes }: NodeViewProps) {
 
   const toggleCollapse = (e: React.MouseEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     updateAttributes({ collapsed: !collapsed })
   }
 

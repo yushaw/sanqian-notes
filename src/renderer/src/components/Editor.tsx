@@ -1397,13 +1397,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           if (selection && selection.toString().length > 0) {
             return
           }
-          // 点击内容区域下方空白（zen-content 或 zen-editor-content）时跳到末尾继续输入
-          // 点击其他空白区域只聚焦
-          if (target.classList.contains('zen-content') || target.classList.contains('zen-editor-content')) {
-            editor?.commands.focus('end')
-          } else {
-            editor?.commands.focus()
-          }
+          editor?.commands.focus()
         }}
       >
         {/* Agent Task Indicators - overlay layer for dots */}

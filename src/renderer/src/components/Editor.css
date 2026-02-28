@@ -376,7 +376,7 @@ span.zen-header-title {
   min-width: 320px;
   width: 100%;
   margin: 0 auto;
-  padding: 0 0 160px;
+  padding: 0;
 }
 
 /* ============================================
@@ -430,6 +430,7 @@ span.zen-header-title {
   word-wrap: break-word;
   padding-left: var(--editor-horizontal-padding);
   padding-right: var(--editor-horizontal-padding);
+  padding-bottom: 160px;
 }
 
 .zen-editor > * + * {
@@ -869,7 +870,7 @@ span.zen-header-title {
    Typewriter Mode
    ============================================ */
 
-.zen-content.typewriter-mode {
+.zen-content.typewriter-mode .zen-editor {
   padding-bottom: 50vh;
 }
 

@@ -9,6 +9,7 @@ export function ToggleView({ node, updateAttributes }: NodeViewProps) {
   const toggleOpen = (e: React.MouseEvent) => {
     if (isEditing) return
     e.preventDefault()
+    e.stopPropagation()
     updateAttributes({ open: !open })
   }
 

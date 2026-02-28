@@ -4,6 +4,8 @@ import type { Note, Notebook } from '../types/note'
 import { useTranslations } from '../i18n'
 import { isMacOS } from '../utils/platform'
 import { formatShortcut } from '../utils/shortcut'
+import { isLocalResourceId } from '../utils/localResourceId'
+import { useVersionedDebouncedSearch } from '../hooks/useVersionedDebouncedSearch'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { NotePreviewPopover } from './NotePreviewPopover'
 import { NoteListItem } from './NoteListItem'
@@ -39,6 +41,7 @@ interface ContextMenuState {
   y: number
   noteId: string | null
   noteIds: string[]  // For bulk operations
+  isLocal: boolean
   isPinned: boolean
   isFavorite: boolean
 }
@@ -67,8 +70,24 @@ export function NoteList({
   const shouldHideTitle = isMac && isSidebarCollapsed
   const t = useTranslations()
   const [isSearching, setIsSearching] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<Note[] | null>(null)
+  const executeSearch = useCallback((query: string) => onSearch(query), [onSearch])
+  const handleSearchError = useCallback((error: unknown) => {
+    console.error('Failed to search notes:', error)
+  }, [])
+  const {
+    query: searchQuery,
+    result: searchResults,
+    loading: searchLoading,
+    hasQuery: hasSearchQuery,
+    handleQueryChange: handleSearchQueryChange,
+    beginComposition: beginSearchComposition,
+    endComposition: endSearchComposition,
+    reset: resetSearch,
+  } = useVersionedDebouncedSearch<Note[]>({
+    execute: executeSearch,
+    debounceMs: 150,
+    onError: handleSearchError,
+  })
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
@@ -76,16 +95,40 @@ export function NoteList({
     y: 0,
     noteId: null,
     noteIds: [],
+    isLocal: false,
     isPinned: false,
     isFavorite: false,
   })
 
   // Optimize selection checks with Set (O(1) instead of O(n))
   const selectedIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds])
-  const displayNotes = useMemo(() => (searchResults !== null ? searchResults : notes), [searchResults, notes])
+  const displayNotes = useMemo(() => {
+    if (searchResults === null) return notes
+    // Keep list stable when new search starts from a previous empty-result state.
+    if (isSearching && hasSearchQuery && searchLoading && searchResults.length === 0) {
+      return notes
+    }
+    return searchResults
+  }, [hasSearchQuery, isSearching, notes, searchLoading, searchResults])
+  const movableNotebooks = useMemo(
+    () => notebooks.filter((notebook) => notebook.source_type !== 'local-folder'),
+    [notebooks]
+  )
+  const displayNotesRef = useRef(displayNotes)
+  const selectedNoteIdsRef = useRef(selectedNoteIds)
+  const onSelectNoteRef = useRef(onSelectNote)
+  const isSearchingRef = useRef(isSearching)
+  const selectedIdSetRef = useRef(selectedIdSet)
+  displayNotesRef.current = displayNotes
+  selectedNoteIdsRef.current = selectedNoteIds
+  onSelectNoteRef.current = onSelectNote
+  isSearchingRef.current = isSearching
+  selectedIdSetRef.current = selectedIdSet
 
   // Hover preview state
   const [hoveredNote, setHoveredNote] = useState<Note | null>(null)
+  const hoveredNoteRef = useRef(hoveredNote)
+  hoveredNoteRef.current = hoveredNote
   const [previewAnchor, setPreviewAnchor] = useState<HTMLElement | null>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -112,27 +155,11 @@ export function NoteList({
     }
   }, [notes, hoveredNote])
 
-  // 实时搜索
-  const performSearch = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults(null)
-      return
-    }
-    const results = await onSearch(query)
-    setSearchResults(results)
-  }, [onSearch])
-
-  // 防抖搜索
+  // 搜索词变化时清除 hover 状态（列表重渲染后 anchor 会丢失）
   useEffect(() => {
-    // 搜索时清除 hover 状态（列表重渲染后 anchor 会丢失）
     setHoveredNote(null)
     setPreviewAnchor(null)
-
-    const timer = setTimeout(() => {
-      performSearch(searchQuery)
-    }, 150)
-    return () => clearTimeout(timer)
-  }, [searchQuery, performSearch])
+  }, [searchQuery])
 
   // Cmd+F 快捷键 - 仅在中栏聚焦时生效
   useEffect(() => {
@@ -153,33 +180,34 @@ export function NoteList({
       }
 
       const hasModifier = e.metaKey || e.ctrlKey || e.altKey
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !hasModifier && isInMiddleColumn && !isInEditable && displayNotes.length > 0) {
-        const currentSelectedId = [...selectedNoteIds]
+      const currentDisplayNotes = displayNotesRef.current
+      const currentSelectedNoteIds = selectedNoteIdsRef.current
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !hasModifier && isInMiddleColumn && !isInEditable && currentDisplayNotes.length > 0) {
+        const currentSelectedId = [...currentSelectedNoteIds]
           .reverse()
-          .find((id) => displayNotes.some((note) => note.id === id))
+          .find((id) => currentDisplayNotes.some((note) => note.id === id))
         if (!currentSelectedId) return
 
-        const currentIndex = displayNotes.findIndex((note) => note.id === currentSelectedId)
+        const currentIndex = currentDisplayNotes.findIndex((note) => note.id === currentSelectedId)
         if (currentIndex < 0) return
 
         const nextIndex = e.key === 'ArrowUp'
           ? Math.max(0, currentIndex - 1)
-          : Math.min(displayNotes.length - 1, currentIndex + 1)
+          : Math.min(currentDisplayNotes.length - 1, currentIndex + 1)
         if (nextIndex === currentIndex) return
 
         e.preventDefault()
-        onSelectNote(displayNotes[nextIndex].id)
+        onSelectNoteRef.current(currentDisplayNotes[nextIndex].id)
       }
 
-      if (e.key === 'Escape' && isSearching) {
+      if (e.key === 'Escape' && isSearchingRef.current) {
         setIsSearching(false)
-        setSearchQuery('')
-        setSearchResults(null)
+        resetSearch()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [displayNotes, isSearching, onSelectNote, selectedNoteIds])
+  }, [resetSearch])
 
   // 键盘切换时确保选中的笔记保持在可视区域内
   useEffect(() => {
@@ -199,41 +227,49 @@ export function NoteList({
     }
   }, [isSearching])
 
-  const handleCloseSearch = () => {
+  const handleCloseSearch = useCallback(() => {
     setIsSearching(false)
-    setSearchQuery('')
-    setSearchResults(null)
-  }
+    resetSearch()
+  }, [resetSearch])
 
-  // 右键菜单
-  const handleContextMenu = (e: React.MouseEvent, note: Note) => {
-    e.preventDefault()
-    // Check if right-clicked note is in current selection
-    const isInSelection = selectedIdSet.has(note.id)
+  // Stable context menu handler (id-based, reads note data from refs)
+  const handleContextMenuNote = useCallback(
+    (noteId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      const note = displayNotesRef.current.find((n) => n.id === noteId)
+      if (!note) return
+      const isLocal = isLocalResourceId(note.id)
+      const currentSelectedNoteIds = selectedNoteIdsRef.current
+      const currentSelectedIdSet = selectedIdSetRef.current
+      const selectedInternalIds = currentSelectedNoteIds.filter((id) => !isLocalResourceId(id))
+      const isInSelection = currentSelectedIdSet.has(note.id)
+      const targetIds = !isLocal && isInSelection && selectedInternalIds.length > 1
+        ? selectedInternalIds
+        : [note.id]
 
-    // If in selection and multiple selected, show bulk menu
-    // Otherwise show single note menu (without changing selection)
-    const targetIds = isInSelection && selectedNoteIds.length > 1
-      ? selectedNoteIds
-      : [note.id]
-
-    setContextMenu({
-      visible: true,
-      x: e.clientX,
-      y: e.clientY,
-      noteId: note.id,
-      noteIds: targetIds,
-      isPinned: note.is_pinned,
-      isFavorite: note.is_favorite,
-    })
-  }
+      setContextMenu({
+        visible: true,
+        x: event.clientX,
+        y: event.clientY,
+        noteId: note.id,
+        noteIds: targetIds,
+        isLocal,
+        isPinned: note.is_pinned,
+        isFavorite: note.is_favorite,
+      })
+    },
+    []
+  )
 
   const closeContextMenu = () => {
     setContextMenu(prev => ({ ...prev, visible: false }))
   }
 
-  // Hover preview handlers
-  const handleNoteMouseEnter = useCallback((note: Note, element: HTMLElement) => {
+  // Stable hover preview handler (id-based, reads note data and hover state from refs)
+  const handleMouseEnterNote = useCallback((noteId: string, element: HTMLElement) => {
+    const note = displayNotesRef.current.find((n) => n.id === noteId)
+    if (!note) return
+
     // Clear hover timer (prevents old hover from triggering)
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current)
@@ -246,7 +282,7 @@ export function NoteList({
     }
 
     // Check if popover is currently showing
-    const isPopoverVisible = hoveredNote !== null
+    const isPopoverVisible = hoveredNoteRef.current !== null
 
     // Only show preview if note has AI summary
     if (!note.ai_summary) {
@@ -268,7 +304,7 @@ export function NoteList({
         setPreviewAnchor(element)
       }, 1500)
     }
-  }, [hoveredNote])
+  }, [])
 
   const handleNoteMouseLeave = useCallback(() => {
     // Clear hover timer
@@ -282,6 +318,43 @@ export function NoteList({
       setPreviewAnchor(null)
     }, 100)
   }, [])
+
+  // Stable click handler
+  const handleClickNote = useCallback(
+    (noteId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+      onSelectNoteRef.current(noteId, event)
+    },
+    []
+  )
+
+  // Stable drag start handler
+  const handleDragStartNote = useCallback(
+    (noteId: string, event: React.DragEvent<HTMLButtonElement>) => {
+      if (isLocalResourceId(noteId)) {
+        event.preventDefault()
+        return
+      }
+      const currentSelectedNoteIds = selectedNoteIdsRef.current
+      const currentSelectedIdSet = selectedIdSetRef.current
+      const selectedDraggableIds = currentSelectedNoteIds.filter((id) => !isLocalResourceId(id))
+      const idsToMove = currentSelectedIdSet.has(noteId)
+        ? selectedDraggableIds
+        : [noteId]
+      setDraggingNoteId(noteId)
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('application/json', JSON.stringify(idsToMove))
+    },
+    []
+  )
+
+  // Stable drag end handler
+  const handleDragEndNote = useCallback(
+    (event: React.DragEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      setDraggingNoteId(null)
+    },
+    []
+  )
 
   const handlePopoverMouseEnter = useCallback(() => {
     // Cancel close timer when entering popover
@@ -299,6 +372,34 @@ export function NoteList({
   // Build context menu items
   const getContextMenuItems = useCallback((): ContextMenuItem[] => {
     if (!contextMenu.noteId) return []
+
+    if (contextMenu.isLocal) {
+      return [
+        ...(onOpenInNewTab ? [{
+          label: t.noteList.openInNewTab,
+          icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+            </svg>
+          ),
+          onClick: () => onOpenInNewTab(contextMenu.noteId!)
+        }] : []),
+        {
+          label: contextMenu.isPinned ? t.noteList.unpin : t.noteList.pin,
+          icon: <Pin className="w-4 h-4" />,
+          onClick: () => onTogglePinned(contextMenu.noteId!)
+        },
+        {
+          label: contextMenu.isFavorite ? t.noteList.unfavorite : t.noteList.favorite,
+          icon: (
+            <svg className="w-4 h-4" fill={contextMenu.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+          ),
+          onClick: () => onToggleFavorite(contextMenu.noteId!)
+        },
+      ]
+    }
 
     const isBulk = contextMenu.noteIds.length > 1
     const count = contextMenu.noteIds.length
@@ -334,7 +435,7 @@ export function NoteList({
               label: t.noteList.allNotes,
               onClick: () => onBulkMove(contextMenu.noteIds, null)
             },
-            ...notebooks.map(notebook => ({
+            ...movableNotebooks.map(notebook => ({
               label: notebook.name,
               onClick: () => onBulkMove(contextMenu.noteIds, notebook.id)
             }))
@@ -413,7 +514,7 @@ export function NoteList({
             onClick: () => onMoveToNotebook(contextMenu.noteId!, null)
           },
           // All notebooks
-          ...notebooks.map(notebook => ({
+          ...movableNotebooks.map(notebook => ({
             label: notebook.name,
             onClick: () => onMoveToNotebook(contextMenu.noteId!, notebook.id)
           }))
@@ -433,7 +534,7 @@ export function NoteList({
         onClick: () => onDeleteNote(contextMenu.noteId!)
       }
     ]
-  }, [contextMenu.noteId, contextMenu.noteIds, contextMenu.isPinned, contextMenu.isFavorite, notebooks, t, onTogglePinned, onToggleFavorite, onDuplicateNote, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite, onOpenInNewTab])
+  }, [contextMenu.isFavorite, contextMenu.isLocal, contextMenu.isPinned, contextMenu.noteId, contextMenu.noteIds, movableNotebooks, t, onTogglePinned, onToggleFavorite, onDuplicateNote, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite, onOpenInNewTab])
 
   // Dragging state
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
@@ -449,13 +550,16 @@ export function NoteList({
               ref={searchInputRef}
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchQueryChange(e.target.value)}
+              onCompositionStart={beginSearchComposition}
+              onCompositionEnd={(e) => endSearchComposition(e.currentTarget.value)}
               onBlur={() => {
                 if (!searchQuery.trim()) {
                   handleCloseSearch()
                 }
               }}
               placeholder={t.noteList.searchPlaceholder}
+              aria-label={t.noteList.searchPlaceholder}
               className="flex-1 min-w-0 bg-transparent text-[1rem] text-[var(--color-text)] placeholder-[var(--color-muted)] outline-none"
             />
             <button
@@ -505,7 +609,7 @@ export function NoteList({
       {/* Note list */}
       <div className="flex-1 overflow-y-auto no-drag hide-scrollbar">
         {/* 搜索无结果状态 */}
-        {isSearching && searchResults !== null && searchResults.length === 0 ? (
+        {isSearching && hasSearchQuery && !searchLoading && searchResults !== null && searchResults.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--color-muted)] px-6">
             <svg className="w-10 h-10 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -545,24 +649,12 @@ export function NoteList({
                   isDragging={draggingNoteId === note.id}
                   noteListT={t.noteList}
                   dateT={t.date}
-                  onClick={(event) => onSelectNote(note.id, event)}
-                  onContextMenu={(event) => handleContextMenu(event, note)}
-                  onMouseEnter={(event) => handleNoteMouseEnter(note, event.currentTarget)}
-                  onMouseLeave={handleNoteMouseLeave}
-                  onDragStart={(event) => {
-                    // If dragging a selected note, drag all selected; otherwise drag only this one
-                    const idsToMove = selectedIdSet.has(note.id)
-                      ? selectedNoteIds
-                      : [note.id]
-                    setDraggingNoteId(note.id)
-                    event.dataTransfer.effectAllowed = 'move'
-                    event.dataTransfer.setData('application/json', JSON.stringify(idsToMove))
-                  }}
-                  onDragEnd={(event) => {
-                    // Prevent snap-back animation
-                    event.preventDefault()
-                    setDraggingNoteId(null)
-                  }}
+                  onClickNote={handleClickNote}
+                  onContextMenuNote={handleContextMenuNote}
+                  onMouseEnterNote={handleMouseEnterNote}
+                  onMouseLeaveNote={handleNoteMouseLeave}
+                  onDragStartNote={handleDragStartNote}
+                  onDragEndNote={handleDragEndNote}
                 />
               )
             })}

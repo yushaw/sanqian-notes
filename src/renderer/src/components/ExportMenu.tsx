@@ -16,13 +16,14 @@ interface ExportMenuProps {
   notebookName?: string
   onSplitHorizontal?: () => void
   onSplitVertical?: () => void
-  onInsertContent?: (content: string) => void
+  onInsertContent?: (content: string) => boolean | Promise<boolean>
   onOpenSearch?: () => void
   onOpenSettings?: (tab?: string) => void
 }
 
 type ExportFormat = 'pdf' | 'markdown'
 type ImportType = 'markdown' | 'pdf' | 'arxiv'
+type ParsedArxivInput = { id: string; version?: number }
 
 // SVG Icons
 const Icons = {
@@ -47,8 +48,8 @@ const Icons = {
   export: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   ),
   splitHorizontal: (
@@ -66,8 +67,8 @@ const Icons = {
   import: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
     </svg>
   ),
   search: (
@@ -109,6 +110,12 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
   const [importType, setImportType] = useState<ImportType>('markdown')
   const [isImporting, setIsImporting] = useState(false)
   const [arxivInput, setArxivInput] = useState('')
+  const [parsedArxivInput, setParsedArxivInput] = useState<ParsedArxivInput | null>(null)
+  const [arxivInputInvalid, setArxivInputInvalid] = useState(false)
+  const [arxivIncludeAbstract, setArxivIncludeAbstract] = useState(true)
+  const [arxivIncludeReferences, setArxivIncludeReferences] = useState(false)
+  const [arxivDownloadFigures, setArxivDownloadFigures] = useState(true)
+  const [arxivPreferHtml, setArxivPreferHtml] = useState(true)
   const [importProgress, setImportProgress] = useState<string>('')
 
   const t = useTranslations()
@@ -130,6 +137,42 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
       setTimeout(() => arxivInputRef.current?.focus(), 0)
     }
   }, [importModalOpen, importType])
+
+  // 对齐设置页行为：实时校验 arXiv 输入（ID/URL）
+  useEffect(() => {
+    if (!importModalOpen || importType !== 'arxiv') return
+
+    const input = arxivInput.trim()
+    if (!input) {
+      setParsedArxivInput(null)
+      setArxivInputInvalid(false)
+      return
+    }
+
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const parsed = await window.electron?.arxiv?.parseInput(input)
+        if (cancelled) return
+        if (parsed) {
+          setParsedArxivInput(parsed)
+          setArxivInputInvalid(false)
+        } else {
+          setParsedArxivInput(null)
+          setArxivInputInvalid(true)
+        }
+      } catch {
+        if (cancelled) return
+        setParsedArxivInput(null)
+        setArxivInputInvalid(true)
+      }
+    }, 300)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [importModalOpen, importType, arxivInput])
 
   // 点击外部关闭菜单（使用 capture 阶段，避免被 drag region 阻止）
   useEffect(() => {
@@ -181,9 +224,13 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
     try {
       const result = await window.electron?.importInline?.selectMarkdown()
       if (result?.content) {
-        onInsertContent(result.content)
-        setImportModalOpen(false)
-        toast(t.export?.importSuccess || 'Import successful')
+        const inserted = await onInsertContent(result.content)
+        if (inserted) {
+          setImportModalOpen(false)
+          toast(t.export?.importSuccess || 'Import successful')
+        } else {
+          toast(t.export?.importFailed || 'Import failed', { type: 'error' })
+        }
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), { type: 'error' })
@@ -200,9 +247,13 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
     try {
       const result = await window.electron?.importInline?.selectAndParsePdf()
       if (result?.content) {
-        onInsertContent(result.content)
-        setImportModalOpen(false)
-        toast(t.export?.importSuccess || 'Import successful')
+        const inserted = await onInsertContent(result.content)
+        if (inserted) {
+          setImportModalOpen(false)
+          toast(t.export?.importSuccess || 'Import successful')
+        } else {
+          toast(t.export?.importFailed || 'Import failed', { type: 'error' })
+        }
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
@@ -218,21 +269,36 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
   }
 
   const handleImportArxiv = async () => {
-    if (!onInsertContent || !arxivInput.trim()) return
+    if (!onInsertContent || !arxivInput.trim() || !parsedArxivInput) return
     setIsImporting(true)
+    setImportProgress(t.arxivImport?.stageFetchingMetadata || 'Fetching metadata...')
 
     try {
-      const result = await window.electron?.importInline?.arxiv(arxivInput.trim())
-      if (result) {
-        onInsertContent(result.content)
-        setImportModalOpen(false)
-        setArxivInput('')
-        toast(t.export?.importSuccess || 'Import successful')
+      const normalizedInput = parsedArxivInput.version
+        ? `${parsedArxivInput.id}v${parsedArxivInput.version}`
+        : parsedArxivInput.id
+
+      const result = await window.electron?.importInline?.arxiv(normalizedInput, {
+        includeAbstract: arxivIncludeAbstract,
+        includeReferences: arxivIncludeReferences,
+        downloadFigures: arxivDownloadFigures,
+        preferHtml: arxivPreferHtml,
+      })
+      if (result?.content) {
+        const inserted = await onInsertContent(result.content)
+        if (inserted) {
+          setImportModalOpen(false)
+          setArxivInput('')
+          toast(t.export?.importSuccess || 'Import successful')
+        } else {
+          toast(t.export?.importFailed || 'Import failed', { type: 'error' })
+        }
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), { type: 'error' })
     } finally {
       setIsImporting(false)
+      setImportProgress('')
     }
   }
 
@@ -532,19 +598,69 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
                     value={arxivInput}
                     onChange={(e) => setArxivInput(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && arxivInput.trim() && !isImporting) {
+                      if (e.key === 'Enter' && arxivInput.trim() && parsedArxivInput && !isImporting) {
                         handleImportArxiv()
                       }
                     }}
                     disabled={isImporting}
                   />
+                  {(parsedArxivInput || arxivInputInvalid) && (
+                    <div className={`import-arxiv-validation ${arxivInputInvalid ? 'invalid' : 'valid'}`} aria-live="polite">
+                      {arxivInputInvalid
+                        ? (t.arxivImport?.invalidInput || 'Invalid arXiv ID or URL')
+                        : `arXiv: ${parsedArxivInput?.version
+                            ? `${parsedArxivInput.id}v${parsedArxivInput.version}`
+                            : parsedArxivInput?.id}`}
+                    </div>
+                  )}
+                  <div className="import-arxiv-options">
+                    <label className="import-arxiv-option">
+                      <input
+                        type="checkbox"
+                        checked={arxivIncludeAbstract}
+                        onChange={(e) => setArxivIncludeAbstract(e.target.checked)}
+                        disabled={isImporting}
+                      />
+                      <span>{t.arxivImport?.includeAbstract || 'Include abstract'}</span>
+                    </label>
+                    <label className="import-arxiv-option">
+                      <input
+                        type="checkbox"
+                        checked={arxivDownloadFigures}
+                        onChange={(e) => setArxivDownloadFigures(e.target.checked)}
+                        disabled={isImporting}
+                      />
+                      <span>{t.arxivImport?.downloadFigures || 'Download figures'}</span>
+                    </label>
+                    <label className="import-arxiv-option">
+                      <input
+                        type="checkbox"
+                        checked={arxivIncludeReferences}
+                        onChange={(e) => setArxivIncludeReferences(e.target.checked)}
+                        disabled={isImporting}
+                      />
+                      <span>{t.arxivImport?.includeReferences || 'Include references'}</span>
+                    </label>
+                    <label className="import-arxiv-option">
+                      <input
+                        type="checkbox"
+                        checked={arxivPreferHtml}
+                        onChange={(e) => setArxivPreferHtml(e.target.checked)}
+                        disabled={isImporting}
+                      />
+                      <span>{t.arxivImport?.preferHtml || 'Prefer HTML format (falls back to PDF if unavailable)'}</span>
+                    </label>
+                  </div>
                   <button
                     className="export-submit-btn"
                     onClick={handleImportArxiv}
-                    disabled={isImporting || !arxivInput.trim()}
+                    disabled={isImporting || !arxivInput.trim() || !parsedArxivInput}
                   >
                     {isImporting ? (
-                      <span className="export-submit-spinner" />
+                      <>
+                        <span className="export-submit-spinner" />
+                        {importProgress && <span className="import-progress-text">{importProgress}</span>}
+                      </>
                     ) : (
                       t.export?.importBtn || 'Import'
                     )}
@@ -922,6 +1038,44 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
 
         .import-arxiv-input:disabled {
           opacity: 0.5;
+        }
+
+        .import-arxiv-validation {
+          font-size: 11px;
+          margin-top: -2px;
+        }
+
+        .import-arxiv-validation.valid {
+          color: #166534;
+        }
+
+        .import-arxiv-validation.invalid {
+          color: #b91c1c;
+        }
+
+        .import-arxiv-options {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 8px;
+          border: 1px solid var(--color-border);
+          border-radius: 6px;
+          background: var(--color-bg);
+        }
+
+        .import-arxiv-option {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 11px;
+          color: var(--color-text-secondary);
+        }
+
+        .import-arxiv-option input[type="checkbox"] {
+          width: 12px;
+          height: 12px;
+          margin: 0;
+          accent-color: var(--color-primary);
         }
 
         .import-progress-text {

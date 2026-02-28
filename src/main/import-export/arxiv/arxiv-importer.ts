@@ -25,6 +25,7 @@ import { parseArxivHtml } from './arxiv-parser'
 import { prependMarkdownToTiptapContent } from './tiptap-utils'
 import type {
   ArxivImportOptions,
+  ArxivInlineImportOptions,
   ArxivImportResult,
   ArxivPaperResult,
   ArxivPaperProgress,
@@ -40,6 +41,10 @@ import type {
 export class ArxivImporter {
   private abortController: AbortController | null = null
   private tempDir: string | null = null
+
+  private static readonly CODE_MARKER_LINE_RE = /^(?:\{Code(?:Chunk|Input|Output)?\}\s*)+$/
+  private static readonly PROMPT_LINE_RE = /^\s*(?:>>>|\.\.\.|…)\s?/
+  private static readonly SHELL_PROMPT_LINE_RE = /^\s*>\s?/
 
   /**
    * Import multiple arXiv papers
@@ -399,6 +404,7 @@ export class ArxivImporter {
             )
           }
         }
+        sectionContent = this.normalizeSectionContent(sectionContent)
         parts.push(sectionContent)
         parts.push('')
       }
@@ -415,6 +421,175 @@ export class ArxivImporter {
     }
 
     return parts.join('\n')
+  }
+
+  /**
+   * Normalize arXiv HTML parser artifacts in section markdown:
+   * - Convert code markers ({Code}, {CodeChunk}, {CodeInput}, {CodeOutput}) into fenced code blocks
+   * - Convert prompt-style lines (>>> / ... / … / >) to plain code lines
+   * - Remove ltx_ERROR macro artifacts (\proglang, \pkg, \code, etc.)
+   */
+  private normalizeSectionContent(sectionContent: string): string {
+    const lines = sectionContent.replace(/\r\n?/g, '\n').split('\n')
+    const output: string[] = []
+
+    const stripPromptPrefix = (line: string): string =>
+      line
+        .replace(ArxivImporter.PROMPT_LINE_RE, '')
+        .replace(ArxivImporter.SHELL_PROMPT_LINE_RE, '')
+
+    const normalizeInlineArtifacts = (line: string): string => {
+      return line
+        .replace(/\{Code(?:Chunk|Input|Output)?\}/g, '')
+        .replace(/\\(?:Plaintitle|Shorttitle|Abstract|Keywords|Plainkeywords|Address)\b/g, '')
+        .replace(/\\proglang([A-Za-z][\w-]*)/g, '$1')
+        .replace(/\\pkg([A-Za-z_][\w.-]*)/g, '$1')
+        .replace(/\\code\(([^)\n]+)\)/g, '`($1)`')
+        .replace(/\\code[‘']([^’'\n]+)[’']/g, '`$1`')
+        .replace(/\\code([A-Za-z_][\w.:-]*\(\))/g, '`$1`')
+        .replace(/\\code([A-Za-z_][\w.:-]*)/g, '`$1`')
+        .replace(/\\(?:proglang|pkg|code)\b/g, '')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .trimEnd()
+    }
+
+    const collectPromptBlock = (
+      startIndex: number
+    ): { codeLines: string[]; nextIndex: number } => {
+      const codeLines: string[] = []
+      let index = startIndex
+
+      while (index < lines.length) {
+        const line = lines[index]
+        if (ArxivImporter.PROMPT_LINE_RE.test(line)) {
+          codeLines.push(stripPromptPrefix(line))
+          index += 1
+          continue
+        }
+        if (line.trim() === '' && codeLines.length > 0) {
+          codeLines.push('')
+          index += 1
+          continue
+        }
+        break
+      }
+
+      while (codeLines.length > 0 && codeLines[codeLines.length - 1] === '') {
+        codeLines.pop()
+      }
+
+      return { codeLines, nextIndex: index }
+    }
+
+    const collectCodeChunkBlock = (
+      startIndex: number
+    ): { codeLines: string[]; nextIndex: number } => {
+      const codeLines: string[] = []
+      let index = startIndex
+
+      const looksLikeCodeLine = (rawLine: string): boolean => {
+        const trimmed = rawLine.trim()
+        if (!trimmed) return false
+        if (ArxivImporter.PROMPT_LINE_RE.test(rawLine) || ArxivImporter.SHELL_PROMPT_LINE_RE.test(rawLine)) {
+          return true
+        }
+        if (/^(?:from|import|def|class|for|while|if|elif|else|return|print|pip|python|conda|npm|pnpm|yarn|uv|git|cargo)\b/.test(trimmed)) {
+          return true
+        }
+        if (/^[\[(]?[A-Za-z_][\w.-]*\s*=/.test(trimmed)) {
+          return true
+        }
+        if (/^[A-Za-z_][\w.:-]*\(.*\)$/.test(trimmed)) {
+          return true
+        }
+        if (/^[#$]/.test(trimmed)) {
+          return true
+        }
+        if (/^(?:\[[^\]]+\]|\.\.\.|…)/.test(trimmed)) {
+          return true
+        }
+        return false
+      }
+
+      while (index < lines.length) {
+        const line = lines[index]
+        const trimmed = line.trim()
+        if (!trimmed) {
+          if (codeLines.length === 0) {
+            index += 1
+            continue
+          }
+          break
+        }
+        if (ArxivImporter.CODE_MARKER_LINE_RE.test(trimmed)) {
+          index += 1
+          continue
+        }
+        if (codeLines.length === 0 && !looksLikeCodeLine(line)) {
+          // This marker is not followed by a code-looking line; treat it as noise only.
+          return { codeLines: [], nextIndex: index }
+        }
+        codeLines.push(stripPromptPrefix(line))
+        index += 1
+      }
+
+      while (codeLines.length > 0 && codeLines[codeLines.length - 1] === '') {
+        codeLines.pop()
+      }
+
+      return { codeLines, nextIndex: index }
+    }
+
+    const inferCodeLanguage = (codeLines: string[]): string => {
+      const first = codeLines.find((line) => line.trim())?.trim() || ''
+      if (/^(?:pip|python|conda|mamba|brew|apt|npm|pnpm|yarn|uv|git|cargo)\b/.test(first)) {
+        return 'bash'
+      }
+      return 'python'
+    }
+
+    const pushCodeBlock = (codeLines: string[], language = 'python') => {
+      if (codeLines.length === 0) return
+      if (output.length > 0 && output[output.length - 1] !== '') {
+        output.push('')
+      }
+      output.push(`\`\`\`${language}`)
+      output.push(...codeLines)
+      output.push('```')
+      output.push('')
+    }
+
+    for (let i = 0; i < lines.length;) {
+      const line = lines[i]
+      const trimmed = line.trim()
+
+      if (ArxivImporter.CODE_MARKER_LINE_RE.test(trimmed)) {
+        const { codeLines, nextIndex } = collectCodeChunkBlock(i + 1)
+        pushCodeBlock(codeLines, inferCodeLanguage(codeLines))
+        i = nextIndex
+        continue
+      }
+
+      if (ArxivImporter.PROMPT_LINE_RE.test(line)) {
+        const { codeLines, nextIndex } = collectPromptBlock(i)
+        pushCodeBlock(codeLines)
+        i = nextIndex
+        continue
+      }
+
+      output.push(normalizeInlineArtifacts(line))
+      i += 1
+    }
+
+    return output
+      .join('\n')
+      // ltx_ERROR can break ordered/bullet list items into two lines:
+      // "1. \\code" + "datasets: ..."
+      .replace(/^(\s*\d+\.)\s*\n([A-Za-z_][\w.-]*)(:.*)$/gm, '$1 `$2`$3')
+      .replace(/^(\s*[-*+])\s*\n([A-Za-z_][\w.-]*)(:.*)$/gm, '$1 `$2`$3')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
   }
 
   /**
@@ -570,10 +745,17 @@ export class ArxivImporter {
    */
   async fetchAsTiptap(
     input: string,
-    onPdfProgress?: (progress: { stage: string; message: string }) => void
+    onPdfProgress?: (progress: { stage: string; message: string }) => void,
+    options?: ArxivInlineImportOptions
   ): Promise<{ content: string; title: string }> {
     this.abortController = new AbortController()
     const signal = this.abortController.signal
+    const resolvedOptions: Required<ArxivInlineImportOptions> = {
+      includeAbstract: options?.includeAbstract !== false,
+      includeReferences: options?.includeReferences ?? false,
+      downloadFigures: options?.downloadFigures !== false,
+      preferHtml: options?.preferHtml !== false,
+    }
 
     try {
       // 1. Parse input
@@ -587,7 +769,7 @@ export class ArxivImporter {
       const metadata = await fetchMetadata(id, version, signal)
 
       // 3. Try HTML import
-      const htmlResult = await fetchHtml(id, version, signal)
+      const htmlResult = resolvedOptions.preferHtml ? await fetchHtml(id, version, signal) : null
 
       if (htmlResult) {
         try {
@@ -596,7 +778,7 @@ export class ArxivImporter {
 
           // 5. Download figures
           let figures = content.figures
-          if (figures.length > 0) {
+          if (resolvedOptions.downloadFigures && figures.length > 0) {
             figures = await this.downloadFigures(figures, htmlResult.baseUrl, signal)
           }
 
@@ -604,7 +786,13 @@ export class ArxivImporter {
           const markdown = this.contentToMarkdown(
             metadata,
             { ...content, figures },
-            { inputs: [], includeAbstract: true, includeReferences: true }
+            {
+              inputs: [],
+              includeAbstract: resolvedOptions.includeAbstract,
+              includeReferences: resolvedOptions.includeReferences,
+              downloadFigures: resolvedOptions.downloadFigures,
+              preferHtml: resolvedOptions.preferHtml,
+            }
           )
           let tiptapContent = markdownToTiptapString(markdown)
 

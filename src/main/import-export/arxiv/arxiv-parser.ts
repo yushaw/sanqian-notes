@@ -976,7 +976,14 @@ function extractLatex($el: Cheerio, _$: CheerioAPI): string {
  * Clean section title (keep numbering, just trim whitespace)
  */
 function cleanTitle(title: string): string {
-  return title.trim()
+  return title
+    .replace(/\{Code(?:Chunk|Input|Output)?\}/g, '')
+    .replace(/\\proglang([A-Za-z][\w-]*)/g, '$1')
+    .replace(/\\pkg([A-Za-z_][\w.-]*)/g, '$1')
+    .replace(/\\code([A-Za-z_][\w.-]*)/g, '$1')
+    .replace(/\\(?:proglang|pkg|code)\b/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
 }
 
 /**

@@ -88,6 +88,15 @@ export async function downloadImage(
       const urlObj = new URL(url)
       const protocol = urlObj.protocol === 'https:' ? https : http
 
+      // Guard: destroying request/stream triggers their error handlers,
+      // which would call settle() again. The flag prevents double-resolution.
+      let settled = false
+      function settle(result: DownloadResult): void {
+        if (settled) return
+        settled = true
+        resolve(result)
+      }
+
       const request = protocol.get(
         url,
         {
@@ -103,7 +112,7 @@ export async function downloadImage(
             if (redirectUrl) {
               // 检查重定向次数限制
               if (redirectCount >= MAX_REDIRECTS) {
-                resolve({
+                settle({
                   success: false,
                   originalUrl: url,
                   error: `Too many redirects (max: ${MAX_REDIRECTS})`,
@@ -118,7 +127,7 @@ export async function downloadImage(
 
           // 检查响应状态
           if (response.statusCode !== 200) {
-            resolve({
+            settle({
               success: false,
               originalUrl: url,
               error: `HTTP ${response.statusCode}`,
@@ -129,7 +138,7 @@ export async function downloadImage(
           // 检查内容大小
           const contentLength = parseInt(response.headers['content-length'] || '0', 10)
           if (contentLength > MAX_IMAGE_SIZE) {
-            resolve({
+            settle({
               success: false,
               originalUrl: url,
               error: `Image too large: ${Math.round(contentLength / 1024 / 1024)}MB (limit: ${MAX_IMAGE_SIZE / 1024 / 1024}MB)`,
@@ -153,7 +162,7 @@ export async function downloadImage(
               } catch {
                 // 忽略删除失败
               }
-              resolve({
+              settle({
                 success: false,
                 originalUrl: url,
                 error: `Image too large during download (limit: ${MAX_IMAGE_SIZE / 1024 / 1024}MB)`,
@@ -169,20 +178,20 @@ export async function downloadImage(
             if (existsSync(destPath)) {
               const stat = statSync(destPath)
               if (stat.size > 0) {
-                resolve({
+                settle({
                   success: true,
                   localPath: destPath,
                   originalUrl: url,
                 })
               } else {
-                resolve({
+                settle({
                   success: false,
                   originalUrl: url,
                   error: 'Downloaded file is empty',
                 })
               }
             } else {
-              resolve({
+              settle({
                 success: false,
                 originalUrl: url,
                 error: 'File not created',
@@ -197,7 +206,7 @@ export async function downloadImage(
             } catch {
               // 忽略删除失败
             }
-            resolve({
+            settle({
               success: false,
               originalUrl: url,
               error: `Write error: ${err.message}`,
@@ -207,7 +216,7 @@ export async function downloadImage(
       )
 
       request.on('error', (err) => {
-        resolve({
+        settle({
           success: false,
           originalUrl: url,
           error: `Request error: ${err.message}`,
@@ -216,7 +225,7 @@ export async function downloadImage(
 
       request.on('timeout', () => {
         request.destroy()
-        resolve({
+        settle({
           success: false,
           originalUrl: url,
           error: `Timeout after ${DOWNLOAD_TIMEOUT / 1000}s`,

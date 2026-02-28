@@ -10,12 +10,26 @@ import { existsSync, readFileSync } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { createRequire } from 'module'
-import { getNoteById, getNotes, searchNotes } from '../database'
+import { getNotes, getNotebooks, getLocalFolderMounts, listLocalNoteMetadata } from '../database'
 import { jsonToMarkdown } from '../markdown/tiptap-to-markdown'
 import { getUserDataPath } from '../attachment'
 import { t } from '../i18n'
-import katex from 'katex'
-import hljs from 'highlight.js'
+// katex and hljs are lazy-loaded to avoid ~300KB parse cost at app startup.
+// They are only needed for PDF export (code highlighting + math rendering).
+let _katex: typeof import('katex').default | null = null
+let _hljs: typeof import('highlight.js').default | null = null
+
+async function ensureExportLibs(): Promise<void> {
+  const [katexMod, hljsMod] = await Promise.all([
+    _katex ? Promise.resolve(null) : import('katex'),
+    _hljs ? Promise.resolve(null) : import('highlight.js'),
+  ])
+  if (katexMod) _katex = katexMod.default
+  if (hljsMod) _hljs = hljsMod.default
+}
+import { buildCanonicalLocalResourceId, buildNoteFromResolvedResource, resolveNoteResource } from '../note-gateway'
+import { scanLocalFolderMount, scanLocalFolderMountAsync } from '../local-folder'
+import type { LocalNoteMetadata } from '../../shared/types'
 
 /** Wait time for CSS/fonts rendering before PDF generation (ms) */
 const PDF_RENDER_DELAY_MS = 500
@@ -500,13 +514,13 @@ function findBlockById(content: Record<string, unknown>[], blockId: string): Rec
  * @param jsonContent JSON 内容字符串
  * @param depth 递归深度，防止无限循环
  */
-function tiptapToHTML(jsonContent: string, depth = 0): string {
+function tiptapToHTML(jsonContent: string, depth = 0, renderContext?: ExportRenderContext): string {
   if (depth > 3) {
     return `<p><em>${t().export.nestingTooDeep}</em></p>`
   }
   try {
     const doc = JSON.parse(jsonContent)
-    return convertNodeToHTML(doc, depth)
+    return convertNodeToHTML(doc, depth, undefined, renderContext || {})
   } catch {
     return '<p>Failed to parse content</p>'
   }
@@ -518,7 +532,12 @@ function tiptapToHTML(jsonContent: string, depth = 0): string {
  * @param depth 递归深度
  * @param rootDoc 根文档节点（用于 TOC 等需要访问全文的块）
  */
-function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: Record<string, unknown>): string {
+function convertNodeToHTML(
+  node: Record<string, unknown>,
+  depth = 0,
+  rootDoc?: Record<string, unknown>,
+  renderContext: ExportRenderContext = {}
+): string {
   if (!node) return ''
 
   const type = node.type as string
@@ -542,7 +561,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
   const docRef = type === 'doc' ? node : rootDoc
 
   // 递归处理子节点
-  const childHTML = content ? content.map(n => convertNodeToHTML(n, depth, docRef)).join('') : ''
+  const childHTML = content ? content.map((n) => convertNodeToHTML(n, depth, docRef, renderContext)).join('') : ''
 
   switch (type) {
     case 'doc':
@@ -582,11 +601,11 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
       const code = content?.map(n => (n as { text?: string }).text || '').join('') || ''
       // 使用 highlight.js 预渲染代码高亮
       try {
-        if (language && hljs.getLanguage(language)) {
-          const highlighted = hljs.highlight(code, { language }).value
+        if (language && _hljs!.getLanguage(language)) {
+          const highlighted = _hljs!.highlight(code, { language }).value
           return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`
         } else if (code) {
-          const highlighted = hljs.highlightAuto(code).value
+          const highlighted = _hljs!.highlightAuto(code).value
           return `<pre><code class="hljs">${highlighted}</code></pre>`
         }
       } catch {
@@ -628,7 +647,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
       const display = attrs.display === 'yes'
       // 使用 KaTeX 预渲染数学公式
       try {
-        const rendered = katex.renderToString(latex, {
+        const rendered = _katex!.renderToString(latex, {
           displayMode: display,
           throwOnError: false,
           output: 'html',
@@ -716,9 +735,9 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
         </div>`
       } else if (mode === 'local' && localPath) {
         // 本地笔记嵌入：获取笔记内容
-        const embeddedNote = getNoteById(localPath)
+        const embeddedNote = resolveExportNote(localPath)
         if (embeddedNote) {
-          const embeddedHTML = tiptapToHTML(embeddedNote.content, depth + 1)
+          const embeddedHTML = tiptapToHTML(embeddedNote.content, depth + 1, renderContext)
           return `<div class="embed-block embed-note">
             <div class="embed-title">${escapeHTML(embeddedNote.title || t().export.untitledNote)}</div>
             <div class="embed-content">${embeddedHTML}</div>
@@ -736,7 +755,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
       const targetValue = attrs.targetValue as string || ''
 
       // 获取引用笔记的内容
-      const referencedNote = getNoteById(noteId)
+      const referencedNote = resolveExportNote(noteId)
       if (referencedNote) {
         let displayTitle = referencedNote.title || noteName || t().export.untitledNote
         let contentToRender = referencedNote.content
@@ -764,7 +783,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
           // 解析失败时使用完整内容
         }
 
-        const referencedHTML = tiptapToHTML(contentToRender, depth + 1)
+        const referencedHTML = tiptapToHTML(contentToRender, depth + 1, renderContext)
         return `<div class="transclusion-block">
           <div class="transclusion-title">${escapeHTML(displayTitle)}</div>
           <div class="transclusion-content">${referencedHTML}</div>
@@ -810,7 +829,7 @@ function convertNodeToHTML(node: Record<string, unknown>, depth = 0, rootDoc?: R
     case 'dataviewBlock': {
       const query = attrs.query as string || ''
       // 执行 dataview 查询
-      const results = executeDataviewQuery(query)
+      const results = executeDataviewQuery(query, renderContext)
       if (results.length > 0) {
         const listItems = results.map(r => `<li><strong>${escapeHTML(r.title)}</strong></li>`).join('')
         return `<div class="dataview-block">
@@ -927,36 +946,206 @@ function disableAutoplay(url: string): string {
 
 /**
  * 执行简化的 Dataview 查询
- * 支持基本的 LIST FROM # 语法
+ * 支持基本的 LIST/TABLE + FROM 语法（all-source: internal + local-folder）
  */
-function executeDataviewQuery(query: string): Array<{ id: string; title: string }> {
+interface DataviewNoteProjection {
+  id: string
+  title: string
+  notebookId: string | null
+  notebookName: string | null
+  updatedAt: string
+  isPinned: boolean
+  tags: string[]
+}
+
+interface ExportRenderContext {
+  dataviewAllSourceNotes?: DataviewNoteProjection[]
+}
+
+function buildLocalMetadataKey(notebookId: string, relativePath: string): string {
+  return `${notebookId}\u0000${relativePath}`
+}
+
+function buildLocalMetadataLookup(metadataRows: LocalNoteMetadata[]): Map<string, LocalNoteMetadata> {
+  const map = new Map<string, LocalNoteMetadata>()
+  for (const row of metadataRows) {
+    map.set(buildLocalMetadataKey(row.notebook_id, row.relative_path), row)
+  }
+  return map
+}
+
+function collectDataviewAllSourceNotes(): DataviewNoteProjection[] {
+  const notebooks = getNotebooks()
+  const notebookNameById = new Map(notebooks.map((notebook) => [notebook.id, notebook.name]))
+
+  const internalNotes = getNotes()
+  const internalItems: DataviewNoteProjection[] = internalNotes.map((note) => ({
+    id: note.id,
+    title: note.title,
+    notebookId: note.notebook_id,
+    notebookName: note.notebook_id ? (notebookNameById.get(note.notebook_id) || null) : null,
+    updatedAt: note.updated_at,
+    isPinned: note.is_pinned,
+    tags: (note.tags || []).map((tag) => tag.name),
+  }))
+
+  const activeMounts = getLocalFolderMounts().filter((mount) => mount.mount.status === 'active')
+  const metadataByPath = buildLocalMetadataLookup(
+    listLocalNoteMetadata({ notebookIds: activeMounts.map((mount) => mount.notebook.id) })
+  )
+  const localItems: DataviewNoteProjection[] = []
+
+  for (const mount of activeMounts) {
+    let scanned: ReturnType<typeof scanLocalFolderMount>
+    try {
+      scanned = scanLocalFolderMount(mount)
+    } catch {
+      continue
+    }
+
+    for (const file of scanned.files) {
+      const metadata = metadataByPath.get(buildLocalMetadataKey(mount.notebook.id, file.relative_path))
+      localItems.push({
+        id: buildCanonicalLocalResourceId({
+          notebookId: mount.notebook.id,
+          relativePath: file.relative_path,
+        }),
+        title: file.name,
+        notebookId: mount.notebook.id,
+        notebookName: mount.notebook.name || null,
+        updatedAt: new Date(file.mtime_ms).toISOString(),
+        isPinned: metadata?.is_pinned ?? false,
+        tags: metadata?.tags || [],
+      })
+    }
+  }
+
+  return [...internalItems, ...localItems].sort((left, right) => {
+    if (left.isPinned !== right.isPinned) {
+      return left.isPinned ? -1 : 1
+    }
+    if (left.updatedAt !== right.updatedAt) {
+      return right.updatedAt.localeCompare(left.updatedAt)
+    }
+    return left.id.localeCompare(right.id, undefined, { sensitivity: 'base', numeric: true })
+  })
+}
+
+async function collectDataviewAllSourceNotesAsync(): Promise<DataviewNoteProjection[]> {
+  const notebooks = getNotebooks()
+  const notebookNameById = new Map(notebooks.map((notebook) => [notebook.id, notebook.name]))
+
+  const internalNotes = getNotes()
+  const internalItems: DataviewNoteProjection[] = internalNotes.map((note) => ({
+    id: note.id,
+    title: note.title,
+    notebookId: note.notebook_id,
+    notebookName: note.notebook_id ? (notebookNameById.get(note.notebook_id) || null) : null,
+    updatedAt: note.updated_at,
+    isPinned: note.is_pinned,
+    tags: (note.tags || []).map((tag) => tag.name),
+  }))
+
+  const activeMounts = getLocalFolderMounts().filter((mount) => mount.mount.status === 'active')
+  const metadataByPath = buildLocalMetadataLookup(
+    listLocalNoteMetadata({ notebookIds: activeMounts.map((mount) => mount.notebook.id) })
+  )
+  const localItems: DataviewNoteProjection[] = []
+
+  for (const mount of activeMounts) {
+    let scanned: Awaited<ReturnType<typeof scanLocalFolderMountAsync>>
+    try {
+      scanned = await scanLocalFolderMountAsync(mount)
+    } catch {
+      continue
+    }
+
+    for (const file of scanned.files) {
+      const metadata = metadataByPath.get(buildLocalMetadataKey(mount.notebook.id, file.relative_path))
+      localItems.push({
+        id: buildCanonicalLocalResourceId({
+          notebookId: mount.notebook.id,
+          relativePath: file.relative_path,
+        }),
+        title: file.name,
+        notebookId: mount.notebook.id,
+        notebookName: mount.notebook.name || null,
+        updatedAt: new Date(file.mtime_ms).toISOString(),
+        isPinned: metadata?.is_pinned ?? false,
+        tags: metadata?.tags || [],
+      })
+    }
+  }
+
+  return [...internalItems, ...localItems].sort((left, right) => {
+    if (left.isPinned !== right.isPinned) {
+      return left.isPinned ? -1 : 1
+    }
+    if (left.updatedAt !== right.updatedAt) {
+      return right.updatedAt.localeCompare(left.updatedAt)
+    }
+    return left.id.localeCompare(right.id, undefined, { sensitivity: 'base', numeric: true })
+  })
+}
+
+function getDataviewAllSourceNotes(renderContext?: ExportRenderContext): DataviewNoteProjection[] {
+  if (!renderContext) {
+    return collectDataviewAllSourceNotes()
+  }
+  if (!renderContext.dataviewAllSourceNotes) {
+    renderContext.dataviewAllSourceNotes = collectDataviewAllSourceNotes()
+  }
+  return renderContext.dataviewAllSourceNotes
+}
+
+function parseDataviewTagFilter(query: string): string | null {
+  const matched = query.match(/\bFROM\s+#([^\s"']+)/i)
+  if (!matched) return null
+  const tag = matched[1]?.trim()
+  return tag || null
+}
+
+function parseDataviewFolderFilter(query: string): string | null {
+  const quoted = query.match(/\bFROM\s+"([^"]+)"/i)
+  if (quoted) {
+    return quoted[1].trim() || null
+  }
+  const plain = query.match(/\bFROM\s+([^\s#"]+)/i)
+  if (!plain) return null
+  return plain[1].trim() || null
+}
+
+function executeDataviewQuery(
+  query: string,
+  renderContext?: ExportRenderContext
+): Array<{ id: string; title: string }> {
   try {
-    const trimmed = query.trim().toUpperCase()
+    const trimmed = query.trim()
+    const upper = trimmed.toUpperCase()
 
-    // 简单解析：LIST FROM #tag 或 LIST FROM "folder"
-    if (trimmed.startsWith('LIST')) {
-      // 提取 FROM 后的条件
-      const fromMatch = query.match(/FROM\s+[#"]?([^"\s]+)"?/i)
-      if (fromMatch) {
-        const condition = fromMatch[1]
-        // 如果是 tag（以 # 开头的条件）
-        if (query.includes('#')) {
-          const results = searchNotes(condition, {})
-          return results.slice(0, 20).map(n => ({ id: n.id, title: n.title }))
-        }
+    if (!upper.startsWith('LIST') && !upper.startsWith('TABLE')) {
+      return []
+    }
+
+    let notes = getDataviewAllSourceNotes(renderContext)
+    const tagFilter = parseDataviewTagFilter(trimmed)
+    if (tagFilter) {
+      const normalizedTag = tagFilter.toLowerCase()
+      notes = notes.filter((note) =>
+        note.tags.some((tag) => tag.toLowerCase() === normalizedTag)
+      )
+    } else {
+      const folderFilter = parseDataviewFolderFilter(trimmed)
+      if (folderFilter) {
+        const normalizedFolder = folderFilter.toLowerCase()
+        notes = notes.filter((note) =>
+          (note.notebookName || '').toLowerCase() === normalizedFolder
+          || (note.notebookId || '').toLowerCase() === normalizedFolder
+        )
       }
-      // 默认返回最近的笔记
-      const notes = getNotes(20, 0)
-      return notes.map(n => ({ id: n.id, title: n.title }))
     }
 
-    // TABLE 查询也简化为列表
-    if (trimmed.startsWith('TABLE')) {
-      const notes = getNotes(20, 0)
-      return notes.map(n => ({ id: n.id, title: n.title }))
-    }
-
-    return []
+    return notes.slice(0, 20).map((note) => ({ id: note.id, title: note.title }))
   } catch {
     return []
   }
@@ -1008,6 +1197,29 @@ function escapeHTML(str: string): string {
     .replace(/'/g, '&#039;')
 }
 
+const exportNoteCache = new Map<string, ReturnType<typeof buildNoteFromResolvedResource> | null>()
+
+function resolveExportNote(noteId: string) {
+  if (exportNoteCache.has(noteId)) {
+    return exportNoteCache.get(noteId) || null
+  }
+  const resolved = resolveNoteResource(noteId)
+  if (!resolved.ok) {
+    exportNoteCache.set(noteId, null)
+    return null
+  }
+  const note = buildNoteFromResolvedResource(resolved.resource)
+  exportNoteCache.set(noteId, note)
+  return note
+}
+
+/**
+ * Clear the export note cache. Call after each export operation completes.
+ */
+export function clearExportNoteCache(): void {
+  exportNoteCache.clear()
+}
+
 // ============ 导出函数 ============
 
 /**
@@ -1017,8 +1229,10 @@ export async function exportNoteAsMarkdown(
   noteId: string,
   options: MarkdownExportOptions = {}
 ): Promise<ExportResult> {
-  const note = getNoteById(noteId)
+  exportNoteCache.clear()
+  const note = resolveExportNote(noteId)
   if (!note) {
+    exportNoteCache.clear()
     return { success: false, error: 'Note not found' }
   }
 
@@ -1082,6 +1296,8 @@ export async function exportNoteAsMarkdown(
   } catch (error) {
     console.error('Export markdown failed:', error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    exportNoteCache.clear()
   }
 }
 
@@ -1092,8 +1308,11 @@ export async function exportNoteAsPDF(
   noteId: string,
   options: PDFExportOptions = {}
 ): Promise<ExportResult> {
-  const note = getNoteById(noteId)
+  await ensureExportLibs()
+  exportNoteCache.clear()
+  const note = resolveExportNote(noteId)
   if (!note) {
+    exportNoteCache.clear()
     return { success: false, error: 'Note not found' }
   }
 
@@ -1108,8 +1327,13 @@ export async function exportNoteAsPDF(
     return { success: false, error: 'canceled' }
   }
 
+  // 异步预获取 dataview 数据，避免同步文件扫描阻塞主进程
+  const renderContext: ExportRenderContext = {
+    dataviewAllSourceNotes: await collectDataviewAllSourceNotesAsync(),
+  }
+
   // 转换内容为 HTML（代码高亮和数学公式已在此处预渲染）
-  const contentHTML = tiptapToHTML(note.content)
+  const contentHTML = tiptapToHTML(note.content, 0, renderContext)
 
   // 生成完整的 HTML 内容（使用本地 CSS，不依赖 CDN）
   const template = getPdfTemplate()
@@ -1173,5 +1397,6 @@ export async function exportNoteAsPDF(
     } catch {
       // 忽略删除失败
     }
+    exportNoteCache.clear()
   }
 }

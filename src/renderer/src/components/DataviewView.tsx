@@ -34,6 +34,7 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
 
   const t = useTranslations()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const prevIsEditingRef = useRef(isEditing)
 
   const [localQuery, setLocalQuery] = useState(query)
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
@@ -63,13 +64,15 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
   // This handles: 1) clicking Run 2) initial mount in result mode
   useEffect(() => {
     if (!isEditing && parseResult?.success) {
-      executeQuery()
+      const didExitEditMode = prevIsEditingRef.current && !isEditing
+      void executeQuery({ persistLastExecuted: didExitEditMode })
     }
+    prevIsEditingRef.current = isEditing
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude executeQuery to prevent infinite loops
   }, [isEditing, parseResult?.success])
 
   // Execute query
-  const executeQuery = useCallback(async () => {
+  const executeQuery = useCallback(async (options?: { persistLastExecuted?: boolean }) => {
     if (!parseResult?.success || !parseResult.query) return
 
     const currentRequestId = ++requestIdRef.current
@@ -80,9 +83,11 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
       if (currentRequestId !== requestIdRef.current) return
       setQueryResult(result)
       setCurrentPage(0)
-      updateAttributes({
-        lastExecuted: new Date().toISOString(),
-      })
+      if (options?.persistLastExecuted) {
+        updateAttributes({
+          lastExecuted: new Date().toISOString(),
+        })
+      }
     } catch (error) {
       // Discard error if a newer request has been made
       if (currentRequestId !== requestIdRef.current) return
@@ -119,7 +124,7 @@ export function DataviewView({ node, updateAttributes, selected }: NodeViewProps
   // Refresh query
   const handleRefresh = useCallback(() => {
     if (parseResult?.success) {
-      executeQuery()
+      void executeQuery({ persistLastExecuted: true })
     }
   }, [parseResult, executeQuery])
 

@@ -13,6 +13,7 @@ import { DOMParser as ProseMirrorDOMParser, type Node as ProseMirrorNode } from 
 import type { Transaction } from '@tiptap/pm/state'
 import { type AIContext, formatAIPrompt } from '../utils/aiContext'
 import { type AIErrorCode, getAIErrorCode } from '../utils/aiErrors'
+import { useReconnectHold } from './useReconnectHold'
 import { aiPreviewPluginKey, type AIPreviewBlock } from '../components/extensions/AIPreview'
 
 // Re-export for backward compatibility
@@ -236,6 +237,8 @@ export function useAIWriting(options: UseAIWritingOptions) {
   const [isProcessing, setIsProcessing] = useState(false)
   const cleanupRef = useRef<(() => void) | null>(null)
   const abortedRef = useRef(false)
+  const streamIdRef = useRef<string | null>(null)
+  const reconnect = useReconnectHold()
   // Synchronous processing lock to prevent race conditions (checked before async operations)
   const processingLockRef = useRef(false)
 
@@ -244,13 +247,19 @@ export function useAIWriting(options: UseAIWritingOptions) {
    */
   const cancel = useCallback(() => {
     abortedRef.current = true
+    const streamId = streamIdRef.current
+    if (streamId) {
+      void window.electron.chat.cancelStream({ streamId }).catch(() => {})
+      streamIdRef.current = null
+    }
     if (cleanupRef.current) {
       cleanupRef.current()
       cleanupRef.current = null
     }
     processingLockRef.current = false
     setIsProcessing(false)
-  }, [])
+    reconnect.release()
+  }, [reconnect])
 
   /**
    * Execute an AI writing action
@@ -274,9 +283,17 @@ export function useAIWriting(options: UseAIWritingOptions) {
     processingLockRef.current = true
 
     // Cancel any existing operation (cleanup listener)
-    if (cleanupRef.current) {
-      cleanupRef.current()
-      cleanupRef.current = null
+    if (cleanupRef.current || streamIdRef.current) {
+      if (cleanupRef.current) {
+        cleanupRef.current()
+        cleanupRef.current = null
+      }
+      const streamId = streamIdRef.current
+      if (streamId) {
+        void window.electron.chat.cancelStream({ streamId }).catch(() => {})
+        streamIdRef.current = null
+      }
+      reconnect.release()
     }
 
     abortedRef.current = false
@@ -304,6 +321,7 @@ export function useAIWriting(options: UseAIWritingOptions) {
 
     // Generate stream ID
     const streamId = crypto.randomUUID()
+    streamIdRef.current = streamId
 
     // Build messages using XML format with context
     // SDK doesn't support system role, so we combine into user message
@@ -321,7 +339,7 @@ export function useAIWriting(options: UseAIWritingOptions) {
 
     try {
       // Acquire reconnect to ensure connection
-      await window.electron.chat.acquireReconnect()
+      await reconnect.acquire()
 
       // Register stream event listener
       const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
@@ -520,19 +538,21 @@ export function useAIWriting(options: UseAIWritingOptions) {
 
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
+          streamIdRef.current = null
           processingLockRef.current = false
           setIsProcessing(false)
           onComplete?.()
-          window.electron.chat.releaseReconnect()
+          reconnect.release()
         }
 
         if (event.type === 'error') {
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
+          streamIdRef.current = null
           processingLockRef.current = false
           setIsProcessing(false)
           onError?.(getAIErrorCode(event.error))
-          window.electron.chat.releaseReconnect()
+          reconnect.release()
         }
       }) as (() => void) | void
 
@@ -547,30 +567,29 @@ export function useAIWriting(options: UseAIWritingOptions) {
         messages
       })
     } catch (error) {
+      streamIdRef.current = null
       processingLockRef.current = false
       setIsProcessing(false)
       onError?.(getAIErrorCode(error))
-      window.electron.chat.releaseReconnect()
+      reconnect.release()
     }
-  }, [editor, onStart, onComplete, onError])
-
-  // Cleanup on unmount - use ref to capture latest isProcessing state
-  const isProcessingRef = useRef(isProcessing)
-  isProcessingRef.current = isProcessing
+  }, [editor, onStart, onComplete, onError, reconnect])
 
   useEffect(() => {
     return () => {
+      const streamId = streamIdRef.current
+      if (streamId) {
+        void window.electron.chat.cancelStream({ streamId }).catch(() => {})
+        streamIdRef.current = null
+      }
       if (cleanupRef.current) {
         cleanupRef.current()
         cleanupRef.current = null
       }
-      // Release reconnect if component unmounts during streaming
-      if (isProcessingRef.current) {
-        window.electron.chat.releaseReconnect()
-      }
+      reconnect.release()
       processingLockRef.current = false
     }
-  }, [])
+  }, [reconnect])
 
   return {
     isProcessing,

@@ -50,6 +50,7 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
   const imageRef = useRef<HTMLImageElement>(null)
   const [isResizing, setIsResizing] = useState(false)
   const [aspectRatio, setAspectRatio] = useState<number | null>(null)
+  const [autoSize, setAutoSize] = useState<{ width: number; height: number } | null>(null)
   const [imageError, setImageError] = useState(false)
   const t = useTranslations()
 
@@ -84,6 +85,10 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
     }
   }, [])
 
+  useEffect(() => {
+    setAutoSize(null)
+  }, [attrs.src, attrs.width, attrs.height])
+
   const handleImageLoad = () => {
     if (imageRef.current) {
       const { naturalWidth, naturalHeight } = imageRef.current
@@ -92,41 +97,46 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
       setImageError(false)
 
       // 如果没有设置尺寸，根据面积和尺寸限制计算默认大小
-      if (!attrs.width && !attrs.height) {
-        const originalArea = naturalWidth * naturalHeight
-
-        // 如果原图在所有限制内，保持原尺寸
-        if (originalArea <= IMAGE_TARGET_AREA && naturalWidth <= IMAGE_MAX_WIDTH && naturalHeight <= IMAGE_MAX_HEIGHT) {
-          return
-        }
-
-        let newWidth = naturalWidth
-        let newHeight = naturalHeight
-
-        // 先按面积缩放
-        if (originalArea > IMAGE_TARGET_AREA) {
-          const scale = Math.sqrt(IMAGE_TARGET_AREA / originalArea)
-          newWidth = Math.round(naturalWidth * scale)
-          newHeight = Math.round(naturalHeight * scale)
-        }
-
-        // 再检查宽度限制
-        if (newWidth > IMAGE_MAX_WIDTH) {
-          newWidth = IMAGE_MAX_WIDTH
-          newHeight = Math.round(newWidth / ratio)
-        }
-
-        // 再检查高度限制
-        if (newHeight > IMAGE_MAX_HEIGHT) {
-          newHeight = IMAGE_MAX_HEIGHT
-          newWidth = Math.round(newHeight * ratio)
-        }
-
-        updateAttributes({
-          width: newWidth,
-          height: newHeight,
-        })
+      if (attrs.width || attrs.height) {
+        setAutoSize(null)
+        return
       }
+
+      const originalArea = naturalWidth * naturalHeight
+
+      // 如果原图在所有限制内，保持原尺寸
+      if (originalArea <= IMAGE_TARGET_AREA && naturalWidth <= IMAGE_MAX_WIDTH && naturalHeight <= IMAGE_MAX_HEIGHT) {
+        setAutoSize(null)
+        return
+      }
+
+      let newWidth = naturalWidth
+      let newHeight = naturalHeight
+
+      // 先按面积缩放
+      if (originalArea > IMAGE_TARGET_AREA) {
+        const scale = Math.sqrt(IMAGE_TARGET_AREA / originalArea)
+        newWidth = Math.round(naturalWidth * scale)
+        newHeight = Math.round(naturalHeight * scale)
+      }
+
+      // 再检查宽度限制
+      if (newWidth > IMAGE_MAX_WIDTH) {
+        newWidth = IMAGE_MAX_WIDTH
+        newHeight = Math.round(newWidth / ratio)
+      }
+
+      // 再检查高度限制
+      if (newHeight > IMAGE_MAX_HEIGHT) {
+        newHeight = IMAGE_MAX_HEIGHT
+        newWidth = Math.round(newHeight * ratio)
+      }
+
+      // Runtime-only display size to avoid mutating note content on open.
+      setAutoSize({
+        width: newWidth,
+        height: newHeight,
+      })
     }
   }
 
@@ -145,7 +155,7 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
 
     const startX = e.clientX
     // 使用图片的实际渲染宽度，如果没有设置 width 属性则取自然宽度
-    const startWidth = attrs.width || imageRef.current?.naturalWidth || containerRef.current?.offsetWidth || 300
+    const startWidth = attrs.width || autoSize?.width || imageRef.current?.naturalWidth || containerRef.current?.offsetWidth || 300
     const ratio = aspectRatio || 1
     const container = containerRef.current
     const maxWidth = container?.parentElement?.offsetWidth || 1200
@@ -197,7 +207,7 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-  }, [aspectRatio, updateAttributes, attrs.width])
+  }, [aspectRatio, autoSize?.width, updateAttributes, attrs.width])
 
   return (
     <NodeViewWrapper className={`image-wrapper align-${attrs.align || 'center'}`}>
@@ -205,7 +215,7 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
         ref={containerRef}
         className={`image-container ${selected ? 'selected' : ''} ${isResizing ? 'resizing' : ''}`}
         style={{
-          width: attrs.width ? `${attrs.width}px` : 'auto',
+          width: (attrs.width ?? autoSize?.width) ? `${attrs.width ?? autoSize?.width}px` : 'auto',
           maxWidth: '100%',
         }}
       >

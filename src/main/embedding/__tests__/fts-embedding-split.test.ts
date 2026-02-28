@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NoteChunk, NoteIndexStatus, EmbeddingConfig } from '../types'
+import { computeContentHash } from '../utils'
 
 // Mock 依赖模块
 vi.mock('../database', () => ({
@@ -41,7 +42,9 @@ vi.mock('../../summary-service', () => ({
 }))
 
 vi.mock('../../database', () => ({
-  getNoteSummaryInfo: vi.fn().mockReturnValue(null)
+  getNoteSummaryInfo: vi.fn().mockReturnValue(null),
+  getLocalNoteSummaryInfo: vi.fn().mockReturnValue(null),
+  getLocalNoteIdentityByUid: vi.fn().mockReturnValue(null),
 }))
 
 import {
@@ -56,6 +59,8 @@ import {
 } from '../database'
 import { getEmbeddings } from '../api'
 import { chunkNote } from '../chunking'
+import { generateSummary } from '../../summary-service'
+import { getLocalNoteIdentityByUid, getLocalNoteSummaryInfo, getNoteSummaryInfo } from '../../database'
 
 // 导入被测试的服务
 import { IndexingService } from '../indexing-service'
@@ -131,6 +136,8 @@ describe('FTS 与 Embedding 索引拆分', () => {
     vi.clearAllMocks()
     service = new IndexingService()
     service.start()
+    vi.mocked(getLocalNoteIdentityByUid).mockReturnValue(null)
+    vi.mocked(getLocalNoteSummaryInfo).mockReturnValue(null)
   })
 
   describe('indexNoteFtsOnly - 仅建立 FTS 索引', () => {
@@ -277,6 +284,55 @@ describe('FTS 与 Embedding 索引拆分', () => {
       })
       expect(errorStatus.ftsStatus).toBe('indexed')
       expect(errorStatus.embeddingStatus).toBe('error')
+    })
+  })
+
+  describe('local note behavior', () => {
+    it('triggers summary for local note ids on no-change check when local summary is missing', async () => {
+      vi.mocked(getEmbeddingConfig).mockReturnValue(createMockConfig(true))
+      const content = createTiptapContent(LONG_TEXT)
+      const status = createMockStatus('local:nb-local:foo.md', {
+        contentHash: computeContentHash(LONG_TEXT),
+        embeddingStatus: 'indexed',
+      })
+      vi.mocked(getNoteIndexStatus).mockReturnValue(status)
+
+      const result = await service.checkAndIndex('local:nb-local:foo.md', 'nb-local', content)
+
+      expect(result).toBe(false)
+      expect(getLocalNoteSummaryInfo).toHaveBeenCalledWith({
+        notebook_id: 'nb-local',
+        relative_path: 'foo.md',
+      })
+      expect(getNoteSummaryInfo).not.toHaveBeenCalled()
+      expect(generateSummary).toHaveBeenCalledWith('local:nb-local:foo.md')
+    })
+
+    it('triggers summary for local uuid note ids on no-change check when local summary is missing', async () => {
+      vi.mocked(getEmbeddingConfig).mockReturnValue(createMockConfig(true))
+      vi.mocked(getLocalNoteIdentityByUid).mockReturnValue({
+        note_uid: 'ef84fb2a-8f5e-4e21-bd24-e1d6f2627d53',
+        notebook_id: 'nb-local',
+        relative_path: 'foo.md',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      })
+      const content = createTiptapContent(LONG_TEXT)
+      const status = createMockStatus('ef84fb2a-8f5e-4e21-bd24-e1d6f2627d53', {
+        contentHash: computeContentHash(LONG_TEXT),
+        embeddingStatus: 'indexed',
+      })
+      vi.mocked(getNoteIndexStatus).mockReturnValue(status)
+
+      const result = await service.checkAndIndex('ef84fb2a-8f5e-4e21-bd24-e1d6f2627d53', 'nb-local', content)
+
+      expect(result).toBe(false)
+      expect(getLocalNoteSummaryInfo).toHaveBeenCalledWith({
+        notebook_id: 'nb-local',
+        relative_path: 'foo.md',
+      })
+      expect(getNoteSummaryInfo).not.toHaveBeenCalled()
+      expect(generateSummary).toHaveBeenCalledWith('ef84fb2a-8f5e-4e21-bd24-e1d6f2627d53')
     })
   })
 })

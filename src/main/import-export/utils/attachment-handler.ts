@@ -18,6 +18,14 @@ export interface AttachmentCopyResult {
   updatedContent: string
 }
 
+function decodeURIComponentSafe(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
 /**
  * 从 Markdown 引用中提取图片路径
  * ![alt](path) -> path
@@ -51,7 +59,7 @@ function updateImageSrcInNode(
     const attrs = node.attrs as Record<string, unknown>
     if (typeof attrs.src === 'string') {
       // URL 解码 src
-      const decodedSrc = decodeURIComponent(attrs.src)
+      const decodedSrc = decodeURIComponentSafe(attrs.src)
 
       // 检查是否需要替换
       const newPath = pathToNewPath.get(decodedSrc) || pathToNewPath.get(attrs.src)
@@ -124,7 +132,7 @@ export async function copyAttachmentsAndUpdateContent(
       if (originalPath) {
         // 同时存储编码和解码版本
         pathToNewPath.set(originalPath, newPath)
-        pathToNewPath.set(decodeURIComponent(originalPath), newPath)
+        pathToNewPath.set(decodeURIComponentSafe(originalPath), newPath)
       }
 
       attachment.newRelativePath = result.relativePath

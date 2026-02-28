@@ -30,6 +30,25 @@ describe('markdownToTiptap', () => {
       expect(result.content[0].content[0].text).toBe('第一段')
       expect(result.content[1].content[0].text).toBe('第二段')
     })
+
+    it('文件头 front matter 解析为 frontmatter 专用节点', () => {
+      const result = markdownToTiptap(`---
+tags:
+  - AI
+aliases:
+  - SEO
+---
+
+# 标题
+`) as AnyNode
+
+      expect(result.content).toHaveLength(2)
+      expect(result.content[0].type).toBe('frontmatter')
+      expect(result.content[0].content[0].text).toContain('tags:')
+      expect(result.content[0].content[0].text).toContain('aliases:')
+      expect(result.content[1].type).toBe('heading')
+      expect(result.content[1].content[0].text).toBe('标题')
+    })
   })
 
   describe('标题', () => {
@@ -109,6 +128,22 @@ describe('markdownToTiptap', () => {
       expect(content[3].text).toBe('斜体')
       expect(content[3].marks).toContainEqual({ type: 'italic' })
     })
+
+    it('代码标记不与粗体叠加', () => {
+      const result = markdownToTiptap('**import `evomap` package**') as AnyNode
+      const content = result.content[0].content
+
+      expect(content).toHaveLength(3)
+      expect(content[0].text).toBe('import ')
+      expect(content[0].marks).toContainEqual({ type: 'bold' })
+
+      expect(content[1].text).toBe('evomap')
+      expect(content[1].marks).toContainEqual({ type: 'code' })
+      expect((content[1].marks || []).some((mark: { type: string }) => mark.type === 'bold')).toBe(false)
+
+      expect(content[2].text).toBe(' package')
+      expect(content[2].marks).toContainEqual({ type: 'bold' })
+    })
   })
 
   describe('列表', () => {
@@ -169,10 +204,20 @@ describe('markdownToTiptap', () => {
   describe('图片', () => {
     it('基础图片', () => {
       const result = markdownToTiptap('![示例图片](https://example.com/image.png)') as AnyNode
+      expect(result.content[0].type).toBe('image')
+      expect(result.content[0].attrs.src).toBe('https://example.com/image.png')
+      expect(result.content[0].attrs.alt).toBe('示例图片')
+    })
+
+    it('段落内图片自动拆分为块节点', () => {
+      const result = markdownToTiptap('前文 ![示例图片](https://example.com/image.png) 后文') as AnyNode
+      expect(result.content).toHaveLength(3)
       expect(result.content[0].type).toBe('paragraph')
-      expect(result.content[0].content[0].type).toBe('image')
-      expect(result.content[0].content[0].attrs.src).toBe('https://example.com/image.png')
-      expect(result.content[0].content[0].attrs.alt).toBe('示例图片')
+      expect(result.content[0].content[0].text).toBe('前文 ')
+      expect(result.content[1].type).toBe('image')
+      expect(result.content[1].attrs.src).toBe('https://example.com/image.png')
+      expect(result.content[2].type).toBe('paragraph')
+      expect(result.content[2].content[0].text).toBe(' 后文')
     })
   })
 
@@ -204,6 +249,39 @@ describe('markdownToTiptap', () => {
   })
 
   describe('HTML 注释', () => {
+    it('AI popup marker 注释转为 aiPopupMark 节点', () => {
+      const result = markdownToTiptap('<!-- SQN_AI_POPUP {"popupId":"popup-1","createdAt":123} -->') as AnyNode
+      expect(result.content[0].type).toBe('paragraph')
+      expect(result.content[0].content[0].type).toBe('aiPopupMark')
+      expect(result.content[0].content[0].attrs.popupId).toBe('popup-1')
+      expect(result.content[0].content[0].attrs.createdAt).toBe(123)
+    })
+
+    it('段落中的 AI popup marker 注释转为行内 aiPopupMark 节点', () => {
+      const result = markdownToTiptap('before <!-- SQN_AI_POPUP {"popupId":"popup-inline"} --> after') as AnyNode
+      expect(result.content[0].type).toBe('paragraph')
+      const paragraphContent = result.content[0].content
+      expect(paragraphContent[0].type).toBe('text')
+      expect(paragraphContent[0].text).toBe('before ')
+      expect(paragraphContent[1].type).toBe('aiPopupMark')
+      expect(paragraphContent[1].attrs.popupId).toBe('popup-inline')
+      expect(paragraphContent[2].type).toBe('text')
+      expect(paragraphContent[2].text).toBe(' after')
+    })
+
+    it('兼容 legacy span 形式的 AI popup marker（不残留 fallback 文本）', () => {
+      const result = markdownToTiptap(
+        'before <span data-ai-popup-mark data-popup-id=\"popup-legacy\" data-created-at=\"123\">✨</span> after'
+      ) as AnyNode
+      expect(result.content[0].type).toBe('paragraph')
+      const paragraphContent = result.content[0].content
+      expect(paragraphContent).toHaveLength(3)
+      expect(paragraphContent[0]).toEqual({ type: 'text', text: 'before ' })
+      expect(paragraphContent[1].type).toBe('aiPopupMark')
+      expect(paragraphContent[1].attrs.popupId).toBe('popup-legacy')
+      expect(paragraphContent[2]).toEqual({ type: 'text', text: ' after' })
+    })
+
     it('HTML 注释转为 htmlComment 节点', () => {
       const result = markdownToTiptap('<!-- This is a comment -->') as AnyNode
       expect(result.content[0].type).toBe('htmlComment')
@@ -243,6 +321,11 @@ describe('markdownToTiptap', () => {
       const result = markdownToTiptap('```mermaid\ngraph TD\n  A --> B\n```') as AnyNode
       expect(result.content[0].type).toBe('mermaid')
       expect(result.content[0].attrs.code).toBe('graph TD\n  A --> B')
+    })
+
+    it('TOC 代码块转换为 tocBlock 节点', () => {
+      const result = markdownToTiptap('```toc\n```') as AnyNode
+      expect(result.content[0].type).toBe('tocBlock')
     })
 
     it('Callout', () => {

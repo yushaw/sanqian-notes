@@ -48,6 +48,12 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
   // Track all temp popup IDs for cleanup (supports concurrent actions)
   const tempPopupIdsRef = useRef<Set<string>>(new Set())
 
+  const runAsyncSafely = useCallback((task: Promise<unknown>, label: string) => {
+    void task.catch((error) => {
+      console.error(`[AI Action Executor] ${label} failed:`, error)
+    })
+  }, [])
+
   // Cleanup all temp icons
   // Collects positions first, then deletes from end to start in a single transaction
   const cleanupTempIcons = useCallback(() => {
@@ -75,12 +81,12 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
     const { tr } = editor.state
     for (const { pos, popupId } of toDelete) {
       tr.delete(pos, pos + 1)
-      deletePopup(popupId)
+      runAsyncSafely(deletePopup(popupId), 'delete popup')
     }
     editor.view.dispatch(tr)
 
     tempPopupIdsRef.current.clear()
-  }, [editor])
+  }, [editor, runAsyncSafely])
 
   // AI Writing hook
   const { executeAction: executeAIAction, isProcessing, cancel } = useAIWriting({
@@ -141,13 +147,13 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
       console.error('[Popup] Stream error:', err)
       cleanup?.() // Ensure listener is cleaned up if registered
       updatePopupStreaming(popupId, false)
-      deletePopup(popupId)
+      runAsyncSafely(deletePopup(popupId), 'delete popup')
       editor.commands.deleteAIPopupMark(popupId)
       toast(t.ai.connectionFailed, { type: 'error' })
       window.electron.chat.releaseReconnect()
       onError?.('connection_failed')
     }
-  }, [editor, t.ai.connectionFailed, onComplete, onError])
+  }, [editor, onComplete, onError, runAsyncSafely, t.ai.connectionFailed])
 
   // Handle popup mode
   const handlePopupAction = useCallback((prompt: string, actionName: string, context: AIContext) => {
@@ -155,7 +161,7 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
 
     const popupId = uuidv4()
 
-    createPopup({
+    runAsyncSafely(createPopup({
       popupId,
       prompt,
       actionName,
@@ -163,7 +169,7 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
         targetText: context.targetMarkdown,
         documentTitle: context.documentTitle
       }
-    })
+    }), 'create popup')
     updatePopupStreaming(popupId, true)
 
     editor.chain()
@@ -173,7 +179,7 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
       .run()
 
     startPopupStream(popupId, prompt, context)
-  }, [editor, startPopupStream])
+  }, [editor, runAsyncSafely, startPopupStream])
 
   // Handle replace/insert mode with temp icon
   const handleReplaceInsertAction = useCallback((prompt: string, actionName: string, context: AIContext, mode: 'replace' | 'insert') => {
@@ -182,7 +188,7 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
     const tempPopupId = uuidv4()
     tempPopupIdsRef.current.add(tempPopupId)
 
-    createPopup({
+    runAsyncSafely(createPopup({
       popupId: tempPopupId,
       prompt,
       actionName,
@@ -190,7 +196,7 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
         targetText: context.targetMarkdown,
         documentTitle: context.documentTitle
       }
-    })
+    }), 'create popup')
     updatePopupStreaming(tempPopupId, true)
 
     editor.chain()
@@ -201,7 +207,7 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
 
     const insertMode: InsertMode = mode === 'insert' ? 'insertAfter' : 'replace'
     executeAIAction(prompt, context, insertMode)
-  }, [editor, executeAIAction])
+  }, [editor, executeAIAction, runAsyncSafely])
 
   // Internal execute logic
   const executeInternal = useCallback((
@@ -211,13 +217,17 @@ export function useAIActionExecutor(options: UseAIActionExecutorOptions): UseAIA
     context: AIContext
   ) => {
     if (!editor) return
+    if (!prompt.trim() || !context.target.trim()) {
+      toast(t.ai.noContentToProcess, { type: 'info' })
+      return
+    }
 
     if (mode === 'popup') {
       handlePopupAction(prompt, actionName, context)
     } else {
       handleReplaceInsertAction(prompt, actionName, context, mode)
     }
-  }, [editor, handlePopupAction, handleReplaceInsertAction])
+  }, [editor, handlePopupAction, handleReplaceInsertAction, t.ai.noContentToProcess])
 
   /**
    * Execute an AI action with proper UI feedback

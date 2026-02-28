@@ -1,9 +1,8 @@
 import type { AppContextData } from '@yushaw/sanqian-chat/main'
 import {
-  type Note,
   type Notebook,
   getNoteById,
-  getNotes,
+  getNotesByUpdated,
   getNotebooks,
   getNoteCountByNotebook,
 } from './database'
@@ -15,18 +14,53 @@ export interface UserContextSnapshot {
   currentNoteTitle: string | null
 }
 
+export interface ContextOverviewNote {
+  id: string
+  title: string
+  notebook_id: string | null
+  updated_at: string
+  deleted_at: string | null
+  ai_summary: string | null
+  source_type?: 'internal' | 'local-folder'
+  relative_path?: string | null
+}
+
 export interface ContextOverviewDataSource {
   getNotebooks: () => Notebook[]
   getNoteCountByNotebook: () => Record<string, number>
-  getNoteById: (id: string) => Note | null
-  getNotes: (limit: number, offset: number) => Note[]
+  getNoteCountByNotebookId?: (notebookId: string) => number
+  getNoteById: (id: string) => ContextOverviewNote | null
+  getNotes: (limit: number, offset: number) => ContextOverviewNote[]
 }
 
 const defaultDataSource: ContextOverviewDataSource = {
   getNotebooks,
   getNoteCountByNotebook,
-  getNoteById,
-  getNotes,
+  getNoteCountByNotebookId: (notebookId: string) => getNoteCountByNotebook()[notebookId] || 0,
+  getNoteById: (id: string) => {
+    const note = getNoteById(id)
+    if (!note) return null
+    return {
+      id: note.id,
+      title: note.title,
+      notebook_id: note.notebook_id,
+      updated_at: note.updated_at,
+      deleted_at: note.deleted_at,
+      ai_summary: note.ai_summary,
+      source_type: 'internal',
+    }
+  },
+  getNotes: (limit: number, offset: number) => {
+    return getNotesByUpdated(limit, offset).map((note) => ({
+      id: note.id,
+      title: note.title,
+      notebook_id: note.notebook_id,
+      updated_at: note.updated_at,
+      deleted_at: note.deleted_at,
+      ai_summary: note.ai_summary,
+      source_type: 'internal',
+    }))
+  },
 }
 
 function generateNoteLink(noteId: string): string {
@@ -43,39 +77,66 @@ function truncateText(text: string, maxLength: number): string {
   return truncated
 }
 
+function sanitizeContextInlineText(text: string): string {
+  return text
+    .replace(/\r?\n+/g, ' ')
+    .replace(/[<>]/g, (char) => (char === '<' ? '＜' : '＞'))
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function displayTitle(title: string): string {
-  return title.trim() ? title : 'Untitled'
+  const normalized = sanitizeContextInlineText(title)
+  return normalized ? normalized : 'Untitled'
 }
 
 function displayNotebookName(notebookId: string | null, notebookMap: Map<string, string>): string {
   if (!notebookId) return 'Unfiled'
-  return notebookMap.get(notebookId) || 'Unknown notebook'
+  return displayTitle(notebookMap.get(notebookId) || 'Unknown notebook')
+}
+
+function isLocalOverviewNote(note: ContextOverviewNote): boolean {
+  return note.source_type === 'local-folder'
+}
+
+const RECENT_NOTES_LIMIT = 3
+
+interface NotesOverviewOptions {
+  includeCurrentNote?: boolean
 }
 
 export function buildNotesOverviewContext(
   ctx: UserContextSnapshot,
-  dataSource: ContextOverviewDataSource = defaultDataSource
+  dataSource: ContextOverviewDataSource = defaultDataSource,
+  options?: NotesOverviewOptions
 ): AppContextData {
+  const includeCurrentNote = options?.includeCurrentNote !== false
   const notebooks = dataSource.getNotebooks()
   const notebookMap = new Map(notebooks.map(notebook => [notebook.id, notebook.name]))
   const currentNote = ctx.currentNoteId ? dataSource.getNoteById(ctx.currentNoteId) : null
-  const recentNotes = dataSource.getNotes(5, 0)
+  const recentNotes = dataSource.getNotes(RECENT_NOTES_LIMIT, 0)
   const lines: string[] = ['[Notes Overview]']
 
-  if (currentNote && !currentNote.deleted_at) {
-    const currentTitle = displayTitle(currentNote.title)
-    const notebookName = displayNotebookName(currentNote.notebook_id, notebookMap)
-    lines.push(`- Current note: "${currentTitle}" (ID: ${currentNote.id})`)
-    lines.push(`- Notebook: ${notebookName}`)
-    lines.push(`- Link: ${generateNoteLink(currentNote.id)}`)
-    if (currentNote.ai_summary) {
-      const summary = truncateText(currentNote.ai_summary, 300)
-      lines.push(`- Summary: ${summary}`)
+  if (includeCurrentNote) {
+    if (currentNote && !currentNote.deleted_at) {
+      const currentTitle = displayTitle(currentNote.title)
+      const notebookName = displayNotebookName(currentNote.notebook_id, notebookMap)
+      lines.push(`- Current note: "${currentTitle}" (ID: ${currentNote.id})`)
+      lines.push(`- Notebook: ${notebookName}`)
+      if (isLocalOverviewNote(currentNote) && currentNote.relative_path) {
+        lines.push(`- Path: ${sanitizeContextInlineText(currentNote.relative_path)}`)
+      } else {
+        lines.push(`- Link: ${generateNoteLink(currentNote.id)}`)
+      }
+      if (currentNote.ai_summary) {
+        const summary = truncateText(sanitizeContextInlineText(currentNote.ai_summary), 300)
+        lines.push(`- Summary: ${summary}`)
+      }
+    } else if (ctx.currentNoteTitle) {
+      lines.push(`- Current note: "${displayTitle(ctx.currentNoteTitle)}" (not found in database)`)
+    } else {
+      lines.push('- Current note: none')
     }
-  } else if (ctx.currentNoteTitle) {
-    lines.push(`- Current note: "${ctx.currentNoteTitle}" (not found in database)`)
-  } else {
-    lines.push('- Current note: none')
   }
 
   if (recentNotes.length > 0) {
@@ -83,8 +144,11 @@ export function buildNotesOverviewContext(
     recentNotes.forEach((note, index) => {
       const title = displayTitle(note.title)
       const notebookName = displayNotebookName(note.notebook_id, notebookMap)
+      const localPathSuffix = isLocalOverviewNote(note) && note.relative_path
+        ? `, path: ${sanitizeContextInlineText(note.relative_path)}`
+        : ''
       lines.push(
-        `${index + 1}. "${title}" (ID: ${note.id}, notebook: ${notebookName}, updated: ${note.updated_at})`
+        `${index + 1}. "${title}" (ID: ${note.id}, notebook: ${notebookName}${localPathSuffix}, updated: ${note.updated_at})`
       )
     })
   } else {
@@ -112,38 +176,28 @@ export function buildNotebooksOverviewContext(
   dataSource: ContextOverviewDataSource = defaultDataSource
 ): AppContextData {
   const notebooks = dataSource.getNotebooks()
-  const noteCounts = dataSource.getNoteCountByNotebook()
   const currentNotebook = ctx.currentNotebookId
     ? notebooks.find(notebook => notebook.id === ctx.currentNotebookId)
     : null
-  const topNotebooks = [...notebooks]
-    .sort((a, b) => {
-      const diff = (noteCounts[b.id] || 0) - (noteCounts[a.id] || 0)
-      if (diff !== 0) return diff
-      return a.name.localeCompare(b.name)
-    })
-    .slice(0, 8)
+  const currentNotebookNoteCount = currentNotebook
+    ? (dataSource.getNoteCountByNotebookId
+      ? dataSource.getNoteCountByNotebookId(currentNotebook.id)
+      : (dataSource.getNoteCountByNotebook()[currentNotebook.id] || 0))
+    : null
   const lines: string[] = ['[Notebook Overview]']
 
   if (currentNotebook) {
-    lines.push(`- Current notebook: "${currentNotebook.name}" (ID: ${currentNotebook.id})`)
-    lines.push(`- Notes in current notebook: ${noteCounts[currentNotebook.id] || 0}`)
+    lines.push(`- Current notebook: "${displayTitle(currentNotebook.name)}" (ID: ${currentNotebook.id})`)
+    lines.push(`- Notes in current notebook: ${currentNotebookNoteCount || 0}`)
   } else if (ctx.currentNotebookName) {
-    lines.push(`- Current notebook: "${ctx.currentNotebookName}" (not found in database)`)
+    lines.push(`- Current notebook: "${displayTitle(ctx.currentNotebookName)}" (not found in database)`)
   } else {
     lines.push('- Current notebook: all notes view')
   }
 
   lines.push(`- Total notebooks: ${notebooks.length}`)
 
-  if (topNotebooks.length > 0) {
-    lines.push('', 'Notebooks by note count:')
-    topNotebooks.forEach((notebook, index) => {
-      lines.push(
-        `${index + 1}. "${notebook.name}" (ID: ${notebook.id}, notes: ${noteCounts[notebook.id] || 0})`
-      )
-    })
-  } else {
+  if (notebooks.length === 0) {
     lines.push('', 'No notebooks found.')
   }
 
@@ -152,7 +206,7 @@ export function buildNotebooksOverviewContext(
   return {
     title: 'Notebook Overview',
     summary: currentNotebook
-      ? `Current notebook: ${currentNotebook.name}`
+      ? `Current notebook: ${displayTitle(currentNotebook.name)}`
       : `${notebooks.length} notebooks`,
     content: lines.join('\n'),
     type: 'notebook-overview',

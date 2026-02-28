@@ -1,25 +1,64 @@
 import type {
+  AgentCapability,
+  AgentExecutionContext,
+  AgentTaskEvent,
+  AgentTaskInput,
+  AgentTaskRecord,
+  AIAction,
+  AIActionInput,
   AttachmentResult,
   AttachmentSelectOptions,
   AttachmentAPI,
-  ChatAPI,
-  ChatMessage,
-  ChatStreamEvent,
-  ConversationInfo,
-  ConversationDetail,
+  LocalFolderAnalyzeDeleteResponse,
+  LocalFolderCreateFileInput,
+  LocalFolderCreateFileResponse,
+  LocalFolderCreateFolderInput,
+  LocalFolderCreateFolderResponse,
+  LocalFolderDeleteEntryInput,
+  LocalFolderDeleteEntryResponse,
+  LocalFolderMountInput,
+  LocalFolderMountResponse,
+  LocalFolderNotebookMount,
+  LocalFolderReadFileInput,
+  LocalFolderReadFileResponse,
+  LocalFolderRelinkInput,
+  LocalFolderRelinkResponse,
+  LocalFolderRenameEntryInput,
+  LocalFolderRenameEntryResponse,
+  LocalFolderSaveFileInput,
+  LocalFolderSaveFileResponse,
+  LocalFolderSearchInput,
+  LocalFolderSearchResponse,
+  LocalFolderListNoteMetadataResponse,
+  LocalFolderTreeResult,
+  LocalFolderUpdateNoteMetadataInput,
+  LocalFolderUpdateNoteMetadataResponse,
+  LocalFolderWatchEvent,
+  Note,
+  Notebook,
+  NotebookFolder,
+  NotebookFolderCreateInput,
+  NotebookFolderCreateResponse,
+  NotebookFolderDeleteInput,
+  NotebookFolderDeleteResponse,
+  NotebookFolderRenameInput,
+  NotebookFolderRenameResponse,
+  NoteGetAllOptions,
+  NoteInput,
+  NotebookInput,
   NoteSearchFilter,
-  NoteUpdateSafeResult
+  NoteUpdateSafeResult,
+  Tag,
+  TagWithSource,
+  Template,
+  TemplateInput,
+  ThemeSettings,
 } from '../shared/types'
 
 export {
   AttachmentResult,
   AttachmentSelectOptions,
   AttachmentAPI,
-  ChatAPI,
-  ChatMessage,
-  ChatStreamEvent,
-  ConversationInfo,
-  ConversationDetail
 }
 
 declare global {
@@ -36,14 +75,14 @@ declare global {
         onStatus: (callback: (status: { status: string; version: string | null; progress: number; error: string | null; releaseNotes: string | null }) => void) => () => void
       }
       note: {
-        getAll: () => Promise<unknown[]>
-        getById: (id: string) => Promise<unknown | null>
-        getByIds: (ids: string[]) => Promise<unknown[]>
-        add: (note: unknown) => Promise<unknown>
-        update: (id: string, updates: unknown) => Promise<unknown | null>
-        updateSafe: (id: string, updates: unknown, expectedRevision: number) => Promise<NoteUpdateSafeResult>
+        getAll: (options?: NoteGetAllOptions) => Promise<Note[]>
+        getById: (id: string) => Promise<Note | null>
+        getByIds: (ids: string[]) => Promise<Note[]>
+        add: (note: NoteInput) => Promise<Note>
+        update: (id: string, updates: Partial<NoteInput>) => Promise<Note | null>
+        updateSafe: (id: string, updates: Partial<NoteInput>, expectedRevision: number) => Promise<NoteUpdateSafeResult>
         delete: (id: string) => Promise<boolean>
-        search: (query: string, filter?: NoteSearchFilter) => Promise<unknown[]>
+        search: (query: string, filter?: NoteSearchFilter) => Promise<Note[]>
         createDemo: () => Promise<void>
         checkIndex: (noteId: string, notebookId: string, content: string) => Promise<boolean>
         onDataChanged: (callback: () => void) => () => void
@@ -51,87 +90,127 @@ declare global {
         onNavigate: (callback: (data: { noteId: string; target?: { type: 'heading' | 'block'; value: string } }) => void) => () => void
       }
       daily: {
-        getByDate: (date: string) => Promise<unknown | null>
-        create: (date: string, title?: string) => Promise<unknown>
+        getByDate: (date: string) => Promise<Note | null>
+        create: (date: string, title?: string) => Promise<Note>
       }
       trash: {
-        getAll: () => Promise<unknown[]>
+        getAll: () => Promise<Note[]>
         restore: (id: string) => Promise<boolean>
         permanentDelete: (id: string) => Promise<boolean>
         empty: () => Promise<number>
         cleanup: () => Promise<number>
       }
       notebook: {
-        getAll: () => Promise<unknown[]>
-        add: (notebook: unknown) => Promise<unknown>
-        update: (id: string, updates: unknown) => Promise<unknown | null>
+        getAll: () => Promise<Notebook[]>
+        add: (notebook: NotebookInput) => Promise<Notebook>
+        update: (id: string, updates: Partial<NotebookInput>) => Promise<Notebook | null>
         delete: (id: string) => Promise<boolean>
+        reorder: (orderedIds: string[]) => Promise<void>
+      }
+      notebookFolder: {
+        list: (notebookId?: string) => Promise<NotebookFolder[]>
+        create: (input: NotebookFolderCreateInput) => Promise<NotebookFolderCreateResponse>
+        rename: (input: NotebookFolderRenameInput) => Promise<NotebookFolderRenameResponse>
+        delete: (input: NotebookFolderDeleteInput) => Promise<NotebookFolderDeleteResponse>
+      }
+      localFolder: {
+        list: () => Promise<LocalFolderNotebookMount[]>
+        getTree: (notebookId: string) => Promise<LocalFolderTreeResult | null>
+        createFile: (input: LocalFolderCreateFileInput) => Promise<LocalFolderCreateFileResponse>
+        createFolder: (input: LocalFolderCreateFolderInput) => Promise<LocalFolderCreateFolderResponse>
+        renameEntry: (input: LocalFolderRenameEntryInput) => Promise<LocalFolderRenameEntryResponse>
+        search: (input: LocalFolderSearchInput) => Promise<LocalFolderSearchResponse>
+        listNoteMetadata: (input?: { notebook_ids?: string[] }) => Promise<LocalFolderListNoteMetadataResponse>
+        updateNoteMetadata: (input: LocalFolderUpdateNoteMetadataInput) => Promise<LocalFolderUpdateNoteMetadataResponse>
+        analyzeDelete: (input: LocalFolderDeleteEntryInput) => Promise<LocalFolderAnalyzeDeleteResponse>
+        deleteEntry: (input: LocalFolderDeleteEntryInput) => Promise<LocalFolderDeleteEntryResponse>
+        readFile: (input: LocalFolderReadFileInput) => Promise<LocalFolderReadFileResponse>
+        saveFile: (input: LocalFolderSaveFileInput) => Promise<LocalFolderSaveFileResponse>
+        selectRoot: () => Promise<string | null>
+        mount: (input: LocalFolderMountInput) => Promise<LocalFolderMountResponse>
+        relink: (input: LocalFolderRelinkInput) => Promise<LocalFolderRelinkResponse>
+        openInFileManager: (notebookId: string) => Promise<boolean>
+        unmount: (notebookId: string) => Promise<boolean>
+        onChanged: (callback: (event: LocalFolderWatchEvent) => void) => () => void
+      }
+      context: {
+        sync: (context: {
+          currentNotebookId: string | null
+          currentNotebookName: string | null
+          currentNoteId: string | null
+          currentNoteTitle: string | null
+          currentBlockId?: string | null
+          selectedText?: string | null
+          cursorContext?: {
+            nearestHeading: string | null
+            currentParagraph: string | null
+          } | null
+        }) => Promise<void>
+        get: () => Promise<{ context: string }>
       }
       tag: {
-        getAll: () => Promise<unknown[]>
-        getByNote: (noteId: string) => Promise<unknown[]>
-      }
-      theme: {
-        get: () => Promise<'light' | 'dark'>
-        onChange?: (callback: (theme: 'light' | 'dark') => void) => void
-        sync?: (settings: { colorMode: 'light' | 'dark'; accentColor: string; locale: 'en' | 'zh'; fontSize?: 'small' | 'normal' | 'large' | 'extra-large' }) => Promise<{ success: boolean }>
-      }
-      window: {
-        setTitleBarOverlay: (options: { color: string; symbolColor: string }) => Promise<void>
-        setFullScreen: (isFullScreen: boolean) => Promise<boolean>
-        isFullScreen: () => Promise<boolean>
-        close: () => Promise<boolean>
-      }
-      shell: {
-        openExternal: (url: string) => Promise<boolean>
-      }
-      platform: {
-        get: () => Promise<NodeJS.Platform>
-      }
-      appSettings: {
-        get: (key: string) => Promise<string | null>
-        set: (key: string, value: string) => Promise<void>
-      }
-      attachment: AttachmentAPI
-      chat: ChatAPI
-      popup: {
-        open: (popupId: string, options?: {
-          x?: number
-          y?: number
-          width?: number
-          height?: number
-          prompt?: string
-          context?: { targetText: string; documentTitle?: string }
-        }) => Promise<void>
-        close: (popupId: string) => Promise<void>
-        focus: (popupId: string) => Promise<void>
-        updateContent: (popupId: string, content: string) => Promise<void>
-        exists: (popupId: string) => Promise<boolean>
-        onClosed: (callback: (popupId: string) => void) => () => void
-        onContentRequest: (callback: (popupId: string) => void) => () => void
-        onContentUpdate: (callback: (content: string) => void) => () => void
+        getAll: () => Promise<Tag[]>
+        getByNote: (noteId: string) => Promise<TagWithSource[]>
       }
       aiAction: {
-        getAll: () => Promise<unknown[]>
-        getAllIncludingDisabled: () => Promise<unknown[]>
-        getById: (id: string) => Promise<unknown | null>
-        create: (input: unknown) => Promise<unknown>
-        update: (id: string, updates: unknown) => Promise<unknown | null>
+        getAll: () => Promise<AIAction[]>
+        getAllIncludingDisabled: () => Promise<AIAction[]>
+        getById: (id: string) => Promise<AIAction | null>
+        create: (input: AIActionInput) => Promise<AIAction>
+        update: (id: string, updates: Partial<AIActionInput> & { enabled?: boolean }) => Promise<AIAction | null>
         delete: (id: string) => Promise<boolean>
-        reorder: (orderedIds: string[]) => Promise<boolean>
+        reorder: (orderedIds: string[]) => Promise<void>
         reset: () => Promise<void>
       }
       knowledgeBase: {
         getConfig: () => Promise<{
           enabled: boolean
+          source: 'sanqian' | 'custom'
           apiType: 'openai' | 'zhipu' | 'local' | 'custom'
           apiUrl: string
           apiKey: string
           modelName: string
           dimensions: number
         }>
-        setConfig: (config: unknown) => Promise<{ success: boolean; indexCleared: boolean }>
-        testAPI: (config?: unknown) => Promise<{
+        setConfig: (config: {
+          enabled?: boolean
+          source?: 'sanqian' | 'custom'
+          apiType?: 'openai' | 'zhipu' | 'local' | 'custom'
+          apiUrl?: string
+          apiKey?: string
+          modelName?: string
+          dimensions?: number
+        }) => Promise<{ success: boolean; indexCleared: boolean; modelChanged: boolean }>
+        fetchFromSanqian: () => Promise<{
+          success: boolean
+          config: {
+            available: boolean
+            apiUrl?: string
+            apiKey?: string
+            modelName?: string
+            dimensions?: number
+          }
+          error?: 'timeout' | 'not_configured'
+        }>
+        fetchRerankFromSanqian: () => Promise<{
+          success: boolean
+          config: {
+            available: boolean
+            apiUrl?: string
+            apiKey?: string
+            modelName?: string
+          }
+          error?: 'timeout' | 'not_configured'
+        }>
+        testAPI: (config?: {
+          enabled?: boolean
+          source?: 'sanqian' | 'custom'
+          apiType?: 'openai' | 'zhipu' | 'local' | 'custom'
+          apiUrl?: string
+          apiKey?: string
+          modelName?: string
+          dimensions?: number
+        }) => Promise<{
           success: boolean
           dimensions?: number
           error?: string
@@ -150,7 +229,7 @@ declare global {
           queue: number
           processing: boolean
         }>
-        rebuildIndex: () => Promise<{ success: boolean; total: number }>
+        rebuildIndex: () => Promise<{ success: boolean; total?: number }>
         onProgress: (callback: (progress: {
           type: 'start' | 'progress' | 'complete' | 'error'
           total?: number
@@ -184,6 +263,82 @@ declare global {
             score: number
           }>
         }>>
+      }
+      theme: {
+        get: () => Promise<'light' | 'dark'>
+        onChange: (callback: (theme: 'light' | 'dark') => void) => () => void
+        sync: (settings: ThemeSettings) => Promise<{ success: boolean }>
+      }
+      platform: {
+        get: () => Promise<NodeJS.Platform>
+      }
+      appSettings: {
+        get: (key: string) => Promise<string | null>
+        set: (key: string, value: string) => Promise<void>
+      }
+      window: {
+        setTitleBarOverlay: (options: { color: string; symbolColor: string }) => Promise<void>
+        setFullScreen: (isFullScreen: boolean) => Promise<boolean>
+        isFullScreen: () => Promise<boolean>
+        close: () => Promise<boolean>
+      }
+      shell: {
+        openExternal: (url: string) => Promise<boolean>
+      }
+      attachment: AttachmentAPI
+      // Narrowed chat API -- only the subset needed for AI actions in main window.
+      // FloatingWindow uses separate sanqian-chat:* handlers.
+      chat: {
+        acquireReconnect: () => Promise<void>
+        releaseReconnect: () => Promise<void>
+        stream: (params: {
+          streamId: string
+          messages: Array<{ role: string; content: string }>
+          conversationId?: string
+          agentId?: string
+        }) => Promise<{ success: boolean; error?: string }>
+        cancelStream: (params: { streamId: string }) => Promise<{ success: boolean }>
+        onStreamEvent: (callback: (streamId: string, event: unknown) => void) => () => void
+      }
+      popup: {
+        continueInChat: (selectedText: string, explanation: string) => Promise<void>
+        onContinueInChat: (callback: (selectedText: string, explanation: string) => void) => () => void
+        get: (id: string) => Promise<{
+          id: string
+          content: string
+          prompt: string
+          actionName: string
+          targetText: string
+          documentTitle: string
+          createdAt: string
+          updatedAt: string
+        } | null>
+        create: (input: {
+          id: string
+          prompt: string
+          actionName?: string
+          targetText: string
+          documentTitle?: string
+        }) => Promise<{
+          id: string
+          content: string
+          prompt: string
+          actionName: string
+          targetText: string
+          documentTitle: string
+          createdAt: string
+          updatedAt: string
+        }>
+        updateContent: (id: string, content: string) => Promise<boolean>
+        delete: (id: string) => Promise<boolean>
+        cleanup: (maxAgeDays?: number) => Promise<number>
+      }
+      chatWindow: {
+        show: () => Promise<{ success: boolean }>
+        showWithContext: (context: string) => Promise<{ success: boolean }>
+        hide: () => Promise<{ success: boolean }>
+        toggle: () => Promise<{ success: boolean }>
+        isVisible: () => Promise<boolean>
       }
       importExport: {
         getImporters: () => Promise<Array<{
@@ -265,7 +420,6 @@ declare global {
           errors: Array<{ noteId: string; title: string; error: string }>
         }>
         selectTarget: () => Promise<string | null>
-        // 单篇笔记导出
         noteAsMarkdown: (noteId: string, options?: {
           includeAttachments?: boolean
           includeFrontMatter?: boolean
@@ -380,84 +534,30 @@ declare global {
       importInline: {
         selectMarkdown: () => Promise<{ content: string; path: string } | null>
         selectAndParsePdf: () => Promise<{ content: string; path: string } | null>
-        arxiv: (arxivId: string) => Promise<{ content: string; title: string }>
+        arxiv: (
+          arxivId: string,
+          options?: {
+            includeAbstract?: boolean
+            includeReferences?: boolean
+            downloadFigures?: boolean
+            preferHtml?: boolean
+          }
+        ) => Promise<{ content: string; title: string }>
       }
       agentTask: {
-        get: (id: string) => Promise<unknown | null>
-        getByBlockId: (blockId: string) => Promise<unknown | null>
-        create: (input: unknown) => Promise<unknown>
-        update: (id: string, updates: unknown) => Promise<unknown | null>
+        get: (id: string) => Promise<AgentTaskRecord | null>
+        getByBlockId: (blockId: string) => Promise<AgentTaskRecord | null>
+        create: (input: AgentTaskInput) => Promise<AgentTaskRecord>
+        update: (id: string, updates: Partial<AgentTaskRecord>) => Promise<AgentTaskRecord | null>
         delete: (id: string) => Promise<boolean>
         deleteByBlockId: (blockId: string) => Promise<boolean>
       }
       templates: {
-        getAll: () => Promise<Array<{
-          id: string
-          name: string
-          description: string
-          content: string
-          icon: string
-          isDailyDefault: boolean
-          orderIndex: number
-          createdAt: string
-          updatedAt: string
-        }>>
-        get: (id: string) => Promise<{
-          id: string
-          name: string
-          description: string
-          content: string
-          icon: string
-          isDailyDefault: boolean
-          orderIndex: number
-          createdAt: string
-          updatedAt: string
-        } | null>
-        getDailyDefault: () => Promise<{
-          id: string
-          name: string
-          description: string
-          content: string
-          icon: string
-          isDailyDefault: boolean
-          orderIndex: number
-          createdAt: string
-          updatedAt: string
-        } | null>
-        create: (input: {
-          name: string
-          description?: string
-          content: string
-          icon?: string
-          isDailyDefault?: boolean
-        }) => Promise<{
-          id: string
-          name: string
-          description: string
-          content: string
-          icon: string
-          isDailyDefault: boolean
-          orderIndex: number
-          createdAt: string
-          updatedAt: string
-        }>
-        update: (id: string, updates: {
-          name?: string
-          description?: string
-          content?: string
-          icon?: string
-          isDailyDefault?: boolean
-        }) => Promise<{
-          id: string
-          name: string
-          description: string
-          content: string
-          icon: string
-          isDailyDefault: boolean
-          orderIndex: number
-          createdAt: string
-          updatedAt: string
-        } | null>
+        getAll: () => Promise<Template[]>
+        get: (id: string) => Promise<Template | null>
+        getDailyDefault: () => Promise<Template | null>
+        create: (input: TemplateInput) => Promise<Template>
+        update: (id: string, updates: Partial<TemplateInput>) => Promise<Template | null>
         delete: (id: string) => Promise<boolean>
         reorder: (orderedIds: string[]) => Promise<void>
         setDailyDefault: (id: string | null) => Promise<void>
@@ -467,7 +567,7 @@ declare global {
         toTiptap: (markdown: string) => Promise<string>
       }
       agent: {
-        list: () => Promise<Array<{ id: string; name: string; description?: string }>>
+        list: () => Promise<AgentCapability[]>
         run: (
           taskId: string,
           agentId: string,
@@ -481,26 +581,11 @@ declare global {
             notebookId: string | null
             processMode: 'append' | 'replace'
             outputFormat?: 'auto' | 'paragraph' | 'list' | 'table' | 'code' | 'quote'
-            executionContext?: {
-              sourceApp?: string
-              noteId?: string | null
-              noteTitle?: string | null
-              notebookId?: string | null
-              notebookName?: string | null
-              heading?: string | null
-            }
+            executionContext?: AgentExecutionContext
           }
         ) => Promise<void>
         cancel: (taskId: string) => Promise<boolean>
-        onEvent: (callback: (taskId: string, event: {
-          type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'phase'
-          content?: string
-          toolName?: string
-          toolArgs?: Record<string, unknown>
-          result?: unknown
-          error?: string
-          phase?: 'content' | 'editor'
-        }) => void) => () => void
+        onEvent: (callback: (taskId: string, event: AgentTaskEvent) => void) => () => void
         onInsertOutput: (callback: (data: {
           taskId: string
           context: {
@@ -516,22 +601,6 @@ declare global {
             content: unknown
           }>
         }) => void) => () => void
-      }
-      chatWindow: {
-        show: () => Promise<void>
-        showWithContext: (context: string) => Promise<void>
-        hide: () => Promise<void>
-        toggle: () => Promise<void>
-        isVisible: () => Promise<boolean>
-      }
-      context: {
-        sync: (context: {
-          currentNotebookId: string | null
-          currentNotebookName: string | null
-          currentNoteId: string | null
-          currentNoteTitle: string | null
-        }) => Promise<void>
-        get: () => Promise<{ context: string }>
       }
     }
     api: unknown

@@ -147,6 +147,50 @@ function formatPendingOperations(operations: Array<{ type: string; content: unkn
 
 // 当前正在执行的任务 ID（用于 output tools）
 let currentExecutingTaskId: string | null = null
+let formatterQueueTail: Promise<void> = Promise.resolve()
+const MAX_AGENT_TASK_STEPS = 500
+/** Max time to wait for previous formatter to release (5 minutes) */
+const FORMATTER_SLOT_TIMEOUT_MS = 5 * 60 * 1000
+
+function acquireFormatterExecutionSlot(): Promise<() => void> {
+  const previousTail = formatterQueueTail
+  let releaseSlot: (() => void) | null = null
+  const currentSlot = new Promise<void>((resolve) => {
+    releaseSlot = resolve
+  })
+
+  formatterQueueTail = previousTail
+    .catch(() => undefined)
+    .then(() => currentSlot)
+
+  const waitForPrevious = previousTail.catch(() => undefined)
+
+  // Race the previous slot against a timeout to prevent deadlocks
+  const withTimeout = Promise.race([
+    waitForPrevious,
+    new Promise<void>((resolve) => {
+      setTimeout(() => {
+        console.warn('[AgentTask] Formatter slot acquisition timed out, forcing release')
+        resolve()
+      }, FORMATTER_SLOT_TIMEOUT_MS)
+    })
+  ])
+
+  return withTimeout.then(() => {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      releaseSlot?.()
+    }
+  })
+}
+
+function clearCurrentTaskIdIfOwned(taskId: string): void {
+  if (currentExecutingTaskId === taskId) {
+    currentExecutingTaskId = null
+  }
+}
 
 /**
  * 获取当前执行的任务 ID
@@ -210,16 +254,17 @@ export async function* runAgentTask(
 
   // 更新状态为 running
   const startedAt = new Date().toISOString()
-  updateAgentTask(taskId, {
-    status: 'running',
-    startedAt,
-    agentId,
-    agentName
-  })
-
-  yield { type: 'start' }
 
   try {
+    updateAgentTask(taskId, {
+      status: 'running',
+      startedAt,
+      agentId,
+      agentName
+    })
+
+    yield { type: 'start' }
+
     // ========== Step 1: Content Agent ==========
     yield { type: 'phase', phase: 'content' }
 
@@ -229,6 +274,20 @@ export async function* runAgentTask(
 
     let resultText = ''
     const steps: AgentTaskStep[] = []
+    let stepLogTruncated = false
+    let pendingToolResultStep: AgentTaskStep | null = null
+    const stepByToolCallId = new Map<string, AgentTaskStep>()
+    const appendStep = (step: AgentTaskStep): AgentTaskStep | null => {
+      if (steps.length < MAX_AGENT_TASK_STEPS) {
+        steps.push(step)
+        return step
+      }
+      if (!stepLogTruncated) {
+        stepLogTruncated = true
+        console.warn(`[AgentTask] step log truncated for task ${taskId}, max=${MAX_AGENT_TASK_STEPS}`)
+      }
+      return null
+    }
 
     for await (const event of stream) {
       // 检查是否已取消
@@ -254,6 +313,9 @@ export async function* runAgentTask(
 
         case 'tool_call': {
           const toolName = event.tool_call?.function.name
+          const toolCallId = typeof event.tool_call?.id === 'string' && event.tool_call.id
+            ? event.tool_call.id
+            : null
           let toolArgs: Record<string, unknown> | undefined
           try {
             toolArgs = event.tool_call?.function.arguments
@@ -262,20 +324,35 @@ export async function* runAgentTask(
           } catch {
             // ignore parse error
           }
-          steps.push({
+          pendingToolResultStep = appendStep({
             type: 'tool_call',
             toolName,
             toolArgs,
             timestamp: Date.now()
           })
+          if (pendingToolResultStep && toolCallId) {
+            stepByToolCallId.set(toolCallId, pendingToolResultStep)
+          }
           yield { type: 'tool_call', toolName, toolArgs }
           break
         }
 
         case 'tool_result': {
-          const lastStep = steps[steps.length - 1]
-          if (lastStep) {
-            lastStep.result = event.result
+          const toolCallId = typeof (event as { tool_call_id?: unknown }).tool_call_id === 'string'
+            ? (event as { tool_call_id: string }).tool_call_id
+            : null
+          const matchedStep = toolCallId
+            ? (stepByToolCallId.get(toolCallId) ?? null)
+            : null
+          if (matchedStep) {
+            matchedStep.result = event.result
+            stepByToolCallId.delete(toolCallId as string)
+            if (pendingToolResultStep === matchedStep) {
+              pendingToolResultStep = null
+            }
+          } else if (pendingToolResultStep) {
+            pendingToolResultStep.result = event.result
+            pendingToolResultStep = null
           }
           yield { type: 'tool_result', result: event.result }
           break
@@ -293,13 +370,26 @@ export async function* runAgentTask(
 
     // ========== Step 2: Formatter Agent (if two-step flow enabled) ==========
     if (options?.useTwoStepFlow && options.outputContext && resultText) {
+      pendingToolResultStep = null
+      stepByToolCallId.clear()
       yield { type: 'phase', phase: 'editor' }
-
-      // Initialize output context
-      initTaskOutput(taskId, options.outputContext)
-      currentExecutingTaskId = taskId
+      const releaseFormatterSlot = await acquireFormatterExecutionSlot()
 
       try {
+        const taskStateBeforeFormatter = runningTasks.get(taskId)
+        if (taskStateBeforeFormatter?.cancelled) {
+          updateAgentTask(taskId, {
+            status: 'failed',
+            error: 'Task cancelled by user'
+          })
+          yield { type: 'error', error: 'Task cancelled by user' }
+          return
+        }
+
+        // Initialize output context
+        initTaskOutput(taskId, options.outputContext)
+        currentExecutingTaskId = taskId
+
         // Build Formatter Agent prompt with user request context
         let editorPrompt: string
         const format = options.outputFormat
@@ -345,6 +435,9 @@ export async function* runAgentTask(
           switch (event.type) {
             case 'tool_call': {
               const toolName = event.tool_call?.function.name
+              const toolCallId = typeof event.tool_call?.id === 'string' && event.tool_call.id
+                ? event.tool_call.id
+                : null
               let toolArgs: Record<string, unknown> | undefined
               const rawArgs = event.tool_call?.function.arguments
               try {
@@ -357,20 +450,35 @@ export async function* runAgentTask(
               } catch {
                 // ignore parse error
               }
-              steps.push({
+              pendingToolResultStep = appendStep({
                 type: 'tool_call',
                 toolName,
                 toolArgs,
                 timestamp: Date.now()
               })
+              if (pendingToolResultStep && toolCallId) {
+                stepByToolCallId.set(toolCallId, pendingToolResultStep)
+              }
               yield { type: 'tool_call', toolName, toolArgs }
               break
             }
 
             case 'tool_result': {
-              const lastStep = steps[steps.length - 1]
-              if (lastStep) {
-                lastStep.result = event.result
+              const toolCallId = typeof (event as { tool_call_id?: unknown }).tool_call_id === 'string'
+                ? (event as { tool_call_id: string }).tool_call_id
+                : null
+              const matchedStep = toolCallId
+                ? (stepByToolCallId.get(toolCallId) ?? null)
+                : null
+              if (matchedStep) {
+                matchedStep.result = event.result
+                stepByToolCallId.delete(toolCallId as string)
+                if (pendingToolResultStep === matchedStep) {
+                  pendingToolResultStep = null
+                }
+              } else if (pendingToolResultStep) {
+                pendingToolResultStep.result = event.result
+                pendingToolResultStep = null
               }
               yield { type: 'tool_result', result: event.result }
 
@@ -408,7 +516,8 @@ export async function* runAgentTask(
         // Commit output operations to the editor
         commitTaskOutput(taskId, options.webContents ?? null)
       } finally {
-        currentExecutingTaskId = null
+        clearCurrentTaskIdIfOwned(taskId)
+        releaseFormatterSlot()
       }
     }
 
@@ -434,7 +543,7 @@ export async function* runAgentTask(
   } finally {
     // 清理任务状态
     runningTasks.delete(taskId)
-    currentExecutingTaskId = null
+    clearCurrentTaskIdIfOwned(taskId)
   }
 }
 

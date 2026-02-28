@@ -308,6 +308,38 @@ describe('NotionImporter', () => {
       expect(notes[0].attachments.length).toBeGreaterThanOrEqual(1)
     })
 
+    it('should not skip note when one attachment path has malformed URI encoding', async () => {
+      const contentDir = join(testDir, 'content')
+      const imageDir = join(contentDir, 'Page abc123def456789012345678901234ab')
+      mkdirSync(imageDir, { recursive: true })
+
+      writeFileSync(
+        join(contentDir, 'Page abc123def456789012345678901234ab.md'),
+        `# Page
+
+![bad](Page%ZZabc123def456789012345678901234ab/missing.png)
+![ok](Page%20abc123def456789012345678901234ab/real.png)`
+      )
+      writeFileSync(join(imageDir, 'real.png'), 'fake image data')
+
+      const zipPath = join(testDir, 'export.zip')
+      createZip(contentDir, zipPath)
+
+      const notes = await importer.parse({
+        sourcePath: zipPath,
+        folderStrategy: 'first-level',
+        tagStrategy: 'keep-nested',
+        conflictStrategy: 'skip',
+        importAttachments: true,
+        parseFrontMatter: true,
+      })
+
+      expect(notes).toHaveLength(1)
+      expect(notes[0].title).toBe('Page')
+      expect(notes[0].attachments).toHaveLength(1)
+      expect(notes[0].attachments[0].sourcePath.endsWith('real.png')).toBe(true)
+    })
+
     it('should parse front matter', async () => {
       const contentDir = join(testDir, 'content')
       mkdirSync(contentDir)

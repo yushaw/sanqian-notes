@@ -5,10 +5,11 @@
  * Used by both main process (markdown-to-tiptap.ts) and renderer process (editorOutputHandler.ts).
  */
 
-import { marked, Token, Tokens } from 'marked'
+import { Marked, Token, Tokens } from 'marked'
+import { parseAIPopupMarkerFromHtml } from '../ai-popup-marker'
 
-// Configure marked once at module load
-marked.setOptions({ gfm: true, breaks: true })
+// Isolated marked instance to avoid global state pollution
+const marked = new Marked({ gfm: true, breaks: true })
 
 // ============================================
 // Type Definitions
@@ -25,6 +26,27 @@ export interface TiptapNode {
   content?: TiptapNode[]
   text?: string
   marks?: TiptapMark[]
+}
+
+function appendMarkIfCompatible(node: TiptapNode, mark: TiptapMark): void {
+  if (node.type !== 'text') return
+
+  const existingMarks = node.marks || []
+  if (existingMarks.some((existing) => existing.type === mark.type)) {
+    return
+  }
+
+  // TipTap/ProseMirror code mark excludes all other marks.
+  if (mark.type === 'code') {
+    node.marks = [mark]
+    return
+  }
+
+  if (existingMarks.some((existing) => existing.type === 'code')) {
+    return
+  }
+
+  node.marks = [...existingMarks, mark]
 }
 
 // ============================================
@@ -61,12 +83,28 @@ function preprocessInlineText(text: string): string {
  */
 export function parseInlineTokens(tokens: Token[]): TiptapNode[] {
   const nodes: TiptapNode[] = []
+  let pendingLegacyAIPopupCloseSpan = false
+  // Safety counter: if the closing </span> is never found within a reasonable
+  // number of tokens, reset the flag to avoid swallowing unrelated text.
+  let pendingCloseSpanTokenCount = 0
+  const PENDING_CLOSE_SPAN_MAX_TOKENS = 5
 
   for (const token of tokens) {
+    if (pendingLegacyAIPopupCloseSpan) {
+      pendingCloseSpanTokenCount += 1
+      if (pendingCloseSpanTokenCount > PENDING_CLOSE_SPAN_MAX_TOKENS) {
+        pendingLegacyAIPopupCloseSpan = false
+        pendingCloseSpanTokenCount = 0
+      }
+    }
+
     switch (token.type) {
       case 'text': {
         const textToken = token as Tokens.Text
         const text = textToken.text
+        if (pendingLegacyAIPopupCloseSpan && text.trim() === '\u2728') {
+          break
+        }
 
         // Handle custom markers (highlight and underline)
         if (text.includes('\x00HIGHLIGHT_START\x00') || text.includes('\x00UNDERLINE_START\x00')) {
@@ -121,9 +159,7 @@ export function parseInlineTokens(tokens: Token[]): TiptapNode[] {
         const strongToken = token as Tokens.Strong
         const children = parseInlineTokens(strongToken.tokens || [])
         for (const child of children) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'bold' }]
-          }
+          appendMarkIfCompatible(child, { type: 'bold' })
           nodes.push(child)
         }
         break
@@ -133,9 +169,7 @@ export function parseInlineTokens(tokens: Token[]): TiptapNode[] {
         const emToken = token as Tokens.Em
         const children = parseInlineTokens(emToken.tokens || [])
         for (const child of children) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'italic' }]
-          }
+          appendMarkIfCompatible(child, { type: 'italic' })
           nodes.push(child)
         }
         break
@@ -145,9 +179,7 @@ export function parseInlineTokens(tokens: Token[]): TiptapNode[] {
         const delToken = token as Tokens.Del
         const children = parseInlineTokens(delToken.tokens || [])
         for (const child of children) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'strike' }]
-          }
+          appendMarkIfCompatible(child, { type: 'strike' })
           nodes.push(child)
         }
         break
@@ -169,9 +201,10 @@ export function parseInlineTokens(tokens: Token[]): TiptapNode[] {
           ? parseInlineTokens(linkToken.tokens)
           : [{ type: 'text', text: linkToken.text }]
         for (const child of linkText) {
-          if (child.type === 'text') {
-            child.marks = [...(child.marks || []), { type: 'link', attrs: { href: linkToken.href } }]
-          }
+          appendMarkIfCompatible(child as TiptapNode, {
+            type: 'link',
+            attrs: { href: linkToken.href },
+          })
           nodes.push(child)
         }
         break
@@ -191,6 +224,43 @@ export function parseInlineTokens(tokens: Token[]): TiptapNode[] {
             align: 'left',
           },
         })
+        break
+      }
+
+      case 'html': {
+        const htmlToken = token as Tokens.HTML
+        const rawHtml = htmlToken.raw || htmlToken.text || ''
+        const trimmedHtml = rawHtml.trim().toLowerCase()
+        const marker = parseAIPopupMarkerFromHtml(rawHtml)
+        if (marker) {
+          if (
+            trimmedHtml.startsWith('<span')
+            && trimmedHtml.includes('data-ai-popup-mark')
+            && !trimmedHtml.includes('</span>')
+          ) {
+            pendingLegacyAIPopupCloseSpan = true
+            pendingCloseSpanTokenCount = 0
+          } else {
+            pendingLegacyAIPopupCloseSpan = false
+            pendingCloseSpanTokenCount = 0
+          }
+          nodes.push({
+            type: 'aiPopupMark',
+            attrs: {
+              popupId: marker.popupId,
+              createdAt: marker.createdAt ?? null,
+            },
+          })
+          break
+        }
+        if (pendingLegacyAIPopupCloseSpan && trimmedHtml === '</span>') {
+          pendingLegacyAIPopupCloseSpan = false
+          pendingCloseSpanTokenCount = 0
+          break
+        }
+        if (rawHtml) {
+          nodes.push({ type: 'text', text: rawHtml })
+        }
         break
       }
 

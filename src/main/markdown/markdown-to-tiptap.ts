@@ -5,16 +5,59 @@
  * 用于 SDK Tools API，让 AI 生成的 Markdown 能够存储为笔记内容
  */
 
-import { marked, Token, Tokens } from 'marked'
+import { Marked, Token, Tokens } from 'marked'
+
+// Isolated marked instance to avoid global state pollution
+const marked = new Marked({ gfm: true, breaks: true })
 import {
   parseInlineTokens,
   parseInlineMarkdown,
   TiptapNode,
 } from '../../shared/markdown/inline-parser'
+import { parseAIPopupMarkerFromHtml } from '../../shared/ai-popup-marker'
 
 interface TiptapDoc {
   type: 'doc'
   content: TiptapNode[]
+}
+
+interface FrontmatterExtractionResult {
+  frontmatter: string | null
+  body: string
+}
+
+function normalizeLineEndings(markdown: string): string {
+  return markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
+function extractLeadingFrontmatter(markdown: string): FrontmatterExtractionResult {
+  let normalized = normalizeLineEndings(markdown)
+  if (!normalized) {
+    return { frontmatter: null, body: normalized }
+  }
+
+  // Strip UTF-8 BOM when present.
+  if (normalized.startsWith('\uFEFF')) {
+    normalized = normalized.slice(1)
+  }
+
+  const lines = normalized.split('\n')
+  if (lines.length === 0 || lines[0].trim() !== '---') {
+    return { frontmatter: null, body: normalized }
+  }
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index].trim()
+    if (line === '---' || line === '...') {
+      return {
+        frontmatter: lines.slice(1, index).join('\n'),
+        body: lines.slice(index + 1).join('\n'),
+      }
+    }
+  }
+
+  // Unclosed block: treat as regular markdown.
+  return { frontmatter: null, body: normalized }
 }
 
 /**
@@ -40,6 +83,38 @@ function decodeHtmlEntities(text: string): string {
 interface MathContext {
   protectedBlockMaths: string[]
   protectedInlineMaths: string[]
+}
+
+/**
+ * Image is a block node in editor schema.
+ * Split inline-parsed nodes into paragraph/image/paragraph segments when needed.
+ */
+function splitParagraphNodesForBlockImages(nodes: TiptapNode[]): TiptapNode[] {
+  if (!nodes.some((node) => node.type === 'image')) {
+    return [{ type: 'paragraph', content: nodes }]
+  }
+
+  const result: TiptapNode[] = []
+  let inlineBuffer: TiptapNode[] = []
+
+  const flushInlineBuffer = () => {
+    if (inlineBuffer.length > 0) {
+      result.push({ type: 'paragraph', content: inlineBuffer })
+      inlineBuffer = []
+    }
+  }
+
+  for (const node of nodes) {
+    if (node.type === 'image') {
+      flushInlineBuffer()
+      result.push(node)
+      continue
+    }
+    inlineBuffer.push(node)
+  }
+
+  flushInlineBuffer()
+  return result
 }
 
 /**
@@ -132,11 +207,11 @@ function preprocessMarkdown(markdown: string): { result: string; mathContext: Ma
     return `\x00IMG_TAG_${imgTags.length - 1}\x00`
   })
 
-  // 处理高亮: ==text== -> 特殊标记
-  result = result.replace(/==([^=]+)==/g, '\x00HIGHLIGHT_START\x00$1\x00HIGHLIGHT_END\x00')
+  // 处理高亮: ==text== -> 特殊标记 (non-greedy to support content with = signs)
+  result = result.replace(/==(.+?)==/g, '\x00HIGHLIGHT_START\x00$1\x00HIGHLIGHT_END\x00')
 
-  // 处理下划线: ++text++ -> 特殊标记
-  result = result.replace(/\+\+([^+]+)\+\+/g, '\x00UNDERLINE_START\x00$1\x00UNDERLINE_END\x00')
+  // 处理下划线: ++text++ -> 特殊标记 (non-greedy to support content with + signs)
+  result = result.replace(/\+\+(.+?)\+\+/g, '\x00UNDERLINE_START\x00$1\x00UNDERLINE_END\x00')
 
   // 恢复图片标签
   imgTags.forEach((tag, i) => {
@@ -260,7 +335,7 @@ function parseToken(token: Token, mathContext: MathContext): TiptapNode[] {
         }
       }
 
-      return [{ type: 'paragraph', content }]
+      return splitParagraphNodesForBlockImages(content)
     }
 
     case 'blockquote': {
@@ -432,7 +507,7 @@ function parseToken(token: Token, mathContext: MathContext): TiptapNode[] {
       // TOC 特殊处理
       if (codeToken.lang === 'toc') {
         return [{
-          type: 'tableOfContents'
+          type: 'tocBlock'
         }]
       }
 
@@ -476,6 +551,20 @@ function parseToken(token: Token, mathContext: MathContext): TiptapNode[] {
     case 'html': {
       const htmlToken = token as Tokens.HTML
       const htmlText = htmlToken.text.trim()
+
+      const popupMarker = parseAIPopupMarkerFromHtml(htmlText)
+      if (popupMarker) {
+        return [{
+          type: 'paragraph',
+          content: [{
+            type: 'aiPopupMark',
+            attrs: {
+              popupId: popupMarker.popupId,
+              createdAt: popupMarker.createdAt ?? null,
+            },
+          }],
+        }]
+      }
 
       // 检查是否是 HTML 注释
       const commentMatch = htmlText.match(/^<!--([\s\S]*?)-->$/)
@@ -689,9 +778,12 @@ function parseListItemContent(item: Tokens.ListItem, mathContext: MathContext): 
  * 后处理：处理数学公式占位符
  * 将预处理阶段保护的数学公式占位符转换为 inlineMath 节点
  */
+// Node types that can contain inline text children with math placeholders
+const INLINE_CONTAINER_TYPES = new Set(['paragraph', 'heading'])
+
 function postProcessMath(nodes: TiptapNode[], mathContext: MathContext): TiptapNode[] {
   return nodes.map(node => {
-    if (node.type === 'paragraph' && node.content) {
+    if (INLINE_CONTAINER_TYPES.has(node.type) && node.content) {
       const newContent: TiptapNode[] = []
 
       for (const child of node.content) {
@@ -835,25 +927,39 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
     return { type: 'doc', content: [] }
   }
 
-  const trimmed = markdown.trim()
-  if (!trimmed) {
+  const normalizedMarkdown = normalizeLineEndings(markdown)
+  const { frontmatter, body } = extractLeadingFrontmatter(normalizedMarkdown)
+  const trimmedBody = body.trim()
+
+  if (!frontmatter && !trimmedBody) {
     return { type: 'doc', content: [] }
   }
 
-  // 预处理自定义语法
-  const { result: preprocessed, mathContext } = preprocessMarkdown(trimmed)
+  const content: TiptapNode[] = []
 
-  // 配置 marked
-  marked.setOptions({
-    gfm: true,
-    breaks: true
-  })
+  if (frontmatter !== null) {
+    const yamlText = frontmatter.trimEnd()
+    content.push({
+      type: 'frontmatter',
+      content: yamlText ? [{ type: 'text', text: yamlText }] : [],
+    })
+  }
+
+  if (!trimmedBody) {
+    return {
+      type: 'doc',
+      content,
+    }
+  }
+
+  // 预处理自定义语法（正文部分）
+  const { result: preprocessed, mathContext } = preprocessMarkdown(trimmedBody)
 
   // 使用 marked 解析
   const tokens = marked.lexer(preprocessed)
 
   // 转换为 TipTap 节点
-  const content: TiptapNode[] = []
+  const parsedContent: TiptapNode[] = []
 
   // 处理 tokens，需要特殊处理 <details> 标签（marked 会拆分成多个 token）
   for (let i = 0; i < tokens.length; i++) {
@@ -863,17 +969,17 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
     if (token.type === 'html' && token.raw.trim().startsWith('<details')) {
       const detailsResult = parseDetailsTokens(tokens, i, mathContext)
       if (detailsResult) {
-        content.push(detailsResult.node)
+        parsedContent.push(detailsResult.node)
         i = detailsResult.endIndex // 跳过已处理的 tokens
         continue
       }
     }
 
-    content.push(...parseToken(token, mathContext))
+    parsedContent.push(...parseToken(token, mathContext))
   }
 
   // 后处理：处理行内数学公式
-  const processedContent = postProcessMath(content, mathContext)
+  const processedContent = postProcessMath(parsedContent, mathContext)
 
   // 后处理：将 \u200B 段落转换为真正的空段落
   const normalizedContent = convertZwspParagraphsToEmpty(processedContent)
@@ -883,7 +989,7 @@ export function markdownToTiptap(markdown: string | null | undefined): TiptapDoc
 
   return {
     type: 'doc',
-    content: cleanedContent
+    content: [...content, ...cleanedContent]
   }
 }
 

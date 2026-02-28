@@ -1,5 +1,44 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AgentExecutionContext, NoteSearchFilter, TemplateInput } from '../shared/types'
+import type {
+  AgentExecutionContext,
+  AIActionInput,
+  LocalFolderAnalyzeDeleteResponse,
+  LocalFolderCreateFileInput,
+  LocalFolderCreateFileResponse,
+  LocalFolderCreateFolderInput,
+  LocalFolderCreateFolderResponse,
+  LocalFolderDeleteEntryInput,
+  LocalFolderDeleteEntryResponse,
+  LocalFolderReadFileInput,
+  LocalFolderReadFileResponse,
+  LocalFolderRenameEntryInput,
+  LocalFolderRenameEntryResponse,
+  LocalFolderSearchInput,
+  LocalFolderSearchResponse,
+  LocalFolderListNoteMetadataResponse,
+  LocalFolderUpdateNoteMetadataInput,
+  LocalFolderUpdateNoteMetadataResponse,
+  LocalFolderSaveFileInput,
+  LocalFolderSaveFileResponse,
+  LocalFolderTreeResult,
+  LocalFolderMountInput,
+  LocalFolderMountResponse,
+  LocalFolderRelinkInput,
+  LocalFolderRelinkResponse,
+  NoteInput,
+  NotebookInput,
+  NotebookFolderCreateInput,
+  NotebookFolderCreateResponse,
+  NotebookFolderRenameInput,
+  NotebookFolderRenameResponse,
+  NotebookFolderDeleteInput,
+  NotebookFolderDeleteResponse,
+  NotebookFolder,
+  NoteGetAllOptions,
+  NoteSearchFilter,
+  TemplateInput,
+  LocalFolderWatchEvent,
+} from '../shared/types'
 
 // Expose APIs to renderer
 contextBridge.exposeInMainWorld('electron', {
@@ -18,12 +57,12 @@ contextBridge.exposeInMainWorld('electron', {
     }
   },
   note: {
-    getAll: () => ipcRenderer.invoke('note:getAll'),
+    getAll: (options?: NoteGetAllOptions) => ipcRenderer.invoke('note:getAll', options),
     getById: (id: string) => ipcRenderer.invoke('note:getById', id),
     getByIds: (ids: string[]) => ipcRenderer.invoke('note:getByIds', ids),
-    add: (note: unknown) => ipcRenderer.invoke('note:add', note),
-    update: (id: string, updates: unknown) => ipcRenderer.invoke('note:update', id, updates),
-    updateSafe: (id: string, updates: unknown, expectedRevision: number) =>
+    add: (note: NoteInput) => ipcRenderer.invoke('note:add', note),
+    update: (id: string, updates: Partial<NoteInput>) => ipcRenderer.invoke('note:update', id, updates),
+    updateSafe: (id: string, updates: Partial<NoteInput>, expectedRevision: number) =>
       ipcRenderer.invoke('note:updateSafe', id, updates, expectedRevision),
     delete: (id: string) => ipcRenderer.invoke('note:delete', id),
     search: (query: string, filter?: NoteSearchFilter) => ipcRenderer.invoke('note:search', query, filter),
@@ -61,10 +100,58 @@ contextBridge.exposeInMainWorld('electron', {
   },
   notebook: {
     getAll: () => ipcRenderer.invoke('notebook:getAll'),
-    add: (notebook: unknown) => ipcRenderer.invoke('notebook:add', notebook),
-    update: (id: string, updates: unknown) => ipcRenderer.invoke('notebook:update', id, updates),
+    add: (notebook: NotebookInput) => ipcRenderer.invoke('notebook:add', notebook),
+    update: (id: string, updates: Partial<NotebookInput>) => ipcRenderer.invoke('notebook:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('notebook:delete', id),
     reorder: (orderedIds: string[]) => ipcRenderer.invoke('notebook:reorder', orderedIds),
+  },
+  notebookFolder: {
+    list: (notebookId?: string): Promise<NotebookFolder[]> =>
+      ipcRenderer.invoke('notebookFolder:list', notebookId),
+    create: (input: NotebookFolderCreateInput): Promise<NotebookFolderCreateResponse> =>
+      ipcRenderer.invoke('notebookFolder:create', input),
+    rename: (input: NotebookFolderRenameInput): Promise<NotebookFolderRenameResponse> =>
+      ipcRenderer.invoke('notebookFolder:rename', input),
+    delete: (input: NotebookFolderDeleteInput): Promise<NotebookFolderDeleteResponse> =>
+      ipcRenderer.invoke('notebookFolder:delete', input),
+  },
+  localFolder: {
+    list: () => ipcRenderer.invoke('localFolder:list'),
+    getTree: (notebookId: string): Promise<LocalFolderTreeResult | null> =>
+      ipcRenderer.invoke('localFolder:getTree', notebookId),
+    createFile: (input: LocalFolderCreateFileInput): Promise<LocalFolderCreateFileResponse> =>
+      ipcRenderer.invoke('localFolder:createFile', input),
+    createFolder: (input: LocalFolderCreateFolderInput): Promise<LocalFolderCreateFolderResponse> =>
+      ipcRenderer.invoke('localFolder:createFolder', input),
+    renameEntry: (input: LocalFolderRenameEntryInput): Promise<LocalFolderRenameEntryResponse> =>
+      ipcRenderer.invoke('localFolder:renameEntry', input),
+    search: (input: LocalFolderSearchInput): Promise<LocalFolderSearchResponse> =>
+      ipcRenderer.invoke('localFolder:search', input),
+    listNoteMetadata: (input?: { notebook_ids?: string[] }): Promise<LocalFolderListNoteMetadataResponse> =>
+      ipcRenderer.invoke('localFolder:listNoteMetadata', input),
+    updateNoteMetadata: (input: LocalFolderUpdateNoteMetadataInput): Promise<LocalFolderUpdateNoteMetadataResponse> =>
+      ipcRenderer.invoke('localFolder:updateNoteMetadata', input),
+    analyzeDelete: (input: LocalFolderDeleteEntryInput): Promise<LocalFolderAnalyzeDeleteResponse> =>
+      ipcRenderer.invoke('localFolder:analyzeDelete', input),
+    deleteEntry: (input: LocalFolderDeleteEntryInput): Promise<LocalFolderDeleteEntryResponse> =>
+      ipcRenderer.invoke('localFolder:deleteEntry', input),
+    readFile: (input: LocalFolderReadFileInput): Promise<LocalFolderReadFileResponse> =>
+      ipcRenderer.invoke('localFolder:readFile', input),
+    saveFile: (input: LocalFolderSaveFileInput): Promise<LocalFolderSaveFileResponse> =>
+      ipcRenderer.invoke('localFolder:saveFile', input),
+    selectRoot: () => ipcRenderer.invoke('localFolder:selectRoot') as Promise<string | null>,
+    mount: (input: LocalFolderMountInput): Promise<LocalFolderMountResponse> =>
+      ipcRenderer.invoke('localFolder:mount', input),
+    relink: (input: LocalFolderRelinkInput): Promise<LocalFolderRelinkResponse> =>
+      ipcRenderer.invoke('localFolder:relink', input),
+    openInFileManager: (notebookId: string): Promise<boolean> =>
+      ipcRenderer.invoke('localFolder:openInFileManager', notebookId),
+    unmount: (notebookId: string) => ipcRenderer.invoke('localFolder:unmount', notebookId),
+    onChanged: (callback: (event: LocalFolderWatchEvent) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, event: LocalFolderWatchEvent) => callback(event)
+      ipcRenderer.on('localFolder:changed', handler)
+      return () => ipcRenderer.removeListener('localFolder:changed', handler)
+    },
   },
   context: {
     sync: (context: {
@@ -72,6 +159,12 @@ contextBridge.exposeInMainWorld('electron', {
       currentNotebookName: string | null
       currentNoteId: string | null
       currentNoteTitle: string | null
+      currentBlockId?: string | null
+      selectedText?: string | null
+      cursorContext?: {
+        nearestHeading: string | null
+        currentParagraph: string | null
+      } | null
     }) => ipcRenderer.invoke('context:sync', context),
     get: () => ipcRenderer.invoke('context:get') as Promise<{ context: string }>,
   },
@@ -83,8 +176,8 @@ contextBridge.exposeInMainWorld('electron', {
     getAll: () => ipcRenderer.invoke('aiAction:getAll'),
     getAllIncludingDisabled: () => ipcRenderer.invoke('aiAction:getAllIncludingDisabled'),
     getById: (id: string) => ipcRenderer.invoke('aiAction:getById', id),
-    create: (input: unknown) => ipcRenderer.invoke('aiAction:create', input),
-    update: (id: string, updates: unknown) => ipcRenderer.invoke('aiAction:update', id, updates),
+    create: (input: AIActionInput) => ipcRenderer.invoke('aiAction:create', input),
+    update: (id: string, updates: Partial<AIActionInput> & { enabled?: boolean }) => ipcRenderer.invoke('aiAction:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('aiAction:delete', id),
     reorder: (orderedIds: string[]) => ipcRenderer.invoke('aiAction:reorder', orderedIds),
     reset: () => ipcRenderer.invoke('aiAction:reset'),
@@ -383,6 +476,14 @@ contextBridge.exposeInMainWorld('electron', {
   importInline: {
     selectMarkdown: () => ipcRenderer.invoke('importInline:selectMarkdown'),
     selectAndParsePdf: () => ipcRenderer.invoke('importInline:selectAndParsePdf'),
-    arxiv: (arxivId: string) => ipcRenderer.invoke('importInline:arxiv', arxivId),
+    arxiv: (
+      arxivId: string,
+      options?: {
+        includeAbstract?: boolean
+        includeReferences?: boolean
+        downloadFigures?: boolean
+        preferHtml?: boolean
+      }
+    ) => ipcRenderer.invoke('importInline:arxiv', arxivId, options),
   },
 })

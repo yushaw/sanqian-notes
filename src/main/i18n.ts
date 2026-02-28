@@ -83,9 +83,10 @@ const translations = {
    - 基于笔记内容组织回答
 
 3. **标注来源**
-   - 引用笔记时必须使用 markdown 链接格式，使用工具返回的 link 字段
+   - 若工具结果包含 link，引用笔记时必须使用 markdown 链接格式
    - 格式：[笔记标题](sanqian-notes://note/笔记ID)
-   - 示例：详见 [项目周报](sanqian-notes://note/abc123) 第二节
+   - 若 link 为空（例如 local-folder 资源），使用「笔记本名 · 相对路径」做文本引用，不要编造链接
+   - 示例：详见 [项目周报](sanqian-notes://note/abc123) 第二节；或 本地笔记「工作区 · docs/plan.md」
 
 4. **处理边界**
    - 没找到相关笔记 → 诚实告知，可提供通用建议或询问是否创建新笔记
@@ -102,7 +103,7 @@ const translations = {
 - 删除操作必须先询问用户确认
 - 回答基于笔记时，明确区分「笔记内容」和「补充说明」
 - 不确定时宁可多检索，不要编造笔记中没有的信息
-- 引用笔记内容时务必附上链接，方便用户跳转查看原文
+- 引用笔记内容时优先附上链接；若是 local-folder 资源无 link，则使用「笔记本名 · 相对路径」文本引用
 - 所有内容使用 Markdown 格式`,
       writingName: 'Writing Assistant',
       writingDescription: '专注于文本处理的写作助手，直接输出处理结果',
@@ -132,15 +133,19 @@ const translations = {
     // SDK Tool descriptions
     tools: {
       searchNotes: {
-        description: '搜索笔记。使用混合搜索（语义 + 关键词），返回最相关的结果。可通过 notebook_id 限定搜索范围。',
+        description: '搜索笔记。internal 笔记使用混合搜索（语义 + 关键词），本地文件夹笔记使用关键词全文搜索；可通过 notebook_id 限定范围，local-folder 还支持 folder_relative_path 子树范围。',
         queryDesc: '搜索关键词或自然语言查询',
         notebookIdDesc: '笔记本 ID，仅搜索该笔记本内的笔记；不指定则搜索所有笔记',
+        folderPathDesc: '文件夹相对路径（可选，仅 local-folder 笔记本有效），仅搜索该目录及其子目录',
         limitDesc: '返回结果的最大数量，默认 10',
+        folderScopeRequiresNotebook: '使用 folder_relative_path 时必须同时指定 notebook_id',
+        notebookNotFound: '笔记本不存在',
+        folderScopeOnlyForLocalNotebook: 'folder_relative_path 仅支持 local-folder 笔记本',
         error: '搜索笔记失败',
       },
       getNote: {
-        description: '获取笔记内容（Markdown 格式）。支持单个 ID 或 ID 数组批量获取。单个时可指定章节；批量时若某 ID 不存在则该项返回 {id, error}。',
-        idDesc: '笔记 ID，支持单个字符串或 ID 数组',
+        description: '获取笔记内容（Markdown 格式）。支持单个 ID 或 ID 数组批量获取。支持 internal 笔记 ID，以及本地笔记稳定 ID（UUID）或兼容 local 资源 ID（local:...）。单个时可指定章节；批量时若某 ID 不存在则该项返回 {id, error}。结果会返回 etag，可用于写工具的 if_match。',
+        idDesc: '笔记 ID（internal）或本地笔记稳定 ID（UUID，兼容 local:...），支持单个字符串或 ID 数组',
         headingDesc: '章节标题（可选，仅单个 ID 时有效），如 "## 第一章" 或 "2.3"（会模糊匹配包含该文本的标题）',
         headingMatchDesc: '匹配模式：exact（精确）、contains（包含，默认）、startsWith（前缀）',
         offsetDesc: '起始行号（从 1 开始，可选）',
@@ -151,8 +156,8 @@ const translations = {
         error: '获取笔记失败',
       },
       getNoteOutline: {
-        description: '获取笔记的大纲结构（所有标题列表）',
-        idDesc: '笔记 ID',
+        description: '获取笔记的大纲结构（所有标题列表），支持 internal 笔记 ID 与本地笔记稳定 ID（UUID，兼容 local:...）。',
+        idDesc: '笔记 ID（internal）或本地笔记稳定 ID（UUID，兼容 local:...）',
         notFound: '笔记不存在',
         error: '获取大纲失败',
       },
@@ -161,12 +166,23 @@ const translations = {
         titleDesc: '笔记标题',
         contentDesc: '笔记内容，使用 Markdown 格式',
         notebookIdDesc: '笔记本 ID（可选），如果不指定则创建在默认笔记本',
+        notebookNotFound: '笔记本不存在',
+        localNotebookUnsupported: '不支持在 local-folder 笔记本中创建笔记，请直接在本地目录中新建文件',
+        localNotebookUnavailable: '本地文件夹笔记本当前不可用，请检查挂载状态',
+        localFileAlreadyExists: '已存在同名文件',
+        localInvalidName: '文件名无效',
+        localAccessDenied: '没有权限访问本地目录',
+        localWriteFailed: '写入本地文件失败',
+        localConflict: '本地文件发生冲突，请刷新后重试',
+        localTooLarge: '文件过大，无法写入',
+        localRollbackFailed: '创建失败且回滚本地文件失败，请手动清理已创建文件',
         success: '笔记创建成功',
         error: '创建笔记失败',
       },
       updateNote: {
         description: '更新笔记。支持三种模式：1) content 全量替换；2) append/prepend 追加（可指定位置）；3) edit 精确替换。',
         idDesc: '笔记 ID',
+        ifMatchDesc: '可选并发校验标记（revision 或 etag）',
         titleDesc: '新标题（可选）',
         contentDesc: '新内容（Markdown），会替换整个笔记内容',
         appendDesc: '追加的内容（Markdown）。默认追加到末尾，可配合 after 参数指定位置',
@@ -175,6 +191,16 @@ const translations = {
         beforeDesc: '锚点文本，在此文本所在段落/标题之前插入内容（配合 prepend 使用）',
         editDesc: '精确替换：{old_string, new_string, replace_all?}',
         notFound: '笔记不存在',
+        localReadOnly: '本地文件夹笔记为只读，请在文件系统中编辑',
+        invalidIfMatch: 'if_match 参数格式无效',
+        ifMatchMismatch: '笔记已被其他变更更新，请刷新后重试',
+        conflict: '保存冲突，请刷新后重试',
+        localInvalidName: '文件名无效',
+        localAccessDenied: '没有权限访问本地目录',
+        localWriteFailed: '写入本地文件失败',
+        localFileAlreadyExists: '已存在同名文件',
+        localTooLarge: '文件过大，无法写入',
+        localRollbackFailed: '更新失败且回滚重命名失败，请手动检查文件名',
         success: '笔记更新成功',
         editSuccess: '替换了 {count} 处',
         editNotFound: '未找到匹配内容。',
@@ -188,8 +214,14 @@ const translations = {
         error: '更新笔记失败',
       },
       deleteNote: {
-        description: '删除笔记（移动到回收站）。这是危险操作，必须先获得用户确认。',
+        description: '删除笔记（移动到回收站）。支持 internal 与 local-folder（本地文件会进入系统回收站）。这是危险操作，必须先获得用户确认。',
         idDesc: '笔记 ID',
+        localReadOnly: '本地文件夹笔记为只读，无法删除',
+        ifMatchDesc: '可选并发校验标记（revision 或 etag）',
+        invalidIfMatch: 'if_match 参数格式无效',
+        ifMatchMismatch: '笔记已被其他变更更新，请刷新后重试',
+        localAccessDenied: '没有权限访问本地目录',
+        localDeleteFailed: '删除本地文件失败',
         notFound: '笔记不存在',
         success: '笔记已移动到回收站',
         error: '删除笔记失败',
@@ -199,15 +231,29 @@ const translations = {
         error: '获取标签失败',
       },
       getNotebooks: {
-        description: '获取所有笔记本列表，包含笔记数量。',
+        description: '获取所有笔记本列表，包含笔记数量，以及 source_type/status/writable 元信息。',
         error: '获取笔记本失败',
       },
       moveNote: {
-        description: '移动笔记到其他笔记本。',
+        description: '移动笔记到其他笔记本。internal 走数据库移动；local-folder 会复制到目标本地笔记本根目录并将源文件移入回收站。',
         idDesc: '笔记 ID',
         notebookIdDesc: '目标笔记本 ID（null 表示移出笔记本）',
+        localReadOnly: '本地文件夹笔记为只读，无法移动',
+        ifMatchDesc: '可选并发校验标记（revision 或 etag）',
+        invalidIfMatch: 'if_match 参数格式无效',
+        ifMatchMismatch: '笔记已被其他变更更新，请刷新后重试',
         notFound: '笔记不存在',
         notebookNotFound: '目标笔记本不存在',
+        targetNotAllowed: '当前来源与目标笔记本类型组合不支持移动',
+        localNotebookUnavailable: '目标本地笔记本当前不可用，请检查挂载状态',
+        localFileAlreadyExists: '目标目录下已存在同名文件',
+        localInvalidName: '文件名无效',
+        localAccessDenied: '没有权限访问本地目录',
+        localWriteFailed: '写入目标本地文件失败',
+        localConflict: '目标本地文件发生冲突，请刷新后重试',
+        localTooLarge: '文件过大，无法移动',
+        localDeleteFailed: '移动后清理源文件失败',
+        localRollbackFailed: '移动失败且回滚目标文件失败，请手动清理目标文件',
         success: '笔记移动成功',
         error: '移动笔记失败',
       },
@@ -337,9 +383,10 @@ When the user asks a question (rather than giving an operation command):
    - Organize answer based on note content
 
 3. **Cite sources**
-   - When referencing notes, always use markdown link format with the link field from tool results
+   - If a tool result includes link, cite notes with markdown links
    - Format: [Note Title](sanqian-notes://note/noteID)
-   - Example: See [Project Report](sanqian-notes://note/abc123) section 2
+   - If link is empty (for local-folder resources), cite as plain text "Notebook · relative/path" and do not fabricate links
+   - Example: See [Project Report](sanqian-notes://note/abc123) section 2, or local note "Workspace · docs/plan.md"
 
 4. **Handle edge cases**
    - No relevant notes found → honestly inform, can offer general advice or ask if they want to create a new note
@@ -356,7 +403,7 @@ When the user asks a question (rather than giving an operation command):
 - Always ask for user confirmation before deleting
 - When answering based on notes, clearly distinguish "note content" from "additional commentary"
 - When uncertain, prefer to search rather than fabricate information not in the notes
-- Always include note links when citing content, so users can jump to the source
+- Include note links when available; for local-folder sources without links, cite as plain text "Notebook · relative/path"
 - All content uses Markdown format`,
       writingName: 'Writing Assistant',
       writingDescription: 'A writing assistant focused on text processing, outputs results directly',
@@ -386,15 +433,19 @@ Rules:
     // SDK Tool descriptions
     tools: {
       searchNotes: {
-        description: 'Search notes. Uses hybrid search (semantic + keyword). Use notebook_id to search within a specific notebook.',
+        description: 'Search notes. Internal notes use hybrid search (semantic + keyword), while local-folder notes use keyword full-text search. Use notebook_id to scope results; local-folder also supports folder_relative_path subtree scope.',
         queryDesc: 'Search keywords or natural language query',
         notebookIdDesc: 'Notebook ID to search within; searches all notes if not specified',
+        folderPathDesc: 'Folder-relative path (optional, only for local-folder notebooks), searches this folder and descendants',
         limitDesc: 'Maximum number of results to return, default 10',
+        folderScopeRequiresNotebook: 'folder_relative_path requires notebook_id',
+        notebookNotFound: 'Notebook not found',
+        folderScopeOnlyForLocalNotebook: 'folder_relative_path is only supported for local-folder notebooks',
         error: 'Failed to search notes',
       },
       getNote: {
-        description: 'Get note content (Markdown format). Supports single ID or array of IDs for batch fetch. Can specify heading when single; batch mode returns {id, error} for missing IDs.',
-        idDesc: 'Note ID, supports single string or array of IDs',
+        description: 'Get note content (Markdown format). Supports single ID or array of IDs. Accepts internal note IDs and local note stable IDs (UUID), while remaining compatible with local resource IDs (local:...). Can specify heading when single; batch mode returns {id, error} for missing IDs. Returns etag for concurrency-safe writes via if_match.',
+        idDesc: 'Internal note ID or local note stable ID (UUID, local:... still supported), supports single string or array of IDs',
         headingDesc: 'Heading (optional, only for single ID), e.g. "## Chapter 1" or "2.3" (will fuzzy match headings containing this text)',
         headingMatchDesc: 'Match mode: exact, contains (default), startsWith',
         offsetDesc: 'Starting line number (1-based, optional)',
@@ -405,8 +456,8 @@ Rules:
         error: 'Failed to get note',
       },
       getNoteOutline: {
-        description: 'Get note outline structure (list of all headings)',
-        idDesc: 'Note ID',
+        description: 'Get note outline structure (list of all headings). Accepts internal note IDs and local note stable IDs (UUID), with compatibility for local resource IDs (local:...).',
+        idDesc: 'Internal note ID or local note stable ID (UUID, local:... still supported)',
         notFound: 'Note not found',
         error: 'Failed to get outline',
       },
@@ -415,12 +466,23 @@ Rules:
         titleDesc: 'Note title',
         contentDesc: 'Note content in Markdown format',
         notebookIdDesc: 'Notebook ID (optional), creates in default notebook if not specified',
+        notebookNotFound: 'Notebook not found',
+        localNotebookUnsupported: 'Cannot create notes in local-folder notebooks; create files directly in the local folder',
+        localNotebookUnavailable: 'Local-folder notebook is unavailable. Check mount status and try again',
+        localFileAlreadyExists: 'A file with the same name already exists',
+        localInvalidName: 'Invalid file name',
+        localAccessDenied: 'Access denied for local folder',
+        localWriteFailed: 'Failed to write local file',
+        localConflict: 'Local file conflict detected. Refresh and retry',
+        localTooLarge: 'File is too large to write',
+        localRollbackFailed: 'Create failed and rollback of created local file also failed. Please clean up manually',
         success: 'Note created successfully',
         error: 'Failed to create note',
       },
       updateNote: {
         description: 'Update a note. Three modes: 1) content for full replacement; 2) append/prepend for adding (with optional position); 3) edit for precise replacement.',
         idDesc: 'Note ID',
+        ifMatchDesc: 'Optional concurrency token (revision or etag)',
         titleDesc: 'New title (optional)',
         contentDesc: 'New content (Markdown), replaces entire note content',
         appendDesc: 'Content to append (Markdown). Defaults to end of document, use "after" to specify position',
@@ -429,6 +491,16 @@ Rules:
         beforeDesc: 'Anchor text to insert content before (use with prepend)',
         editDesc: 'Precise replacement: {old_string, new_string, replace_all?}',
         notFound: 'Note not found',
+        localReadOnly: 'Local-folder notes are read-only; edit them in the filesystem',
+        invalidIfMatch: 'Invalid if_match value',
+        ifMatchMismatch: 'Note has changed. Refresh and retry',
+        conflict: 'Save conflict. Refresh and retry',
+        localInvalidName: 'Invalid file name',
+        localAccessDenied: 'Access denied for local folder',
+        localWriteFailed: 'Failed to write local file',
+        localFileAlreadyExists: 'A file with the same name already exists',
+        localTooLarge: 'File is too large to write',
+        localRollbackFailed: 'Update failed and rollback of rename also failed. Please verify the file name manually',
         success: 'Note updated successfully',
         editSuccess: 'Replaced {count} occurrence(s)',
         editNotFound: 'No matching content found.',
@@ -442,8 +514,14 @@ Rules:
         error: 'Failed to update note',
       },
       deleteNote: {
-        description: 'Delete a note (move to trash). This is a dangerous operation, must get user confirmation first.',
+        description: 'Delete a note (move to trash). Supports internal and local-folder notes (local files are moved to system trash). This is dangerous and requires user confirmation first.',
         idDesc: 'Note ID',
+        localReadOnly: 'Local-folder notes are read-only and cannot be deleted',
+        ifMatchDesc: 'Optional concurrency token (revision or etag)',
+        invalidIfMatch: 'Invalid if_match value',
+        ifMatchMismatch: 'Note has changed. Refresh and retry',
+        localAccessDenied: 'Access denied for local folder',
+        localDeleteFailed: 'Failed to delete local file',
         notFound: 'Note not found',
         success: 'Note moved to trash',
         error: 'Failed to delete note',
@@ -453,15 +531,29 @@ Rules:
         error: 'Failed to get tags',
       },
       getNotebooks: {
-        description: 'Get all notebooks list with note counts.',
+        description: 'Get all notebooks with note counts, plus source_type/status/writable metadata.',
         error: 'Failed to get notebooks',
       },
       moveNote: {
-        description: 'Move a note to another notebook.',
+        description: 'Move a note to another notebook. Internal notes are moved in DB; local-folder notes are copied to the target local notebook root and the source file is moved to trash.',
         idDesc: 'Note ID',
         notebookIdDesc: 'Target notebook ID (null to remove from notebook)',
+        localReadOnly: 'Local-folder notes are read-only and cannot be moved',
+        ifMatchDesc: 'Optional concurrency token (revision or etag)',
+        invalidIfMatch: 'Invalid if_match value',
+        ifMatchMismatch: 'Note has changed. Refresh and retry',
         notFound: 'Note not found',
         notebookNotFound: 'Target notebook not found',
+        targetNotAllowed: 'This source/target notebook type combination is not supported for move',
+        localNotebookUnavailable: 'Target local-folder notebook is unavailable. Check mount status and try again',
+        localFileAlreadyExists: 'A file with the same name already exists in target folder',
+        localInvalidName: 'Invalid file name',
+        localAccessDenied: 'Access denied for local folder',
+        localWriteFailed: 'Failed to write target local file',
+        localConflict: 'Conflict on target local file. Refresh and retry',
+        localTooLarge: 'File is too large to move',
+        localDeleteFailed: 'Moved file but failed to remove source file',
+        localRollbackFailed: 'Move failed and rollback of target file also failed. Please clean up target file manually',
         success: 'Note moved successfully',
         error: 'Failed to move note',
       },

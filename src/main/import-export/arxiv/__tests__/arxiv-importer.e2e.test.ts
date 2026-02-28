@@ -33,6 +33,14 @@ function collectText(node: unknown): string {
   return text + children
 }
 
+function hasNodeType(node: unknown, nodeType: string): boolean {
+  if (!node || typeof node !== 'object') return false
+  const current = node as { type?: string; content?: unknown[] }
+  if (current.type === nodeType) return true
+  if (!Array.isArray(current.content)) return false
+  return current.content.some((child) => hasNodeType(child, nodeType))
+}
+
 function buildAbsPageHtml(id: string): string {
   return `
   <html>
@@ -65,6 +73,56 @@ function buildArxivHtmlWithFigure(): string {
       </figure>
     </section>
   </article>
+  `
+}
+
+function buildArxivHtmlWithPromptCode(): string {
+  return `
+  <article class="ltx_document">
+    <section class="ltx_section" id="S3">
+      <h2 class="ltx_title"><span class="ltx_tag">3 </span>The <span class="ltx_ERROR undefined">\\pkg</span>evomap package</h2>
+      <div class="ltx_para">
+        <span class="ltx_ERROR undefined">{CodeChunk}</span><span class="ltx_ERROR undefined">{CodeInput}</span>
+        <p class="ltx_p">&gt; pip install evomap</p>
+      </div>
+      <div class="ltx_para">
+        <p class="ltx_p">In <span class="ltx_ERROR undefined">\\proglang</span>Python, use <span class="ltx_ERROR undefined">\\pkg</span>evomap.</p>
+      </div>
+      <div class="ltx_para">
+        <p class="ltx_p">This list may contain broken ltx_ERROR formatting:</p>
+        <ol>
+          <li><span class="ltx_ERROR undefined">\\code</span>datasets: data module.</li>
+        </ol>
+      </div>
+      <div class="ltx_para">
+        <p class="ltx_p">We begin by importing the necessary libraries and fixing the random seed:
+          <span class="ltx_ERROR undefined">{Code}</span>
+          >>> import numpy as np
+          >>> import pandas as pd
+          … np.random.seed(123)
+        </p>
+      </div>
+      <div class="ltx_para">
+        <p class="ltx_p">A subset is available through the \\codedatasets module.</p>
+      </div>
+    </section>
+  </article>
+  `
+}
+
+function buildArxivHtmlWithFatalFooter(): string {
+  return `
+  <article class="ltx_document">
+    <section class="ltx_section" id="S1">
+      <h2 class="ltx_title">Broken HTML</h2>
+      <div class="ltx_para">
+        <p class="ltx_p">This HTML should not be used.</p>
+      </div>
+    </section>
+  </article>
+  <div class="ltx_document"><div class="ltx_para"><div class="ltx_p"><span class="ltx_ERROR">
+  Conversion to HTML had a Fatal error and exited abruptly. This document may be truncated or damaged.
+  </span></div></div></div>
   `
 }
 
@@ -200,5 +258,120 @@ describe('ArxivImporter fetchAsTiptap e2e-ish consistency', () => {
     expect(imageSrcs.length).toBeGreaterThan(0)
     expect(imageSrcs.every((src) => src.startsWith('attachment://'))).toBe(true)
     expect(collectText(parsed)).toContain('Body from PDF fallback.')
+  })
+
+  it('normalizes arXiv {Code} prompt blocks into fenced code without blockquote artifacts', async () => {
+    const paperId = '2403.00003'
+    const absHtml = buildAbsPageHtml(paperId)
+    const paperHtml = buildArxivHtmlWithPromptCode()
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = toUrl(input)
+
+      if (url.startsWith(`https://arxiv.org/abs/${paperId}`)) {
+        return new Response(absHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+      if (url.startsWith(`https://arxiv.org/html/${paperId}`)) {
+        return new Response(paperHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+
+      throw new Error(`Unhandled fetch URL in prompt-code test: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const importer = new ArxivImporter()
+    const result = await importer.fetchAsTiptap(paperId, undefined, {
+      downloadFigures: false,
+      includeReferences: false,
+      includeAbstract: true,
+      preferHtml: true,
+    })
+    const parsed = JSON.parse(result.content) as { type: string; content: unknown[] }
+    const text = collectText(parsed)
+
+    expect(hasNodeType(parsed, 'codeBlock')).toBe(true)
+    expect(text).toContain('import numpy as np')
+    expect(text).toContain('pip install evomap')
+    expect(text).toContain('3 The evomap package')
+    expect(text).not.toContain('>>>')
+    expect(text).not.toContain('> pip install evomap')
+    expect(text).not.toContain('{Code}')
+    expect(text).not.toContain('{CodeChunk}')
+    expect(text).not.toContain('{CodeInput}')
+    expect(text).toContain('datasets module')
+    expect(text).not.toContain('\\proglang')
+    expect(text).not.toContain('\\pkg')
+    expect(text).not.toContain('\\code')
+    expect(hasNodeType(parsed, 'blockquote')).toBe(false)
+  })
+
+  it('falls back to PDF when ar5iv HTML is explicitly marked as fatally damaged', async () => {
+    const paperId = '2404.00004'
+    const absHtml = buildAbsPageHtml(paperId)
+    const fatalHtml = buildArxivHtmlWithFatalFooter()
+    const pdfBytes = Buffer.from('%PDF-1.4 mock pdf bytes%', 'utf-8')
+
+    const textinResponse = {
+      code: 200,
+      result: {
+        markdown: '# Parsed PDF\n\nBody from PDF fallback.\n',
+        pages: [],
+      },
+    }
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = toUrl(input)
+
+      if (url.startsWith(`https://arxiv.org/abs/${paperId}`)) {
+        return new Response(absHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+      if (url.startsWith(`https://arxiv.org/html/${paperId}`)) {
+        return new Response('not found', { status: 404 })
+      }
+      if (url.startsWith(`https://ar5iv.labs.arxiv.org/html/${paperId}`)) {
+        return new Response(fatalHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+      if (url.startsWith(`https://arxiv.org/pdf/${paperId}.pdf`)) {
+        return new Response(pdfBytes, {
+          status: 200,
+          headers: { 'content-type': 'application/pdf' },
+        })
+      }
+      if (url.startsWith('https://api.textin.com/ai/service/v1/pdf_to_markdown')) {
+        return new Response(JSON.stringify(textinResponse), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      throw new Error(`Unhandled fetch URL in fatal-html fallback test: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const importer = new ArxivImporter()
+    const result = await importer.fetchAsTiptap(paperId)
+    const parsed = JSON.parse(result.content) as { type: string; content: unknown[] }
+    const text = collectText(parsed)
+    const calledTextin = fetchMock.mock.calls.some(([arg]) =>
+      toUrl(arg as RequestInfo | URL).startsWith('https://api.textin.com/ai/service/v1/pdf_to_markdown')
+    )
+
+    expect(calledTextin).toBe(true)
+    expect(text).toContain('Body from PDF fallback.')
+    expect(text).not.toContain('This HTML should not be used.')
   })
 })

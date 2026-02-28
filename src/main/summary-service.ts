@@ -8,13 +8,16 @@
 import { createHash } from 'crypto'
 import { webContents } from 'electron'
 import {
-  getNoteById,
   getNoteSummaryInfo,
+  getLocalNoteSummaryInfo,
+  updateLocalNoteSummary,
+  updateLocalAITags,
   updateNoteSummary,
   updateAITags
 } from './database'
 import { jsonToMarkdown } from './markdown/tiptap-to-markdown'
 import { getClient } from './sanqian-sdk'
+import { buildNoteFromResolvedResource, resolveNoteResource } from './note-gateway'
 
 // ============ Constants ============
 
@@ -242,10 +245,18 @@ export async function generateSummary(noteId: string): Promise<boolean> {
     return false
   }
 
-  const note = getNoteById(noteId)
-  if (!note) {
+  const resolved = resolveNoteResource(noteId)
+  if (!resolved.ok) {
     console.log(`[Summary] Note not found: ${noteId}`)
     return false
+  }
+  const note = buildNoteFromResolvedResource(resolved.resource)
+  let localSummaryRef: { notebook_id: string; relative_path: string } | null = null
+  if (resolved.resource.sourceType === 'local-folder') {
+    localSummaryRef = {
+      notebook_id: resolved.resource.file.notebook_id,
+      relative_path: resolved.resource.file.relative_path,
+    }
   }
 
   // Skip daily notes - they are personal journal entries, not knowledge content
@@ -254,7 +265,9 @@ export async function generateSummary(noteId: string): Promise<boolean> {
     return false
   }
 
-  const summaryInfo = getNoteSummaryInfo(noteId)
+  const summaryInfo = localSummaryRef
+    ? getLocalNoteSummaryInfo(localSummaryRef)
+    : getNoteSummaryInfo(note.id)
   const checkResult = shouldGenerateSummary(note.content, summaryInfo)
 
   if (!checkResult.shouldGenerate) {
@@ -286,30 +299,63 @@ export async function generateSummary(noteId: string): Promise<boolean> {
     const prompt = buildPrompt(plainText, targetLength, isLongContent, outline)
 
     // Use non-streaming chat API with timeout
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('AI request timeout')), AI_TIMEOUT)
+      timeoutId = setTimeout(() => reject(new Error('AI request timeout')), AI_TIMEOUT)
     })
 
     const chatPromise = sdk.chat('writing', [
       { role: 'user', content: prompt }
     ])
 
-    const response = await Promise.race([chatPromise, timeoutPromise])
+    let response: Awaited<typeof chatPromise>
+    try {
+      response = await Promise.race([chatPromise, timeoutPromise])
+    } finally {
+      clearTimeout(timeoutId)
+    }
     const aiResponse = response.message.content
 
     // Parse response
     const { summary, keywords } = parseSummaryResponse(aiResponse)
 
     // Update database
-    updateNoteSummary(noteId, summary, contentHash)
-    if (keywords.length > 0) {
-      updateAITags(noteId, keywords)
+    if (localSummaryRef) {
+      const updated = updateLocalNoteSummary({
+        notebook_id: localSummaryRef.notebook_id,
+        relative_path: localSummaryRef.relative_path,
+        summary,
+        content_hash: contentHash,
+      })
+      if (!updated) {
+        console.warn(`[Summary] Failed to persist local summary for ${noteId}`)
+        return false
+      }
+      if (keywords.length > 0) {
+        updateLocalAITags({
+          notebook_id: localSummaryRef.notebook_id,
+          relative_path: localSummaryRef.relative_path,
+          tag_names: keywords,
+        })
+      }
+    } else {
+      updateNoteSummary(note.id, summary, contentHash)
+      if (keywords.length > 0) {
+        updateAITags(note.id, keywords)
+      }
     }
 
     // Notify frontend of summary update
     // Use webContents.getAllWebContents() since mainWindow is BaseWindow, not BrowserWindow
     for (const wc of webContents.getAllWebContents()) {
       wc.send('summary:updated', noteId)
+      if (note.id !== noteId) {
+        wc.send('summary:updated', note.id)
+      }
+      if (localSummaryRef) {
+        // Local summaries live in local metadata; trigger a lightweight data refresh.
+        wc.send('data:changed')
+      }
     }
 
     console.log(`[Summary] Generated for ${noteId}: ${summary.slice(0, 50)}...`)

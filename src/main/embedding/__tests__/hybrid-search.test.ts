@@ -10,18 +10,27 @@ vi.mock('../api', () => ({
 
 vi.mock('../database', () => ({
   getEmbeddingConfig: vi.fn(),
+  getNoteIndexStatus: vi.fn(),
   searchEmbeddings: vi.fn(),
   searchEmbeddingsInNotebook: vi.fn(),
   searchKeyword: vi.fn()
 }))
 
+vi.mock('../../database', () => ({
+  getNotesByIds: vi.fn(),
+  getLocalNoteIdentityByUid: vi.fn(),
+  getLocalNoteMetadata: vi.fn(),
+}))
+
 import { getEmbedding } from '../api'
 import {
   getEmbeddingConfig,
+  getNoteIndexStatus,
   searchEmbeddings,
   searchEmbeddingsInNotebook,
   searchKeyword
 } from '../database'
+import { getLocalNoteIdentityByUid, getLocalNoteMetadata, getNotesByIds } from '../../database'
 import { configureQueryRewrite, expandQuery, hybridSearch } from '../semantic-search'
 
 type MockVectorRow = {
@@ -48,7 +57,11 @@ describe('hybridSearch', () => {
       modelName: 'test',
       dimensions: 3
     })
+    vi.mocked(getNoteIndexStatus).mockReturnValue(null)
     vi.mocked(searchEmbeddingsInNotebook).mockReturnValue([])
+    vi.mocked(getNotesByIds).mockReturnValue([])
+    vi.mocked(getLocalNoteIdentityByUid).mockReturnValue(null)
+    vi.mocked(getLocalNoteMetadata).mockReturnValue(null)
   })
 
   it('uses rewritten + cleaned query for embeddings', async () => {
@@ -158,5 +171,82 @@ describe('hybridSearch', () => {
 
     expect(note1?.matchedChunks.length).toBe(2)
     expect(note2?.matchedChunks.length).toBe(1)
+  })
+
+  it('keeps local resource ids when filter viewType is all', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([
+      {
+        chunkId: 'c1',
+        noteId: 'local:nb-local:foo.md',
+        notebookId: 'nb-local',
+        chunkText: 'local result',
+        distance: 0.2,
+        score: 0.92,
+        charStart: 0,
+        charEnd: 12,
+        chunkIndex: 0
+      }
+    ])
+    vi.mocked(searchKeyword).mockReturnValue([])
+
+    const results = await hybridSearch('local query', {
+      filter: { viewType: 'all' }
+    })
+    expect(results.map((item) => item.noteId)).toContain('local:nb-local:foo.md')
+  })
+
+  it('drops unknown non-local ids when filter viewType is all', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([
+      {
+        chunkId: 'c1',
+        noteId: 'unknown-note-id',
+        notebookId: 'nb',
+        chunkText: 'unknown result',
+        distance: 0.2,
+        score: 0.92,
+        charStart: 0,
+        charEnd: 14,
+        chunkIndex: 0
+      }
+    ])
+    vi.mocked(searchKeyword).mockReturnValue([])
+
+    const results = await hybridSearch('unknown query', {
+      filter: { viewType: 'all' }
+    })
+    expect(results).toEqual([])
+  })
+
+  it('keeps local uuid ids when filter viewType is all', async () => {
+    const localUid = 'ef84fb2a-8f5e-4e21-bd24-e1d6f2627d53'
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([
+      {
+        chunkId: 'c1',
+        noteId: localUid,
+        notebookId: 'nb-local',
+        chunkText: 'local result',
+        distance: 0.2,
+        score: 0.92,
+        charStart: 0,
+        charEnd: 12,
+        chunkIndex: 0
+      }
+    ])
+    vi.mocked(searchKeyword).mockReturnValue([])
+    vi.mocked(getLocalNoteIdentityByUid).mockReturnValue({
+      note_uid: localUid,
+      notebook_id: 'nb-local',
+      relative_path: 'foo.md',
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    })
+
+    const results = await hybridSearch('local query', {
+      filter: { viewType: 'all' }
+    })
+    expect(results.map((item) => item.noteId)).toContain(localUid)
   })
 })

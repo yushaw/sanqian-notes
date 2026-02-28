@@ -32,7 +32,8 @@ import { getEmbeddings } from './api'
 import { computeContentHash } from './utils'
 import type { NoteChunk, NoteIndexStatus } from './types'
 import { generateSummary } from '../summary-service'
-import { getNoteSummaryInfo } from '../database'
+import { getLocalNoteSummaryInfo, getNoteSummaryInfo } from '../database'
+import { resolveLocalNoteRef } from '../note-gateway'
 
 // 摘要触发阈值：Chunk 变化率超过 30% 时重新生成摘要
 const SUMMARY_CHANGE_THRESHOLD = 0.3
@@ -45,6 +46,21 @@ function triggerSummary(noteId: string, reason: string): void {
   generateSummary(noteId).catch((err) => {
     console.error(`[IndexingService] Summary generation failed for ${noteId}:`, err)
   })
+}
+
+function getSummaryInfoForIndexedNote(noteId: string): {
+  ai_summary: string | null
+  summary_content_hash: string | null
+} | null {
+  const localLocation = resolveLocalNoteRef(noteId)
+  if (localLocation) {
+    return getLocalNoteSummaryInfo({
+      notebook_id: localLocation.notebookId,
+      relative_path: localLocation.relativePath,
+    })
+  }
+
+  return getNoteSummaryInfo(noteId)
 }
 
 // 配置常量
@@ -287,10 +303,19 @@ export class IndexingService {
    * - 内容未变 + embedding 禁用 → 跳过
    * - 内容未变 + embeddingStatus=indexed → 跳过
    */
-  async checkAndIndex(noteId: string, notebookId: string, content: string): Promise<boolean> {
+  async checkAndIndex(
+    noteId: string,
+    notebookId: string,
+    content: string,
+    options?: { ftsOnly?: boolean; fileMtimeMs?: number }
+  ): Promise<boolean> {
     if (!this.isRunning) return false
 
     const config = getEmbeddingConfig()
+    const ftsOnly = options?.ftsOnly ?? false
+    const fileMtime = options?.fileMtimeMs != null
+      ? new Date(options.fileMtimeMs).toISOString()
+      : undefined
 
     // 防止同一笔记并发索引
     if (this.indexingLocks.has(noteId)) {
@@ -315,22 +340,32 @@ export class IndexingService {
 
     try {
       if (contentChanged) {
+        if (ftsOnly) {
+          // ftsOnly: 只建 FTS，不触发 embedding/summary
+          return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime)
+        }
         // 内容变化：根据 embedding 配置决定索引方式
         if (config.enabled) {
           // FTS + Embedding
-          return await this.indexNoteIncremental(noteId, notebookId, text)
+          return await this.indexNoteIncremental(noteId, notebookId, text, fileMtime)
         } else {
           // 仅 FTS
-          return await this.indexNoteFtsOnly(noteId, notebookId, content)
+          return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime)
         }
       } else {
+        if (ftsOnly) {
+          // ftsOnly + 内容未变: 跳过，不检查 embedding/summary
+          console.log(`[IndexingService] Note ${noteId} no change (ftsOnly), skipping`)
+          return false
+        }
+
         // 内容未变化
         if (existingStatus.status === 'error') {
           // 上次失败，重试
           if (config.enabled) {
-            return await this.indexNoteIncremental(noteId, notebookId, text)
+            return await this.indexNoteIncremental(noteId, notebookId, text, fileMtime)
           } else {
-            return await this.indexNoteFtsOnly(noteId, notebookId, content)
+            return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime)
           }
         }
 
@@ -341,8 +376,8 @@ export class IndexingService {
         }
 
         // 检查是否缺少 summary
-        const summaryInfo = getNoteSummaryInfo(noteId)
-        if (!summaryInfo?.ai_summary) {
+        const summaryInfo0 = getSummaryInfoForIndexedNote(noteId)
+        if (!summaryInfo0?.ai_summary) {
           triggerSummary(noteId, 'no summary')
         } else {
           console.log(`[IndexingService] Note ${noteId} no change, skipping`)
@@ -365,7 +400,7 @@ export class IndexingService {
    * 4. 只为新增的 chunks 生成 embedding
    * 5. 删除旧的、插入新的
    */
-  async indexNoteIncremental(noteId: string, notebookId: string, text: string): Promise<boolean> {
+  async indexNoteIncremental(noteId: string, notebookId: string, text: string, fileMtime?: string): Promise<boolean> {
     const config = getEmbeddingConfig()
     if (!config.enabled) return false
 
@@ -403,8 +438,8 @@ export class IndexingService {
       if (result.toAdd.length === 0 && result.toDelete.length === 0) {
         console.log(`[IndexingService] Note ${noteId} no chunk changes`)
         // 即使 chunks 没变，也要检查是否缺少 summary
-        const summaryInfo = getNoteSummaryInfo(noteId)
-        if (!summaryInfo?.ai_summary) {
+        const summaryInfo1 = getSummaryInfoForIndexedNote(noteId)
+        if (!summaryInfo1?.ai_summary) {
           triggerSummary(noteId, 'no summary')
         }
         return true
@@ -452,7 +487,8 @@ export class IndexingService {
         indexedAt: new Date().toISOString(),
         status: 'indexed',
         ftsStatus: 'indexed',
-        embeddingStatus: 'indexed'
+        embeddingStatus: 'indexed',
+        fileMtime
       }
       updateNoteIndexStatus(status)
 
@@ -460,8 +496,8 @@ export class IndexingService {
 
       // 11. 检查是否需要更新摘要（新笔记、变化率 > 30%、或没有摘要）
       const isNewNote = totalOldChunks === 0
-      const summaryInfo = getNoteSummaryInfo(noteId)
-      const noSummary = !summaryInfo?.ai_summary
+      const summaryInfo2 = getSummaryInfoForIndexedNote(noteId)
+      const noSummary = !summaryInfo2?.ai_summary
       if (isNewNote || changeRatio > SUMMARY_CHANGE_THRESHOLD || noSummary) {
         const reason = isNewNote
           ? 'new note'
@@ -482,6 +518,7 @@ export class IndexingService {
       console.error(`[IndexingService] Failed to index note ${noteId}:`, error)
 
       // 更新错误状态（精确记录 FTS 是否已写入）
+      const existingStatusForError = getNoteIndexStatus(noteId)
       const status: NoteIndexStatus = {
         noteId,
         contentHash: computeContentHash(text),
@@ -491,7 +528,8 @@ export class IndexingService {
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         ftsStatus: ftsWritten ? 'indexed' : 'none',
-        embeddingStatus: 'error'
+        embeddingStatus: 'error',
+        fileMtime: fileMtime ?? existingStatusForError?.fileMtime
       }
       updateNoteIndexStatus(status)
 
@@ -525,7 +563,7 @@ export class IndexingService {
    * - 导入后默认建立 FTS 索引（本地计算，无成本）
    * - Embedding 索引需要用户手动勾选
    */
-  async indexNoteFtsOnly(noteId: string, notebookId: string, content: string): Promise<boolean> {
+  async indexNoteFtsOnly(noteId: string, notebookId: string, content: string, fileMtime?: string): Promise<boolean> {
     const text = extractTextFromTiptap(content)
 
     // 内容太短，不索引
@@ -564,7 +602,8 @@ export class IndexingService {
         indexedAt: new Date().toISOString(),
         status: 'indexed',
         ftsStatus: 'indexed',
-        embeddingStatus: 'none'
+        embeddingStatus: 'none',
+        fileMtime
       }
       updateNoteIndexStatus(status)
 
@@ -574,6 +613,7 @@ export class IndexingService {
       console.error(`[IndexingService] Failed to FTS index note ${noteId}:`, error)
 
       // 更新错误状态（精确记录 FTS 是否已写入）
+      const existingStatusForError = getNoteIndexStatus(noteId)
       const status: NoteIndexStatus = {
         noteId,
         contentHash: computeContentHash(text),
@@ -583,7 +623,8 @@ export class IndexingService {
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         ftsStatus: ftsWritten ? 'indexed' : 'none',
-        embeddingStatus: 'none'
+        embeddingStatus: 'none',
+        fileMtime: fileMtime ?? existingStatusForError?.fileMtime
       }
       updateNoteIndexStatus(status)
 
@@ -640,7 +681,8 @@ export class IndexingService {
         indexedAt: new Date().toISOString(),
         status: 'indexed',
         ftsStatus: existingStatus?.ftsStatus || 'indexed',
-        embeddingStatus: 'indexed'
+        embeddingStatus: 'indexed',
+        fileMtime: existingStatus?.fileMtime
       }
       updateNoteIndexStatus(status)
 
@@ -660,7 +702,8 @@ export class IndexingService {
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         ftsStatus: existingStatus?.ftsStatus || 'indexed',
-        embeddingStatus: 'error'
+        embeddingStatus: 'error',
+        fileMtime: existingStatus?.fileMtime
       }
       updateNoteIndexStatus(status)
 
@@ -671,7 +714,7 @@ export class IndexingService {
   /**
    * 全量索引单个笔记（用于首次索引或强制重建）
    */
-  async indexNoteFull(noteId: string, notebookId: string, content: string): Promise<boolean> {
+  async indexNoteFull(noteId: string, notebookId: string, content: string, fileMtime?: string): Promise<boolean> {
     const config = getEmbeddingConfig()
     if (!config.enabled) return false
 
@@ -722,15 +765,16 @@ export class IndexingService {
         indexedAt: new Date().toISOString(),
         status: 'indexed',
         ftsStatus: 'indexed',
-        embeddingStatus: 'indexed'
+        embeddingStatus: 'indexed',
+        fileMtime
       }
       updateNoteIndexStatus(status)
 
       console.log(`[IndexingService] Note ${noteId} indexed successfully`)
 
       // 检查是否需要生成摘要
-      const summaryInfo = getNoteSummaryInfo(noteId)
-      if (!summaryInfo?.ai_summary) {
+      const summaryInfo3 = getSummaryInfoForIndexedNote(noteId)
+      if (!summaryInfo3?.ai_summary) {
         triggerSummary(noteId, 'full index, no summary')
       }
 
@@ -745,6 +789,7 @@ export class IndexingService {
       console.error(`[IndexingService] Failed to index note ${noteId}:`, error)
 
       // 更新错误状态（精确记录 FTS 是否已写入）
+      const existingStatusForError = getNoteIndexStatus(noteId)
       const status: NoteIndexStatus = {
         noteId,
         contentHash: computeContentHash(text),
@@ -754,7 +799,8 @@ export class IndexingService {
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         ftsStatus: ftsWritten ? 'indexed' : 'none',
-        embeddingStatus: 'error'
+        embeddingStatus: 'error',
+        fileMtime: fileMtime ?? existingStatusForError?.fileMtime
       }
       updateNoteIndexStatus(status)
 

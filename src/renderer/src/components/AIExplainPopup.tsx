@@ -16,6 +16,7 @@ import { Streamdown } from 'streamdown'
 import remarkGfm from 'remark-gfm'
 import { type AIContext, formatAIPrompt } from '../utils/aiContext'
 import { getAIErrorCode, getAIErrorMessage } from '../utils/aiErrors'
+import { useReconnectHold } from '../hooks/useReconnectHold'
 
 // Memoize remarkPlugins to prevent Streamdown re-renders
 const REMARK_PLUGINS = [remarkGfm]
@@ -69,6 +70,8 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
   const containerRef = useRef<HTMLDivElement>(null)
   const cleanupRef = useRef<(() => void) | null>(null)
   const hasStartedRef = useRef(false) // Prevent duplicate stream starts
+  const streamIdRef = useRef<string | null>(null)
+  const reconnect = useReconnectHold()
   const t = useTranslations()
 
   // Size state
@@ -265,6 +268,20 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
     return getAIErrorMessage(getAIErrorCode(err), t)
   }, [t])
 
+
+  const cancelActiveStream = useCallback(() => {
+    const streamId = streamIdRef.current
+    if (streamId) {
+      void window.electron.chat.cancelStream({ streamId }).catch(() => {})
+      streamIdRef.current = null
+    }
+  }, [])
+
+  const handleClose = useCallback(() => {
+    cancelActiveStream()
+    onClose()
+  }, [cancelActiveStream, onClose])
+
   // Start streaming on mount (only once)
   useEffect(() => {
     // Prevent duplicate stream starts
@@ -272,11 +289,12 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
     hasStartedRef.current = true
 
     const streamId = crypto.randomUUID()
+    streamIdRef.current = streamId
     let accumulated = ''
 
     const startStream = async () => {
       try {
-        await window.electron.chat.acquireReconnect()
+        await reconnect.acquire()
 
         const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
           if (sid !== streamId) return
@@ -289,17 +307,19 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
 
           if (event.type === 'done') {
             setIsLoading(false)
+            streamIdRef.current = null
             cleanup()
             cleanupRef.current = null
-            window.electron.chat.releaseReconnect()
+            reconnect.release()
           }
 
           if (event.type === 'error') {
             setIsLoading(false)
             setError(getErrorMessage(event.error))
+            streamIdRef.current = null
             cleanup()
             cleanupRef.current = null
-            window.electron.chat.releaseReconnect()
+            reconnect.release()
           }
         })
 
@@ -318,17 +338,20 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
       } catch (err) {
         setIsLoading(false)
         setError(getErrorMessage(err))
-        window.electron.chat.releaseReconnect()
+        streamIdRef.current = null
+        reconnect.release()
       }
     }
 
     startStream()
 
     return () => {
+      cancelActiveStream()
       if (cleanupRef.current) {
         cleanupRef.current()
         cleanupRef.current = null
       }
+      reconnect.release()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only run once on mount
@@ -337,18 +360,18 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose()
+        handleClose()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [handleClose])
 
   // Handle continue in chat
   const handleContinueInChat = useCallback(() => {
     onContinueInChat?.(context.target, content)
-    onClose()
-  }, [context.target, content, onContinueInChat, onClose])
+    handleClose()
+  }, [context.target, content, onContinueInChat, handleClose])
 
   // Memoize display content
   const displayContent = useMemo(() => {
@@ -421,7 +444,7 @@ export function AIExplainPopup({ position, context, prompt, onClose, onContinueI
         </div>
         {/* Close button */}
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="p-1 rounded-md text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

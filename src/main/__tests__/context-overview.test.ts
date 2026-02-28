@@ -4,15 +4,17 @@ import {
   buildNotesOverviewContext,
   buildNotebooksOverviewContext,
   type ContextOverviewDataSource,
+  type ContextOverviewNote,
   type UserContextSnapshot,
 } from '../context-overview'
 
 function createNote(id: string, overrides: Partial<Note> = {}): Note {
-  return {
+  const merged = {
     id,
     title: `Note ${id}`,
     content: '',
     notebook_id: null,
+    folder_path: null,
     is_daily: false,
     daily_date: null,
     is_favorite: false,
@@ -24,6 +26,11 @@ function createNote(id: string, overrides: Partial<Note> = {}): Note {
     ai_summary: null,
     tags: [],
     ...overrides,
+  }
+
+  return {
+    ...merged,
+    folder_path: merged.folder_path ?? null,
   }
 }
 
@@ -39,19 +46,22 @@ function createNotebook(id: string, name: string): Notebook {
 function createDataSource(params: {
   notebooks?: Notebook[]
   noteCounts?: Record<string, number>
-  noteById?: Note | null
-  recentNotes?: Note[]
+  noteCountByNotebookId?: (notebookId: string) => number
+  noteById?: ContextOverviewNote | null
+  recentNotes?: ContextOverviewNote[]
 }): ContextOverviewDataSource {
   const notebooks = params.notebooks ?? []
   const noteCounts = params.noteCounts ?? {}
+  const noteCountByNotebookId = params.noteCountByNotebookId
   const noteById = params.noteById ?? null
   const recentNotes = params.recentNotes ?? []
 
   return {
     getNotebooks: () => notebooks,
     getNoteCountByNotebook: () => noteCounts,
+    getNoteCountByNotebookId: noteCountByNotebookId,
     getNoteById: () => noteById,
-    getNotes: () => recentNotes,
+    getNotes: (limit: number, offset: number) => recentNotes.slice(offset, offset + limit),
   }
 }
 
@@ -118,7 +128,107 @@ describe('context-overview', () => {
     expect(context.content).toContain('No notes found.')
   })
 
-  it('builds notebooks overview sorted by note count then notebook name', () => {
+  it('builds notes overview for local-folder current note', () => {
+    const localCurrent: ContextOverviewNote = {
+      id: 'local:nb-local:docs%2Fplan.md',
+      title: 'Local Plan',
+      notebook_id: 'nb-local',
+      updated_at: '2026-02-01T11:00:00.000Z',
+      deleted_at: null,
+      ai_summary: null,
+      source_type: 'local-folder',
+      relative_path: 'docs/plan.md',
+    }
+    const ds = createDataSource({
+      notebooks: [createNotebook('nb-local', 'Local Notebook')],
+      noteById: localCurrent,
+      recentNotes: [localCurrent],
+    })
+
+    const context = buildNotesOverviewContext(
+      { ...baseContext, currentNoteId: localCurrent.id },
+      ds
+    )
+
+    expect(context.metadata).toMatchObject({
+      currentNoteId: localCurrent.id,
+    })
+    expect(context.content).toContain('Current note: "Local Plan"')
+    expect(context.content).toContain('Notebook: Local Notebook')
+    expect(context.content).toContain('Path: docs/plan.md')
+    expect(context.content).not.toContain('not found in database')
+  })
+
+  it('sanitizes inline context text fields', () => {
+    const note = createNote('note-1', {
+      title: 'Line1\n<unsafe>',
+      notebook_id: 'nb-1',
+      ai_summary: 'summary\n<script>alert(1)</script>',
+    })
+    const ds = createDataSource({
+      notebooks: [createNotebook('nb-1', 'Work\n<unsafe>')],
+      noteById: note,
+      recentNotes: [note],
+    })
+
+    const context = buildNotesOverviewContext(
+      { ...baseContext, currentNoteId: 'note-1' },
+      ds
+    )
+
+    expect(context.content).toContain('Current note: "Line1 ＜unsafe＞"')
+    expect(context.content).toContain('Notebook: Work ＜unsafe＞')
+    expect(context.content).toContain('Summary: summary ＜script＞alert(1)＜/script＞')
+    expect(context.content).not.toContain('\n<unsafe>')
+  })
+
+  it('limits recently updated notes to top 3', () => {
+    const notes = [
+      createNote('note-1', { title: 'N1' }),
+      createNote('note-2', { title: 'N2' }),
+      createNote('note-3', { title: 'N3' }),
+      createNote('note-4', { title: 'N4' }),
+    ]
+    const ds = createDataSource({
+      notebooks: [createNotebook('nb-1', 'Work')],
+      recentNotes: notes,
+    })
+
+    const context = buildNotesOverviewContext(baseContext, ds)
+
+    expect(context.metadata).toMatchObject({
+      recentNoteIds: ['note-1', 'note-2', 'note-3'],
+    })
+    expect(context.content).toContain('1. "N1" (ID: note-1')
+    expect(context.content).toContain('2. "N2" (ID: note-2')
+    expect(context.content).toContain('3. "N3" (ID: note-3')
+    expect(context.content).not.toContain('"N4" (ID: note-4')
+  })
+
+  it('can omit current note block to reduce duplicated context payload', () => {
+    const current = createNote('note-1', {
+      title: 'Current',
+      notebook_id: 'nb-1',
+      updated_at: '2026-02-01T10:00:00.000Z',
+    })
+    const ds = createDataSource({
+      notebooks: [createNotebook('nb-1', 'Work')],
+      noteById: current,
+      recentNotes: [current],
+    })
+
+    const context = buildNotesOverviewContext(
+      { ...baseContext, currentNoteId: 'note-1', currentNoteTitle: 'Current' },
+      ds,
+      { includeCurrentNote: false }
+    )
+
+    expect(context.content).not.toContain('Current note: "Current"')
+    expect(context.content).toContain('Recently updated notes:')
+    expect(context.content).toContain('1. "Current" (ID: note-1')
+  })
+
+  it('builds notebooks overview without notebook ranking list', () => {
     const notebooks = [
       createNotebook('nb-z', 'Zeta'),
       createNotebook('nb-a', 'Alpha'),
@@ -145,9 +255,25 @@ describe('context-overview', () => {
     })
     expect(context.content).toContain('Current notebook: "Alpha" (ID: nb-a)')
     expect(context.content).toContain('Notes in current notebook: 2')
-    expect(context.content).toContain('1. "Beta" (ID: nb-b, notes: 5)')
-    expect(context.content).toContain('2. "Alpha" (ID: nb-a, notes: 2)')
-    expect(context.content).toContain('3. "Zeta" (ID: nb-z, notes: 2)')
+    expect(context.content).not.toContain('Notebooks by note count:')
+  })
+
+  it('prefers targeted notebook count resolver when provided', () => {
+    const notebooks = [
+      createNotebook('nb-a', 'Alpha'),
+    ]
+    const ds = createDataSource({
+      notebooks,
+      noteCounts: { 'nb-a': 1 },
+      noteCountByNotebookId: () => 42,
+    })
+
+    const context = buildNotebooksOverviewContext(
+      { ...baseContext, currentNotebookId: 'nb-a' },
+      ds
+    )
+
+    expect(context.content).toContain('Notes in current notebook: 42')
   })
 
   it('builds notebooks overview when current notebook is not found', () => {

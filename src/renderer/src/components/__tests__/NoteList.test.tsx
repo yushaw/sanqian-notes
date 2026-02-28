@@ -4,7 +4,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { NoteList } from '../NoteList'
 import type { Note } from '../../types/note'
@@ -61,6 +61,7 @@ const createNote = (id: string, title: string): Note => ({
   title,
   content: '[]',
   notebook_id: null,
+  folder_path: null,
   is_daily: false,
   daily_date: null,
   is_favorite: false,
@@ -72,6 +73,16 @@ const createNote = (id: string, title: string): Note => ({
   ai_summary: null,
   tags: [],
 })
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
 
 describe('NoteList keyboard navigation', () => {
   const notes = [
@@ -200,5 +211,307 @@ describe('NoteList keyboard navigation', () => {
     expect(note2?.querySelector('[data-note-divider]')).toBeNull()
     // note-3 divider keeps normal rendering
     expect(note3?.querySelector('[data-note-divider]')).not.toBeNull()
+  })
+
+  it('does not start drag payload for local search resources', () => {
+    const localNote = createNote('local:nb-1:foo%2Fbar.md', 'Local hit')
+    const { getByText } = render(
+      <NoteList
+        {...defaultProps}
+        notes={[localNote]}
+        selectedNoteIds={[localNote.id]}
+      />
+    )
+
+    const button = getByText('Local hit').closest('button')
+    expect(button).toBeTruthy()
+
+    const setData = vi.fn()
+    const dataTransfer = {
+      effectAllowed: 'none',
+      setData,
+    }
+    fireEvent.dragStart(button!, { dataTransfer })
+
+    expect(setData).not.toHaveBeenCalled()
+  })
+
+  it('excludes local resources from drag payload when mixed selection is dragged', () => {
+    const internalNote = createNote('note-1', 'Internal note')
+    const localNote = createNote('local:nb-1:foo%2Fbar.md', 'Local hit')
+    const { getByText } = render(
+      <NoteList
+        {...defaultProps}
+        notes={[internalNote, localNote]}
+        selectedNoteIds={[internalNote.id, localNote.id]}
+      />
+    )
+
+    const internalButton = getByText('Internal note').closest('button')
+    expect(internalButton).toBeTruthy()
+
+    const setData = vi.fn()
+    const dataTransfer = {
+      effectAllowed: 'none',
+      setData,
+    }
+    fireEvent.dragStart(internalButton!, { dataTransfer })
+
+    expect(setData).toHaveBeenCalledWith('application/json', JSON.stringify([internalNote.id]))
+  })
+
+  it('prevents browser default context menu for local search resources', () => {
+    const localNote = createNote('local:nb-1:foo%2Fbar.md', 'Local hit')
+    const { getByText } = render(
+      <NoteList
+        {...defaultProps}
+        notes={[localNote]}
+        selectedNoteIds={[localNote.id]}
+      />
+    )
+
+    const button = getByText('Local hit').closest('button')
+    expect(button).toBeTruthy()
+
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    const dispatched = button!.dispatchEvent(event)
+    expect(dispatched).toBe(false)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('ignores stale search responses and keeps latest search result stable', async () => {
+    vi.useFakeTimers()
+    try {
+      const firstSearch = createDeferred<Note[]>()
+      const secondSearch = createDeferred<Note[]>()
+      const onSearch = vi
+        .fn<(query: string) => Promise<Note[]>>()
+        .mockImplementationOnce(() => firstSearch.promise)
+        .mockImplementationOnce(() => secondSearch.promise)
+
+      render(
+        <NoteList
+          {...defaultProps}
+          onSearch={onSearch}
+        />
+      )
+
+      fireEvent.click(screen.getByTitle('Search'))
+      const searchInput = screen.getByPlaceholderText('Search notes')
+
+      fireEvent.change(searchInput, { target: { value: 'first' } })
+      await act(async () => {
+        vi.advanceTimersByTime(160)
+      })
+
+      // While search is loading, keep current list visible and do not flash empty state.
+      expect(screen.getByText('First note')).toBeInTheDocument()
+      expect(screen.queryByText('No results')).not.toBeInTheDocument()
+
+      fireEvent.change(searchInput, { target: { value: 'second' } })
+      await act(async () => {
+        vi.advanceTimersByTime(160)
+      })
+
+      expect(onSearch).toHaveBeenCalledTimes(2)
+      expect(onSearch).toHaveBeenNthCalledWith(1, 'first')
+      expect(onSearch).toHaveBeenNthCalledWith(2, 'second')
+
+      await act(async () => {
+        secondSearch.resolve([notes[1]])
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('Second note')).toBeInTheDocument()
+      expect(screen.queryByText('No results')).not.toBeInTheDocument()
+
+      // Resolve stale response after latest one; UI should remain on latest result.
+      await act(async () => {
+        firstSearch.resolve([])
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('Second note')).toBeInTheDocument()
+      expect(screen.queryByText('No results')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores stale response that returns before next debounce starts', async () => {
+    vi.useFakeTimers()
+    try {
+      const firstSearch = createDeferred<Note[]>()
+      const secondSearch = createDeferred<Note[]>()
+      const onSearch = vi
+        .fn<(query: string) => Promise<Note[]>>()
+        .mockImplementationOnce(() => firstSearch.promise)
+        .mockImplementationOnce(() => secondSearch.promise)
+
+      render(
+        <NoteList
+          {...defaultProps}
+          onSearch={onSearch}
+        />
+      )
+
+      fireEvent.click(screen.getByTitle('Search'))
+      const searchInput = screen.getByPlaceholderText('Search notes')
+
+      fireEvent.change(searchInput, { target: { value: 'first' } })
+      await act(async () => {
+        vi.advanceTimersByTime(160)
+      })
+      expect(onSearch).toHaveBeenCalledTimes(1)
+      expect(onSearch).toHaveBeenNthCalledWith(1, 'first')
+
+      fireEvent.change(searchInput, { target: { value: 'second' } })
+
+      // Old request resolves before second debounce is fired; should be ignored.
+      await act(async () => {
+        firstSearch.resolve([])
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('First note')).toBeInTheDocument()
+      expect(screen.queryByText('No results')).not.toBeInTheDocument()
+
+      await act(async () => {
+        vi.advanceTimersByTime(160)
+      })
+      expect(onSearch).toHaveBeenCalledTimes(2)
+      expect(onSearch).toHaveBeenNthCalledWith(2, 'second')
+
+      await act(async () => {
+        secondSearch.resolve([notes[1]])
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('Second note')).toBeInTheDocument()
+      expect(screen.queryByText('No results')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears no-results state immediately when query is emptied', async () => {
+    vi.useFakeTimers()
+    try {
+      const onSearch = vi.fn<(query: string) => Promise<Note[]>>().mockResolvedValue([])
+
+      render(
+        <NoteList
+          {...defaultProps}
+          onSearch={onSearch}
+        />
+      )
+
+      fireEvent.click(screen.getByTitle('Search'))
+      const searchInput = screen.getByPlaceholderText('Search notes')
+
+      fireEvent.change(searchInput, { target: { value: 'missing' } })
+      await act(async () => {
+        vi.advanceTimersByTime(160)
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('No results')).toBeInTheDocument()
+
+      fireEvent.change(searchInput, { target: { value: '' } })
+
+      expect(screen.queryByText('No results')).not.toBeInTheDocument()
+      expect(screen.getByText('First note')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not show empty states while waiting debounce after a previous no-results query', async () => {
+    vi.useFakeTimers()
+    try {
+      const secondSearch = createDeferred<Note[]>()
+      const onSearch = vi
+        .fn<(query: string) => Promise<Note[]>>()
+        .mockResolvedValueOnce([])
+        .mockImplementationOnce(() => secondSearch.promise)
+
+      render(
+        <NoteList
+          {...defaultProps}
+          onSearch={onSearch}
+        />
+      )
+
+      fireEvent.click(screen.getByTitle('Search'))
+      const searchInput = screen.getByPlaceholderText('Search notes')
+
+      fireEvent.change(searchInput, { target: { value: 'zzz' } })
+      await act(async () => {
+        vi.advanceTimersByTime(160)
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('No results')).toBeInTheDocument()
+
+      fireEvent.change(searchInput, { target: { value: 'sec' } })
+
+      // Before debounce triggers, UI should not flash empty/no-results state.
+      expect(screen.queryByText('No results')).not.toBeInTheDocument()
+      expect(screen.queryByText('Empty')).not.toBeInTheDocument()
+      expect(screen.getByText('First note')).toBeInTheDocument()
+
+      await act(async () => {
+        vi.advanceTimersByTime(160)
+      })
+
+      await act(async () => {
+        secondSearch.resolve([notes[1]])
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('Second note')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('defers search until IME composition commits', async () => {
+    vi.useFakeTimers()
+    try {
+      const onSearch = vi.fn<(query: string) => Promise<Note[]>>().mockResolvedValue([notes[0]])
+
+      render(
+        <NoteList
+          {...defaultProps}
+          onSearch={onSearch}
+        />
+      )
+
+      fireEvent.click(screen.getByTitle('Search'))
+      const searchInput = screen.getByPlaceholderText('Search notes')
+
+      fireEvent.compositionStart(searchInput)
+      fireEvent.change(searchInput, { target: { value: 'zhong' } })
+
+      await act(async () => {
+        vi.advanceTimersByTime(220)
+        await Promise.resolve()
+      })
+
+      expect(onSearch).not.toHaveBeenCalled()
+
+      fireEvent.change(searchInput, { target: { value: '中' } })
+      fireEvent.compositionEnd(searchInput)
+
+      await act(async () => {
+        vi.advanceTimersByTime(220)
+        await Promise.resolve()
+      })
+
+      expect(onSearch).toHaveBeenCalledTimes(1)
+      expect(onSearch).toHaveBeenCalledWith('中')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

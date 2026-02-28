@@ -10,12 +10,15 @@
 import { getEmbedding } from './api'
 import {
   getEmbeddingConfig,
+  getNoteIndexStatus,
   searchEmbeddings,
   searchEmbeddingsInNotebook,
   searchKeyword
 } from './database'
 import { tokenizeForSearch } from './tokenizer'
-import { getNotesByIds } from '../database'
+import { getLocalNoteIdentityByUid, getLocalNoteMetadata, getNotesByIds } from '../database'
+import { parseLocalResourceId } from '../../shared/local-resource-id'
+import { resolveLocalNoteRef } from '../note-gateway'
 import { RECENT_DAYS, type NoteSearchFilter, type Note } from '../../shared/types'
 
 // RRF 常数，通常使用 60
@@ -862,14 +865,78 @@ function filterByViewType(
   const noteIds = results.map((r) => r.noteId)
   const notes = getNotesByIds(noteIds)
   const noteMap = new Map<string, Note>(notes.map((n) => [n.id, n]))
+  const localIdentityCache = new Map<string, ReturnType<typeof getLocalNoteIdentityByUid>>()
+  const localFavoriteCache = new Map<string, boolean>()
+  const localRecentCache = new Map<string, boolean>()
+
+  const getLocalIdentity = (noteId: string) => {
+    if (localIdentityCache.has(noteId)) {
+      return localIdentityCache.get(noteId) || null
+    }
+    const identity = getLocalNoteIdentityByUid({ note_uid: noteId })
+    localIdentityCache.set(noteId, identity)
+    return identity
+  }
+
+  const resolveLocalPathRef = resolveLocalNoteRef
+
+  const isLocalResult = (noteId: string): boolean => {
+    if (parseLocalResourceId(noteId) !== null) {
+      return true
+    }
+    return Boolean(getLocalIdentity(noteId))
+  }
 
   // 根据 viewType 过滤
   const recentThreshold = Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000
 
   return results.filter((result) => {
     const note = noteMap.get(result.noteId)
-    // 排除不存在或已删除的笔记
-    if (!note || note.deleted_at) return false
+    // Local-folder note IDs are not stored in notes table.
+    if (!note) {
+      if (!isLocalResult(result.noteId)) {
+        return false
+      }
+
+      switch (viewType) {
+        case 'daily':
+          return false
+        case 'favorites': {
+          if (localFavoriteCache.has(result.noteId)) {
+            return localFavoriteCache.get(result.noteId) || false
+          }
+          const pathRef = resolveLocalPathRef(result.noteId)
+          if (!pathRef) {
+            localFavoriteCache.set(result.noteId, false)
+            return false
+          }
+          const metadata = getLocalNoteMetadata({
+            notebook_id: pathRef.notebookId,
+            relative_path: pathRef.relativePath,
+          })
+          const isFavorite = Boolean(metadata?.is_favorite)
+          localFavoriteCache.set(result.noteId, isFavorite)
+          return isFavorite
+        }
+        case 'recent': {
+          if (localRecentCache.has(result.noteId)) {
+            return localRecentCache.get(result.noteId) || false
+          }
+          const status = getNoteIndexStatus(result.noteId)
+          const recentTimestamp = status?.fileMtime || status?.indexedAt
+          const isRecent = recentTimestamp
+            ? new Date(recentTimestamp).getTime() > recentThreshold
+            : true
+          localRecentCache.set(result.noteId, isRecent)
+          return isRecent
+        }
+        case 'all':
+        default:
+          return true
+      }
+    }
+    // 排除已删除的笔记
+    if (note.deleted_at) return false
 
     switch (viewType) {
       case 'daily':

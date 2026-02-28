@@ -14,6 +14,7 @@ import { toast } from '../utils/toast'
 import type { AgentBlockAttrs } from './extensions/AgentBlock'
 import type { AgentExecutionContext, AgentTaskOutputFormat } from '../../../shared/types'
 import { getNearestHeadingForBlock } from '../utils/aiContext'
+import { parseLocalResourceId } from '../utils/localResourceId'
 
 // Truncate error message to avoid bloating HTML attributes
 const truncateError = (msg: string, maxLen = 200) =>
@@ -41,6 +42,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
   const {
     blockId,
     agentId,
+    agentName,
     additionalPrompt,
     outputFormat,
     processMode,
@@ -191,18 +193,6 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
       const list = await window.electron.agent.list()
       const orderedAgents = prioritizeSanqianNotesAgents(list)
       setAgents(orderedAgents)
-      // 只在初始加载且没有选择 agent 时，按优先级选择：本地缓存 > meta agent > 第一个
-      if (isInitialLoad && !agentId && orderedAgents.length > 0) {
-        const cachedAgentId = localStorage.getItem('agent-block-last-agent-id')
-        const cachedAgent = cachedAgentId ? orderedAgents.find((a) => a.id === cachedAgentId) : null
-        const metaAgent = orderedAgents.find((a) => a.id === 'meta' || a.name.toLowerCase() === 'meta')
-
-        const defaultAgent = cachedAgent || metaAgent || orderedAgents[0]
-        updateAttributes({
-          agentId: defaultAgent.id,
-          agentName: defaultAgent.name,
-        })
-      }
     } catch (error) {
       console.error('Failed to load agents:', error)
     } finally {
@@ -210,7 +200,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
         setAgentsLoading(false)
       }
     }
-  }, [agentId, updateAttributes])
+  }, [])
 
   // Load agents on mount
   useEffect(() => {
@@ -307,11 +297,28 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     [agents, updateAttributes]
   )
 
+  // Runtime fallback only: avoid persisting attributes on note-open.
+  const resolvedAgentId = useMemo(() => {
+    if (agentId) return agentId
+    if (agents.length === 0) return ''
+
+    const cachedAgentId = localStorage.getItem('agent-block-last-agent-id')
+    const cachedAgent = cachedAgentId ? agents.find((a) => a.id === cachedAgentId) : null
+    const metaAgent = agents.find((a) => a.id === 'meta' || a.name.toLowerCase() === 'meta')
+    return (cachedAgent || metaAgent || agents[0])?.id || ''
+  }, [agentId, agents])
+
+  const resolvedAgent = useMemo(
+    () => agents.find((a) => a.id === resolvedAgentId) || null,
+    [agents, resolvedAgentId]
+  )
+
   // Handle execute
   const handleExecute = useCallback(async () => {
-    if (!agentId || !localPrompt.trim()) {
+    if (!resolvedAgent || !localPrompt.trim()) {
       return
     }
+    const effectiveAgentId = resolvedAgent.id
 
     // 容错：如果 blockId 为空，自动生成一个
     let currentBlockId = blockId
@@ -320,12 +327,16 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
       updateAttributes({ blockId: currentBlockId })
     }
 
-    const selectedAgent = agents.find((a) => a.id === agentId)
-    if (!selectedAgent) {
-      return
+    if (agentId !== effectiveAgentId || agentName !== resolvedAgent.name) {
+      updateAttributes({
+        agentId: effectiveAgentId,
+        agentName: resolvedAgent.name,
+      })
+      localStorage.setItem('agent-block-last-agent-id', effectiveAgentId)
     }
 
     const { pageId, noteTitle, notebookId, notebookName } = getPageContext()
+    const localRef = parseLocalResourceId(pageId)
     const heading = editor && currentBlockId
       ? getNearestHeadingForBlock(editor, currentBlockId)
       : null
@@ -335,6 +346,9 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
       noteTitle: noteTitle || null,
       notebookId,
       notebookName,
+      sourceType: localRef ? 'local-folder' : 'internal',
+      localResourceId: localRef ? pageId : null,
+      localRelativePath: localRef?.relativePath || null,
       heading,
     }
 
@@ -360,8 +374,8 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
           content: localPrompt,
           additionalPrompt: localPrompt,
           agentMode: 'specified',
-          agentId,
-          agentName: selectedAgent.name,
+          agentId: effectiveAgentId,
+          agentName: resolvedAgent.name,
           processMode,
           outputFormat,
         })
@@ -370,8 +384,8 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
       } else {
         await updateTask(currentTaskId, {
           additionalPrompt: localPrompt,
-          agentId,
-          agentName: selectedAgent.name,
+          agentId: effectiveAgentId,
+          agentName: resolvedAgent.name,
           processMode,
           outputFormat,
         })
@@ -391,8 +405,8 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
 
       await window.electron.agent.run(
         currentTaskId,
-        agentId,
-        selectedAgent.name,
+        effectiveAgentId,
+        resolvedAgent.name,
         localPrompt,
         undefined,
         {
@@ -413,8 +427,9 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     }
   }, [
     agentId,
+    agentName,
     blockId,
-    agents,
+    resolvedAgent,
     localPrompt,
     additionalPrompt,
     taskId,
@@ -476,7 +491,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
 
   const isRunning = loading || status === 'running'
   const hasRun = status === 'completed' || status === 'failed'
-  const canExecute = !!agentId && !!localPrompt.trim() && !isRunning
+  const canExecute = !!resolvedAgent && !!localPrompt.trim() && !isRunning
 
   // Handle key press for single-line input
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
@@ -582,7 +597,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
               ) : (
                 <Select
                   options={agentOptions}
-                  value={agentId}
+                  value={resolvedAgentId}
                   onChange={handleAgentChange}
                   placeholder={t.agentBlock.selectAgent || 'Agent'}
                   compact

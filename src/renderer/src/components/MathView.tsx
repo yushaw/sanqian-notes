@@ -1,7 +1,20 @@
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
 import { useState, useRef, useEffect, useCallback } from 'react'
-import katex from 'katex'
 import { Sparkles, X, ArrowRight } from 'lucide-react'
+
+// Lazy-load KaTeX (~270KB JS + 23KB CSS) -- only fetched when a math block is first rendered
+let katexPromise: Promise<typeof import('katex')> | null = null
+let katexCssInjected = false
+function getKaTeX() {
+  if (!katexPromise) {
+    katexPromise = import('katex')
+    if (!katexCssInjected) {
+      katexCssInjected = true
+      import('katex/dist/katex.min.css')
+    }
+  }
+  return katexPromise
+}
 import { useTranslations } from '../i18n'
 import { BlockAIGenerateButton } from './BlockAIGenerateButton'
 import { useBlockAIGenerate } from '../hooks/useBlockAIGenerate'
@@ -46,20 +59,23 @@ export function MathView({ node, updateAttributes, selected, deleteNode, editor 
     }
   })
 
-  // Render KaTeX
+  // Render KaTeX (lazy-loaded)
   useEffect(() => {
     if (!isEditing && renderRef.current) {
-      try {
-        katex.render(attrs.latex || '?', renderRef.current, {
-          displayMode: isDisplayMode,
-          throwOnError: false,
-          strict: false,
-        })
-      } catch {
-        if (renderRef.current) {
-          renderRef.current.textContent = attrs.latex || '?'
+      const el = renderRef.current
+      getKaTeX().then(({ default: katexLib }) => {
+        try {
+          katexLib.render(attrs.latex || '?', el, {
+            displayMode: isDisplayMode,
+            throwOnError: false,
+            strict: false,
+          })
+        } catch {
+          el.textContent = attrs.latex || '?'
         }
-      }
+      }).catch(() => {
+        el.textContent = attrs.latex || '?'
+      })
     }
   }, [attrs.latex, isEditing, isDisplayMode])
 

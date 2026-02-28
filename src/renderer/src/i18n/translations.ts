@@ -13,6 +13,7 @@ export interface Translations {
     favorites: string
     notebooks: string
     addNotebook: string
+    addLocalFolder: string
     collapse: string
     expand: string
     trash: string
@@ -247,6 +248,60 @@ export interface Translations {
     namePlaceholder: string
     deleteConfirmTitle: string
     deleteConfirmMessage: string
+    unmountConfirmTitle: string
+    unmountConfirmMessage: string
+    createFile: string
+    createFolder: string
+    createSubfolder: string
+    openInFileManager: string
+    deleteSelected: string
+    createFileDialogTitle: string
+    createFolderDialogTitle: string
+    createNameLabel: string
+    createNamePlaceholderFile: string
+    createNamePlaceholderFolder: string
+    renameFileDialogTitle: string
+    renameFolderDialogTitle: string
+    renameTargetLabel: string
+    renameNameLabel: string
+    renameNamePlaceholderFile: string
+    renameNamePlaceholderFolder: string
+    defaultNewFile: string
+    defaultNewFolder: string
+    mountErrorInvalidPath: string
+    mountErrorPermissionDenied: string
+    mountErrorUnreachable: string
+    mountErrorNotFound: string
+    mountErrorAlreadyExists: string
+    createErrorInvalidName: string
+    createErrorAlreadyExists: string
+    createErrorParentMissing: string
+    createErrorDepthLimit: string
+    createErrorUnsupportedType: string
+    createErrorGeneric: string
+    deleteFileConfirmTitle: string
+    deleteFileConfirmMessage: string
+    deleteFolderConfirmTitle: string
+    deleteFolderConfirmMessage: string
+    deleteInternalFolderConfirmMessage: string
+    deleteImpactTitle: string
+    deleteImpactMessage: string
+    deleteFailed: string
+    fileTooLarge: string
+    fileOpenFailed: string
+    fileSaveFailed: string
+    renameFailed: string
+    fileConflictDetected: string
+    fileConflictDialogTitle: string
+    fileConflictDialogMessage: string
+    fileConflictReload: string
+    fileConflictOverwrite: string
+    fileConflictSaveAsCopy: string
+    fileConflictSavedAsCopy: string
+    localFolderMissing: string
+    localFolderPermissionRequired: string
+    localFolderRecoverAction: string
+    localFolderRecovered: string
   }
   actions: {
     add: string
@@ -904,6 +959,7 @@ export interface Translations {
     inputPlaceholder: string
     validCount: string
     invalidCount: string
+    invalidInput: string
     targetNotebook: string
     noNotebook: string
     includeAbstract: string
@@ -957,6 +1013,7 @@ const zh: Translations = {
     favorites: '收藏',
     notebooks: '笔记本',
     addNotebook: '新建笔记本',
+    addLocalFolder: '添加本地文件夹',
     collapse: '收起',
     expand: '展开',
     trash: '回收站',
@@ -1188,7 +1245,61 @@ const zh: Translations = {
     name: '名称',
     namePlaceholder: '笔记本名称',
     deleteConfirmTitle: '删除笔记本',
-    deleteConfirmMessage: '确定要删除「{name}」吗？该笔记本下的所有笔记都会被删除，此操作无法撤销。'
+    deleteConfirmMessage: '确定要删除「{name}」吗？该笔记本下的所有笔记都会被删除，此操作无法撤销。',
+    unmountConfirmTitle: '解除挂载',
+    unmountConfirmMessage: '确定要解除「{name}」吗？这不会删除磁盘上的文件。',
+    createFile: '新建文件',
+    createFolder: '新建文件夹',
+    createSubfolder: '新建子文件夹',
+    openInFileManager: '在文件管理器中打开',
+    deleteSelected: '删除所选',
+    createFileDialogTitle: '新建文件',
+    createFolderDialogTitle: '新建文件夹',
+    createNameLabel: '名称',
+    createNamePlaceholderFile: '输入文件名',
+    createNamePlaceholderFolder: '输入文件夹名',
+    renameFileDialogTitle: '重命名文件',
+    renameFolderDialogTitle: '重命名文件夹',
+    renameTargetLabel: '当前名称：{name}',
+    renameNameLabel: '新名称',
+    renameNamePlaceholderFile: '输入新文件名',
+    renameNamePlaceholderFolder: '输入新文件夹名',
+    defaultNewFile: '新建笔记',
+    defaultNewFolder: '新建文件夹',
+    mountErrorInvalidPath: '请选择有效的本地文件夹。',
+    mountErrorPermissionDenied: '没有权限访问该文件夹，请检查系统权限。',
+    mountErrorUnreachable: '无法访问该文件夹，请稍后重试。',
+    mountErrorNotFound: '文件夹不存在或已被移动。',
+    mountErrorAlreadyExists: '该文件夹已经挂载。',
+    createErrorInvalidName: '名称不合法，请重新输入。',
+    createErrorAlreadyExists: '同名文件或文件夹已存在。',
+    createErrorParentMissing: '目标目录不存在或不可访问。',
+    createErrorDepthLimit: '当前目录已达三级，不能再创建子文件夹。',
+    createErrorUnsupportedType: '仅支持创建 .md 或 .txt 文本文件。',
+    createErrorGeneric: '创建失败，请稍后重试。',
+    deleteFileConfirmTitle: '删除文件',
+    deleteFileConfirmMessage: '确定要删除「{name}」吗？文件将被移入系统废纸篓。',
+    deleteFolderConfirmTitle: '删除文件夹',
+    deleteFolderConfirmMessage: '确定要删除「{name}」吗？文件夹及其内容将被移入系统废纸篓。',
+    deleteInternalFolderConfirmMessage: '确定要删除「{name}」吗？该文件夹下共有 {count} 篇笔记，将被移入回收站。',
+    deleteImpactTitle: '此删除会影响其他已挂载笔记本',
+    deleteImpactMessage: '继续删除后，以下挂载会变为不可用：{names}',
+    deleteFailed: '删除失败，请稍后重试。',
+    fileTooLarge: '文件超过 10MB，当前版本暂不支持编辑。',
+    fileOpenFailed: '打开文件失败。',
+    fileSaveFailed: '保存文件失败。',
+    renameFailed: '重命名失败，请稍后重试。',
+    fileConflictDetected: '文件在外部已变更，请选择处理方式。',
+    fileConflictDialogTitle: '检测到保存冲突',
+    fileConflictDialogMessage: '文件「{name}」已被外部修改。你可以选择重载、覆盖，或另存为副本。',
+    fileConflictReload: '重载最新文件',
+    fileConflictOverwrite: '覆盖外部修改',
+    fileConflictSaveAsCopy: '另存为副本',
+    fileConflictSavedAsCopy: '已另存为副本。',
+    localFolderMissing: '本地文件夹不存在或已被移动。',
+    localFolderPermissionRequired: '当前无法访问本地文件夹，请重新授权。',
+    localFolderRecoverAction: '重新选择文件夹',
+    localFolderRecovered: '本地文件夹已恢复。'
   },
   actions: {
     add: '添加',
@@ -1842,6 +1953,7 @@ const zh: Translations = {
     inputPlaceholder: '输入 arXiv ID 或 URL，每行一个\n示例：2301.00001、arxiv:2301.00001、https://arxiv.org/abs/2301.00001',
     validCount: '{n} 个有效输入',
     invalidCount: '{n} 个无效：',
+    invalidInput: '无效的 arXiv ID 或 URL',
     targetNotebook: '目标笔记本',
     noNotebook: '不指定',
     includeAbstract: '包含摘要',
@@ -1895,6 +2007,7 @@ const en: Translations = {
     favorites: 'Favorites',
     notebooks: 'Notebooks',
     addNotebook: 'New Notebook',
+    addLocalFolder: 'Add Local Folder',
     collapse: 'Collapse',
     expand: 'Expand',
     trash: 'Trash',
@@ -2126,7 +2239,61 @@ const en: Translations = {
     name: 'Name',
     namePlaceholder: 'Notebook name',
     deleteConfirmTitle: 'Delete Notebook',
-    deleteConfirmMessage: 'Are you sure you want to delete "{name}"? All notes in this notebook will be deleted. This action cannot be undone.'
+    deleteConfirmMessage: 'Are you sure you want to delete "{name}"? All notes in this notebook will be deleted. This action cannot be undone.',
+    unmountConfirmTitle: 'Unmount Folder',
+    unmountConfirmMessage: 'Are you sure you want to unmount "{name}"? Files on disk will not be deleted.',
+    createFile: 'New File',
+    createFolder: 'New Folder',
+    createSubfolder: 'New Subfolder',
+    openInFileManager: 'Open in File Manager',
+    deleteSelected: 'Delete Selected',
+    createFileDialogTitle: 'Create File',
+    createFolderDialogTitle: 'Create Folder',
+    createNameLabel: 'Name',
+    createNamePlaceholderFile: 'Enter file name',
+    createNamePlaceholderFolder: 'Enter folder name',
+    renameFileDialogTitle: 'Rename File',
+    renameFolderDialogTitle: 'Rename Folder',
+    renameTargetLabel: 'Current name: {name}',
+    renameNameLabel: 'New name',
+    renameNamePlaceholderFile: 'Enter new file name',
+    renameNamePlaceholderFolder: 'Enter new folder name',
+    defaultNewFile: 'New Note',
+    defaultNewFolder: 'New Folder',
+    mountErrorInvalidPath: 'Please choose a valid local folder.',
+    mountErrorPermissionDenied: 'Permission denied for this folder. Please check system permissions.',
+    mountErrorUnreachable: 'This folder is currently unreachable. Please try again.',
+    mountErrorNotFound: 'Folder not found or moved.',
+    mountErrorAlreadyExists: 'This folder is already mounted.',
+    createErrorInvalidName: 'Invalid name. Please try another one.',
+    createErrorAlreadyExists: 'A file or folder with the same name already exists.',
+    createErrorParentMissing: 'Target directory is missing or inaccessible.',
+    createErrorDepthLimit: 'Cannot create a subfolder under level 3.',
+    createErrorUnsupportedType: 'Only .md and .txt files are supported.',
+    createErrorGeneric: 'Failed to create item. Please try again.',
+    deleteFileConfirmTitle: 'Delete File',
+    deleteFileConfirmMessage: 'Delete "{name}"? It will be moved to system trash.',
+    deleteFolderConfirmTitle: 'Delete Folder',
+    deleteFolderConfirmMessage: 'Delete "{name}" and all its contents? It will be moved to system trash.',
+    deleteInternalFolderConfirmMessage: 'Delete "{name}"? {count} notes in this folder will be moved to Trash.',
+    deleteImpactTitle: 'This will affect other mounted notebooks',
+    deleteImpactMessage: 'If you continue, these mounts will become unavailable: {names}',
+    deleteFailed: 'Failed to delete item. Please try again.',
+    fileTooLarge: 'Files larger than 10MB are not editable in this version.',
+    fileOpenFailed: 'Failed to open file.',
+    fileSaveFailed: 'Failed to save file.',
+    renameFailed: 'Failed to rename item. Please try again.',
+    fileConflictDetected: 'File changed externally. Please choose how to resolve.',
+    fileConflictDialogTitle: 'Save Conflict Detected',
+    fileConflictDialogMessage: 'File "{name}" was modified outside the app. Reload, overwrite, or save a copy.',
+    fileConflictReload: 'Reload Latest',
+    fileConflictOverwrite: 'Overwrite File',
+    fileConflictSaveAsCopy: 'Save As Copy',
+    fileConflictSavedAsCopy: 'Saved as a copy.',
+    localFolderMissing: 'Local folder is missing or moved.',
+    localFolderPermissionRequired: 'Cannot access this local folder. Please grant access again.',
+    localFolderRecoverAction: 'Re-select Folder',
+    localFolderRecovered: 'Local folder access restored.'
   },
   actions: {
     add: 'Add',
@@ -2780,6 +2947,7 @@ const en: Translations = {
     inputPlaceholder: 'Enter arXiv IDs or URLs, one per line\nExamples: 2301.00001, arxiv:2301.00001, https://arxiv.org/abs/2301.00001',
     validCount: '{n} valid input(s)',
     invalidCount: '{n} invalid: ',
+    invalidInput: 'Invalid arXiv ID or URL',
     targetNotebook: 'Target Notebook',
     noNotebook: 'None (use default)',
     includeAbstract: 'Include abstract',

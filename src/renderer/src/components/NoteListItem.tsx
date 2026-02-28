@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react'
 import { Pin } from 'lucide-react'
 import type { CSSProperties, DragEvent, MouseEvent } from 'react'
 import type { Translations } from '../i18n'
@@ -22,38 +23,57 @@ interface NoteListItemProps {
   isDragging: boolean
   noteListT: Translations['noteList']
   dateT: Translations['date']
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void
-  onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void
-  onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => void
-  onMouseLeave: () => void
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void
-  onDragEnd: (event: DragEvent<HTMLButtonElement>) => void
+  onClickNote: (noteId: string, event: MouseEvent<HTMLButtonElement>) => void
+  onContextMenuNote: (noteId: string, event: MouseEvent<HTMLButtonElement>) => void
+  onMouseEnterNote: (noteId: string, element: HTMLElement) => void
+  onMouseLeaveNote: () => void
+  onDragStartNote: (noteId: string, event: DragEvent<HTMLButtonElement>) => void
+  onDragEndNote: (event: DragEvent<HTMLButtonElement>) => void
 }
 
-export function NoteListItem({
+export const NoteListItem = memo(function NoteListItem({
   note,
   isSelected,
   hideDivider,
   isDragging,
   noteListT,
   dateT,
-  onClick,
-  onContextMenu,
-  onMouseEnter,
-  onMouseLeave,
-  onDragStart,
-  onDragEnd,
+  onClickNote,
+  onContextMenuNote,
+  onMouseEnterNote,
+  onMouseLeaveNote,
+  onDragStartNote,
+  onDragEndNote,
 }: NoteListItemProps) {
+  const noteId = note.id
+
+  const handleClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => onClickNote(noteId, event),
+    [onClickNote, noteId]
+  )
+  const handleContextMenu = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => onContextMenuNote(noteId, event),
+    [onContextMenuNote, noteId]
+  )
+  const handleMouseEnter = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => onMouseEnterNote(noteId, event.currentTarget),
+    [onMouseEnterNote, noteId]
+  )
+  const handleDragStart = useCallback(
+    (event: DragEvent<HTMLButtonElement>) => onDragStartNote(noteId, event),
+    [onDragStartNote, noteId]
+  )
+
   return (
     <button
-      data-note-id={note.id}
+      data-note-id={noteId}
       draggable
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={onMouseLeaveNote}
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEndNote}
       className={`${NOTE_ITEM_BASE_CLASS} ${isDragging ? NOTE_ITEM_DRAGGING_CLASS : ''}`}
       style={isSelected ? NOTE_ITEM_SELECTED_STYLE : NOTE_ITEM_DEFAULT_STYLE}
     >
@@ -86,4 +106,4 @@ export function NoteListItem({
       )}
     </button>
   )
-}
+})

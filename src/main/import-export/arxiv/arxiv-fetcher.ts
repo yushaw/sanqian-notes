@@ -8,6 +8,101 @@ import type { ParsedArxivId, ArxivMetadata } from './types'
 
 /** Request timeout in milliseconds */
 const REQUEST_TIMEOUT = 30000
+const ARXIV_URL_HOSTS = new Set(['arxiv.org', 'www.arxiv.org', 'ar5iv.labs.arxiv.org'])
+const NEW_ARXIV_ID_RE = /^(\d{4}\.\d{4,5})(?:v(\d+))?$/
+const OLD_ARXIV_ID_RE = /^([A-Za-z0-9][A-Za-z0-9.-]*\/\d{7})(?:v(\d+))?$/
+
+const AR5IV_FATAL_HTML_MARKERS = [
+  'Conversion to HTML had a Fatal error',
+  'document may be truncated or damaged',
+] as const
+
+function hasFatalAr5ivConversionError(html: string): boolean {
+  return AR5IV_FATAL_HTML_MARKERS.some((marker) => html.includes(marker))
+}
+
+function stripTrailingAnnotation(input: string): string {
+  // Remove trailing annotations like " [cs.AI]", " (2024)", etc.
+  return input.replace(/\s+[\[(].*$/, '')
+}
+
+function parseCandidateArxivId(candidateInput: string): ParsedArxivId | null {
+  const candidate = candidateInput.trim()
+  if (!candidate) return null
+
+  const newMatch = candidate.match(NEW_ARXIV_ID_RE)
+  if (newMatch) {
+    return {
+      id: newMatch[1],
+      version: newMatch[2] ? parseInt(newMatch[2], 10) : undefined,
+    }
+  }
+
+  const oldMatch = candidate.match(OLD_ARXIV_ID_RE)
+  if (oldMatch) {
+    return {
+      id: oldMatch[1],
+      version: oldMatch[2] ? parseInt(oldMatch[2], 10) : undefined,
+    }
+  }
+
+  // Retry after stripping trailing annotations (e.g. "2401.12345 [cs.AI]")
+  const stripped = stripTrailingAnnotation(candidate)
+  if (stripped !== candidate) {
+    return parseCandidateArxivId(stripped)
+  }
+
+  return null
+}
+
+function normalizeMaybeArxivUrlInput(trimmedInput: string): string | null {
+  if (/^https?:\/\//i.test(trimmedInput)) {
+    return trimmedInput
+  }
+  if (/^(?:www\.)?arxiv\.org\/.+/i.test(trimmedInput)) {
+    return `https://${trimmedInput}`
+  }
+  if (/^ar5iv\.labs\.arxiv\.org\/.+/i.test(trimmedInput)) {
+    return `https://${trimmedInput}`
+  }
+  return null
+}
+
+function extractArxivCandidateFromUrlInput(trimmedInput: string): string | null {
+  const maybeUrlInput = normalizeMaybeArxivUrlInput(trimmedInput)
+  if (!maybeUrlInput) return null
+
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(maybeUrlInput)
+  } catch {
+    return null
+  }
+
+  const host = parsedUrl.hostname.toLowerCase()
+  if (!ARXIV_URL_HOSTS.has(host)) {
+    return null
+  }
+
+  let pathname = parsedUrl.pathname || ''
+  try {
+    pathname = decodeURIComponent(pathname)
+  } catch {
+    return null
+  }
+  const fromPrefix = (prefix: '/abs/' | '/pdf/' | '/html/'): string | null => {
+    if (!pathname.startsWith(prefix)) return null
+    let remainder = pathname.slice(prefix.length).replace(/\/+$/g, '')
+    if (!remainder) return null
+    if (prefix === '/pdf/') {
+      remainder = remainder.replace(/\.pdf$/i, '')
+      if (!remainder) return null
+    }
+    return remainder
+  }
+
+  return fromPrefix('/abs/') ?? fromPrefix('/pdf/') ?? fromPrefix('/html/')
+}
 
 /**
  * Parse various arXiv input formats to standardized ID
@@ -24,29 +119,19 @@ const REQUEST_TIMEOUT = 30000
  */
 export function parseArxivInput(input: string): ParsedArxivId | null {
   const trimmed = input.trim()
+  if (!trimmed) return null
 
-  // New format: YYMM.NNNNN (after April 2007)
-  const newIdPattern = /(\d{4}\.\d{4,5})(v(\d+))?/
-  // Old format: category/YYMMNNN (before April 2007)
-  const oldIdPattern = /([a-z-]+\/\d{7})(v(\d+))?/i
-
-  const newMatch = trimmed.match(newIdPattern)
-  if (newMatch) {
-    return {
-      id: newMatch[1],
-      version: newMatch[3] ? parseInt(newMatch[3]) : undefined
+  const candidate = (() => {
+    const arxivPrefixMatch = trimmed.match(/^arxiv:\s*(.+)$/i)
+    if (arxivPrefixMatch) {
+      return arxivPrefixMatch[1]
     }
-  }
+    const fromUrl = extractArxivCandidateFromUrlInput(trimmed)
+    if (fromUrl) return fromUrl
+    return trimmed
+  })()
 
-  const oldMatch = trimmed.match(oldIdPattern)
-  if (oldMatch) {
-    return {
-      id: oldMatch[1],
-      version: oldMatch[3] ? parseInt(oldMatch[3]) : undefined
-    }
-  }
-
-  return null
+  return parseCandidateArxivId(candidate)
 }
 
 /**
@@ -73,10 +158,17 @@ async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
+  let cleanupAbortListener: (() => void) | null = null
 
   // Link external abort signal
   if (abortSignal) {
-    abortSignal.addEventListener('abort', () => controller.abort())
+    if (abortSignal.aborted) {
+      controller.abort()
+    } else {
+      const onAbort = () => controller.abort()
+      abortSignal.addEventListener('abort', onAbort, { once: true })
+      cleanupAbortListener = () => abortSignal.removeEventListener('abort', onAbort)
+    }
   }
 
   try {
@@ -87,6 +179,7 @@ async function fetchWithTimeout(
     return response
   } finally {
     clearTimeout(timeoutId)
+    cleanupAbortListener?.()
   }
 }
 
@@ -199,6 +292,10 @@ export async function fetchHtml(
     if (response.ok) {
       const html = await response.text()
       if (html.includes('ltx_document') || html.includes('ltx_page_main')) {
+        // ar5iv can return partially converted documents that are explicitly marked as damaged.
+        if (hasFatalAr5ivConversionError(html)) {
+          return null
+        }
         // Add trailing slash for proper relative URL resolution
         return { html, baseUrl: urls.ar5iv.endsWith('/') ? urls.ar5iv : urls.ar5iv + '/' }
       }

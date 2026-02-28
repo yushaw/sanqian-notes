@@ -31,6 +31,14 @@ import type { ImporterInfo, ImportOptions, ParsedNote, PendingAttachment } from 
 /** Notion 文件名格式：标题 + 空格 + 32位 hex ID */
 const NOTION_FILENAME_PATTERN = /^(.+)\s([0-9a-f]{32})$/i
 
+function decodeURIComponentSafe(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
 export class NotionImporter extends BaseImporter {
   readonly info: ImporterInfo = {
     id: 'notion',
@@ -380,8 +388,8 @@ export class NotionImporter extends BaseImporter {
         continue
       }
 
-      // URL 解码
-      imagePath = decodeURIComponent(imagePath)
+      // URL 解码（容忍非法编码，避免单条坏数据导致整篇笔记跳过）
+      imagePath = decodeURIComponentSafe(imagePath)
 
       // 解析绝对路径
       const absolutePath = resolve(basePath, imagePath)

@@ -5,7 +5,8 @@
  * Simpler than useAIWriting - just streams text output without editor manipulation.
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { useReconnectHold } from './useReconnectHold'
 
 export type BlockType = 'mermaid' | 'dataview' | 'math' | 'codeBlock'
 
@@ -104,6 +105,8 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
   const [streamedContent, setStreamedContent] = useState('')
   const cleanupRef = useRef<(() => void) | null>(null)
   const abortedRef = useRef(false)
+  const streamIdRef = useRef<string | null>(null)
+  const reconnect = useReconnectHold()
 
   // Use refs to avoid regenerating callbacks when handlers change
   const onCompleteRef = useRef(onComplete)
@@ -113,13 +116,19 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
 
   const cancel = useCallback(() => {
     abortedRef.current = true
+    const streamId = streamIdRef.current
+    if (streamId) {
+      void window.electron.chat.cancelStream({ streamId }).catch(() => {})
+      streamIdRef.current = null
+    }
     if (cleanupRef.current) {
       cleanupRef.current()
       cleanupRef.current = null
     }
+    reconnect.release()
     setIsGenerating(false)
     setStreamedContent('')
-  }, [])
+  }, [reconnect])
 
   const generate = useCallback(async (
     blockType: BlockType,
@@ -129,9 +138,8 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
     if (!userPrompt.trim()) return
 
     // Cancel any existing operation
-    if (cleanupRef.current) {
-      cleanupRef.current()
-      cleanupRef.current = null
+    if (cleanupRef.current || streamIdRef.current) {
+      cancel()
     }
 
     abortedRef.current = false
@@ -139,13 +147,14 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
     setStreamedContent('')
 
     const streamId = crypto.randomUUID()
+    streamIdRef.current = streamId
     let accumulated = ''
 
     // Build the prompt
     const fullPrompt = buildPrompt(blockType, userPrompt, currentContent)
 
     try {
-      await window.electron.chat.acquireReconnect()
+      await reconnect.acquire()
 
       const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
         const event = rawEvent as StreamEvent
@@ -160,17 +169,19 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
           const finalContent = accumulated.trim()
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
+          streamIdRef.current = null
           setIsGenerating(false)
           onCompleteRef.current?.(finalContent)
-          window.electron.chat.releaseReconnect()
+          reconnect.release()
         }
 
         if (event.type === 'error') {
           if (typeof cleanup === 'function') cleanup()
           cleanupRef.current = null
+          streamIdRef.current = null
           setIsGenerating(false)
           onErrorRef.current?.(event.error || 'Unknown error')
-          window.electron.chat.releaseReconnect()
+          reconnect.release()
         }
       }) as (() => void) | void
 
@@ -184,9 +195,25 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
         messages: [{ role: 'user', content: fullPrompt }]
       })
     } catch (error) {
+      streamIdRef.current = null
       setIsGenerating(false)
       onErrorRef.current?.(error instanceof Error ? error.message : 'Connection failed')
-      window.electron.chat.releaseReconnect()
+      reconnect.release()
+    }
+  }, [cancel])
+
+  useEffect(() => {
+    return () => {
+      const streamId = streamIdRef.current
+      if (streamId) {
+        void window.electron.chat.cancelStream({ streamId }).catch(() => {})
+        streamIdRef.current = null
+      }
+      if (cleanupRef.current) {
+        cleanupRef.current()
+        cleanupRef.current = null
+      }
+      // reconnect release handled by useReconnectHold's own cleanup
     }
   }, [])
 

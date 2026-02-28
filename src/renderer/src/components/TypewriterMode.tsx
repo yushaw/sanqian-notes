@@ -12,7 +12,6 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import type { Node as PMNode } from '@tiptap/pm/model'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Typography from '@tiptap/extension-typography'
@@ -25,7 +24,9 @@ import { ResizableImage } from './extensions/ResizableImage'
 import { Video } from './extensions/Video'
 import { Audio } from './extensions/Audio'
 import { FileAttachment } from './extensions/FileAttachment'
-import { getFileCategory, getExtensionFromMime } from '../utils/fileCategory'
+import { handleEditorFileInsert, type FileInsertErrorMessages } from './editor/editor-file-insert'
+import { serializeClipboardText } from './editor/clipboard-serializer'
+import { extractHeadingsFromJSON, extractBlocksFromJSON } from './editor/editor-doc-utils'
 import Focus from '@tiptap/extension-focus'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { Table } from '@tiptap/extension-table'
@@ -45,6 +46,7 @@ import { Toggle } from './extensions/Toggle'
 import { Mathematics, BlockMath } from './extensions/Mathematics'
 import { Mermaid } from './extensions/Mermaid'
 import { CustomCodeBlock } from './extensions/CodeBlock'
+import { Frontmatter } from './extensions/Frontmatter'
 import { Footnote } from './extensions/Footnote'
 import { HtmlComment } from './extensions/HtmlComment'
 import { MarkdownPaste } from './extensions/MarkdownPaste'
@@ -61,7 +63,6 @@ import { TocBlock } from './extensions/TocBlock'
 import { AgentBlock } from './extensions/AgentBlock'
 import { NoteLinkPopup, type SearchMode, type HeadingInfo, type BlockInfo } from './NoteLinkPopup'
 import type { Editor as TiptapEditor } from '@tiptap/core'
-import 'katex/dist/katex.min.css'
 import { TypewriterToolbar } from './TypewriterToolbar'
 import { FloatingToc } from './FloatingToc'
 import { EditorContextMenu } from './EditorContextMenu'
@@ -136,6 +137,27 @@ export function TypewriterMode({
   const titleRef = useRef<HTMLTextAreaElement>(null)
   const isEditorComposingRef = useRef(false)
   const isTitleComposingRef = useRef(false)
+
+  // Debounced save: avoid JSON.stringify on every keystroke (300ms)
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const editorForFlushRef = useRef<TiptapEditor | null>(null)
+  const onUpdateRef = useRef(onUpdate)
+  onUpdateRef.current = onUpdate
+
+  // Flush pending debounced save on unmount.
+  // Registered BEFORE useEditor so cleanup runs while the editor is still alive.
+  useEffect(() => {
+    return () => {
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current)
+        saveDebounceRef.current = null
+        const ed = editorForFlushRef.current
+        if (ed && !ed.isDestroyed) {
+          onUpdateRef.current(note.id, { content: JSON.stringify(ed.getJSON()) })
+        }
+      }
+    }
+  }, [note.id])
 
   // 防止循环触发的标志位
   const isProgrammaticScroll = useRef(false)
@@ -216,104 +238,12 @@ export function TypewriterMode({
 
   // ==================== 文件处理 ====================
 
-  // 处理文件插入（粘贴或拖拽）
-  const handleFileInsert = async (
-    editorInstance: TiptapEditor,
-    file: File,
-    pos?: number
-  ) => {
-    if (!editorInstance) return
-
-    const docSize = editorInstance.state.doc.content.size
-    let insertPos: number | undefined = pos
-    if (pos !== undefined && (pos < 0 || pos > docSize)) {
-      insertPos = docSize
-    }
-
-    // 前端文件大小检查（100MB）
-    const MAX_FILE_SIZE = 100 * 1024 * 1024
-    if (file.size > MAX_FILE_SIZE) {
-      const sizeInMB = (file.size / 1024 / 1024).toFixed(1)
-      alert(t.fileError.tooLargeWithName.replace('{name}', file.name).replace('{size}', sizeInMB))
-      return
-    }
-
-    try {
-      const arrayBuffer = await file.arrayBuffer()
-      const buffer = new Uint8Array(arrayBuffer)
-
-      const ext = file.name.includes('.')
-        ? file.name.split('.').pop()!.toLowerCase()
-        : getExtensionFromMime(file.type)
-
-      const result = await window.electron.attachment.saveBuffer(buffer, ext, file.name)
-      const category = getFileCategory(file.name) || getFileCategory(`.${ext}`)
-
-      const attachmentUrl = `attachment://${result.relativePath}`
-
-      switch (category) {
-        case 'image':
-          if (insertPos !== undefined) {
-            editorInstance.chain().focus().insertContentAt(insertPos, {
-              type: 'resizableImage',
-              attrs: { src: attachmentUrl, alt: result.name },
-            }).run()
-          } else {
-            editorInstance.chain().focus().setImage({
-              src: attachmentUrl,
-              alt: result.name,
-            }).run()
-          }
-          break
-
-        case 'video':
-          if (insertPos !== undefined) {
-            editorInstance.chain().focus().insertContentAt(insertPos, {
-              type: 'video',
-              attrs: { src: attachmentUrl },
-            }).run()
-          } else {
-            editorInstance.commands.setVideo({ src: attachmentUrl })
-          }
-          break
-
-        case 'audio':
-          if (insertPos !== undefined) {
-            editorInstance.chain().focus().insertContentAt(insertPos, {
-              type: 'audio',
-              attrs: { src: attachmentUrl, title: result.name },
-            }).run()
-          } else {
-            editorInstance.commands.setAudio({ src: attachmentUrl, title: result.name })
-          }
-          break
-
-        default:
-          // 其他文件类型作为附件
-          if (insertPos !== undefined) {
-            editorInstance.chain().focus().insertContentAt(insertPos, {
-              type: 'fileAttachment',
-              attrs: {
-                src: attachmentUrl,
-                name: result.name,
-                size: result.size,
-                type: result.type,
-              },
-            }).run()
-          } else {
-            editorInstance.commands.setFileAttachment({
-              src: attachmentUrl,
-              name: result.name,
-              size: result.size,
-              type: result.type,
-            })
-          }
-      }
-    } catch (error) {
-      console.error('Failed to insert file:', error)
-      alert(t.fileError.insertFailedWithName.replace('{name}', file.name))
-    }
+  const fileInsertErrors: FileInsertErrorMessages = {
+    fileTooLarge: (name, size) => t.fileError.tooLargeWithName.replace('{name}', name).replace('{size}', size),
+    insertFailed: (name) => t.fileError.insertFailedWithName.replace('{name}', name),
   }
+  const handleFileInsert = (editorInstance: TiptapEditor, file: File, pos?: number) =>
+    handleEditorFileInsert(editorInstance, file, fileInsertErrors, pos)
 
   // ==================== 编辑器初始化 ====================
 
@@ -469,6 +399,7 @@ export function TypewriterMode({
       BlockMath,
       Mermaid,
       CustomCodeBlock,
+      Frontmatter,
       Footnote,
       HtmlComment,
       TransclusionBlock,
@@ -516,80 +447,7 @@ export function TypewriterMode({
           return false
         },
       },
-      // 自定义剪贴板纯文本序列化，正确处理列表格式
-      clipboardTextSerializer: (slice) => {
-        const lines: string[] = []
-
-        const serializeNode = (node: PMNode, indent: number = 0, listType?: 'bullet' | 'ordered' | 'task', listIndex?: number) => {
-          const indentStr = '  '.repeat(indent)
-
-          if (node.type.name === 'bulletList') {
-            node.content.forEach((child) => {
-              serializeNode(child, indent, 'bullet')
-            })
-          } else if (node.type.name === 'orderedList') {
-            let idx = 1
-            node.content.forEach((child) => {
-              serializeNode(child, indent, 'ordered', idx++)
-            })
-          } else if (node.type.name === 'taskList') {
-            node.content.forEach((child) => {
-              serializeNode(child, indent, 'task')
-            })
-          } else if (node.type.name === 'listItem') {
-            const prefix = listType === 'ordered' ? `${listIndex}. ` : '• '
-            // Only get text from non-list children (paragraphs etc.), exclude nested lists
-            const textParts: string[] = []
-            node.content.forEach((child) => {
-              if (!['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
-                const childText = child.textContent
-                if (childText) textParts.push(childText)
-              }
-            })
-            const text = textParts.join(' ')
-            if (text) {
-              lines.push(indentStr + prefix + text)
-            }
-            node.content.forEach((child) => {
-              if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
-                serializeNode(child, indent + 1)
-              }
-            })
-          } else if (node.type.name === 'taskItem') {
-            const checked = node.attrs?.checked ? '☑' : '☐'
-            // Only get text from non-list children (paragraphs etc.), exclude nested lists
-            const textParts: string[] = []
-            node.content.forEach((child) => {
-              if (!['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
-                const childText = child.textContent
-                if (childText) textParts.push(childText)
-              }
-            })
-            const text = textParts.join(' ')
-            if (text) {
-              lines.push(indentStr + checked + ' ' + text)
-            }
-            node.content.forEach((child) => {
-              if (['bulletList', 'orderedList', 'taskList'].includes(child.type.name)) {
-                serializeNode(child, indent + 1)
-              }
-            })
-          } else if (node.isBlock) {
-            const text = node.textContent
-            if (text) {
-              lines.push(text)
-            } else if (node.type.name === 'paragraph' && lines.length > 0) {
-              lines.push('')
-            }
-          }
-        }
-
-        slice.content.forEach((node) => {
-          serializeNode(node)
-        })
-
-        return lines.join('\n')
-      },
+      clipboardTextSerializer: serializeClipboardText,
       handleClick: (_view, _pos, event) => {
         // 处理外部链接点击
         const target = event.target as HTMLElement
@@ -613,9 +471,15 @@ export function TypewriterMode({
       },
     },
     onUpdate: ({ editor }) => {
-      const json = editor.getJSON()
+      editorForFlushRef.current = editor
       if (!isEditorComposingRef.current && !editor.view.composing) {
-        onUpdate(note.id, { content: JSON.stringify(json) })
+        if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+        saveDebounceRef.current = setTimeout(() => {
+          saveDebounceRef.current = null
+          if (!editor.isDestroyed) {
+            onUpdateRef.current(note.id, { content: JSON.stringify(editor.getJSON()) })
+          }
+        }, 300)
       }
       setWordCount(countWordsFromEditor(editor))
 
@@ -1280,101 +1144,5 @@ export function TypewriterMode({
   )
 }
 
-// ==================== Helper Functions ====================
-
-// 从 JSON 内容中提取标题
-function extractHeadingsFromJSON(doc: { type: string; content?: unknown[] }): HeadingInfo[] {
-  const headings: HeadingInfo[] = []
-  let pos = 0
-
-  function traverse(node: unknown) {
-    const n = node as { type?: string; attrs?: { level?: number; blockId?: string }; content?: unknown[]; text?: string }
-    if (!n || typeof n !== 'object') return
-
-    if (n.type === 'heading') {
-      const text = extractTextFromNode(n)
-      headings.push({
-        level: n.attrs?.level || 1,
-        text,
-        pos,
-        blockId: n.attrs?.blockId,
-      })
-    }
-
-    if (n.content && Array.isArray(n.content)) {
-      for (const child of n.content) {
-        traverse(child)
-        pos++
-      }
-    }
-  }
-
-  if (doc.content) {
-    for (const node of doc.content) {
-      traverse(node)
-      pos++
-    }
-  }
-
-  return headings
-}
-
-// 从 JSON 内容中提取 blocks
-function extractBlocksFromJSON(doc: { type: string; content?: unknown[] }): BlockInfo[] {
-  const blocks: BlockInfo[] = []
-  let pos = 0
-
-  const blockTypes = ['paragraph', 'heading', 'blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList', 'table', 'horizontalRule']
-
-  function traverse(node: unknown) {
-    const n = node as { type?: string; attrs?: { blockId?: string }; content?: unknown[] }
-    if (!n || typeof n !== 'object') return
-
-    if (n.type && blockTypes.includes(n.type)) {
-      const text = extractTextFromNode(n)
-      if (n.type === 'paragraph' && !text.trim()) {
-        pos++
-        return
-      }
-
-      // 只显示有 blockId 的 block，避免生成临时 ID 导致链接无法跳转
-      if (n.attrs?.blockId) {
-        blocks.push({
-          id: n.attrs.blockId,
-          type: n.type,
-          text: text.slice(0, 100),
-          pos,
-        })
-      }
-    }
-
-    if (n.content && Array.isArray(n.content)) {
-      for (const child of n.content) {
-        traverse(child)
-      }
-    }
-    pos++
-  }
-
-  if (doc.content) {
-    for (const node of doc.content) {
-      traverse(node)
-    }
-  }
-
-  return blocks
-}
-
-// 从节点中提取文本
-function extractTextFromNode(node: unknown): string {
-  const n = node as { type?: string; text?: string; content?: unknown[] }
-  if (!n || typeof n !== 'object') return ''
-
-  if (n.text) return n.text
-
-  if (n.content && Array.isArray(n.content)) {
-    return n.content.map(child => extractTextFromNode(child)).join('')
-  }
-
-  return ''
-}
+// extractHeadingsFromJSON, extractBlocksFromJSON, extractTextFromNode
+// are imported from './editor/editor-doc-utils'

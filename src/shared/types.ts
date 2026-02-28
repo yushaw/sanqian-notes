@@ -5,6 +5,26 @@
  * 确保类型定义的一致性
  */
 
+// ============ Generic Result Type ============
+
+/**
+ * Discriminated result type for fallible operations.
+ *
+ * - For void operations:  Result<void, 'not_found'>
+ *     OK:   { ok: true }
+ *     Err:  { ok: false; error: 'not_found' }
+ *
+ * - For operations with data:  Result<User, 'already_exists'>
+ *     OK:   { ok: true; value: User }
+ *     Err:  { ok: false; error: 'already_exists' }
+ *
+ * Database and internal layers use this type.
+ * IPC responses use the existing { success, errorCode } pattern instead.
+ */
+export type Result<T = void, E extends string = string> =
+  | (T extends void ? { ok: true } : { ok: true; value: T })
+  | { ok: false; error: E }
+
 // ============ Note Types ============
 
 export interface Tag {
@@ -21,6 +41,7 @@ export interface Note {
   title: string
   content: string // JSON string from BlockNote
   notebook_id: string | null
+  folder_path: string | null // internal notebook folder path (max depth: 3)
   is_daily: boolean
   daily_date: string | null // YYYY-MM-DD format
   is_favorite: boolean
@@ -33,25 +54,35 @@ export interface Note {
   tags: TagWithSource[] // Tags with source (user/ai)
 }
 
+export type NoteUpdateSafeFailureReason =
+  | 'note_not_found'
+  | 'notebook_not_found'
+  | 'target_not_allowed'
+
 export type NoteUpdateSafeResult =
   | { status: 'updated'; note: Note }
   | { status: 'conflict'; current: Note }
-  | { status: 'not_found' }
+  | { status: 'failed'; error: NoteUpdateSafeFailureReason }
 
 export interface NoteInput {
   title: string
   content: string
   notebook_id?: string | null
+  folder_path?: string | null
   is_daily?: boolean
   daily_date?: string | null
   is_favorite?: boolean
   is_pinned?: boolean
 }
 
+export type NotebookSourceType = 'internal' | 'local-folder'
+export type NotebookStatus = 'active' | 'permission_required' | 'missing'
+
 export interface Notebook {
   id: string
   name: string
   icon?: string // logo:notes, logo:todolist, logo:sanqian, logo:yinian, or emoji
+  source_type?: NotebookSourceType
   order_index: number
   created_at: string
 }
@@ -59,7 +90,312 @@ export interface Notebook {
 export interface NotebookInput {
   name: string
   icon?: string
+  source_type?: NotebookSourceType
 }
+
+export interface NotebookFolder {
+  id: string
+  notebook_id: string
+  folder_path: string
+  depth: number
+  created_at: string
+  updated_at: string
+}
+
+export interface NotebookFolderTreeNode {
+  id: string
+  name: string
+  folder_path: string
+  depth: number
+  children?: NotebookFolderTreeNode[]
+}
+
+export interface NotebookFolderCreateInput {
+  notebook_id: string
+  parent_folder_path: string | null
+  folder_name: string
+}
+
+export interface NotebookFolderRenameInput {
+  notebook_id: string
+  folder_path: string
+  new_name: string
+}
+
+export interface NotebookFolderDeleteInput {
+  notebook_id: string
+  folder_path: string
+}
+
+export type NotebookFolderErrorCode =
+  | 'NOTEBOOK_NOT_FOUND'
+  | 'NOTEBOOK_NOT_INTERNAL'
+  | 'NOTEBOOK_FOLDER_NOT_FOUND'
+  | 'NOTEBOOK_FOLDER_ALREADY_EXISTS'
+  | 'NOTEBOOK_FOLDER_INVALID_NAME'
+  | 'NOTEBOOK_FOLDER_DEPTH_LIMIT'
+
+export type NotebookFolderCreateResponse =
+  | { success: true; result: { folder_path: string } }
+  | { success: false; errorCode: NotebookFolderErrorCode }
+
+export type NotebookFolderRenameResponse =
+  | { success: true; result: { folder_path: string } }
+  | { success: false; errorCode: NotebookFolderErrorCode }
+
+export type NotebookFolderDeleteResponse =
+  | { success: true; result: { deleted_note_ids: string[] } }
+  | { success: false; errorCode: NotebookFolderErrorCode }
+
+export interface LocalFolderMount {
+  notebook_id: string
+  root_path: string
+  canonical_root_path: string
+  status: NotebookStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface LocalFolderMountInput {
+  root_path: string
+  name?: string
+  icon?: string
+}
+
+export interface LocalFolderRelinkInput {
+  notebook_id: string
+  root_path: string
+}
+
+export interface LocalFolderNotebookMount {
+  notebook: Notebook
+  mount: LocalFolderMount
+}
+
+export interface LocalFolderWatchEvent {
+  notebook_id: string
+  status: NotebookStatus
+  reason?: 'status_changed' | 'content_changed' | 'rescan_required'
+  sequence?: number
+  changed_at_ms?: number
+  changed_relative_path?: string | null
+}
+
+export interface LocalFolderTreeNode {
+  id: string
+  name: string
+  kind: 'folder' | 'file'
+  relative_path: string
+  depth: number
+  extension?: 'md' | 'txt'
+  size?: number
+  mtime_ms?: number
+  children?: LocalFolderTreeNode[]
+}
+
+export interface LocalFolderFileEntry {
+  id: string
+  name: string
+  file_name: string
+  relative_path: string
+  folder_relative_path: string
+  folder_depth: number
+  extension: 'md' | 'txt'
+  size: number
+  mtime_ms: number
+  root_path: string
+  preview?: string
+}
+
+export interface LocalFolderTreeResult {
+  notebook_id: string
+  root_path: string
+  scanned_at: string
+  tree: LocalFolderTreeNode[]
+  files: LocalFolderFileEntry[]
+}
+
+export interface LocalFolderReadFileInput {
+  notebook_id: string
+  relative_path: string
+}
+
+export interface LocalFolderSaveFileInput {
+  notebook_id: string
+  relative_path: string
+  tiptap_content: string
+  /** Preferred optimistic concurrency token from readFile/get_note etag */
+  if_match?: string | number
+  /** Legacy optimistic concurrency fields, kept for backward compatibility */
+  expected_mtime_ms?: number
+  expected_size?: number
+  expected_content_hash?: string
+  force?: boolean
+}
+
+export interface LocalFolderCreateFileInput {
+  notebook_id: string
+  parent_relative_path: string | null
+  file_name: string
+}
+
+export interface LocalFolderCreateFolderInput {
+  notebook_id: string
+  parent_relative_path: string | null
+  folder_name: string
+}
+
+export interface LocalFolderDeleteEntryInput {
+  notebook_id: string
+  relative_path: string
+  kind: 'file' | 'folder'
+}
+
+export interface LocalFolderRenameEntryInput {
+  notebook_id: string
+  relative_path: string
+  kind: 'file' | 'folder'
+  new_name: string
+}
+
+export interface LocalFolderSearchInput {
+  query: string
+  notebook_id?: string
+  folder_relative_path?: string | null
+}
+
+export interface LocalFolderSearchHit {
+  notebook_id: string
+  relative_path: string
+  canonical_path: string
+  score: number
+  mtime_ms: number
+  snippet: string
+}
+
+export interface LocalNoteMetadata {
+  notebook_id: string
+  relative_path: string
+  is_favorite: boolean
+  is_pinned: boolean
+  ai_summary: string | null
+  summary_content_hash?: string | null
+  tags?: string[]
+  ai_tags?: string[]
+  updated_at: string
+}
+
+export interface LocalFolderUpdateNoteMetadataInput {
+  notebook_id: string
+  relative_path: string
+  is_favorite?: boolean
+  is_pinned?: boolean
+  ai_summary?: string | null
+  summary_content_hash?: string | null
+  tags?: string[] | null
+  ai_tags?: string[] | null
+}
+
+export interface LocalFolderAffectedMount {
+  notebook_id: string
+  notebook_name: string
+  root_path: string
+}
+
+export interface LocalFolderFileContent {
+  id: string
+  notebook_id: string
+  name: string
+  file_name: string
+  relative_path: string
+  extension: 'md' | 'txt'
+  size: number
+  mtime_ms: number
+  content_hash?: string
+  etag?: string
+  tiptap_content: string
+}
+
+export type LocalFolderMountErrorCode =
+  | 'LOCAL_MOUNT_PATH_PERMISSION_DENIED'
+  | 'LOCAL_MOUNT_PATH_UNREACHABLE'
+  | 'LOCAL_MOUNT_PATH_NOT_FOUND'
+  | 'LOCAL_MOUNT_ALREADY_EXISTS'
+  | 'LOCAL_MOUNT_INVALID_PATH'
+
+export type LocalFolderMountResponse =
+  | { success: true; result: LocalFolderNotebookMount }
+  | { success: false; errorCode: LocalFolderMountErrorCode }
+
+export type LocalFolderRelinkErrorCode = LocalFolderMountErrorCode | 'LOCAL_NOTEBOOK_NOT_FOUND'
+
+export type LocalFolderRelinkResponse =
+  | { success: true; result: LocalFolderMount }
+  | { success: false; errorCode: LocalFolderRelinkErrorCode }
+
+export type LocalFolderFileErrorCode =
+  | 'LOCAL_FILE_NOT_FOUND'
+  | 'LOCAL_FILE_NOT_A_FILE'
+  | 'LOCAL_FOLDER_NOT_FOUND'
+  | 'LOCAL_FOLDER_NOT_A_DIRECTORY'
+  | 'LOCAL_FILE_UNREADABLE'
+  | 'LOCAL_FILE_WRITE_FAILED'
+  | 'LOCAL_FILE_DELETE_FAILED'
+  | 'LOCAL_FILE_OUT_OF_ROOT'
+  | 'LOCAL_FILE_UNSUPPORTED_TYPE'
+  | 'LOCAL_FILE_TOO_LARGE'
+  | 'LOCAL_FILE_ALREADY_EXISTS'
+  | 'LOCAL_FOLDER_ALREADY_EXISTS'
+  | 'LOCAL_FILE_INVALID_NAME'
+  | 'LOCAL_FOLDER_DEPTH_LIMIT'
+  | 'LOCAL_FILE_INVALID_IF_MATCH'
+  | 'LOCAL_FILE_CONFLICT'
+
+export type LocalFolderReadFileErrorCode = Exclude<
+  LocalFolderFileErrorCode,
+  'LOCAL_FILE_CONFLICT' | 'LOCAL_FILE_INVALID_IF_MATCH'
+>
+
+export type LocalFolderReadFileResponse =
+  | { success: true; result: LocalFolderFileContent }
+  | { success: false; errorCode: LocalFolderReadFileErrorCode }
+
+export type LocalFolderSaveFileResponse =
+  | { success: true; result: { size: number; mtime_ms: number; content_hash?: string; etag?: string } }
+  | { success: false; errorCode: 'LOCAL_FILE_CONFLICT'; conflict: { size: number; mtime_ms: number; content_hash?: string; etag?: string } }
+  | { success: false; errorCode: Exclude<LocalFolderFileErrorCode, 'LOCAL_FILE_CONFLICT'> }
+
+export type LocalFolderCreateFileResponse =
+  | { success: true; result: { relative_path: string } }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
+
+export type LocalFolderCreateFolderResponse =
+  | { success: true; result: { relative_path: string } }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
+
+export type LocalFolderAnalyzeDeleteResponse =
+  | { success: true; result: { affected_mounts: LocalFolderAffectedMount[] } }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
+
+export type LocalFolderDeleteEntryResponse =
+  | { success: true; result: { affected_mounts: LocalFolderAffectedMount[] } }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
+
+export type LocalFolderRenameEntryResponse =
+  | { success: true; result: { relative_path: string }; metadataWarning?: string }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
+
+export type LocalFolderSearchResponse =
+  | { success: true; result: { hits: LocalFolderSearchHit[] } }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
+
+export type LocalFolderListNoteMetadataResponse =
+  | { success: true; result: { items: LocalNoteMetadata[] } }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
+
+export type LocalFolderUpdateNoteMetadataResponse =
+  | { success: true; result: LocalNoteMetadata }
+  | { success: false; errorCode: LocalFolderFileErrorCode }
 
 export interface NoteTag {
   note_id: string
@@ -85,6 +421,28 @@ export interface NoteSearchFilter {
   notebookId?: string
   /** 智能视图类型 */
   viewType?: SmartViewId
+}
+
+/**
+ * 获取笔记列表选项
+ */
+export interface NoteGetAllOptions {
+  /**
+   * 是否合并本地文件夹笔记（默认 false）
+   */
+  includeLocal?: boolean
+  /**
+   * 当 includeLocal=true 时，是否读取本地文件完整内容（默认 false）
+   */
+  includeLocalContent?: boolean
+  /**
+   * 可选智能视图过滤（all/recent/favorites/daily）
+   */
+  viewType?: SmartViewId
+  /**
+   * 当 viewType='recent' 时可覆盖最近天数阈值（默认 RECENT_DAYS）
+   */
+  recentDays?: number
 }
 
 // ============ Attachment Types ============
@@ -452,6 +810,9 @@ export interface AgentExecutionContext {
   noteTitle?: string | null
   notebookId?: string | null
   notebookName?: string | null
+  sourceType?: NotebookSourceType
+  localResourceId?: string | null
+  localRelativePath?: string | null
   heading?: string | null
 }
 
@@ -505,4 +866,30 @@ export interface TemplateAPI {
   delete: (id: string) => Promise<boolean>
   reorder: (orderedIds: string[]) => Promise<void>
   setDailyDefault: (id: string | null) => Promise<void>
+}
+
+// ============ Agent Capability & Event Types ============
+
+/** Agent capability descriptor (returned by agent.list) */
+export interface AgentCapability {
+  type: 'agent'
+  id: string
+  name: string
+  description?: string
+  source: 'builtin' | 'custom' | 'sdk'
+  sourceId?: string
+  icon?: string
+  display?: { zh?: string; en?: string }
+  shortDesc?: { zh?: string; en?: string }
+}
+
+/** Agent task streaming event (emitted by agent.onEvent) */
+export interface AgentTaskEvent {
+  type: 'start' | 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'phase' | 'editor_content'
+  content?: string
+  toolName?: string
+  toolArgs?: Record<string, unknown>
+  result?: unknown
+  error?: string
+  phase?: 'content' | 'editor'
 }

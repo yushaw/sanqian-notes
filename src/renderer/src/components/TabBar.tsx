@@ -10,7 +10,7 @@
  * - 拖拽排序
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, memo } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -151,20 +151,18 @@ interface SortableTabItemProps {
   tab: Tab
   isActive: boolean
   title: string
-  onSelect: () => void
-  onClose: () => void
-  onContextMenu: (e: React.MouseEvent) => void
-  onMiddleClick: () => void
+  onSelect: (tabId: string) => void
+  onClose: (tabId: string) => void
+  onContextMenu: (e: React.MouseEvent, tab: Tab) => void
 }
 
-function SortableTabItem({
+const SortableTabItem = memo(function SortableTabItem({
   tab,
   isActive,
   title,
   onSelect,
   onClose,
   onContextMenu,
-  onMiddleClick,
 }: SortableTabItemProps) {
   const {
     attributes,
@@ -175,7 +173,6 @@ function SortableTabItem({
     isDragging,
   } = useSortable({ id: tab.id })
 
-  // 只使用 translate，忽略 scale（避免宽度被缩放）
   const style: React.CSSProperties = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     transition: transition ? 'transform 200ms ease' : undefined,
@@ -183,18 +180,21 @@ function SortableTabItem({
     zIndex: isDragging ? 100 : undefined,
   }
 
+  const handleSelect = useCallback(() => onSelect(tab.id), [onSelect, tab.id])
+  const handleCtxMenu = useCallback(
+    (e: React.MouseEvent) => onContextMenu(e, tab),
+    [onContextMenu, tab],
+  )
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // 中键点击关闭
     if (e.button === 1) {
       e.preventDefault()
-      onMiddleClick()
+      onClose(tab.id)
     }
-  }, [onMiddleClick])
-
+  }, [onClose, tab.id])
   const handleCloseClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    onClose()
-  }, [onClose])
+    onClose(tab.id)
+  }, [onClose, tab.id])
 
   return (
     <div
@@ -212,8 +212,8 @@ function SortableTabItem({
           : 'bg-transparent text-[var(--color-text)]/60 hover:text-[var(--color-text)]/80 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
         }
       `}
-      onClick={onSelect}
-      onContextMenu={onContextMenu}
+      onClick={handleSelect}
+      onContextMenu={handleCtxMenu}
       onMouseDown={handleMouseDown}
     >
       {/* Pin indicator */}
@@ -226,7 +226,7 @@ function SortableTabItem({
       {/* Title */}
       <span className="truncate text-[13px]">{title}</span>
 
-      {/* Close button with gradient mask - hover 时显示并遮盖标题尾部 */}
+      {/* Close button with gradient mask */}
       {!tab.isPinned && (
         <div
           className={`
@@ -253,7 +253,7 @@ function SortableTabItem({
       )}
     </div>
   )
-}
+})
 
 // ============================================================================
 // TabBar
@@ -375,10 +375,9 @@ export function TabBar({ getNoteTitle }: TabBarProps) {
                   tab={tab}
                   isActive={tab.id === activeTabId}
                   title={getTabDisplayTitle(tab, getNoteTitle)}
-                  onSelect={() => selectTab(tab.id)}
-                  onClose={() => closeTab(tab.id)}
-                  onContextMenu={(e) => handleContextMenu(e, tab)}
-                  onMiddleClick={() => closeTab(tab.id)}
+                  onSelect={selectTab}
+                  onClose={closeTab}
+                  onContextMenu={handleContextMenu}
                 />
               ))}
             </div>

@@ -1,15 +1,24 @@
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import mermaid from 'mermaid'
+import DOMPurify from 'dompurify'
 import { useI18n } from '../i18n/context'
 import { BlockAIGenerateButton } from './BlockAIGenerateButton'
 
-// Initialize mermaid config
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'neutral',
-  securityLevel: 'loose',
-})
+// Lazy-load mermaid (~500KB) -- only fetched when a mermaid block is first rendered
+let mermaidPromise: Promise<typeof import('mermaid')> | null = null
+function getMermaid() {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((mod) => {
+      mod.default.initialize({
+        startOnLoad: false,
+        theme: 'neutral',
+        securityLevel: 'strict',
+      })
+      return mod
+    })
+  }
+  return mermaidPromise
+}
 
 export function MermaidView({ node, updateAttributes, selected }: NodeViewProps) {
   const { t } = useI18n()
@@ -25,6 +34,7 @@ export function MermaidView({ node, updateAttributes, selected }: NodeViewProps)
   const renderMermaid = useCallback(async (mermaidCode: string) => {
     try {
       setError(null)
+      const { default: mermaid } = await getMermaid()
       const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2)}`
       const { svg } = await mermaid.render(id, mermaidCode)
       setSvg(svg)
@@ -120,7 +130,7 @@ export function MermaidView({ node, updateAttributes, selected }: NodeViewProps)
               <span>{error}</span>
             </div>
           ) : (
-            <div dangerouslySetInnerHTML={{ __html: svg }} />
+            <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true } }) }} />
           )}
           <div className="mermaid-hint">{t.media.doubleClickEdit}</div>
         </div>

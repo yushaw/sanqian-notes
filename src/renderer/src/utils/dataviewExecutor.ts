@@ -47,7 +47,7 @@ export async function executeDataviewQuery(query: ParsedQuery): Promise<QueryRes
   try {
     // 1. Fetch all notes and notebooks
     const [notes, notebooks] = await Promise.all([
-      window.electron.note.getAll() as Promise<Note[]>,
+      window.electron.note.getAll({ includeLocal: true }) as Promise<Note[]>,
       window.electron.notebook.getAll() as Promise<Notebook[]>,
     ])
 

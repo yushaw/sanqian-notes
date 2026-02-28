@@ -21,6 +21,7 @@ import {
   DragEndEvent,
 } from '@dnd-kit/core'
 import { useTabs } from '../contexts/TabContext'
+import { EditorColumnShell } from './EditorColumnShell'
 
 // ============================================================================
 // Icons
@@ -106,7 +107,7 @@ function DraggablePaneWrapper({
       onClick={onFocus}
     >
       {/* Container - 背景不受透明度影响，多 pane 时显示分隔线 */}
-      <div className={`relative flex-1 flex flex-col overflow-hidden bg-[var(--color-card-solid)] ${panelCount > 1 ? `border-[0.5px] ${isFocused ? 'border-black/15 dark:border-white/15' : 'border-black/5 dark:border-white/5'}` : ''}`}>
+      <EditorColumnShell className={`relative bg-[var(--color-card-solid)] ${panelCount > 1 ? `border-[0.5px] ${isFocused ? 'border-black/15 dark:border-white/15' : 'border-black/5 dark:border-white/5'}` : ''}`}>
         {/* Drag handle with icon - 只在多 pane 时显示，与标题栏按钮垂直对齐 */}
         {panelCount > 1 && (
           <div
@@ -121,10 +122,10 @@ function DraggablePaneWrapper({
           </div>
         )}
         {/* Content wrapper - 只有内容使用透明度，确保在正确的层级 */}
-        <div className={`relative z-10 flex-1 flex flex-col overflow-hidden transition-opacity duration-150 ${unfocusedOpacity ? 'opacity-80' : ''}`}>
+        <EditorColumnShell className={`relative z-10 transition-opacity duration-150 ${unfocusedOpacity ? 'opacity-80' : ''}`}>
           {children}
-        </div>
-      </div>
+        </EditorColumnShell>
+      </EditorColumnShell>
     </div>
   )
 }
@@ -233,7 +234,7 @@ export function PaneLayout({ renderPane, renderEmpty }: PaneLayoutProps) {
   // 没有 activeTab 或者空 layout
   if (!activeTab || !hasValidLayout) {
     if (renderEmpty) {
-      return <div className="flex-1 overflow-hidden">{renderEmpty()}</div>
+      return <EditorColumnShell>{renderEmpty()}</EditorColumnShell>
     }
     return <div className="flex-1 bg-[var(--color-card-solid)]" />
   }
@@ -245,7 +246,7 @@ export function PaneLayout({ renderPane, renderEmpty }: PaneLayoutProps) {
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <div className="flex-1 overflow-hidden relative">
+      <EditorColumnShell className="relative">
         {/* Panes */}
         {paneIds.map((paneId) => {
           const pos = positions[paneId]
@@ -282,7 +283,7 @@ export function PaneLayout({ renderPane, renderEmpty }: PaneLayoutProps) {
             />
           </div>
         )}
-      </div>
+      </EditorColumnShell>
     </DndContext>
   )
 }

@@ -1,6 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { AIPopupMarkView } from '../AIPopupMarkView'
+import { deletePopup } from '../../utils/popupStorage'
 
 export interface AIPopupMarkOptions {
   HTMLAttributes: Record<string, unknown>
@@ -120,9 +121,7 @@ export const AIPopupMark = Node.create<AIPopupMarkOptions>({
         const popupId = node.attrs.popupId
         editor.commands.deleteSelection()
         if (popupId) {
-          import('../../utils/popupStorage').then(({ deletePopup }) => {
-            deletePopup(popupId)
-          })
+          deletePopup(popupId)
         }
         return true
       }

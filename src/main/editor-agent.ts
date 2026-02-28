@@ -103,10 +103,49 @@ const arrayProperty = (description: string, items: AppJsonSchemaProperty): AppJs
   items,
 })
 
+/**
+ * Lightweight validation of output operation content.
+ * Returns error message if invalid, null if valid.
+ */
+function validateOutputContent(type: OutputOperationType, content: unknown): string | null {
+  if (content === null || content === undefined || typeof content !== 'object') {
+    return `${type}: content must be an object`
+  }
+  const c = content as Record<string, unknown>
+  switch (type) {
+    case 'paragraph':
+      if (!Array.isArray(c.paragraphs)) return 'paragraph: paragraphs must be an array'
+      break
+    case 'list':
+      if (!Array.isArray(c.items)) return 'list: items must be an array'
+      break
+    case 'table':
+      if (!Array.isArray(c.headers)) return 'table: headers must be an array'
+      if (!Array.isArray(c.rows)) return 'table: rows must be an array'
+      break
+    case 'heading':
+      if (typeof c.text !== 'string') return 'heading: text must be a string'
+      break
+    case 'codeBlock':
+      if (typeof c.code !== 'string') return 'codeBlock: code must be a string'
+      break
+    case 'blockquote':
+      if (typeof c.text !== 'string') return 'blockquote: text must be a string'
+      break
+    case 'html':
+      if (typeof c.html !== 'string') return 'html: html must be a string'
+      break
+  }
+  return null
+}
+
 export function createEditorOutputTools(
-  currentTaskId: () => string | null
+  currentTaskId: () => string | null,
+  options?: {
+    resolveNoteRef?: (input: { noteTitle: string }) => Promise<{ noteId: string; noteTitle?: string } | null> | { noteId: string; noteTitle?: string } | null
+  }
 ): AppToolDefinition[] {
-  // Helper to queue operation
+  // Helper to queue operation with validation
   const queueOp = (type: OutputOperationType, content: unknown) => {
     const taskId = currentTaskId()
     if (!taskId) {
@@ -115,6 +154,11 @@ export function createEditorOutputTools(
     const pending = pendingOps.get(taskId)
     if (!pending) {
       return { success: false, error: 'No pending context for task' }
+    }
+    const validationError = validateOutputContent(type, content)
+    if (validationError) {
+      console.warn(`[EditorAgent] Invalid output content: ${validationError}`)
+      return { success: false, error: validationError }
     }
     pending.operations.push({ type, content })
     return { success: true }
@@ -263,7 +307,34 @@ export function createEditorOutputTools(
         required: ['noteTitle'],
       },
       handler: async (args) => {
-        return queueOp('noteRef', args)
+        const noteTitle = typeof args.noteTitle === 'string' ? args.noteTitle.trim() : ''
+        const displayText = typeof args.displayText === 'string' && args.displayText.trim()
+          ? args.displayText
+          : undefined
+
+        if (!noteTitle) {
+          return { success: false, error: 'noteTitle is required' }
+        }
+
+        let payload: { noteTitle: string; displayText?: string; noteId?: string } = {
+          noteTitle,
+          displayText,
+        }
+        if (options?.resolveNoteRef) {
+          try {
+            const resolved = await options.resolveNoteRef({ noteTitle })
+            if (resolved?.noteId) {
+              payload = {
+                ...payload,
+                noteId: resolved.noteId,
+                noteTitle: resolved.noteTitle || noteTitle,
+              }
+            }
+          } catch (error) {
+            console.warn('[EditorAgent] Failed to resolve note ref:', error)
+          }
+        }
+        return queueOp('noteRef', payload)
       },
     },
   ]

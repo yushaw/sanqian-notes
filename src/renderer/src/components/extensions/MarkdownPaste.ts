@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { marked } from 'marked'
+import { Marked } from 'marked'
 import DOMPurify from 'dompurify'
 
 /**
@@ -11,6 +11,9 @@ import DOMPurify from 'dompurify'
  * 2. 自动转换 Markdown 为富文本
  * 3. 支持自定义语法：Callout、Math、Mermaid、Highlight、Footnote
  */
+
+// Isolated marked instance to avoid global state pollution
+const marked = new Marked({ gfm: true, breaks: true })
 
 // HTML 转义
 function escapeHtml(text: string): string {
@@ -23,12 +26,6 @@ function escapeHtml(text: string): string {
   }
   return text.replace(/[&<>"']/g, (m) => map[m])
 }
-
-// 配置 marked
-marked.setOptions({
-  gfm: true,        // GitHub Flavored Markdown
-  breaks: true,     // 换行符转 <br>
-})
 
 // 自定义 renderer 处理特殊语法
 const renderer = new marked.Renderer()

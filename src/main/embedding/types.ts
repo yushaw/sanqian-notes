@@ -120,6 +120,8 @@ export interface NoteIndexStatus {
   // 新增：独立的 FTS 和 Embedding 状态
   ftsStatus: FtsStatus
   embeddingStatus: EmbeddingStatus
+  // 文件实际修改时间（ISO string），用于 local-folder "最近" 过滤
+  fileMtime?: string
 }
 
 // 搜索结果

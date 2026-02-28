@@ -44,6 +44,8 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
   const streamingCheckRef = useRef<NodeJS.Timeout | null>(null)
   const wasStreamingRef = useRef(false) // 跟踪之前是否在 streaming
   const retryCleanupRef = useRef<(() => void) | null>(null)
+  const retryStreamIdRef = useRef<string | null>(null)
+  const retryReconnectHeldRef = useRef(false)
   const t = useTranslations()
 
   // Floating UI for popup positioning
@@ -57,6 +59,21 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
     ],
     whileElementsMounted: autoUpdate
   })
+
+  const releaseRetryReconnectIfHeld = useCallback(() => {
+    if (retryReconnectHeldRef.current) {
+      retryReconnectHeldRef.current = false
+      window.electron.chat.releaseReconnect()
+    }
+  }, [])
+
+  const cancelRetryStream = useCallback(() => {
+    const streamId = retryStreamIdRef.current
+    if (streamId) {
+      void window.electron.chat.cancelStream({ streamId }).catch(() => {})
+      retryStreamIdRef.current = null
+    }
+  }, [])
 
   // 显示预览的通用函数
   const showPreviewPopup = useCallback(() => {
@@ -155,14 +172,15 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
       if (retryCleanupRef.current) {
         retryCleanupRef.current()
         retryCleanupRef.current = null
-        window.electron.chat.releaseReconnect()
       }
+      cancelRetryStream()
+      releaseRetryReconnectIfHeld()
       // 清理单实例状态
       if (currentPreviewPopupId === popupId) {
         currentPreviewPopupId = null
       }
     }
-  }, [popupId])
+  }, [popupId, cancelRetryStream, releaseRetryReconnectIfHeld])
 
   const handleMouseEnter = useCallback(() => {
     // Cancel any pending hide
@@ -206,13 +224,22 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
   }, [hasMouseEntered, popupId])
 
   const handleDelete = useCallback(() => {
+    cancelRetryStream()
+    if (retryCleanupRef.current) {
+      retryCleanupRef.current()
+      retryCleanupRef.current = null
+    }
+    releaseRetryReconnectIfHeld()
+
     if (popupId) {
+      void window.electron.chat.cancelStream({ streamId: popupId }).catch(() => {})
+      updatePopupStreaming(popupId, false)
       // Delete popup data from storage
       deletePopup(popupId)
     }
     // Delete the node
     deleteNode()
-  }, [popupId, deleteNode])
+  }, [popupId, deleteNode, cancelRetryStream, releaseRetryReconnectIfHeld])
 
   const handleContinueInChat = useCallback(() => {
     if (targetText && previewContent) {
@@ -237,10 +264,12 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
     if (!popupId || !storedPrompt || !targetText || isStreaming) return
 
     // Clean up any existing retry stream
+    cancelRetryStream()
     if (retryCleanupRef.current) {
       retryCleanupRef.current()
       retryCleanupRef.current = null
     }
+    releaseRetryReconnectIfHeld()
 
     // 清空当前内容，开始 streaming
     setPreviewContent('')
@@ -249,10 +278,12 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
     updatePopupStreaming(popupId, true)
 
     const streamId = popupId
+    retryStreamIdRef.current = streamId
     let accumulated = ''
 
     try {
       await window.electron.chat.acquireReconnect()
+      retryReconnectHeldRef.current = true
 
       const cleanup = window.electron.chat.onStreamEvent((sid: string, rawEvent: unknown) => {
         if (sid !== streamId) return
@@ -267,9 +298,10 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
         if (event.type === 'done' || event.type === 'error') {
           setIsStreaming(false)
           updatePopupStreaming(popupId, false) // This will also flush content to database
+          retryStreamIdRef.current = null
           retryCleanupRef.current = null
           cleanup()
-          window.electron.chat.releaseReconnect()
+          releaseRetryReconnectIfHeld()
         }
       })
 
@@ -299,11 +331,21 @@ export function AIPopupMarkView({ node, deleteNode }: NodeViewProps) {
     } catch {
       setIsStreaming(false)
       updatePopupStreaming(popupId, false)
+      retryStreamIdRef.current = null
       retryCleanupRef.current = null
-      window.electron.chat.releaseReconnect()
+      releaseRetryReconnectIfHeld()
       toast(t.ai.connectionFailed, { type: 'error' })
     }
-  }, [popupId, storedPrompt, targetText, storedDocTitle, isStreaming, t])
+  }, [
+    popupId,
+    storedPrompt,
+    targetText,
+    storedDocTitle,
+    isStreaming,
+    t,
+    cancelRetryStream,
+    releaseRetryReconnectIfHeld
+  ])
 
   // 删除 popup 及图标
   const handleDeletePopup = useCallback(() => {

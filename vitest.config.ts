@@ -15,8 +15,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: ['src/main/embedding/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/*.spec.ts', '**/*.test.tsx', '**/*.spec.tsx']
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: [
+        '**/*.test.ts', '**/*.spec.ts', '**/*.test.tsx', '**/*.spec.tsx',
+        '**/*.d.ts',
+        'src/__mocks__/**',
+        'src/preload/**',
+      ]
     }
   },
   resolve: {

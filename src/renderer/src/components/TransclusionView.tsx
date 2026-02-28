@@ -1,6 +1,7 @@
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ChevronRight, ChevronDown, RefreshCw, AlertTriangle, Pencil, FileSymlink } from 'lucide-react'
+import DOMPurify from 'dompurify'
 import { useTranslations } from '../i18n'
 import type { Note } from '../types/note'
 
@@ -88,7 +89,7 @@ function nodeToHtml(node: TiptapNode): string {
     case 'blockquote':
       return `<blockquote>${inner}</blockquote>`
     case 'codeBlock': {
-      const lang = (attrs?.language as string) || ''
+      const lang = escapeHtml((attrs?.language as string) || '')
       return `<pre><code class="language-${lang}">${inner}</code></pre>`
     }
     case 'horizontalRule':
@@ -101,7 +102,7 @@ function nodeToHtml(node: TiptapNode): string {
       return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" />`
     }
     case 'callout': {
-      const calloutType = attrs?.type as string || 'info'
+      const calloutType = escapeHtml(attrs?.type as string || 'info')
       return `<div class="callout callout-${calloutType}">${inner}</div>`
     }
     case 'table':
@@ -547,7 +548,7 @@ export function TransclusionView({ node, updateAttributes, selected }: NodeViewP
                 <div
                   className="transclusion-content ProseMirror"
                   style={{ maxHeight: `${resizeHeight}px` }}
-                  dangerouslySetInnerHTML={{ __html: content }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }}
                 />
                 <div
                   className="transclusion-resize-handle"

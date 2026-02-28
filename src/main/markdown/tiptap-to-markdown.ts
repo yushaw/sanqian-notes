@@ -5,6 +5,8 @@
  * 用于 SDK Tools API，让 AI 能够理解和操作笔记内容
  */
 
+import { formatAIPopupMarkerComment } from '../../shared/ai-popup-marker'
+
 // TipTap 节点类型定义
 interface TiptapMark {
   type: string
@@ -72,6 +74,50 @@ interface ConvertContext {
   orderedListIndex: number
   /** 是否在引用块内 */
   inBlockquote: boolean
+}
+
+function extractTextFromTextContainer(node: TiptapNode): string {
+  if (!node.content || node.content.length === 0) return ''
+  let result = ''
+  for (const child of node.content) {
+    if (child.type === 'text') {
+      result += child.text || ''
+      continue
+    }
+    if (child.type === 'hardBreak') {
+      result += '\n'
+      continue
+    }
+    result += extractPlainText(child)
+  }
+  return result
+}
+
+function isLegacyFrontmatterCodeBlock(node: TiptapNode): boolean {
+  const language = (node.attrs?.language as string | undefined) || ''
+  return node.type === 'codeBlock' && language === 'yaml-frontmatter'
+}
+
+function splitLeadingFrontmatter(nodes: TiptapNode[]): {
+  frontmatterMarkdown: string | null
+  bodyNodes: TiptapNode[]
+} {
+  if (nodes.length === 0) {
+    return { frontmatterMarkdown: null, bodyNodes: nodes }
+  }
+
+  const firstNode = nodes[0]
+  if (firstNode.type !== 'frontmatter' && !isLegacyFrontmatterCodeBlock(firstNode)) {
+    return { frontmatterMarkdown: null, bodyNodes: nodes }
+  }
+
+  const yamlBody = extractTextFromTextContainer(firstNode).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd()
+  const frontmatterMarkdown = yamlBody ? `---\n${yamlBody}\n---` : '---\n---'
+
+  return {
+    frontmatterMarkdown,
+    bodyNodes: nodes.slice(1),
+  }
 }
 
 /**
@@ -185,6 +231,11 @@ function convertNode(node: TiptapNode, ctx: ConvertContext): string {
       const language = (node.attrs?.language as string) || ''
       const code = convertChildren(node, ctx)
       return `\`\`\`${language}\n${code}\n\`\`\``
+    }
+
+    case 'frontmatter': {
+      const yamlBody = extractTextFromTextContainer(node).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd()
+      return `\`\`\`yaml-frontmatter\n${yamlBody}\n\`\`\``
     }
 
     case 'horizontalRule':
@@ -306,14 +357,26 @@ function convertNode(node: TiptapNode, ctx: ConvertContext): string {
       return `![[${noteName || noteId}]]`
     }
 
-    // 目录块
+    // 目录块 (tocBlock is the current name; tableOfContents is the legacy name)
     case 'tocBlock':
+    case 'tableOfContents':
       return '[TOC]'
 
     // 数据视图
     case 'dataviewBlock': {
       const query = (node.attrs?.query as string) || ''
       return `\`\`\`dataview\n${query}\n\`\`\``
+    }
+
+    // AI popup marker
+    case 'aiPopupMark': {
+      const popupId = (node.attrs?.popupId as string) || ''
+      const rawCreatedAt = node.attrs?.createdAt
+      const createdAt = typeof rawCreatedAt === 'number'
+        ? rawCreatedAt
+        : (typeof rawCreatedAt === 'string' ? Number.parseInt(rawCreatedAt, 10) : undefined)
+      const marker = formatAIPopupMarkerComment({ popupId, createdAt: createdAt ?? undefined })
+      return marker
     }
 
     // AI 任务块
@@ -477,7 +540,7 @@ function convertTable(node: TiptapNode, ctx: ConvertContext): string {
     if (row.type !== 'tableRow') continue
 
     const cells = row.content || []
-    const cellContents = cells.map(cell => convertChildren(cell, ctx).trim())
+    const cellContents = cells.map(cell => convertChildren(cell, ctx).trim().replace(/\|/g, '\\|'))
     rows.push(`| ${cellContents.join(' | ')} |`)
 
     // 在表头后添加分隔行
@@ -608,6 +671,8 @@ export function tiptapToMarkdown(
     nodes = extractSection(nodes, options.heading, options.headingMatch)
     if (nodes.length === 0) return ''
   }
+  const { frontmatterMarkdown, bodyNodes } = splitLeadingFrontmatter(nodes)
+  nodes = bodyNodes
 
   const ctx: ConvertContext = {
     listDepth: 0,
@@ -624,6 +689,9 @@ export function tiptapToMarkdown(
 
   // 块级元素之间用两个换行分隔
   let content = parts.join('\n\n')
+  if (frontmatterMarkdown) {
+    content = content ? `${frontmatterMarkdown}\n\n${content}` : frontmatterMarkdown
+  }
 
   // 应用 offset/limit 分页
   if (options?.offset || options?.limit) {
@@ -654,6 +722,8 @@ export function tiptapToMarkdownWithMeta(
     nodes = extractSection(nodes, options.heading, options.headingMatch)
     if (nodes.length === 0) return { content: '', totalLines: 0 }
   }
+  const { frontmatterMarkdown, bodyNodes } = splitLeadingFrontmatter(nodes)
+  nodes = bodyNodes
 
   const ctx: ConvertContext = {
     listDepth: 0,
@@ -666,7 +736,10 @@ export function tiptapToMarkdownWithMeta(
     parts.push(convertNode(node, ctx))
   }
 
-  const fullContent = parts.join('\n\n')
+  const markdownBody = parts.join('\n\n')
+  const fullContent = frontmatterMarkdown
+    ? (markdownBody ? `${frontmatterMarkdown}\n\n${markdownBody}` : frontmatterMarkdown)
+    : markdownBody
   const allLines = fullContent.split('\n')
   const totalLines = allLines.length
 

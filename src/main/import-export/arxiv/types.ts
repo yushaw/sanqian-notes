@@ -104,6 +104,14 @@ export interface ArxivImportOptions {
   buildEmbedding?: boolean // 是否建立向量索引（默认 false）
 }
 
+/** 单篇内联导入选项（插入到当前编辑器） */
+export interface ArxivInlineImportOptions {
+  includeAbstract?: boolean
+  includeReferences?: boolean
+  downloadFigures?: boolean
+  preferHtml?: boolean
+}
+
 /** 单篇导入结果 */
 export interface ArxivPaperResult {
   input: string

@@ -415,6 +415,25 @@ describe('tiptapToMarkdown', () => {
   })
 
   describe('自定义块', () => {
+    it('AI popup marker 转换为可逆注释标记', () => {
+      const doc = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'before ' },
+              { type: 'aiPopupMark', attrs: { popupId: 'popup-1', createdAt: 123 } },
+              { type: 'text', text: ' after' },
+            ],
+          },
+        ],
+      }
+      expect(tiptapToMarkdown(doc)).toBe(
+        'before <!-- SQN_AI_POPUP {\"popupId\":\"popup-1\",\"createdAt\":123} --> after'
+      )
+    })
+
     it('数学公式（行内）', () => {
       const doc = {
         type: 'doc',
@@ -536,6 +555,47 @@ describe('tiptapToMarkdown', () => {
     })
   })
 
+  describe('Front Matter', () => {
+    it('leading frontmatter 节点应还原为 markdown front matter', () => {
+      const doc = {
+        type: 'doc',
+        content: [
+          {
+            type: 'frontmatter',
+            content: [{ type: 'text', text: 'tags:\n  - AI\naliases:\n  - SEO' }],
+          },
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: '正文标题' }],
+          },
+        ],
+      }
+
+      expect(tiptapToMarkdown(doc)).toBe('---\ntags:\n  - AI\naliases:\n  - SEO\n---\n\n# 正文标题')
+    })
+
+    it('leading legacy yaml-frontmatter codeBlock 也应还原为 markdown front matter', () => {
+      const doc = {
+        type: 'doc',
+        content: [
+          {
+            type: 'codeBlock',
+            attrs: { language: 'yaml-frontmatter' },
+            content: [{ type: 'text', text: 'tags:\n  - AI\naliases:\n  - SEO' }],
+          },
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: '正文标题' }],
+          },
+        ],
+      }
+
+      expect(tiptapToMarkdown(doc)).toBe('---\ntags:\n  - AI\naliases:\n  - SEO\n---\n\n# 正文标题')
+    })
+  })
+
   describe('边界情况', () => {
     it('处理 null/undefined', () => {
       expect(tiptapToMarkdown(null as unknown as Record<string, unknown>)).toBe('')
@@ -562,6 +622,31 @@ describe('tiptapToMarkdown', () => {
         ]
       }
       expect(tiptapToMarkdown(doc)).toBe('Hello')
+    })
+  })
+
+  describe('往返转换', () => {
+    it('AI popup marker 在 Markdown 往返后保持可恢复', () => {
+      const doc = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'prefix ' },
+              { type: 'aiPopupMark', attrs: { popupId: 'popup-roundtrip', createdAt: 456 } },
+              { type: 'text', text: ' suffix' },
+            ],
+          },
+        ],
+      }
+
+      const markdown = tiptapToMarkdown(doc)
+      const roundTrip = markdownToTiptap(markdown) as { content?: Array<{ content?: Array<{ type?: string; attrs?: { popupId?: string } }> }> }
+      const paragraph = roundTrip.content?.[0]
+      expect(paragraph?.content?.some((node) => node.type === 'aiPopupMark')).toBe(true)
+      const markerNode = paragraph?.content?.find((node) => node.type === 'aiPopupMark')
+      expect(markerNode?.attrs?.popupId).toBe('popup-roundtrip')
     })
   })
 })

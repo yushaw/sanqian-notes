@@ -6,9 +6,10 @@
 
 import { app, dialog, shell } from 'electron'
 import { join, extname, basename, relative } from 'path'
-import { promises as fs } from 'fs'
+import { promises as fs, realpathSync } from 'fs'
 import { randomBytes } from 'crypto'
 import type { AttachmentResult } from '../shared/types'
+import { toSlashPath } from './path-compat'
 
 // 重新导出类型，方便其他模块使用
 export type { AttachmentResult } from '../shared/types'
@@ -98,14 +99,28 @@ export function getUserDataPath(): string {
 
 /**
  * 获取附件完整路径（带安全检查）
+ * 使用 realpathSync 解析符号链接，防止 symlink 指向 userData 外的敏感目录。
  */
 export function getFullPath(relativePath: string): string {
   // 安全检查：防止目录穿越攻击
-  const normalized = relativePath.replace(/\\/g, '/') // 统一为正斜杠
+  const normalized = toSlashPath(relativePath)
   if (normalized.includes('..') || normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
     throw new Error('Invalid path: directory traversal detected')
   }
-  return join(app.getPath('userData'), relativePath)
+  const fullPath = join(app.getPath('userData'), relativePath)
+  // 解析符号链接后再验证是否仍在 userData 下
+  let realPath: string
+  try {
+    realPath = realpathSync(fullPath)
+  } catch {
+    // 文件不存在时 realpathSync 会抛异常，此时 join 后的字符串校验已足够
+    return fullPath
+  }
+  const realUserData = realpathSync(app.getPath('userData'))
+  if (!realPath.startsWith(realUserData + '/') && realPath !== realUserData) {
+    throw new Error('Invalid path: resolved path escapes user data directory')
+  }
+  return fullPath
 }
 
 /**
@@ -127,8 +142,7 @@ export async function saveAttachment(filePath: string): Promise<AttachmentResult
 
   const stats = await fs.stat(fullPath)
   const userData = app.getPath('userData')
-  // 使用 path.relative 确保跨平台兼容性，统一使用正斜杠存储
-  const relativePath = relative(userData, fullPath).replace(/\\/g, '/')
+  const relativePath = toSlashPath(relative(userData, fullPath))
 
   return {
     relativePath,
@@ -161,8 +175,7 @@ export async function saveAttachmentBuffer(
 
   const stats = await fs.stat(fullPath)
   const userData = app.getPath('userData')
-  // 使用 path.relative 确保跨平台兼容性，统一使用正斜杠存储
-  const relativePath = relative(userData, fullPath).replace(/\\/g, '/')
+  const relativePath = toSlashPath(relative(userData, fullPath))
 
   return {
     relativePath,
@@ -264,8 +277,7 @@ export async function getAllAttachments(): Promise<string[]> {
         if (entry.isDirectory()) {
           await scanDir(fullPath)
         } else if (entry.isFile()) {
-          // 返回相对于 userData 的路径，使用正斜杠
-          const relativePath = relative(app.getPath('userData'), fullPath).replace(/\\/g, '/')
+          const relativePath = toSlashPath(relative(app.getPath('userData'), fullPath))
           files.push(relativePath)
         }
       }
@@ -285,7 +297,7 @@ export async function getAllAttachments(): Promise<string[]> {
  */
 export async function cleanupOrphanAttachments(usedPaths: string[]): Promise<number> {
   const allAttachments = await getAllAttachments()
-  const usedSet = new Set(usedPaths.map(p => p.replace(/\\/g, '/')))
+  const usedSet = new Set(usedPaths.map(toSlashPath))
   let deletedCount = 0
 
   for (const attachmentPath of allAttachments) {

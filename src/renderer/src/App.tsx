@@ -199,6 +199,7 @@ function AppContent() {
     localEditorNoteRef,
     localAutoDraftRef,
     flushLocalFileSaveRef,
+    localEditorFlushRef,
     // Derived values
     isLocalFolderNotebookSelected,
     isAllSourceViewActive,
@@ -239,6 +240,10 @@ function AppContent() {
     // Dialog hook
     localFolderDialogs,
   } = localFolder
+
+  // Bridge: wire Editor's flushPendingSave into useLocalFolderState's flush chain
+  // so that flushLocalFileSave() can flush the Editor's 300ms debounce first.
+  localEditorFlushRef.current = () => localEditorRef.current?.flushPendingSave()
 
   // Derive allSourceLocalNotes from renderer-side cache (replaces async IPC fetch)
   const allSourceLocalNotes = useMemo(() =>

@@ -60,6 +60,7 @@ const LOCAL_WATCH_SUPPRESS_MS = 1200
 // ---------------------------------------------------------------------------
 
 export interface LocalSaveConflictDialogState {
+  notebookId: string
   relativePath: string
   displayName: string
   pendingContent: string
@@ -178,6 +179,9 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   const localWatchSequenceRef = useRef<Map<string, number>>(new Map())
   const localFileErrorMessageResolverRef = useRef<(errorCode: LocalFolderFileErrorCode) => string>(null!)
   const flushLocalFileSaveRef = useRef<() => Promise<void>>(null!)
+  // Ref populated by App.tsx to flush Editor's internal 300ms debounce before
+  // processing the save queue. This bridges the two-level debounce architecture.
+  const localEditorFlushRef = useRef<(() => void) | null>(null)
   const localRenameInFlightRef = useRef(false)
   const localFolderDialogsResetRef = useRef<() => void>(() => {})
 
@@ -518,6 +522,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
           if (result.errorCode === 'LOCAL_FILE_CONFLICT') {
             localSaveBlockedByConflictRef.current = true
             setLocalSaveConflictDialog({
+              notebookId: pending.notebookId,
               relativePath: pending.relativePath,
               displayName: getRelativePathDisplayName(pending.relativePath),
               pendingContent: pending.content,
@@ -568,6 +573,11 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   // ---------------------------------------------------------------------------
 
   const flushLocalFileSave = useCallback(async () => {
+    // Flush Editor's internal 300ms debounce first so its pending content is
+    // delivered to handleUpdateLocalFile (and queued in localPendingContentRef)
+    // BEFORE we process the save queue. This prevents stale content from a
+    // previous file being attributed to the current file after a switch.
+    localEditorFlushRef.current?.()
     if (localSaveTimerRef.current) {
       clearTimeout(localSaveTimerRef.current)
       localSaveTimerRef.current = null
@@ -744,8 +754,15 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   const handleUpdateLocalFile = useCallback((_id: string, updates: { title?: string; content?: string }) => {
     if (updates.content === undefined) return
 
-    const nextContent = updates.content
+    // Guard: reject updates from stale editor callbacks. When switching from
+    // file A to file B, the editor's useLayoutEffect cleanup (or a late
+    // debounce) may fire with A's content after localOpenFileRef has been
+    // updated to B. The _id parameter carries the note.id from the editor's
+    // closure / noteIdRef, letting us detect the mismatch.
     const currentLocalNote = localEditorNoteRef.current
+    if (currentLocalNote && _id !== currentLocalNote.id) return
+
+    const nextContent = updates.content
     if (currentLocalNote && currentLocalNote.content === nextContent) return
 
     const openFile = localOpenFileRef.current
@@ -1317,12 +1334,13 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   // ---------------------------------------------------------------------------
 
   const handleResolveLocalSaveConflictReload = useCallback(async () => {
-    if (!selectedNotebookId || !localSaveConflictDialog) return
+    if (!localSaveConflictDialog) return
+    const conflictNotebookId = localSaveConflictDialog.notebookId
 
     setLocalSaveConflictSubmitting(true)
     try {
       const result = await window.electron.localFolder.readFile({
-        notebook_id: selectedNotebookId,
+        notebook_id: conflictNotebookId,
         relative_path: localSaveConflictDialog.relativePath,
       })
       if (!result.success) {
@@ -1332,7 +1350,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
 
       setLocalEditorNote(buildLocalEditorNote(result.result))
       localOpenFileRef.current = {
-        notebookId: selectedNotebookId,
+        notebookId: conflictNotebookId,
         relativePath: localSaveConflictDialog.relativePath,
       }
       localOpenFileMetaRef.current = {
@@ -1354,7 +1372,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     buildLocalEditorNote,
     localSaveConflictDialog,
     resolveLocalFileErrorMessage,
-    selectedNotebookId,
     t.notebook.fileOpenFailed,
   ])
 
@@ -1363,12 +1380,13 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   // ---------------------------------------------------------------------------
 
   const handleResolveLocalSaveConflictOverwrite = useCallback(async () => {
-    if (!selectedNotebookId || !localSaveConflictDialog) return
+    if (!localSaveConflictDialog) return
+    const conflictNotebookId = localSaveConflictDialog.notebookId
 
     setLocalSaveConflictSubmitting(true)
     try {
       const result = await window.electron.localFolder.saveFile({
-        notebook_id: selectedNotebookId,
+        notebook_id: conflictNotebookId,
         relative_path: localSaveConflictDialog.relativePath,
         tiptap_content: localSaveConflictDialog.pendingContent,
         force: true,
@@ -1387,21 +1405,22 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       localPendingContentRef.current = null
       localSaveBlockedByConflictRef.current = false
       setLocalSaveConflictDialog(null)
-      suppressLocalWatchRefresh(selectedNotebookId)
+      suppressLocalWatchRefresh(conflictNotebookId)
     } catch (error) {
       console.error('Failed to overwrite local file after conflict:', error)
       toast(t.notebook.fileSaveFailed, { type: 'error' })
     } finally {
       setLocalSaveConflictSubmitting(false)
     }
-  }, [localSaveConflictDialog, resolveLocalFileErrorMessage, selectedNotebookId, suppressLocalWatchRefresh, t.notebook.fileSaveFailed])
+  }, [localSaveConflictDialog, resolveLocalFileErrorMessage, suppressLocalWatchRefresh, t.notebook.fileSaveFailed])
 
   // ---------------------------------------------------------------------------
   // useCallback: handleResolveLocalSaveConflictSaveAsCopy
   // ---------------------------------------------------------------------------
 
   const handleResolveLocalSaveConflictSaveAsCopy = useCallback(async () => {
-    if (!selectedNotebookId || !localSaveConflictDialog) return
+    if (!localSaveConflictDialog) return
+    const conflictNotebookId = localSaveConflictDialog.notebookId
 
     const currentFile = (localFolderTree?.files || []).find((file) => file.relative_path === localSaveConflictDialog.relativePath) || null
     if (!currentFile) {
@@ -1430,7 +1449,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     setLocalSaveConflictSubmitting(true)
     try {
       const created = await window.electron.localFolder.createFile({
-        notebook_id: selectedNotebookId,
+        notebook_id: conflictNotebookId,
         parent_relative_path: parentRelativePath,
         file_name: candidateFileName,
       })
@@ -1440,7 +1459,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       }
 
       const saved = await window.electron.localFolder.saveFile({
-        notebook_id: selectedNotebookId,
+        notebook_id: conflictNotebookId,
         relative_path: created.result.relative_path,
         tiptap_content: localSaveConflictDialog.pendingContent,
         force: true,
@@ -1454,9 +1473,9 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       localSaveBlockedByConflictRef.current = false
       setLocalSaveConflictDialog(null)
 
-      suppressLocalWatchRefresh(selectedNotebookId)
-      await refreshLocalFolderTree(selectedNotebookId, { showLoading: false })
-      await openLocalFile(created.result.relative_path)
+      suppressLocalWatchRefresh(conflictNotebookId)
+      await refreshLocalFolderTree(conflictNotebookId, { showLoading: false })
+      await openLocalFile(created.result.relative_path, conflictNotebookId)
       toast(t.notebook.fileConflictSavedAsCopy, { type: 'success' })
     } catch (error) {
       console.error('Failed to save conflict copy:', error)
@@ -1470,7 +1489,6 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     openLocalFile,
     refreshLocalFolderTree,
     resolveLocalFileErrorMessage,
-    selectedNotebookId,
     suppressLocalWatchRefresh,
     t.notebook.fileConflictSavedAsCopy,
     t.notebook.fileOpenFailed,
@@ -2157,6 +2175,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     localEditorNoteRef,
     localAutoDraftRef,
     flushLocalFileSaveRef,
+    localEditorFlushRef,
 
     // Derived values
     isLocalFolderNotebookSelected,

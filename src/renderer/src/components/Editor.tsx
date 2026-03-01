@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useRef, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useLayoutEffect, useCallback, useState, useRef, useImperativeHandle, forwardRef } from 'react'
 import { useEditor, EditorContent, Editor as TiptapEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
@@ -196,6 +196,7 @@ interface EditorProps {
 export interface EditorHandle {
   getEditor: () => ReturnType<typeof useEditor> | null
   getScrollContainer: () => HTMLDivElement | null
+  flushPendingSave: () => void
 }
 
 // Zen Editor component
@@ -291,9 +292,12 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const onUpdateRef = useRef(onUpdate)
   onUpdateRef.current = onUpdate
 
-  // Flush pending debounced save on unmount.
+  // Flush pending debounced save on unmount or note switch.
+  // useLayoutEffect so cleanup fires synchronously during commit, BEFORE any
+  // pending setTimeout (the 300ms editor debounce) can sneak in between the
+  // React render and the async useEffect cleanup.
   // Registered BEFORE useEditor so cleanup runs while the editor is still alive.
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
       if (saveDebounceRef.current) {
         clearTimeout(saveDebounceRef.current)
@@ -538,6 +542,16 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   useImperativeHandle(ref, () => ({
     getEditor: () => editor,
     getScrollContainer: () => contentRef.current,
+    flushPendingSave: () => {
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current)
+        saveDebounceRef.current = null
+        const ed = editorForFlushRef.current
+        if (ed && !ed.isDestroyed) {
+          onUpdateRef.current(noteIdRef.current, { content: JSON.stringify(ed.getJSON()) })
+        }
+      }
+    },
   }), [editor])
 
   useEffect(() => {

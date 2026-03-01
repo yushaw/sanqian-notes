@@ -110,7 +110,7 @@ export function ensureLocalFolderWatcher(mountNotebookId: string, rootPath: stri
         changed_relative_path: changedRelativePath,
       })
       enqueueLocalNotebookIndexSync(mountNotebookId, {
-        full: change.eventType === 'rename' || !changedRelativePath,
+        full: !changedRelativePath,
         changedRelativePath,
       })
     })

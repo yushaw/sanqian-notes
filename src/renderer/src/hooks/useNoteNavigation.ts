@@ -75,7 +75,7 @@ export interface UseNoteNavigationOptions {
   // From editor queue (Phase 1)
   flushQueuedEditorUpdates: (noteId: string | null, timeoutMs?: number) => Promise<boolean>
   notifyFlushTimeout: () => void
-  triggerIndexCheck: (noteId: string | null) => void
+  triggerIndexCheck: (noteId: string | null, fallbackNote?: Note | null) => void
 
   // From local folder (Phase 2+3)
   localFolderTreeCache: Record<string, LocalFolderTreeResult>
@@ -221,6 +221,9 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
   const initialLocalSelectionRestoreRef = useRef(false)
   // Track previous tabFocusedNoteId for empty note cleanup
   const prevTabFocusedNoteIdRef = useRef<string | null>(null)
+  // Keep a ref so stale useCallback closures always see the latest local note
+  const localEditorNoteRef = useRef<Note | null>(localEditorNote)
+  localEditorNoteRef.current = localEditorNote
 
   // ---------------------------------------------------------------------------
   // invalidateNoteSelectionVersion
@@ -452,7 +455,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
         notifyFlushTimeout()
       }
 
-      triggerIndexCheck(leavingFocusedNoteId)
+      triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
       if (leavingFocusedNoteId && leavingFocusedNoteId !== noteId) {
         deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
       }
@@ -502,7 +505,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       }
 
       // Trigger incremental index check for the note being left
-      triggerIndexCheck(leavingFocusedNoteId)
+      triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
 
       // Delete empty note if switching away from it
       // Run in background without blocking selection
@@ -616,7 +619,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
-    triggerIndexCheck(leavingFocusedNoteId)
+    triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
     await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
     if (selectionVersion !== noteSelectionVersionRef.current) return
     if (!shouldApplyImmediateNotebookUi) {
@@ -683,7 +686,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
-    triggerIndexCheck(leavingFocusedNoteId)
+    triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
     await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
     if (selectionVersion !== noteSelectionVersionRef.current) return
     if (!shouldApplyImmediateSmartViewUi) {

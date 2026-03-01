@@ -41,7 +41,7 @@ export interface EditorUpdateQueueAPI {
   notifyFlushTimeout: () => void
   notifyFlushRequired: () => void
   applyNonEditorNotePatch: (id: string, patch: Partial<NoteInput>) => Promise<Note | null>
-  triggerIndexCheck: (noteId: string | null) => void
+  triggerIndexCheck: (noteId: string | null, fallbackNote?: Note | null) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +379,7 @@ export function useEditorUpdateQueue(options: UseEditorUpdateQueueOptions): Edit
 
   // --- Index check (debounced) ---
 
-  const triggerIndexCheck = useCallback((noteId: string | null) => {
+  const triggerIndexCheck = useCallback((noteId: string | null, fallbackNote?: Note | null) => {
     if (!noteId) return
 
     if (indexCheckTimerRef.current) {
@@ -388,6 +388,7 @@ export function useEditorUpdateQueue(options: UseEditorUpdateQueueOptions): Edit
 
     indexCheckTimerRef.current = setTimeout(() => {
       const note = notesRef.current.find(n => n.id === noteId)
+        || (fallbackNote?.id === noteId ? fallbackNote : null)
       if (note) {
         window.electron.note.checkIndex(
           note.id,

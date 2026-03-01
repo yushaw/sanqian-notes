@@ -129,7 +129,21 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
 
       if (!isLocalFolderNotebookSelected && !isActiveAllViewLocalNotebook) return
       const suppressUntil = localWatchRefreshSuppressUntilRef.current.get(event.notebook_id) ?? 0
-      if (suppressUntil > Date.now()) {
+      const now = Date.now()
+      if (suppressUntil > now) {
+        // Don't silently drop: schedule a compensating refresh after the
+        // suppression window expires so external changes aren't lost.
+        const existingTimer = localWatchRefreshTimers.get(event.notebook_id)
+        if (existingTimer) {
+          clearTimeout(existingTimer)
+        }
+        const delayMs = suppressUntil - now + LOCAL_WATCH_REFRESH_DEBOUNCE_MS
+        const deferredTimer = setTimeout(() => {
+          localWatchRefreshTimers.delete(event.notebook_id)
+          void refreshLocalFolderTree(event.notebook_id, { showLoading: false })
+          void refreshOpenLocalFileFromDisk({ changedRelativePath: null })
+        }, delayMs)
+        localWatchRefreshTimers.set(event.notebook_id, deferredTimer)
         return
       }
 

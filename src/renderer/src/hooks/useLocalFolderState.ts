@@ -167,7 +167,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   localEditorNoteRef.current = localEditorNote
   const localAutoDraftRef = useRef<LocalAutoDraftState | null>(null)
   const localSaveBlockedByConflictRef = useRef(false)
-  const localPendingContentRef = useRef<string | null>(null)
+  const localPendingContentRef = useRef<{ content: string; notebookId: string; relativePath: string } | null>(null)
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localSaveTaskRef = useRef<Promise<void> | null>(null)
   const localFileReadVersionRef = useRef(0)
@@ -488,9 +488,16 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         if (localSaveBlockedByConflictRef.current) {
           break
         }
-        const pendingContent = localPendingContentRef.current
+        const pending = localPendingContentRef.current
         const openFile = localOpenFileRef.current
-        if (!pendingContent || !openFile) {
+        if (!pending || !openFile) {
+          break
+        }
+
+        // Guard: discard stale content from a previously open file (race between
+        // the editor's 300ms debounce and openLocalFile switching localOpenFileRef).
+        if (pending.notebookId !== openFile.notebookId || pending.relativePath !== openFile.relativePath) {
+          localPendingContentRef.current = null
           break
         }
 
@@ -498,9 +505,9 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         const expectedMeta = localOpenFileMetaRef.current
 
         const result = await window.electron.localFolder.saveFile({
-          notebook_id: openFile.notebookId,
-          relative_path: openFile.relativePath,
-          tiptap_content: pendingContent,
+          notebook_id: pending.notebookId,
+          relative_path: pending.relativePath,
+          tiptap_content: pending.content,
           if_match: expectedMeta?.etag,
           expected_mtime_ms: expectedMeta?.mtimeMs,
           expected_size: expectedMeta?.size,
@@ -511,9 +518,9 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
           if (result.errorCode === 'LOCAL_FILE_CONFLICT') {
             localSaveBlockedByConflictRef.current = true
             setLocalSaveConflictDialog({
-              relativePath: openFile.relativePath,
-              displayName: getRelativePathDisplayName(openFile.relativePath),
-              pendingContent,
+              relativePath: pending.relativePath,
+              displayName: getRelativePathDisplayName(pending.relativePath),
+              pendingContent: pending.content,
               conflict: result.conflict,
             })
             toast(t.notebook.fileConflictDetected, { type: 'error' })
@@ -529,7 +536,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
           contentHash: result.result.content_hash,
           etag: result.result.etag,
         }
-        suppressLocalWatchRefresh(openFile.notebookId)
+        suppressLocalWatchRefresh(pending.notebookId)
       }
     })().finally(() => {
       localSaveTaskRef.current = null
@@ -685,8 +692,8 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         localPendingContentRef.current = null
         localSaveBlockedByConflictRef.current = false
         setLocalSaveConflictDialog(null)
-        setLocalEditorNote(null)
         if (!keepNextSelection) {
+          setLocalEditorNote(null)
           setSelectedLocalFilePath(null)
         }
       }
@@ -754,7 +761,13 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         updated_at: new Date().toISOString(),
       }
     })
-    localPendingContentRef.current = nextContent
+    if (openFile) {
+      localPendingContentRef.current = {
+        content: nextContent,
+        notebookId: openFile.notebookId,
+        relativePath: openFile.relativePath,
+      }
+    }
     if (!localSaveBlockedByConflictRef.current) {
       scheduleLocalFileSave()
     }
@@ -2061,8 +2074,17 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       migrateLocalNoteMetadataInState(notebookId, relativePath, newRelativePath, 'file')
       setSelectedLocalFilePath(newRelativePath)
       localOpenFileRef.current = { notebookId, relativePath: newRelativePath }
-      // Invalidate etag (contains old path)
-      localOpenFileMetaRef.current = null
+      // Restore conflict-detection meta from rename response so the next save
+      // can detect external changes instead of skipping the check entirely.
+      if (result.result.mtime_ms != null && result.result.size != null) {
+        localOpenFileMetaRef.current = {
+          mtimeMs: result.result.mtime_ms,
+          size: result.result.size,
+          // etag/contentHash are invalidated (etag contains old path, content unchanged)
+        }
+      } else {
+        localOpenFileMetaRef.current = null
+      }
 
       const newNoteId = createLocalResourceId(notebookId, newRelativePath)
       setLocalEditorNote((prev) => {

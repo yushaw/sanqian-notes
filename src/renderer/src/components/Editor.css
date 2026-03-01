@@ -5496,3 +5496,9 @@ span.zen-header-title {
   background: var(--color-accent);
   color: white;
 }
+
+/* Loading overlay fade-in with delay to avoid flash on fast loads */
+@keyframes editorLoadingFadeIn {
+  0%, 90% { opacity: 0; }
+  100% { opacity: 1; }
+}

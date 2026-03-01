@@ -867,6 +867,7 @@ function AppContent() {
                   <div
                     data-testid="local-editor-loading-overlay"
                     className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center bg-[color-mix(in_srgb,var(--color-card-solid)_88%,transparent)] backdrop-blur-[1px]"
+                    style={{ animation: 'editorLoadingFadeIn 150ms ease-out forwards', opacity: 0 }}
                     aria-live="polite"
                   >
                     <span className="text-[var(--color-muted)] text-[0.9rem]">

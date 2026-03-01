@@ -84,6 +84,26 @@ import './Editor.css'
 // Editor layout constants (keep in sync with Editor.css)
 const HEADER_HEIGHT = 42
 
+/**
+ * Parse note content string into a format suitable for editor.commands.setContent().
+ * Returns null if the content is Markdown (needs special insertContent handling).
+ */
+function parseNoteContent(content: string | undefined): ReturnType<typeof JSON.parse> | null {
+  if (!content || content === '[]' || content === '') {
+    return { type: 'doc', content: [] }
+  }
+  try {
+    const parsed = JSON.parse(content)
+    if (parsed.type === 'doc') return parsed
+    return { type: 'doc', content: [] }
+  } catch {
+    if (looksLikeMarkdown(content)) {
+      return null // Markdown: caller must use insertContent with markdownToHtml
+    }
+    return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: content }] }] }
+  }
+}
+
 // 关闭分屏按钮组件
 function PaneCloseButton({ onClick, title }: { onClick: () => void; title: string }) {
   return (
@@ -251,6 +271,11 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const isEditorComposingRef = useRef(false)
   const isTitleComposingRef = useRef(false)
   const skipNextTitleCommitRef = useRef(false)
+
+  // Stable ref for note.id - used in useEditor's onUpdate callback to avoid
+  // stale closure after removing key={note.id} (which would save to wrong note)
+  const noteIdRef = useRef(note.id)
+  noteIdRef.current = note.id
 
   // Ref for AgentTask panel callback (to avoid circular dependency with useEditor)
   const openAgentTaskRef = useRef<(blockIds: string[], taskId: string | null, blockContent: string) => void>(() => {})
@@ -463,7 +488,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         saveDebounceRef.current = setTimeout(() => {
           saveDebounceRef.current = null
           if (!editor.isDestroyed) {
-            onUpdateRef.current(note.id, { content: JSON.stringify(editor.getJSON()) })
+            onUpdateRef.current(noteIdRef.current, { content: JSON.stringify(editor.getJSON()) })
           }
         }, 300)
       }
@@ -538,7 +563,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   const aiActions = getShortcutActions()
 
   // AI action executor with unified loading indicators
-  const { executeAction: handleAIActionClick, isProcessing: isAIProcessing } = useAIActionExecutor({
+  const { executeAction: handleAIActionClick, isProcessing: isAIProcessing, cancel: cancelAIAction, cleanupTempIcons: cleanupAITempIcons } = useAIActionExecutor({
     editor,
     t,
     onComplete: () => {
@@ -606,8 +631,95 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     editor.commands.openSearch()
   }, [editor])
 
-  // 同步外部内容变化到编辑器（长期主义方案：避免重建编辑器）
-  // 场景：从打字机模式退出后，note.content 已更新，需要同步到编辑器
+  // Note-switch reset: replace editor content and reset per-note state when switching notes.
+  // This enables editor instance reuse (no key={note.id} remount) for zero-flicker switching.
+  const noteSwitchIdRef = useRef(note.id)
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const prevId = noteSwitchIdRef.current
+    noteSwitchIdRef.current = note.id
+    if (prevId === note.id) return // Initial mount, not a switch
+
+    // --- 1. Title handling ---
+    const isTitleFocused = document.activeElement === titleRef.current
+      || document.activeElement === headerTitleRef.current
+    if (isTitleFocused) {
+      skipNextTitleCommitRef.current = true
+      ;(document.activeElement as HTMLElement)?.blur?.()
+    }
+
+    // --- 2. Cancel in-progress AI actions and close all popups/panels ---
+    cancelAIAction()
+    cleanupAITempIcons()
+    editor.commands.hideAIPreview()
+
+    linkPopup.handleCloseLinkPopup()
+    transclusionPopup.handleCloseTransclusionPopup()
+    embedPopup.handleCloseEmbedPopup()
+    agentTask.handleCloseAgentTaskPanel()
+    if (showSearchBar) {
+      editor.commands.closeSearch()
+      setShowSearchBar(false)
+    }
+    setContextMenuPosition(null)
+    setContextMenuHasSelection(false)
+
+    // --- 3. Reset per-note state ---
+    setTitle(note.title)
+    setSelectedWordCount(null)
+    setIsEditingHeaderTitle(false)
+    setIsTitleHidden(false)
+    isEditorComposingRef.current = false
+    isTitleComposingRef.current = false
+    skipNextTitleCommitRef.current = false
+    lastCursorInfo.current = null
+    lastSyncedSelection.current = { blockId: null, selectedText: null }
+    if (selectionSyncTimer.current) {
+      clearTimeout(selectionSyncTimer.current)
+      selectionSyncTimer.current = null
+    }
+
+    // --- 4. Replace editor content ---
+    const parsedContent = parseNoteContent(note.content)
+    if (parsedContent === null) {
+      // Markdown content: clear first then insertContent to trigger Markdown conversion
+      editor.commands.setContent('', { emitUpdate: false })
+      editor.commands.insertContent(markdownToHtml(note.content), {
+        parseOptions: { preserveWhitespace: false },
+      })
+      editorContentRef.current = JSON.stringify(editor.getJSON())
+    } else {
+      // JSON content: setContent handles all edge cases (empty doc, plain text, etc.)
+      editor.commands.setContent(parsedContent, { emitUpdate: false })
+      editorContentRef.current = note.content
+    }
+
+    // Clear debounce timer that insertContent may have triggered (freshly loaded, don't save)
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current)
+      saveDebounceRef.current = null
+    }
+
+    // --- 5. Clear undo/redo history ---
+    const historyPlugin = editor.state.plugins.find(
+      (p) => (p as any).key === 'history$'
+    )
+    if (historyPlugin && historyPlugin.spec.state) {
+      const freshState = historyPlugin.spec.state.init({} as any, editor.state)
+      const htr = editor.state.tr
+      htr.setMeta(historyPlugin, { historyState: freshState })
+      editor.view.dispatch(htr)
+    }
+
+    // --- 6. Handle cursor placeholder ---
+    handleCursorPlaceholder(editor)
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, note.id])
+
+  // 同步外部内容变化到编辑器（同一笔记的外部更新，如打字机模式退出后同步）
+  // 切换笔记由上面的 note-switch reset effect 处理
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
 
@@ -617,40 +729,19 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     // 检测是否是切换笔记（排除首次渲染）
     const isNoteSwitch = prevSyncNoteIdRef.current !== null && prevSyncNoteIdRef.current !== note.id
     prevSyncNoteIdRef.current = note.id
+    if (isNoteSwitch) return // Handled by note-switch reset effect above
 
     // 如果这是编辑器自己刚刚产生的更新，跳过同步
     if (editorContentRef.current === note.content) {
       return
     }
 
-    // 检测是否需要保留光标位置（编辑器有焦点且不是切换笔记）
+    // 检测是否需要保留光标位置（编辑器有焦点）
     // 使用 blockId + offset 方案保存光标，内容更新后恢复
-    const shouldPreserveCursor = editor.isFocused && !isNoteSwitch
+    const shouldPreserveCursor = editor.isFocused
     const savedCursorInfo = shouldPreserveCursor ? getCursorInfo(editor) : null
 
-    // 解析外部传入的内容
-    const parseContent = () => {
-      if (!note.content || note.content === '[]' || note.content === '') {
-        return { type: 'doc', content: [] }
-      }
-      try {
-        const parsed = JSON.parse(note.content)
-        if (parsed.type === 'doc') return parsed
-        return { type: 'doc', content: [] }
-      } catch {
-        // JSON 解析失败，可能是纯文本或 Markdown
-        // 检测是否是 Markdown，如果是则转换
-        if (looksLikeMarkdown(note.content)) {
-          // 使用 insertContent 而不是 setContent，触发 Markdown 转换
-          // 需要返回 null 作为标记
-          return null
-        }
-        // 纯文本，包装成 paragraph
-        return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: note.content }] }] }
-      }
-    }
-
-    const externalContent = parseContent()
+    const externalContent = parseNoteContent(note.content)
 
     // 如果是 Markdown，使用 insertContent 转换
     if (externalContent === null) {
@@ -670,19 +761,6 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         if (savedCursorInfo) {
           setCursorByBlockId(editor, savedCursorInfo)
         }
-      })
-      return
-    }
-
-    // 切换笔记时直接 setContent，跳过内容比较（性能优化）
-    if (isNoteSwitch) {
-      const contentToSync = note.content
-      queueMicrotask(() => {
-        if (syncVersionRef.current !== version || editor.isDestroyed) return
-        editor.commands.setContent(externalContent, { emitUpdate: false })
-        editorContentRef.current = contentToSync
-        // 处理模板中的光标占位符 \u2063
-        handleCursorPlaceholder(editor)
       })
       return
     }
@@ -1644,7 +1722,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         </div>
       ) : (
         <ZenEditor
-          key={note.id}
           ref={ref}
           note={note}
           paneId={paneId}

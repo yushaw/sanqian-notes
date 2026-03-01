@@ -382,7 +382,7 @@ export type LocalFolderDeleteEntryResponse =
   | { success: false; errorCode: LocalFolderFileErrorCode }
 
 export type LocalFolderRenameEntryResponse =
-  | { success: true; result: { relative_path: string }; metadataWarning?: string }
+  | { success: true; result: { relative_path: string; mtime_ms?: number; size?: number }; metadataWarning?: string }
   | { success: false; errorCode: LocalFolderFileErrorCode }
 
 export type LocalFolderSearchResponse =

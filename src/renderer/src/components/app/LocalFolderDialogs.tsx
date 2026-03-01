@@ -460,6 +460,9 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
 
       if (deletingOpenFile) {
         await flushLocalFileSave()
+        // Disarm save mechanism immediately so that Editor's debounce firing
+        // during the async delete IPC cannot re-queue saves and resurrect the file.
+        onLocalEditorClear()
       }
 
       const result = await window.electron.localFolder.deleteEntry({
@@ -502,9 +505,8 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
 
       onAutoDraftClearIfNeeded(selectedNotebookId, deleteDialog.relativePath, deleteDialog.kind)
 
-      if (deletingOpenFile) {
-        onLocalEditorClear()
-      }
+      // onLocalEditorClear() already called before delete IPC (above) to prevent
+      // save-race file resurrection.
 
       setDeleteDialog(null)
       suppressLocalWatchRefresh(selectedNotebookId)

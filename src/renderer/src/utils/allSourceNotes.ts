@@ -29,18 +29,17 @@ function compareAllSourceNotes(left: Note, right: Note): number {
 
 function buildLocalAllSourceNote(
   notebookId: string,
-  notebookName: string,
   file: LocalFolderTreeResult['files'][number],
   metadata: LocalNoteMetadata | null
 ): Note {
   const updatedAt = new Date(file.mtime_ms).toISOString()
-  const pathSummary = notebookName ? `${notebookName} · ${file.relative_path}` : file.relative_path
-  const summary = metadata?.ai_summary || pathSummary
+  const previewText = file.preview?.trim() || file.relative_path
+  const summary = metadata?.ai_summary || previewText
 
   return {
     id: createLocalResourceId(notebookId, file.relative_path),
     title: getLocalSearchFileTitle(file.relative_path),
-    content: pathSummary,
+    content: previewText,
     notebook_id: notebookId,
     folder_path: null,
     is_daily: false,
@@ -73,7 +72,6 @@ export function buildAllSourceLocalNotes(input: BuildAllSourceLocalNotesInput): 
       localNotes.push(
         buildLocalAllSourceNote(
           notebook.id,
-          notebook.name,
           file,
           metadataById[localId] || null
         )

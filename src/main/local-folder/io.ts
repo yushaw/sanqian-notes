@@ -563,6 +563,12 @@ export function renameLocalFolderEntry(
 
   try {
     renameSync(absoluteCurrentPath, absoluteNextPath)
+    if (input.kind === 'file') {
+      try {
+        const newStat = lstatSync(absoluteNextPath)
+        return { success: true, result: { relative_path: nextRelativePath, mtime_ms: newStat.mtimeMs, size: newStat.size } }
+      } catch { /* non-fatal */ }
+    }
     return {
       success: true,
       result: { relative_path: nextRelativePath },
@@ -1197,6 +1203,16 @@ export async function renameLocalFolderEntryAsync(
 
   try {
     await fsPromises.rename(absoluteCurrentPath, absoluteNextPath)
+    // For files, stat the renamed file so the renderer can restore conflict detection meta.
+    if (input.kind === 'file') {
+      try {
+        const newStat = await fsPromises.lstat(absoluteNextPath)
+        return { success: true, result: { relative_path: nextRelativePath, mtime_ms: newStat.mtimeMs, size: newStat.size } }
+      } catch {
+        // Stat failure is non-fatal; return without stat info (conflict detection will be bypassed for one save).
+        return { success: true, result: { relative_path: nextRelativePath } }
+      }
+    }
     return { success: true, result: { relative_path: nextRelativePath } }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code

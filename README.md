@@ -1165,3 +1165,30 @@ Executed items A1-A4, B2, C1, C4 from the deep verification checklist.
 **Fix: "No notes yet" flash on All Notes view switch** - Converted `allSourceLocalNotes` and `globalSmartViewNotes` from async IPC-fetched `useState` to synchronous `useMemo` derivations in App.tsx. Root cause was `setGlobalSmartViewNotes([])` clearing state before async IPC fetch completed. The renderer already had all data needed to compute these values (`notes`, `localFolderTreeCache`, `localNoteMetadataById`). Extracted `applyViewTypeFilter` and `resolveRecentThresholdMs` to `src/shared/note-filters.ts` for reuse by both main and renderer. Removed ~100 lines of async reload scheduling code (4 useCallbacks, 4 refs, 3 useEffects) from `useLocalFolderState.ts` and eliminated 3 redundant `getAll({ includeLocal: true })` IPC calls across `loadData`, `useNoteDataChangedReload`, and `useNoteCRUD`. Used `useDeferredValue(notes)` for `globalSmartViewNotes` to prevent O(n log n) merge+sort on every keystroke (replaces old 280ms debounce with React-level scheduling). Used module-level `EMPTY_NOTES` constant for referential stability when globalSmartViewNotes returns empty.
 
 **Fix: Click in title-editor gap scrolls to document bottom** - Moved `padding-bottom: 160px` from `.zen-content` (wrapper) to `.zen-editor` (ProseMirror element) so ProseMirror natively handles clicks in the bottom padding area via `posAtCoords`. Removed `focus('end')` from the scroll-wrapper onClick handler -- now just calls `focus()` for clicks outside the editor (side margins, title-editor gap). Updated typewriter mode padding target accordingly. Added `stopPropagation` to CalloutView and ToggleView toggle handlers for consistency.
+
+### Fix: Local folder note save race condition (2026-03-01)
+
+Switching between local folder notes would overwrite the target note with the previously edited note's content. Root cause: Editor.tsx has a 300ms debounce before calling `handleUpdateLocalFile`, and `useLocalFolderState` has a separate 1000ms save debounce. When `openLocalFile(B)` called `flushLocalFileSave()`, the editor debounce hadn't fired yet (nothing to flush). During the async IPC read of file B, the 300ms timer fired and queued file A's content into `localPendingContentRef`. By the time `processLocalFileSaveQueue` ran, `localOpenFileRef.current` had already switched to B, so A's content was written to B's path.
+
+Fix: Changed `localPendingContentRef` from `string | null` to `{ content, notebookId, relativePath } | null`, binding the target file at queue-time. `processLocalFileSaveQueue` validates the pending target matches `localOpenFileRef.current` before saving; stale content for a different file is discarded.
+
+Codebase-wide review confirmed no similar issues elsewhere: internal notes use per-noteId Map keying (no ref-based target lookup), TypewriterMode only handles internal notes, conflict state is properly cleared on file switch.
+
+### Perf: Eliminate note-switch UI flicker (2026-03-01)
+
+Removed `key={note.id}` from ZenEditor to reuse the Tiptap editor instance across note switches instead of destroying and rebuilding ~45 extensions and ~60 ProseMirror plugins each time. Core changes:
+
+- **Editor.tsx**: Added `noteIdRef` for closure-safe `onUpdate` callback. Added note-switch reset effect that synchronously replaces content, resets per-note state (title, selection, composing refs, search bar), closes all popups/panels, cancels in-progress AI actions, and clears undo/redo history. Simplified content sync effect to skip note-switch handling (now delegated to reset effect). Extracted `parseNoteContent()` utility. Removed `key={note.id}` from ZenEditor.
+- **App.tsx**: Added 150ms fade-in animation-delay on local editor loading overlay to avoid flash on fast loads.
+- **useLocalFolderState.ts**: Skip `setLocalEditorNote(null)` when `keepNextSelection=true` (switching files), preventing blank editor flash.
+- **Editor.css**: Added `@keyframes editorLoadingFadeIn` for loading overlay delay.
+
+### Safety: Local folder file operation hardening (2026-03-01)
+
+Comprehensive safety review of local folder code identified and fixed three race conditions:
+
+1. **Rename meta null -> conflict detection bypass**: After renaming a file via inline title edit, `localOpenFileMetaRef` was set to null, disabling conflict detection for the next save. Fix: `renameLocalFolderEntry` (both sync/async in io.ts) now stats the renamed file and returns `mtime_ms`/`size`. Renderer uses these to populate `localOpenFileMetaRef` instead of nulling it.
+
+2. **Delete-save race -> file resurrection**: When deleting the currently open file, `onLocalEditorClear()` was called AFTER the delete IPC. Editor's 300ms debounce could fire during the async delete, re-queuing content and resurrecting the deleted file. Fix: moved `onLocalEditorClear()` to before the delete IPC (right after flush), disarming the save mechanism before the file is removed.
+
+3. **Watch suppression gap -> missed external changes**: The 1200ms watch suppression window silently dropped all incoming file-change events. External edits arriving during suppression were permanently lost until the next event. Fix: suppressed events now schedule a compensating refresh for after the suppression window expires, using the existing `localWatchRefreshTimers` map.

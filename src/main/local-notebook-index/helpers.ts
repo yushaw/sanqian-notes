@@ -1,4 +1,6 @@
+import { extname } from 'path'
 import { normalizeRelativeSlashPath } from '../path-compat'
+import { ALLOWED_EXTENSIONS } from '../local-folder/path'
 import {
   getLocalNoteIdentityByPath,
   getLocalNoteIdentityUidsByNotebook,
@@ -20,7 +22,12 @@ import { indexingService, getAllIndexStatus } from '../embedding'
 export function normalizeLocalIndexSyncPath(relativePath: string | null | undefined): string | null {
   if (!relativePath) return null
   const normalized = normalizeRelativeSlashPath(relativePath)
-  return normalized || null
+  if (!normalized) return null
+  // Reject hidden files (e.g. atomic-write temp files like .file.tmp-xxx)
+  if (normalized.split('/').some((segment) => segment.startsWith('.'))) return null
+  // Reject paths without a valid note extension (e.g. directory names like "Ideas")
+  if (!ALLOWED_EXTENSIONS.has(extname(normalized).toLowerCase())) return null
+  return normalized
 }
 
 export function resolveLocalIndexNoteId(notebookId: string, relativePath: string): string {

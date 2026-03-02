@@ -149,15 +149,12 @@ export interface LocalFolderIpcDeps {
   ) => IfMatchCheckResult
   normalizeLocalRelativePathForEtag: (relativePath: string) => string
   // Index
-  resolveLocalIndexNoteId: (notebookId: string, relativePath: string) => string
-  deleteLegacyLocalIndexByPath: (notebookId: string, relativePath: string) => void
   deleteIndexedLocalNotesByNotebook: (notebookId: string) => void
   deleteIndexForLocalPath: (notebookId: string, relativePath: string, options?: { noteUid?: string | null }) => void
   syncLocalNoteTagsMetadata: (notebookId: string, relativePath: string, tiptapContent: string) => void
   syncLocalNotePopupRefs: (notebookId: string, relativePath: string, tiptapContent: string) => void
   enqueueLocalNotebookIndexSync: (notebookId: string, options: { full?: boolean; immediate?: boolean; changedRelativePath?: string }) => void
   clearLocalNotebookIndexSyncForNotebook: (notebookId: string) => void
-  checkAndIndex: (noteId: string, notebookId: string, tiptapContent: string, options?: { ftsOnly?: boolean; fileMtimeMs?: number }) => Promise<unknown>
   // Tree cache
   scanAndCacheLocalFolderTree: (mount: LocalFolderNotebookMount) => LocalFolderTreeResult
   scanAndCacheLocalFolderTreeAsync: (mount: LocalFolderNotebookMount) => Promise<LocalFolderTreeResult>
@@ -357,11 +354,6 @@ export function registerLocalFolderIpc(
       } catch (error) {
         console.warn('[localFolder:saveFile] failed to sync local popup refs:', normalizedRelativePath, error)
       }
-      const localId = deps.resolveLocalIndexNoteId(input.notebook_id, normalizedRelativePath)
-      deps.deleteLegacyLocalIndexByPath(input.notebook_id, normalizedRelativePath)
-      deps.checkAndIndex(localId, input.notebook_id, input.tiptap_content, { ftsOnly: true, fileMtimeMs: result.result.mtime_ms }).catch((error) => {
-        console.warn('[localFolder:saveFile] failed to index local note:', localId, error)
-      })
       return {
         success: true,
         result: {

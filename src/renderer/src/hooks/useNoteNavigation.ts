@@ -416,7 +416,10 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
     const isMultiSelectKey = event && (event.metaKey || event.ctrlKey)
     const isRangeSelectKey = event && event.shiftKey
     // Use focused pane note as the only "leaving note".
+    // For local notes, tabFocusedNoteId doesn't track them (openNoteInPane is
+    // never called for local notes), so capture the local editor note early.
     const leavingFocusedNoteId = tabFocusedNoteId
+    const leavingLocalEditorNote = localEditorNoteRef.current
     const navigationTarget = resolveSearchResultNavigationTarget(noteId)
 
     if (navigationTarget.type === 'local') {
@@ -455,7 +458,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
         notifyFlushTimeout()
       }
 
-      triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
+      triggerIndexCheck(leavingLocalEditorNote?.id || leavingFocusedNoteId, leavingLocalEditorNote)
       if (leavingFocusedNoteId && leavingFocusedNoteId !== noteId) {
         deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
       }
@@ -505,7 +508,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       }
 
       // Trigger incremental index check for the note being left
-      triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
+      triggerIndexCheck(leavingLocalEditorNote?.id || leavingFocusedNoteId, leavingLocalEditorNote)
 
       // Delete empty note if switching away from it
       // Run in background without blocking selection
@@ -590,6 +593,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
   const handleSelectNotebook = useCallback(async (id: string | null) => {
     const selectionVersion = invalidateNoteSelectionVersion()
     const leavingFocusedNoteId = tabFocusedNoteId
+    const leavingLocalEditorNote = localEditorNoteRef.current
     const shouldApplyImmediateNotebookUi = !isLocalFolderNotebookSelected && !isAllViewLocalEditorActive
     const applyNotebookSelectionUi = () => {
       setSelectedNotebookId(id)
@@ -619,7 +623,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
-    triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
+    triggerIndexCheck(leavingLocalEditorNote?.id || leavingFocusedNoteId, leavingLocalEditorNote)
     await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
     if (selectionVersion !== noteSelectionVersionRef.current) return
     if (!shouldApplyImmediateNotebookUi) {
@@ -657,6 +661,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
   const handleSelectSmartView = useCallback(async (view: SmartViewId) => {
     const selectionVersion = invalidateNoteSelectionVersion()
     const leavingFocusedNoteId = tabFocusedNoteId
+    const leavingLocalEditorNote = localEditorNoteRef.current
     const shouldApplyImmediateSmartViewUi = !isLocalFolderNotebookSelected && !isAllViewLocalEditorActive
     const applySmartViewSelectionUi = () => {
       setSelectedSmartView(view)
@@ -686,7 +691,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       notifyFlushTimeout()
     }
     // Trigger incremental index check for the note being left
-    triggerIndexCheck(leavingFocusedNoteId, localEditorNoteRef.current)
+    triggerIndexCheck(leavingLocalEditorNote?.id || leavingFocusedNoteId, leavingLocalEditorNote)
     await deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
     if (selectionVersion !== noteSelectionVersionRef.current) return
     if (!shouldApplyImmediateSmartViewUi) {

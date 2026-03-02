@@ -109,23 +109,6 @@ async function syncLocalNotebookIndex(
       } catch (error) {
         console.warn('[LocalIndex] Failed to sync local popup refs:', notebookId, relativePath, error)
       }
-      const localId = resolveLocalIndexNoteId(notebookId, relativePath)
-      try {
-        deleteLegacyLocalIndexByPath(notebookId, relativePath)
-        await indexingService.checkAndIndex(
-          localId,
-          notebookId,
-          readResult.result.tiptap_content,
-          { ftsOnly: true, fileMtimeMs: readResult.result.mtime_ms }
-        )
-        if (isLocalNotebookIndexSyncCancelled(runGeneration)) {
-          indexingService.deleteNoteIndex(localId)
-          deleteLegacyLocalIndexByPath(notebookId, relativePath)
-          return
-        }
-      } catch (error) {
-        console.warn('[LocalIndex] Failed to check index for local file:', localId, error)
-      }
     }
     return
   }

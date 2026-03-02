@@ -49,6 +49,10 @@ function resolveWatchChangedRelativePath(rootPath: string, absolutePath: string 
   return relativePath
 }
 
+function isHiddenRelativePath(relativePath: string): boolean {
+  return relativePath.split('/').some((segment) => segment.startsWith('.'))
+}
+
 function scheduleLocalFolderWatcherRestart(notebookId: string, delayMs: number = LOCAL_FOLDER_WATCHER_RESTART_DELAY_MS): void {
   if (localFolderWatcherRestartTimers.has(notebookId)) return
   const timer = setTimeout(() => {
@@ -103,6 +107,9 @@ export function ensureLocalFolderWatcher(mountNotebookId: string, rootPath: stri
       }
       invalidateLocalFolderTreeCache(mountNotebookId)
       const changedRelativePath = resolveWatchChangedRelativePath(mount.root_path, change.absolutePath)
+      // Skip hidden files entirely (e.g. atomic-write temp files like .file.tmp-xxx).
+      // The subsequent rename event for the actual file will trigger the real sync.
+      if (changedRelativePath && isHiddenRelativePath(changedRelativePath)) return
       scheduleLocalFolderWatchEvent({
         notebook_id: mountNotebookId,
         status: 'active',

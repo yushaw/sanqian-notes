@@ -33,7 +33,8 @@ import { computeContentHash } from './utils'
 import type { NoteChunk, NoteIndexStatus } from './types'
 import { generateSummary } from '../summary-service'
 import { getLocalNoteSummaryInfo, getNoteSummaryInfo } from '../database'
-import { resolveLocalNoteRef } from '../note-gateway'
+import { resolveLocalNoteRef, buildCanonicalLocalResourceId } from '../note-gateway'
+import { parseLocalResourceId } from '../../shared/local-resource-id'
 
 // 摘要触发阈值：Chunk 变化率超过 30% 时重新生成摘要
 const SUMMARY_CHANGE_THRESHOLD = 0.3
@@ -310,6 +311,17 @@ export class IndexingService {
     options?: { ftsOnly?: boolean; fileMtimeMs?: number }
   ): Promise<boolean> {
     if (!this.isRunning) return false
+
+    // Normalize local note IDs to canonical UUID format.
+    // The renderer uses "local:notebookId:encodedPath" format, but the index
+    // database should always use the stable UUID from local_note_identity.
+    const localRef = parseLocalResourceId(noteId)
+    if (localRef && localRef.relativePath) {
+      noteId = buildCanonicalLocalResourceId({
+        notebookId: localRef.notebookId,
+        relativePath: localRef.relativePath,
+      })
+    }
 
     const config = getEmbeddingConfig()
     const ftsOnly = options?.ftsOnly ?? false

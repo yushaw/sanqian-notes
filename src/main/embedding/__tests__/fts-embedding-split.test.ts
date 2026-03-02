@@ -45,6 +45,7 @@ vi.mock('../../database', () => ({
   getNoteSummaryInfo: vi.fn().mockReturnValue(null),
   getLocalNoteSummaryInfo: vi.fn().mockReturnValue(null),
   getLocalNoteIdentityByUid: vi.fn().mockReturnValue(null),
+  ensureLocalNoteIdentity: vi.fn().mockReturnValue(null),
 }))
 
 import {
@@ -60,7 +61,7 @@ import {
 import { getEmbeddings } from '../api'
 import { chunkNote } from '../chunking'
 import { generateSummary } from '../../summary-service'
-import { getLocalNoteIdentityByUid, getLocalNoteSummaryInfo, getNoteSummaryInfo } from '../../database'
+import { ensureLocalNoteIdentity, getLocalNoteIdentityByUid, getLocalNoteSummaryInfo, getNoteSummaryInfo } from '../../database'
 
 // 导入被测试的服务
 import { IndexingService } from '../indexing-service'
@@ -288,10 +289,21 @@ describe('FTS 与 Embedding 索引拆分', () => {
   })
 
   describe('local note behavior', () => {
-    it('triggers summary for local note ids on no-change check when local summary is missing', async () => {
+    it('normalizes local:path IDs to UUID and triggers summary on no-change check', async () => {
+      const localUuid = 'a0000000-0000-4000-a000-000000000001'
+      const identity = {
+        note_uid: localUuid,
+        notebook_id: 'nb-local',
+        relative_path: 'foo.md',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      }
+      vi.mocked(ensureLocalNoteIdentity).mockReturnValue(identity)
+      // resolveLocalNoteRef uses this to resolve bare UUID back to local note
+      vi.mocked(getLocalNoteIdentityByUid).mockReturnValue(identity)
       vi.mocked(getEmbeddingConfig).mockReturnValue(createMockConfig(true))
       const content = createTiptapContent(LONG_TEXT)
-      const status = createMockStatus('local:nb-local:foo.md', {
+      const status = createMockStatus(localUuid, {
         contentHash: computeContentHash(LONG_TEXT),
         embeddingStatus: 'indexed',
       })
@@ -299,13 +311,21 @@ describe('FTS 与 Embedding 索引拆分', () => {
 
       const result = await service.checkAndIndex('local:nb-local:foo.md', 'nb-local', content)
 
+      // ID should be normalized: ensureLocalNoteIdentity called with parsed path
+      expect(ensureLocalNoteIdentity).toHaveBeenCalledWith({
+        notebook_id: 'nb-local',
+        relative_path: 'foo.md',
+      })
+      // Index status looked up by UUID, not renderer format
+      expect(getNoteIndexStatus).toHaveBeenCalledWith(localUuid)
       expect(result).toBe(false)
       expect(getLocalNoteSummaryInfo).toHaveBeenCalledWith({
         notebook_id: 'nb-local',
         relative_path: 'foo.md',
       })
       expect(getNoteSummaryInfo).not.toHaveBeenCalled()
-      expect(generateSummary).toHaveBeenCalledWith('local:nb-local:foo.md')
+      // Summary triggered with UUID, not renderer format
+      expect(generateSummary).toHaveBeenCalledWith(localUuid)
     })
 
     it('triggers summary for local uuid note ids on no-change check when local summary is missing', async () => {

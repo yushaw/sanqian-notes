@@ -77,6 +77,32 @@ MIT
 
 ## Changelog
 
+### 2026-03-02 - Fix: Chat window white screen crash
+
+**Root cause:** `@yushaw/sanqian-chat` v0.2.36 referenced `defaultRemarkPlugins.math` and `defaultRehypePlugins.katex` from streamdown, but streamdown v2.x removed these exports (breaking change). The `undefined` values were passed to `unified().use()`, throwing "Expected usable value, not `undefined`", which crashed the entire React component tree and caused a blank white screen.
+
+**Fix (in sanqian-chat v0.2.37):**
+- `packages/chat/src/renderer/renderers/MarkdownRenderer.tsx` - Removed references to `defaultRemarkPlugins.math` and `defaultRehypePlugins.katex`; math/KaTeX is handled internally by Streamdown v2
+- Added ErrorBoundary with retry in `src/renderer/src/chat/main.tsx` so future render errors show a message instead of white screen
+- Added e2e test (`markdownRenderer.e2e.test.tsx`) with real streamdown to guard against plugin API breakage
+
+### 2026-03-02 - Fix: TOC and indicators not updating on note switch
+
+**Root cause:** Commit `51134f2` reused the editor instance across note switches with `setContent(content, { emitUpdate: false })`. This suppresses the `update` event, breaking components that relied on `editor.on('update')`.
+
+**Fix:** Changed `FloatingToc`, `TableOfContents`, `AgentTaskIndicators` to use `editor.on('transaction')` which fires regardless of `emitUpdate`. `AgentTaskIndicators` consolidated three redundant listeners into one.
+
+### 2026-03-02 - chore: macOS code signing and notarization
+
+Configured complete macOS code signing + notarization pipeline for local builds.
+
+- Added `resources/entitlements.mac.plist` and `resources/entitlements.mac.inherit.plist`
+- Updated `electron-builder.yml`: explicit `hardenedRuntime`, `entitlements`, `entitlementsInherit` paths
+- Added `scripts/notarize-dmg.sh` to notarize and staple the DMG after electron-builder
+- Updated `build:mac` script to chain DMG notarization automatically
+
+---
+
 ### 2026-01-19 - v0.4.1 Dependencies Update
 
 Upgraded dependencies to latest compatible versions:

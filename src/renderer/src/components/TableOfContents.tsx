@@ -52,11 +52,15 @@ export function TableOfContents({ editor, className = '' }: TableOfContentsProps
     // Initialize
     updateToc()
 
-    // Listen to content updates
-    editor.on('update', updateToc)
+    // Listen to content updates via 'transaction' instead of 'update' because
+    // note switching calls setContent with emitUpdate:false
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (transaction.docChanged) updateToc()
+    }
+    editor.on('transaction', onTransaction)
 
     return () => {
-      editor.off('update', updateToc)
+      editor.off('transaction', onTransaction)
     }
   }, [editor, extractHeadings])
 

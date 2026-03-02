@@ -184,14 +184,20 @@ export function FloatingToc({ editor, variant = 'editor' }: FloatingTocProps) {
     return headings
   }, [editor])
 
-  // Listen to editor content changes
+  // Listen to editor content changes.
+  // Use 'transaction' with docChanged check instead of 'update' because
+  // note switching calls setContent with emitUpdate:false (to avoid save),
+  // which suppresses 'update' but still emits 'transaction'.
   useEffect(() => {
     if (!editor) return
 
     const updateToc = () => setItems(extractHeadings())
     updateToc()
-    editor.on('update', updateToc)
-    return () => { editor.off('update', updateToc) }
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (transaction.docChanged) updateToc()
+    }
+    editor.on('transaction', onTransaction)
+    return () => { editor.off('transaction', onTransaction) }
   }, [editor, extractHeadings])
 
   // Update active heading based on scroll position
@@ -225,11 +231,14 @@ export function FloatingToc({ editor, variant = 'editor' }: FloatingTocProps) {
 
     updateActiveHeading()
     scrollContainer?.addEventListener('scroll', updateActiveHeading, { passive: true })
-    editor.on('update', updateActiveHeading)
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (transaction.docChanged) updateActiveHeading()
+    }
+    editor.on('transaction', onTransaction)
 
     return () => {
       scrollContainer?.removeEventListener('scroll', updateActiveHeading)
-      editor.off('update', updateActiveHeading)
+      editor.off('transaction', onTransaction)
     }
   }, [editor, items])
 

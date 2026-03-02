@@ -8,7 +8,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Editor } from '@tiptap/react'
 import { getTaskByBlockId, type AgentTaskCache } from '../utils/agentTaskStorage'
-import { agentTaskPluginKey } from './extensions/AgentTask'
 import type { AgentTaskStatus } from '../../../shared/types'
 
 interface AgentTaskIndicatorsProps {
@@ -121,13 +120,14 @@ export function AgentTaskIndicators({
     // Initial update (immediate, not debounced)
     updateIndicators()
 
-    // Listen to editor updates (debounced)
-    editor.on('update', debouncedUpdate)
-    editor.on('selectionUpdate', debouncedUpdate)
+    // Single transaction listener covers content changes (docChanged),
+    // selection moves, and plugin state updates (refreshAgentTaskDecorations).
+    // Uses 'transaction' instead of 'update' because note switching calls
+    // setContent with emitUpdate:false which suppresses 'update'.
+    editor.on('transaction', debouncedUpdate)
 
     return () => {
-      editor.off('update', debouncedUpdate)
-      editor.off('selectionUpdate', debouncedUpdate)
+      editor.off('transaction', debouncedUpdate)
     }
   }, [editor, updateIndicators, debouncedUpdate])
 
@@ -139,23 +139,6 @@ export function AgentTaskIndicators({
     container.addEventListener('scroll', debouncedUpdate, { passive: true })
     return () => container.removeEventListener('scroll', debouncedUpdate)
   }, [containerRef, debouncedUpdate])
-
-  // Update on plugin state change (refreshAgentTaskDecorations)
-  useEffect(() => {
-    if (!editor) return undefined
-
-    const checkPluginState = () => {
-      const state = agentTaskPluginKey.getState(editor.state)
-      if (state) {
-        debouncedUpdate()
-      }
-    }
-
-    editor.on('transaction', checkPluginState)
-    return () => {
-      editor.off('transaction', checkPluginState)
-    }
-  }, [editor, debouncedUpdate])
 
   // Update on window resize (debounced)
   useEffect(() => {

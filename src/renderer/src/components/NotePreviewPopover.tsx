@@ -11,13 +11,14 @@ import type { Note, TagWithSource } from '../types/note'
 import { useTranslations } from '../i18n'
 
 interface NotePreviewPopoverProps {
-  note: Note
+  note: Pick<Note, 'id' | 'ai_summary'>
   anchorEl: HTMLElement | null
   onClose: () => void
   onMouseEnter?: () => void
+  preloadedTags?: TagWithSource[]
 }
 
-export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter }: NotePreviewPopoverProps) {
+export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter, preloadedTags }: NotePreviewPopoverProps) {
   const t = useTranslations()
   const [tags, setTags] = useState<TagWithSource[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -39,8 +40,10 @@ export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter }: No
     }
   }, [anchorEl, refs])
 
-  // Load tags
+  // Load tags (skip IPC when preloadedTags is provided)
   useEffect(() => {
+    if (preloadedTags !== undefined) return
+
     let mounted = true
     setIsLoading(true)
 
@@ -61,7 +64,7 @@ export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter }: No
     return () => {
       mounted = false
     }
-  }, [note.id])
+  }, [note.id, preloadedTags])
 
   // Close on escape
   useEffect(() => {
@@ -74,11 +77,14 @@ export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter }: No
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
+  const effectiveTags = preloadedTags !== undefined ? preloadedTags : tags
+  const effectiveLoading = preloadedTags !== undefined ? false : isLoading
+
   const hasSummary = note.ai_summary && note.ai_summary.trim().length > 0
-  const hasContent = hasSummary || tags.length > 0
+  const hasContent = hasSummary || effectiveTags.length > 0
 
   // Don't show if no content and not loading
-  if (!isLoading && !hasContent) {
+  if (!effectiveLoading && !hasContent) {
     return null
   }
 
@@ -91,7 +97,7 @@ export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter }: No
         onMouseEnter={onMouseEnter}
         onMouseLeave={onClose}
       >
-        {isLoading ? (
+        {effectiveLoading ? (
           <div className="p-4 flex items-center justify-center">
             <div className="w-5 h-5 border-2 border-[var(--color-muted)] border-t-transparent rounded-full animate-spin" />
           </div>
@@ -110,10 +116,10 @@ export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter }: No
             )}
 
             {/* Tags section */}
-            {tags.length > 0 && (
+            {effectiveTags.length > 0 && (
               <div className={`px-3 pb-3 pt-2.5 ${hasSummary ? 'border-t border-[var(--color-divider)]' : ''}`}>
                 <div className="flex flex-wrap gap-1.5">
-                  {tags.map((tag) => (
+                  {effectiveTags.map((tag) => (
                     <span
                       key={tag.id}
                       className={`inline-flex items-center px-2 py-0.5 rounded-full text-[0.7rem] ${
@@ -131,7 +137,7 @@ export function NotePreviewPopover({ note, anchorEl, onClose, onMouseEnter }: No
             )}
 
             {/* Empty state */}
-            {!hasSummary && tags.length === 0 && (
+            {!hasSummary && effectiveTags.length === 0 && (
               <div className="p-4 text-center text-[var(--color-muted)] text-[0.8rem]">
                 {t.noteList.noContent}
               </div>

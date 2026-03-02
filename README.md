@@ -1111,6 +1111,14 @@ Key design: replaced 4 module-level `let` variables (`ftsEnabled`, `ftsNeedsRebu
 
 Verification: tsc passes (0 errors), vitest passes (81 files, 974 tests).
 
+### Fix full FTS re-index on every local file edit on macOS (2026-03-02)
+
+macOS's `fs.watch` reports nearly all file events as `'rename'` (Node.js #7420, wontfix). The watcher condition `change.eventType === 'rename' || !changedRelativePath` was effectively always true on macOS, triggering a full directory tree scan + re-read of every file on each single-file edit. Fixed by changing to `full: !changedRelativePath` -- only full-scan when the changed path is genuinely unknown. The incremental path correctly handles create/delete/modify/rename. Changed 1 line in `local-folder-watcher/manager.ts`.
+
+### Enable on-demand embedding for local folder notes (2026-03-01)
+
+Local folder notes were hardcoded to `ftsOnly: true` in all indexing paths, so they never generated embedding vectors. Now when a user switches away from a local note (blur), `triggerIndexCheck` passes the local note as a fallback, allowing it to go through the standard `checkAndIndex` path and build embeddings on demand. Startup sync remains FTS-only to avoid bulk embedding on app launch. Changed 2 files: `useEditorUpdateQueue.ts` (fallback param), `useNoteNavigation.ts` (ref + call sites).
+
 ### Split sanqian-sdk/tools.ts into domain files (2026-02-28)
 
 Split the ~1,496-line `src/main/sanqian-sdk/tools.ts` into four domain files under `src/main/sanqian-sdk/tools/`:
@@ -1199,3 +1207,46 @@ Comprehensive safety review of local folder code identified and fixed three race
    - **Layer 3 (ID guard)**: Added note ID mismatch guard in `handleUpdateLocalFile`: rejects any update where `_id` (from the editor's `noteIdRef` or closure) doesn't match `localEditorNoteRef.current.id`. When the cleanup fires with A's note.id but `localEditorNoteRef` has already been updated to B, the stale update is discarded.
 
 5. **Conflict resolution broken in all-source view**: `LocalSaveConflictDialogState` did not store `notebookId`. The three conflict resolution handlers (`Overwrite`/`Reload`/`SaveAsCopy`) all used `selectedNotebookId`, which is `null` in all-source view. This caused the handlers to silently bail (`if (!selectedNotebookId) return`), leaving the conflict dialog unresolvable. Fix: added `notebookId` to `LocalSaveConflictDialogState` (captured from the pending save's target), all three handlers now use `localSaveConflictDialog.notebookId` instead of `selectedNotebookId`.
+
+### 2026-03-02: Align local folder note FTS indexing with native note behavior
+
+Local folder notes were triggering FTS re-index on every file save (via watcher incremental sync AND `localFolder:saveFile` handler), while the user was actively editing. Native notes only index on blur (note switch). Changes:
+
+1. **`sync.ts` incremental path**: Removed `checkAndIndex` and `deleteLegacyLocalIndexByPath` from watcher-triggered sync. Tag/ref sync still runs (lightweight).
+2. **`register-local-folder-ipc.ts` saveFile handler**: Removed `checkAndIndex` and `deleteLegacyLocalIndexByPath` calls after save.
+3. **Dead code cleanup**: Removed `checkAndIndex`, `resolveLocalIndexNoteId`, `deleteLegacyLocalIndexByPath` from `LocalFolderIpcDeps` interface and `index.ts` injection (no longer used by IPC handlers). Legacy index cleanup is now only performed during full sync path, preventing "delete-without-rebuild" orphan risk.
+
+FTS indexing now only happens on: app startup (full sync), note switch (blur trigger), and AI agent edits (SDK mutations). This matches native note behavior and eliminates unnecessary I/O during editing.
+
+4. **Fix: local note index ID format mismatch**: The renderer uses `"local:notebookId:encodedPath"` format for note IDs, but the full sync path indexes under the stable UUID from `local_note_identity`. This mismatch caused: (a) content hash comparison always failing on blur (re-indexing every time even when content unchanged), (b) duplicate FTS/embedding entries under two keys, (c) potential duplicate search results. Fix: added ID normalization at the top of `IndexingService.checkAndIndex()` -- local path-format IDs are resolved to their canonical UUID via `buildCanonicalLocalResourceId` before any index operations.
+
+### Fix: watcher non-note paths leaking into IndexingService (2026-03-02)
+
+Two categories of non-note filesystem events were leaking into the index sync pipeline, causing spurious "index deleted" log entries:
+
+1. **Atomic-write temp files**: `atomicWriteUtf8File` creates `.{name}.tmp-{pid}-{timestamp}-{random}` temp files. Watcher reported these, incremental sync tried to read them (already renamed), failed, and `deleteLegacyLocalIndexByPath` unconditionally called `indexingService.deleteNoteIndex` with a path-format ID.
+2. **Directory-level events**: macOS `fs.watch(recursive: true)` reports directory change events alongside file events. E.g. modifying `Ideas/note.md` also fires an event for `Ideas` itself. The incremental sync tried `readLocalFolderFile(mount, "Ideas")` which failed (`extname("Ideas")` = `""`, not in `ALLOWED_EXTENSIONS`), then `deleteLegacyLocalIndexByPath` constructed `local:notebookId:Ideas` and called delete.
+
+Fix (two layers):
+- **Watcher handler filter** (`manager.ts`): Added `isHiddenRelativePath` check. Hidden paths (any segment starting with `.`) skip watch event and index sync entirely. Tree cache invalidation still fires so the subsequent rename event triggers the real sync.
+- **`normalizeLocalIndexSyncPath`** (`helpers.ts`): Now rejects (a) paths with hidden segments and (b) paths without allowed note extensions (`.md`/`.txt`). This filters directory names, non-note files, and temp files at the index sync entry point. When the path normalizes to null in `enqueueLocalNotebookIndexSync`, it's not added to `request.paths`, and `{ full: false, paths: Set() }` early-returns at sync.ts line 65-67.
+
+### Test: comprehensive coverage for local folder indexing (2026-03-02)
+
+Added 96 unit/integration tests across 3 new test files for the local folder indexing system that previously had zero test coverage:
+
+- `src/main/local-notebook-index/__tests__/helpers.test.ts` (23 tests) -- all 8 exported helper functions: path normalization, ID resolution, legacy index deletion, indexed ID collection, tag sync, popup ref sync
+- `src/main/local-notebook-index/__tests__/sync.test.ts` (28 tests) -- sync engine: incremental/full sync paths, debounce scheduling (900ms default, immediate mode), path merging, request upgrade (incremental -> full), cancellation/generation invalidation, re-scheduling after completion, flush, rebuild
+- `src/main/__tests__/register-local-folder-ipc.test.ts` (45 tests) -- all 11+ IPC handlers: saveFile (etag, if_match conflict, force), createFile, renameEntry (file/folder, metadata warning), deleteEntry (file/folder, trash failure, affected mounts), mount (canonicalize, duplicate, permissions), relink, unmount, getTree (status recovery, scan error), readFile, listNoteMetadata, updateNoteMetadata (validation, mount status checks)
+
+### feat: hover preview popover for local folder notes (2026-03-02)
+
+Aligned local folder note list hover behavior with native notes. Local notes now show a preview popover (1.5s hover delay) displaying AI summary and tags, matching the NoteList experience.
+
+Key changes:
+- `NotePreviewPopover`: added `preloadedTags` prop to bypass IPC tag loading (local note IDs don't exist in `note_tags` table). Narrowed `note` prop type to `Pick<Note, 'id' | 'ai_summary'>` for reuse.
+- `NoteList`: passes `preloadedTags` when `hoveredNote.tags` is non-empty, fixing a pre-existing bug where local notes in the all-source view never showed tags in the hover popover.
+- `LocalFolderNoteList`: full hover state management (1.5s delay, instant switch, 100ms close grace, metadata sync, search/folder change cleanup), hover CSS fix (always show hover bg), popover rendering.
+- `App.tsx`: passes `notebookId` and `localNoteMetadataById` to `LocalFolderNoteList`.
+
+Files: `NotePreviewPopover.tsx`, `NoteList.tsx`, `LocalFolderNoteList.tsx`, `App.tsx`

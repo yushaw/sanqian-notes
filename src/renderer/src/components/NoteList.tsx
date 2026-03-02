@@ -678,6 +678,7 @@ export function NoteList({
           anchorEl={previewAnchor}
           onClose={closePreview}
           onMouseEnter={handlePopoverMouseEnter}
+          preloadedTags={hoveredNote.tags.length > 0 ? hoveredNote.tags : undefined}
         />
       )}
     </div>

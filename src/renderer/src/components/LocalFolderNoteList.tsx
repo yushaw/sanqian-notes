@@ -1,10 +1,13 @@
 import { memo, useMemo, useState, useEffect, useRef, useCallback, type CSSProperties, type ReactNode } from 'react'
 import { useTranslations, type Translations } from '../i18n'
-import type { LocalFolderFileEntry, LocalFolderTreeNode } from '../types/note'
+import type { LocalFolderFileEntry, LocalFolderTreeNode, LocalNoteMetadata, TagWithSource } from '../types/note'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { isMacOS } from '../utils/platform'
 import { formatShortcut } from '../utils/shortcut'
+import { createLocalResourceId } from '../utils/localResourceId'
+import { mergeLocalMetadataTags } from '../utils/localFolderNavigation'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { NotePreviewPopover } from './NotePreviewPopover'
 import { Tooltip } from './Tooltip'
 
 // Root directory is level 1, so the deepest creatable relative folder path is 2 segments.
@@ -59,6 +62,8 @@ interface LocalFolderNoteListProps {
   canCreateFile?: boolean
   canCreateFolder?: boolean
   canManageEntries?: boolean
+  notebookId?: string | null
+  localNoteMetadataById?: Record<string, LocalNoteMetadata>
 }
 
 function getRelativePathDepth(relativePath: string | null): number {
@@ -92,6 +97,8 @@ interface LocalFolderFileItemProps {
   dateT: Translations['date']
   onClickFile: (relativePath: string) => void
   onContextMenuFile: (relativePath: string, event: React.MouseEvent) => void
+  onMouseEnterFile: (relativePath: string, element: HTMLElement) => void
+  onMouseLeaveFile: () => void
 }
 
 const LocalFolderFileItem = memo(function LocalFolderFileItem({
@@ -101,6 +108,8 @@ const LocalFolderFileItem = memo(function LocalFolderFileItem({
   dateT,
   onClickFile,
   onContextMenuFile,
+  onMouseEnterFile,
+  onMouseLeaveFile,
 }: LocalFolderFileItemProps) {
   const relativePath = file.relative_path
 
@@ -112,6 +121,10 @@ const LocalFolderFileItem = memo(function LocalFolderFileItem({
     (event: React.MouseEvent) => onContextMenuFile(relativePath, event),
     [onContextMenuFile, relativePath]
   )
+  const handleMouseEnter = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => onMouseEnterFile(relativePath, event.currentTarget),
+    [onMouseEnterFile, relativePath]
+  )
 
   const previewText = file.preview?.trim() || file.relative_path
   const updatedAtLabel = formatRelativeDate(new Date(file.mtime_ms).toISOString(), dateT)
@@ -122,7 +135,9 @@ const LocalFolderFileItem = memo(function LocalFolderFileItem({
       type="button"
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      className={`relative w-full text-left px-4 py-2.5 transition-colors duration-75 select-none appearance-none border-0 bg-transparent outline-none ring-0 shadow-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none focus-visible:shadow-none active:outline-none active:ring-0 active:shadow-none ${!isSelected ? 'hover:bg-[var(--color-surface)]' : ''}`}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={onMouseLeaveFile}
+      className={`relative w-full text-left px-4 py-2.5 transition-colors duration-75 select-none appearance-none border-0 bg-transparent outline-none ring-0 shadow-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none focus-visible:shadow-none active:outline-none active:ring-0 active:shadow-none hover:bg-[var(--color-surface)]`}
       style={isSelected ? LOCAL_FILE_ITEM_SELECTED_STYLE : LOCAL_FILE_ITEM_DEFAULT_STYLE}
     >
       <div className="flex items-center justify-between gap-2">
@@ -179,12 +194,27 @@ export function LocalFolderNoteList({
   canCreateFile = true,
   canCreateFolder = true,
   canManageEntries = true,
+  notebookId,
+  localNoteMetadataById,
 }: LocalFolderNoteListProps) {
   const t = useTranslations()
   const shouldHideTitle = isMac && isSidebarCollapsed
   const [isSearching, setIsSearching] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const fileListContainerRef = useRef<HTMLDivElement>(null)
+
+  // Hover preview state
+  const [hoveredPreview, setHoveredPreview] = useState<{ id: string; ai_summary: string | null } | null>(null)
+  const hoveredPreviewRef = useRef(hoveredPreview)
+  hoveredPreviewRef.current = hoveredPreview
+  const [hoveredPreviewTags, setHoveredPreviewTags] = useState<TagWithSource[]>([])
+  const [previewAnchor, setPreviewAnchor] = useState<HTMLElement | null>(null)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const notebookIdRef = useRef(notebookId)
+  notebookIdRef.current = notebookId
+  const metadataByIdRef = useRef(localNoteMetadataById)
+  metadataByIdRef.current = localNoteMetadataById
   const allFolderPaths = useMemo(() => collectFolderPaths(treeNodes), [treeNodes])
   const knownFolderPathsRef = useRef<Set<string>>(new Set(allFolderPaths))
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(allFolderPaths))
@@ -296,6 +326,113 @@ export function LocalFolderNoteList({
   const handleContextMenuFile = useCallback((relativePath: string, event: React.MouseEvent) => {
     openContextMenu(event, { kind: 'file', relativePath })
   }, [openContextMenu])
+
+  // Hover preview callbacks
+  const handleMouseEnterFile = useCallback((relativePath: string, element: HTMLElement) => {
+    const nbId = notebookIdRef.current
+    if (!nbId) return
+    const localId = createLocalResourceId(nbId, relativePath)
+    const metadata = metadataByIdRef.current?.[localId]
+
+    // Clear timers
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+
+    if (!metadata?.ai_summary) {
+      if (hoveredPreviewRef.current !== null) {
+        setHoveredPreview(null)
+        setPreviewAnchor(null)
+      }
+      return
+    }
+
+    const previewData = { id: localId, ai_summary: metadata.ai_summary }
+    const tags = mergeLocalMetadataTags(metadata.tags, metadata.ai_tags)
+    const isPopoverVisible = hoveredPreviewRef.current !== null
+
+    if (isPopoverVisible) {
+      setHoveredPreview(previewData)
+      setHoveredPreviewTags(tags)
+      setPreviewAnchor(element)
+    } else {
+      hoverTimerRef.current = setTimeout(() => {
+        setHoveredPreview(previewData)
+        setHoveredPreviewTags(tags)
+        setPreviewAnchor(element)
+      }, 1500)
+    }
+  }, [])
+
+  const handleFileMouseLeave = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+    closeTimerRef.current = setTimeout(() => {
+      setHoveredPreview(null)
+      setPreviewAnchor(null)
+    }, 100)
+  }, [])
+
+  const handlePopoverMouseEnter = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
+
+  const closePreview = useCallback(() => {
+    setHoveredPreview(null)
+    setPreviewAnchor(null)
+  }, [])
+
+  // Cleanup hover timers on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    }
+  }, [])
+
+  // Clear hover on searchQuery change
+  useEffect(() => {
+    setHoveredPreview(null)
+    setPreviewAnchor(null)
+  }, [searchQuery])
+
+  // Clear hover on selectedFolderPath change
+  useEffect(() => {
+    setHoveredPreview(null)
+    setPreviewAnchor(null)
+  }, [selectedFolderPath])
+
+  // Sync hoveredPreview when localNoteMetadataById changes.
+  // Read hoveredPreview via ref to avoid deps cascade (effect sets hoveredPreview).
+  useEffect(() => {
+    const current = hoveredPreviewRef.current
+    if (!current || !localNoteMetadataById) return
+    const metadata = localNoteMetadataById[current.id]
+    if (!metadata) {
+      setHoveredPreview(null)
+      setPreviewAnchor(null)
+      return
+    }
+    if (metadata.ai_summary !== current.ai_summary) {
+      setHoveredPreview({ id: current.id, ai_summary: metadata.ai_summary })
+    }
+    const newTags = mergeLocalMetadataTags(metadata.tags, metadata.ai_tags)
+    setHoveredPreviewTags((prev) => {
+      if (prev.length !== newTags.length) return newTags
+      const same = prev.every((t, i) => t.id === newTags[i].id && t.name === newTags[i].name && t.source === newTags[i].source)
+      return same ? prev : newTags
+    })
+  }, [localNoteMetadataById])
 
   const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
     const target = contextMenu.target
@@ -641,12 +778,25 @@ export function LocalFolderNoteList({
                   dateT={t.date}
                   onClickFile={handleClickFile}
                   onContextMenuFile={handleContextMenuFile}
+                  onMouseEnterFile={handleMouseEnterFile}
+                  onMouseLeaveFile={handleFileMouseLeave}
                 />
               )
             })}
           </div>
         )}
       </div>
+
+      {/* Note Preview Popover */}
+      {hoveredPreview && previewAnchor && (
+        <NotePreviewPopover
+          note={hoveredPreview}
+          anchorEl={previewAnchor}
+          onClose={closePreview}
+          onMouseEnter={handlePopoverMouseEnter}
+          preloadedTags={hoveredPreviewTags}
+        />
+      )}
 
       <ContextMenu
         visible={contextMenu.visible}

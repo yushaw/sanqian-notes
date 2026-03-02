@@ -803,6 +803,8 @@ function AppContent() {
           canCreateFile={selectedLocalNotebookStatus === 'active'}
           canCreateFolder={selectedLocalNotebookStatus === 'active'}
           canManageEntries={selectedLocalNotebookStatus === 'active'}
+          notebookId={selectedNotebookId}
+          localNoteMetadataById={localNoteMetadataById}
         />
       ) : (
         <NoteList

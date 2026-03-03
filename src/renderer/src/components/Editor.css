@@ -1875,29 +1875,13 @@ span.zen-header-title {
   display: flex;
   align-items: center;
   justify-content: center;
-  max-width: 90vw;
-  max-height: 90vh;
   cursor: default;
 }
 
 .lightbox-image {
-  max-width: 90vw;
-  max-height: 90vh;
-  object-fit: contain;
   border-radius: 4px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  animation: lightboxZoomIn 0.25s ease;
-}
-
-@keyframes lightboxZoomIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  transform-origin: center center;
 }
 
 .lightbox-close {

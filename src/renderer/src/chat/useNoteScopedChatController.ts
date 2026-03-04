@@ -235,8 +235,9 @@ export function useNoteScopedChatController(
     isConversationHighlighted: (conversation: ConversationInfo) => (
       relatedConversationIdSet.has(conversation.id)
     ),
-    highlightedLabel: locale === 'zh' ? '笔记' : 'NOTE',
-  }), [relatedConversationIdSet, locale])
+    // Keep related rows subtly highlighted without an extra badge.
+    highlightedLabel: () => null,
+  }), [relatedConversationIdSet])
 
   const switchConversationForNote = useCallback((
     targetConversationId: string | null,

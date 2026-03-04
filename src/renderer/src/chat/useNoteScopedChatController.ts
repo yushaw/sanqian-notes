@@ -19,11 +19,11 @@ import {
   resolveDetachNoteIdForSwitch,
 } from './noteConversationBinding'
 import { planNoteConversationSwitch, supportsStreamPreservingSwitch } from './noteConversationSwitch'
-
-interface NoteContextPayload {
-  noteId: string | null
-  noteTitle: string | null
-}
+import {
+  applyNoteContextPayload,
+  shouldApplyInitialNoteContextSnapshot,
+  type NoteContextPayload,
+} from './noteContextSync'
 
 interface NavigateToNotePayload {
   noteId: string
@@ -137,6 +137,7 @@ export function useNoteScopedChatController(
   const chatReadyRef = useRef(false)
   const chatStateRef = useRef<CompactChatStateSnapshot>(INITIAL_CHAT_STATE)
   const wasStreamingRef = useRef(false)
+  const noteContextRevisionRef = useRef(0)
 
   const setTextRef = useRef<((text: string) => void) | null>(null)
   const focusInputRef = useRef<(() => void) | null>(null)
@@ -145,6 +146,15 @@ export function useNoteScopedChatController(
   useEffect(() => {
     noteContextRef.current = noteContext
   }, [noteContext])
+
+  const applyIncomingNoteContext = useCallback((payload: NoteContextPayload) => {
+    setNoteContext((prev) => {
+      const result = applyNoteContextPayload(prev, payload, noteContextRevisionRef.current)
+      if (!result.changed) return prev
+      noteContextRevisionRef.current = result.nextRevision
+      return result.nextPayload
+    })
+  }, [])
 
   const adapter = useMemo<ChatAdapter | null>(() => {
     try {
@@ -344,27 +354,28 @@ export function useNoteScopedChatController(
     if (!bridge) return
 
     let disposed = false
-    bridge.getNoteContext().then((payload) => {
-      if (!disposed && payload) {
-        setNoteContext(payload)
-      }
-    }).catch((err: Error) => {
-      console.error('[ChatApp] Failed to get initial note context:', err)
-    })
+    const initialRequestRevision = noteContextRevisionRef.current
 
     const cleanup = bridge.onNoteContextChanged((payload) => {
-      setNoteContext((prev) => (
-        prev.noteId === payload.noteId && prev.noteTitle === payload.noteTitle
-          ? prev
-          : payload
-      ))
+      if (disposed || !payload) return
+      applyIncomingNoteContext(payload)
+    })
+
+    bridge.getNoteContext().then((payload) => {
+      if (disposed || !payload) return
+      if (!shouldApplyInitialNoteContextSnapshot(initialRequestRevision, noteContextRevisionRef.current)) {
+        return
+      }
+      applyIncomingNoteContext(payload)
+    }).catch((err: Error) => {
+      console.error('[ChatApp] Failed to get initial note context:', err)
     })
 
     return () => {
       disposed = true
       cleanup()
     }
-  }, [])
+  }, [applyIncomingNoteContext])
 
   useEffect(() => {
     const bridge = getChatWindowBridge()

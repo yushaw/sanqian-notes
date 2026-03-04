@@ -186,6 +186,8 @@ import {
   buildAgentExecutionContext,
   setUserContext,
   getRawUserContext,
+  getCurrentNoteContext,
+  onUserContextChange,
 } from './user-context'
 import {
   getCachedLocalFolderTree,
@@ -301,6 +303,7 @@ export { getRawUserContext } from './user-context'
 
 // ============ ChatPanel for Chat ============
 let chatPanel: ChatPanel | null = null
+let unsubscribeUserContextChange: (() => void) | null = null
 
 type ChatClientWithInternalSdk = {
   _getSdk?: () => unknown | null
@@ -880,6 +883,7 @@ app.whenReady().then(() => {
     releaseReconnect,
     getClient,
     ensureAgentReady,
+    getCurrentNoteContext,
   })
 
   // Set up getter for Formatter Agent output tools
@@ -1190,6 +1194,15 @@ app.whenReady().then(() => {
     },
   })
 
+  unsubscribeUserContextChange?.()
+  unsubscribeUserContextChange = onUserContextChange(() => {
+    const webContents = chatPanel?.getWebContents()
+    if (!webContents || webContents.isDestroyed()) {
+      return
+    }
+    webContents.send('chatWindow:noteContextChanged', getCurrentNoteContext())
+  })
+
   // Register "Ask AI" shortcut (Cmd+Shift+A / Ctrl+Shift+A)
   // Opens Chat and pushes selection as Session Resource
   const askAiRegistered = globalShortcut.register('CommandOrControl+Shift+A', () => {
@@ -1250,6 +1263,8 @@ app.on('before-quit', (e) => {
   clearAIPopupCleanupTimers()
   stopAllLocalFolderWatchers()
   // Destroy chat panel before quitting
+  unsubscribeUserContextChange?.()
+  unsubscribeUserContextChange = null
   chatPanel?.destroy()
   chatPanel = null
   // Await SDK cleanup before allowing quit (max 2s timeout)

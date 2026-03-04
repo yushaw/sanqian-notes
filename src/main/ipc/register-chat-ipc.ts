@@ -14,6 +14,11 @@ interface ChatPanelLike {
   notifyLocaleChanged: (locale: string) => void
 }
 
+interface ChatNoteContextPayload {
+  noteId: string | null
+  noteTitle: string | null
+}
+
 export interface ChatIpcDeps {
   // ChatPanel access
   getChatPanel: () => ChatPanelLike | null
@@ -46,12 +51,23 @@ export interface ChatIpcDeps {
     ) => AsyncGenerator<unknown, unknown, unknown>
   } | null
   ensureAgentReady: (agentType: 'assistant' | 'writing' | 'generator') => Promise<{ agentId: string }>
+  // User context
+  getCurrentNoteContext: () => ChatNoteContextPayload
 }
 
 export function registerChatIpc(
   ipcMainLike: IpcMainLike,
   deps: ChatIpcDeps
 ): void {
+  const sendCurrentNoteContext = (): void => {
+    const chatPanel = deps.getChatPanel()
+    const webContents = chatPanel?.getWebContents()
+    if (!webContents || webContents.isDestroyed()) {
+      return
+    }
+    webContents.send('chatWindow:noteContextChanged', deps.getCurrentNoteContext())
+  }
+
   // ============ Chat Window Control ============
   ipcMainLike.handle('chatWindow:show', createSafeHandler('chatWindow:show', () => {
     const chatPanel = deps.getChatPanel()
@@ -59,6 +75,7 @@ export function registerChatIpc(
       return { success: false, error: 'ChatPanel not initialized' }
     }
     chatPanel.show()
+    sendCurrentNoteContext()
     return { success: true }
   }))
 
@@ -80,6 +97,7 @@ export function registerChatIpc(
         webContents.once('did-finish-load', () => {
           if (!webContents.isDestroyed()) {
             try {
+              sendCurrentNoteContext()
               webContents.send('chatWindow:setContext', context)
               setTimeout(() => deps.getChatPanel()?.focusInput(), 50)
             } catch {
@@ -88,6 +106,7 @@ export function registerChatIpc(
           }
         })
       } else {
+        sendCurrentNoteContext()
         webContents.send('chatWindow:setContext', context)
         setTimeout(() => deps.getChatPanel()?.focusInput(), 50)
       }
@@ -118,6 +137,9 @@ export function registerChatIpc(
 
   ipcMainLike.handle('chatWindow:isVisible', createSafeHandler('chatWindow:isVisible', () => {
     return deps.getChatPanel()?.isVisible() ?? false
+  }))
+  ipcMainLike.handle('chatWindow:getNoteContext', createSafeHandler('chatWindow:getNoteContext', () => {
+    return deps.getCurrentNoteContext()
   }))
 
   // Handle note navigation from chat window (triggered by sanqian-notes:// links)

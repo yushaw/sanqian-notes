@@ -234,6 +234,20 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
     return noteSelectionVersionRef.current
   }, [])
 
+  const flushNotesInsert = useCallback(
+    async (updater: (prev: Note[]) => Note[]) => {
+      await new Promise<void>((resolve) => {
+        queueMicrotask(() => {
+          flushSync(() => {
+            setNotes(updater)
+          })
+          resolve()
+        })
+      })
+    },
+    [setNotes]
+  )
+
   // ---------------------------------------------------------------------------
   // hasFreshLocalTreeSnapshot
   // ---------------------------------------------------------------------------
@@ -711,12 +725,9 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
           const title = formatDailyDate(todayStr, isZh)
           const newNote = await window.electron.daily.create(todayStr, title)
           if (selectionVersion !== noteSelectionVersionRef.current) return
-          // Use flushSync to ensure notes state is updated before selecting
-          flushSync(() => {
-            setNotes(prev => {
-              const newNotes = [newNote as Note, ...prev]
-              return newNotes.sort(compareNotesByPinnedAndUpdated)
-            })
+          await flushNotesInsert((prev) => {
+            const newNotes = [newNote as Note, ...prev]
+            return newNotes.sort(compareNotesByPinnedAndUpdated)
           })
           selectSingleNote((newNote as Note).id)
         } catch (error) {
@@ -753,7 +764,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
     setAnchorNoteId,
     setAllViewLocalEditorTarget,
     setIsTypewriterMode,
-    setNotes,
+    flushNotesInsert,
   ])
 
   // ---------------------------------------------------------------------------

@@ -1,5 +1,9 @@
 import type { AgentExecutionContext } from '../shared/types'
-import { isLocalResourceUidRef, parseLocalResourceId } from '../shared/local-resource-id'
+import {
+  createLocalResourceIdFromUid,
+  isLocalResourceUidRef,
+  parseLocalResourceId,
+} from '../shared/local-resource-id'
 import {
   getLocalNoteIdentityByPath,
   getLocalNoteIdentityByUid,
@@ -23,6 +27,11 @@ export interface UserContext {
   cursorContext: CursorContext | null
 }
 
+export interface NoteContextSnapshot {
+  noteId: string | null
+  noteTitle: string | null
+}
+
 let userContext: UserContext = {
   currentNotebookId: null,
   currentNotebookName: null,
@@ -32,6 +41,9 @@ let userContext: UserContext = {
   selectedText: null,
   cursorContext: null,
 }
+
+type UserContextListener = (context: UserContext) => void
+const userContextListeners = new Set<UserContextListener>()
 
 /**
  * Get user context formatted for LLM (always in English, concise but with IDs)
@@ -180,7 +192,18 @@ export function buildAgentExecutionContext(context?: AgentExecutionContext | nul
  * Set user context from renderer
  */
 export function setUserContext(context: Partial<UserContext>): void {
+  const prevNoteId = userContext.currentNoteId
+  const prevNoteTitle = userContext.currentNoteTitle
   userContext = { ...userContext, ...context }
+  if (prevNoteId !== userContext.currentNoteId || prevNoteTitle !== userContext.currentNoteTitle) {
+    for (const listener of userContextListeners) {
+      try {
+        listener({ ...userContext })
+      } catch (err) {
+        console.error('[UserContext] listener failed:', err)
+      }
+    }
+  }
 }
 
 /**
@@ -188,4 +211,40 @@ export function setUserContext(context: Partial<UserContext>): void {
  */
 export function getRawUserContext(): UserContext {
   return { ...userContext }
+}
+
+function resolveChatNoteContextId(noteId: string | null): string | null {
+  if (!noteId) return null
+  const localRef = parseLocalResourceId(noteId)
+  if (!localRef) return noteId
+  if (isLocalResourceUidRef(localRef) && localRef.noteUid) {
+    return createLocalResourceIdFromUid(localRef.notebookId, localRef.noteUid)
+  }
+  if (!localRef.relativePath) return noteId
+  const identity = getLocalNoteIdentityByPath({
+    notebook_id: localRef.notebookId,
+    relative_path: localRef.relativePath,
+  })
+  if (!identity?.note_uid) return noteId
+  return createLocalResourceIdFromUid(localRef.notebookId, identity.note_uid)
+}
+
+/**
+ * Subscribe to user context changes.
+ */
+export function onUserContextChange(listener: UserContextListener): () => void {
+  userContextListeners.add(listener)
+  return () => {
+    userContextListeners.delete(listener)
+  }
+}
+
+/**
+ * Get only note-level context for chat sync.
+ */
+export function getCurrentNoteContext(): NoteContextSnapshot {
+  return {
+    noteId: resolveChatNoteContextId(userContext.currentNoteId),
+    noteTitle: userContext.currentNoteTitle,
+  }
 }

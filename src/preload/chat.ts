@@ -40,6 +40,11 @@ interface NavigateToNotePayload {
   target?: { type: 'heading' | 'block'; value: string }
 }
 
+interface NoteContextPayload {
+  noteId: string | null
+  noteTitle: string | null
+}
+
 // Also expose basic window control for setContext and navigation
 contextBridge.exposeInMainWorld('chatWindow', {
   onSetContext: (callback: (context: string) => void) => {
@@ -55,6 +60,16 @@ contextBridge.exposeInMainWorld('chatWindow', {
   navigateToNote: (payload: NavigateToNotePayload) => {
     ipcRenderer.send('chat:navigate-to-note', payload)
   },
+
+  getNoteContext: (): Promise<NoteContextPayload> => {
+    return ipcRenderer.invoke('chatWindow:getNoteContext')
+  },
+
+  onNoteContextChanged: (callback: (payload: NoteContextPayload) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: NoteContextPayload) => callback(payload)
+    ipcRenderer.on('chatWindow:noteContextChanged', handler)
+    return () => ipcRenderer.removeListener('chatWindow:noteContextChanged', handler)
+  },
 })
 
 // ============ ChatPanel API ============
@@ -69,7 +84,8 @@ declare global {
     chatWindow: {
       onSetContext: (callback: (context: string) => void) => () => void
       navigateToNote: (payload: NavigateToNotePayload) => void
+      getNoteContext: () => Promise<NoteContextPayload>
+      onNoteContextChanged: (callback: (payload: NoteContextPayload) => void) => () => void
     }
   }
 }
-

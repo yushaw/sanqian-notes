@@ -164,6 +164,20 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
 
   const emptyNoteDeleteInFlightRef = useRef<Set<string>>(new Set())
 
+  const flushNotesInsert = useCallback(
+    async (updater: (prev: Note[]) => Note[]) => {
+      await new Promise<void>((resolve) => {
+        queueMicrotask(() => {
+          flushSync(() => {
+            setNotes(updater)
+          })
+          resolve()
+        })
+      })
+    },
+    [setNotes]
+  )
+
   // ---------------------------------------------------------------------------
   // refreshInternalNotebookData
   // ---------------------------------------------------------------------------
@@ -290,12 +304,9 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
         daily_date: selectedSmartView === 'daily' ? new Date().toISOString().split('T')[0] : null,
         is_favorite: false,
       })
-      // Use flushSync to ensure notes state is updated before selecting
-      flushSync(() => {
-        setNotes(prev => {
-          const newNotes = [newNote as Note, ...prev]
-          return newNotes.sort(compareNotesByPinnedAndUpdated)
-        })
+      await flushNotesInsert((prev) => {
+        const newNotes = [newNote as Note, ...prev]
+        return newNotes.sort(compareNotesByPinnedAndUpdated)
       })
       selectSingleNoteRef.current((newNote as Note).id)
     } catch (error) {
@@ -303,13 +314,13 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
     }
   }, [
     createLocalFileWithoutDialog,
+    flushNotesInsert,
     notebooks,
     selectedInternalFolderPath,
     selectedLocalNotebookStatus,
     selectedNotebookId,
     selectedSmartView,
     selectSingleNoteRef,
-    setNotes,
     t.notebook.localFolderMissing,
     t.notebook.localFolderPermissionRequired,
   ])
@@ -338,18 +349,15 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
       // Generate localized title
       const title = formatDailyDate(date, isZh)
       const newNote = await window.electron.daily.create(date, title)
-      // Use flushSync to ensure notes state is updated before selecting
-      flushSync(() => {
-        setNotes(prev => {
-          const newNotes = [newNote as Note, ...prev]
-          return newNotes.sort(compareNotesByPinnedAndUpdated)
-        })
+      await flushNotesInsert((prev) => {
+        const newNotes = [newNote as Note, ...prev]
+        return newNotes.sort(compareNotesByPinnedAndUpdated)
       })
       selectSingleNoteRef.current((newNote as Note).id)
     } catch (error) {
       console.error('Failed to create daily note:', error)
     }
-  }, [notes, isZh, selectSingleNoteRef, setNotes])
+  }, [flushNotesInsert, notes, isZh, selectSingleNoteRef])
 
   // ---------------------------------------------------------------------------
   // handleUpdateNote
@@ -430,21 +438,18 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
       daily_date: null,
       is_favorite: false,
     })
-    // Use flushSync to ensure notes state is updated before selecting
-    flushSync(() => {
-      setNotes(prev => {
-        const newNotes = [newNote as Note, ...prev]
-        return newNotes.sort(compareNotesByPinnedAndUpdated)
-      })
+    await flushNotesInsert((prev) => {
+      const newNotes = [newNote as Note, ...prev]
+      return newNotes.sort(compareNotesByPinnedAndUpdated)
     })
     return newNote as Note
   }, [
     createLocalFileWithoutDialog,
+    flushNotesInsert,
     notebooks,
     selectedInternalFolderPath,
     selectedLocalNotebookStatus,
     selectedNotebookId,
-    setNotes,
     t.noteList.untitled,
     t.notebook.localFolderMissing,
     t.notebook.localFolderPermissionRequired,

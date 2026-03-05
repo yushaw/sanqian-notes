@@ -20,12 +20,14 @@ vi.mock('../../attachment', () => ({
 }))
 
 import { getNotes, getNotesByIds, getNotebooks } from '../../database'
+import { getFullPath } from '../../attachment'
 import type { Note, Notebook } from '../../database'
 // getFullPath is mocked but not directly used in tests (used internally by exporter)
 
 describe('MarkdownExporter', () => {
   let exporter: MarkdownExporter
   let tempDir: string
+  const getExportRoot = (): string => path.join(tempDir, 'sanqian-notes')
 
   beforeEach(() => {
     exporter = new MarkdownExporter()
@@ -92,11 +94,11 @@ describe('MarkdownExporter', () => {
       expect(result.stats.exportedNotes).toBe(1)
 
       // 检查文件是否创建
-      const files = fs.readdirSync(tempDir)
+      const files = fs.readdirSync(getExportRoot())
       expect(files).toContain('测试笔记.md')
 
       // 检查内容
-      const content = fs.readFileSync(path.join(tempDir, '测试笔记.md'), 'utf-8')
+      const content = fs.readFileSync(path.join(getExportRoot(), '测试笔记.md'), 'utf-8')
       expect(content).toContain('这是内容')
     })
 
@@ -140,7 +142,7 @@ describe('MarkdownExporter', () => {
       })
 
       const content = fs.readFileSync(
-        path.join(tempDir, '带元数据的笔记.md'),
+        path.join(getExportRoot(), '带元数据的笔记.md'),
         'utf-8'
       )
 
@@ -189,10 +191,68 @@ describe('MarkdownExporter', () => {
       })
 
       // 检查目录结构
-      expect(fs.existsSync(path.join(tempDir, '笔记本1'))).toBe(true)
-      expect(fs.existsSync(path.join(tempDir, '笔记本2'))).toBe(true)
-      expect(fs.existsSync(path.join(tempDir, '笔记本1', '笔记A.md'))).toBe(true)
-      expect(fs.existsSync(path.join(tempDir, '笔记本2', '笔记B.md'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '笔记本1'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '笔记本2'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '笔记本1', '笔记A.md'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '笔记本2', '笔记B.md'))).toBe(true)
+    })
+
+    it('按笔记本分组时，日记统一导出到日记目录', async () => {
+      const mockNotes = [
+        {
+          id: 'note1',
+          title: '2024-01-01',
+          content: '{"type":"doc","content":[]}',
+          notebook_id: 'nb1',
+          is_daily: true,
+          daily_date: '2024-01-01',
+          deleted_at: null,
+        },
+        {
+          id: 'note2',
+          title: '2024-01-02',
+          content: '{"type":"doc","content":[]}',
+          notebook_id: 'nb2',
+          is_daily: true,
+          daily_date: '2024-01-02',
+          deleted_at: null,
+        },
+        {
+          id: 'note3',
+          title: '普通笔记',
+          content: '{"type":"doc","content":[]}',
+          notebook_id: 'nb1',
+          is_daily: false,
+          daily_date: null,
+          deleted_at: null,
+        },
+      ]
+
+      const mockNotebooks = [
+        { id: 'nb1', name: '笔记本1', icon: '' },
+        { id: 'nb2', name: '笔记本2', icon: '' },
+      ]
+
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
+      vi.mocked(getNotebooks).mockReturnValue(mockNotebooks as Notebook[])
+
+      await exporter.export({
+        noteIds: [],
+        notebookIds: [],
+        format: 'markdown',
+        outputPath: tempDir,
+        groupByNotebook: true,
+        includeAttachments: false,
+        includeFrontMatter: false,
+        asZip: false,
+      })
+
+      expect(fs.existsSync(path.join(getExportRoot(), '日记'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '日记', '2024-01-01.md'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '日记', '2024-01-02.md'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '笔记本1', '普通笔记.md'))).toBe(true)
+      expect(fs.existsSync(path.join(getExportRoot(), '笔记本1', '2024-01-01.md'))).toBe(false)
+      expect(fs.existsSync(path.join(getExportRoot(), '笔记本2', '2024-01-02.md'))).toBe(false)
     })
 
     it('跳过已删除的笔记', async () => {
@@ -226,7 +286,7 @@ describe('MarkdownExporter', () => {
       })
 
       expect(result.stats.exportedNotes).toBe(1)
-      const files = fs.readdirSync(tempDir)
+      const files = fs.readdirSync(getExportRoot())
       expect(files).not.toContain('已删除笔记.md')
     })
   })
@@ -292,7 +352,7 @@ describe('MarkdownExporter', () => {
         asZip: false,
       })
 
-      const files = fs.readdirSync(tempDir)
+      const files = fs.readdirSync(getExportRoot())
       expect(files).toContain('相同标题.md')
       expect(files.some((f) => f.includes('相同标题') && f !== '相同标题.md')).toBe(
         true
@@ -323,12 +383,64 @@ describe('MarkdownExporter', () => {
         asZip: false,
       })
 
-      const files = fs.readdirSync(tempDir)
+      const files = fs.readdirSync(getExportRoot())
       // 非法字符应该被替换
       expect(files[0]).not.toContain('/')
       expect(files[0]).not.toContain(':')
       expect(files[0]).not.toContain('*')
       expect(files[0]).not.toContain('?')
+    })
+
+    it('图片附件后缀异常时按真实图片格式导出到 assets', async () => {
+      const sourceImagePath = path.join(tempDir, 'source-image.f1')
+      const pngBytes = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mP8/5+hHgAHggJ/Pw9u4wAAAABJRU5ErkJggg==',
+        'base64'
+      )
+      fs.writeFileSync(sourceImagePath, pngBytes)
+      vi.mocked(getFullPath).mockResolvedValue(sourceImagePath)
+
+      const mockNotes = [
+        {
+          id: 'note1',
+          title: '图片后缀测试',
+          content: JSON.stringify({
+            type: 'doc',
+            content: [
+              {
+                type: 'image',
+                attrs: {
+                  src: 'attachment://attachments/2026/01/1768792490097-2836e36e.f1',
+                  alt: 'Figure 1',
+                },
+              },
+            ],
+          }),
+          deleted_at: null,
+        },
+      ]
+
+      vi.mocked(getNotes).mockReturnValue(mockNotes as Note[])
+      vi.mocked(getNotebooks).mockReturnValue([])
+
+      await exporter.export({
+        noteIds: [],
+        notebookIds: [],
+        format: 'markdown',
+        outputPath: tempDir,
+        groupByNotebook: false,
+        includeAttachments: true,
+        includeFrontMatter: false,
+        asZip: false,
+      })
+
+      const mdContent = fs.readFileSync(path.join(getExportRoot(), '图片后缀测试.md'), 'utf-8')
+      expect(mdContent).toMatch(/!\[Figure 1\]\(\.\/assets\/.*\.png\)/)
+      expect(mdContent).not.toContain('.f1)')
+
+      const assetsDir = path.join(getExportRoot(), 'assets')
+      const assetFiles = fs.readdirSync(assetsDir)
+      expect(assetFiles.some((name) => name.endsWith('.png'))).toBe(true)
     })
   })
 

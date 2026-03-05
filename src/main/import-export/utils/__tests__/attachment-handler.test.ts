@@ -54,4 +54,33 @@ describe('copyAttachmentsAndUpdateContent', () => {
     expect(attachments[0].newRelativePath).toBe('attachments/copied.png')
     expect(saveAttachmentBuffer).toHaveBeenCalledTimes(1)
   })
+
+  it('normalizes uppercase file extensions without duplicating suffix', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'attachment-handler-'))
+    const sourcePath = join(tempDir, 'Figure.PNG')
+    writeFileSync(sourcePath, Buffer.from('image'))
+
+    const content = JSON.stringify({
+      type: 'doc',
+      content: [
+        {
+          type: 'image',
+          attrs: {
+            src: 'assets/Figure.PNG',
+          },
+        },
+      ],
+    })
+
+    const attachments: PendingAttachment[] = [
+      {
+        originalRef: '![figure](assets/Figure.PNG)',
+        sourcePath,
+      },
+    ]
+
+    await copyAttachmentsAndUpdateContent(content, attachments)
+
+    expect(saveAttachmentBuffer).toHaveBeenCalledWith(expect.any(Buffer), 'png', 'Figure.png')
+  })
 })

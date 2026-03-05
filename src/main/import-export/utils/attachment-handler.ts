@@ -120,8 +120,10 @@ export async function copyAttachmentsAndUpdateContent(
 
       // 读取文件内容
       const buffer = readFileSync(attachment.sourcePath)
-      const ext = extname(attachment.sourcePath).toLowerCase() || '.bin'
-      const name = basename(attachment.sourcePath, ext)
+      const rawExt = extname(attachment.sourcePath)
+      const ext = rawExt ? rawExt.toLowerCase() : '.bin'
+      const baseName = basename(attachment.sourcePath, rawExt)
+      const name = `${baseName}${ext}`
 
       // 保存到 userData
       const result = await saveAttachmentBuffer(buffer, ext.slice(1), name)

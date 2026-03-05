@@ -76,6 +76,20 @@ function buildArxivHtmlWithFigure(): string {
   `
 }
 
+function buildArxivHtmlWithOddFigureExtension(): string {
+  return `
+  <article class="ltx_document">
+    <section class="ltx_section" id="S1">
+      <h2 class="ltx_title">Introduction</h2>
+      <figure class="ltx_figure" id="F1">
+        <img src="assets/2401.00001.f1" />
+        <figcaption class="ltx_caption">Figure One</figcaption>
+      </figure>
+    </section>
+  </article>
+  `
+}
+
 function buildArxivHtmlWithPromptCode(): string {
   return `
   <article class="ltx_document">
@@ -182,6 +196,51 @@ describe('ArxivImporter fetchAsTiptap e2e-ish consistency', () => {
     expect(imageSrcs.length).toBeGreaterThan(0)
     expect(imageSrcs.every((src) => src.startsWith('attachment://'))).toBe(true)
     expect(collectText(parsed)).toContain('Hello from HTML path.')
+  })
+
+  it('normalizes odd figure extension by content-type/magic instead of keeping .f1', async () => {
+    const paperId = '2401.00011'
+    const absHtml = buildAbsPageHtml(paperId)
+    const paperHtml = buildArxivHtmlWithOddFigureExtension()
+    const imageBytes = Buffer.from(pngBase64, 'base64')
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = toUrl(input)
+
+      if (url.startsWith(`https://arxiv.org/abs/${paperId}`)) {
+        return new Response(absHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+      if (url.startsWith(`https://arxiv.org/html/${paperId}`)) {
+        return new Response(paperHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+      if (url.includes('/assets/2401.00001.f1')) {
+        return new Response(imageBytes, {
+          status: 200,
+          headers: { 'content-type': 'image/png; charset=utf-8' },
+        })
+      }
+
+      throw new Error(`Unhandled fetch URL in odd-extension test: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const importer = new ArxivImporter()
+    const result = await importer.fetchAsTiptap(paperId)
+    const parsed = JSON.parse(result.content) as { type: string; content: unknown[] }
+    const imageSrcs = collectImageSrcs(parsed)
+    const knownImageExt = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i
+
+    expect(imageSrcs.length).toBeGreaterThan(0)
+    expect(imageSrcs.every((src) => src.startsWith('attachment://'))).toBe(true)
+    expect(imageSrcs.some((src) => knownImageExt.test(src))).toBe(true)
+    expect(imageSrcs.some((src) => src.endsWith('.f1'))).toBe(false)
   })
 
   it('PDF fallback path (mock TextIn) also rewrites images to attachment:// URLs', async () => {

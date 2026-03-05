@@ -2,13 +2,31 @@
  * Markdown 导出器
  */
 
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, statSync } from 'fs'
-import { join, dirname, basename } from 'path'
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, statSync, readFileSync, rmSync } from 'fs'
+import { join, dirname, basename, extname } from 'path'
 import { BaseExporter } from '../base-exporter'
 import { getNotes, getNotesByIds, getNotebooks } from '../../database'
 import { getFullPath } from '../../attachment'
 import type { Note, Notebook } from '../../../shared/types'
 import type { ExportOptions, ExportResult, ExportStats, ExportErrorInfo } from '../types'
+
+const ATTACHMENT_LINK_EXTENSIONS = new Set([
+  // 视频
+  '.mp4', '.webm', '.mov', '.avi', '.mkv',
+  // 音频
+  '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac',
+  // 文档
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  // 压缩包
+  '.zip', '.rar', '.7z', '.tar', '.gz',
+])
+
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'
+])
+
+const DAILY_EXPORT_DIR_NAME = '日记'
+const EXPORT_ROOT_DIR_NAME = 'sanqian-notes'
 
 export class MarkdownExporter extends BaseExporter {
   readonly id = 'markdown'
@@ -59,18 +77,14 @@ export class MarkdownExporter extends BaseExporter {
       notebookMap.set(nb.id, nb)
     }
 
-    // 确定实际输出目录
-    // 如果需要打包为 ZIP，先创建一个子目录
-    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-    const exportDirName = `sanqian-export-${timestamp}`
-    const actualOutputDir = options.asZip
-      ? join(options.outputPath, exportDirName)
-      : options.outputPath
+    // 所有批量导出内容统一放在 sanqian-notes 目录下
+    const actualOutputDir = join(options.outputPath, EXPORT_ROOT_DIR_NAME)
 
-    // 确保输出目录存在
-    if (!existsSync(actualOutputDir)) {
-      mkdirSync(actualOutputDir, { recursive: true })
+    // 固定目录名时先清理旧内容，避免残留历史导出文件
+    if (existsSync(actualOutputDir)) {
+      rmSync(actualOutputDir, { recursive: true, force: true })
     }
+    mkdirSync(actualOutputDir, { recursive: true })
 
     // 用于跟踪文件名避免冲突
     const usedNames = new Map<string, Set<string>>() // dir -> names
@@ -94,7 +108,12 @@ export class MarkdownExporter extends BaseExporter {
         // 确定输出目录
         let outputDir = actualOutputDir
 
-        if (options.groupByNotebook && notebook) {
+        if (options.groupByNotebook && note.is_daily) {
+          outputDir = join(actualOutputDir, DAILY_EXPORT_DIR_NAME)
+          if (!existsSync(outputDir)) {
+            mkdirSync(outputDir, { recursive: true })
+          }
+        } else if (options.groupByNotebook && notebook) {
           outputDir = join(actualOutputDir, this.sanitizeFileName(notebook.name))
           if (!existsSync(outputDir)) {
             mkdirSync(outputDir, { recursive: true })
@@ -198,25 +217,20 @@ export class MarkdownExporter extends BaseExporter {
     let copiedCount = 0
     let attachmentSize = 0
 
-    // 匹配 attachment:// 路径
-    const attachmentRegex = /!\[([^\]]*)\]\(attachment:\/\/([^)]+)\)/g
-    const matches = [...content.matchAll(attachmentRegex)]
-
-    if (matches.length === 0) {
+    const attachmentRefs = this.extractAttachmentReferences(content)
+    if (attachmentRefs.length === 0) {
       return { content, copiedCount: 0, attachmentSize: 0 }
     }
 
-    // 创建附件目录
-    const attachmentDir = join(outputDir, 'attachments')
-    if (!existsSync(attachmentDir)) {
-      mkdirSync(attachmentDir, { recursive: true })
+    // 创建 assets 目录
+    const assetsDir = join(outputDir, 'assets')
+    if (!existsSync(assetsDir)) {
+      mkdirSync(assetsDir, { recursive: true })
     }
 
     const usedNames = new Set<string>()
 
-    for (const match of matches) {
-      const [fullMatch, altText, relativePath] = match
-
+    for (const { relativePath, isImage } of attachmentRefs) {
       try {
         // 获取源文件路径
         const sourcePath = await getFullPath(relativePath)
@@ -226,16 +240,25 @@ export class MarkdownExporter extends BaseExporter {
         }
 
         // 生成目标文件名
-        const originalName = basename(relativePath)
-        let targetName = originalName
+        const relativePathWithoutRoot = relativePath.startsWith('attachments/')
+          ? relativePath.slice('attachments/'.length)
+          : relativePath
+        const dir = dirname(relativePathWithoutRoot)
+        const originalName = basename(relativePathWithoutRoot)
+        const originalBaseName = dir && dir !== '.'
+          ? `${dir.replace(/[\\/]/g, '_')}_${originalName}`
+          : originalName
+        const baseNameWithExt = this.ensureExportImageExtension(originalBaseName, sourcePath, isImage)
+        let targetName = baseNameWithExt
         let counter = 1
 
         while (usedNames.has(targetName)) {
-          const ext = targetName.lastIndexOf('.')
-          if (ext > 0) {
-            targetName = `${targetName.slice(0, ext)} (${counter})${targetName.slice(ext)}`
+          const ext = extname(baseNameWithExt)
+          const base = ext ? baseNameWithExt.slice(0, -ext.length) : baseNameWithExt
+          if (ext) {
+            targetName = `${base} (${counter})${ext}`
           } else {
-            targetName = `${originalName} (${counter})`
+            targetName = `${base} (${counter})`
           }
           counter++
         }
@@ -243,12 +266,12 @@ export class MarkdownExporter extends BaseExporter {
         usedNames.add(targetName)
 
         // 复制文件
-        const targetPath = join(attachmentDir, targetName)
+        const targetPath = join(assetsDir, targetName)
         copyFileSync(sourcePath, targetPath)
 
-        // 更新路径引用
-        const newPath = `./attachments/${targetName}`
-        updatedContent = updatedContent.replace(fullMatch, `![${altText}](${newPath})`)
+        // 更新路径引用（图片、链接和媒体 src）
+        const newPath = `./assets/${targetName}`
+        updatedContent = this.replaceAttachmentReferences(updatedContent, relativePath, newPath)
 
         copiedCount++
 
@@ -265,6 +288,201 @@ export class MarkdownExporter extends BaseExporter {
       copiedCount,
       attachmentSize,
     }
+  }
+
+  private decodeURIComponentSafe(value: string): string {
+    try {
+      return decodeURIComponent(value)
+    } catch {
+      return value
+    }
+  }
+
+  private normalizeAttachmentPath(rawPath: string): string {
+    let normalized = this.decodeURIComponentSafe(rawPath.trim())
+
+    if (normalized.startsWith('attachment://')) {
+      normalized = normalized.slice('attachment://'.length)
+    } else if (normalized.startsWith('sanqian://attachment/')) {
+      normalized = normalized.slice('sanqian://attachment/'.length)
+    }
+
+    return normalized
+      .replace(/\\/g, '/')
+      .replace(/^\.\/+/, '')
+      .replace(/^\/+/, '')
+  }
+
+  private isExternalPath(src: string): boolean {
+    const lower = src.trim().toLowerCase()
+    return (
+      lower.startsWith('http://') ||
+      lower.startsWith('https://') ||
+      lower.startsWith('data:') ||
+      lower.startsWith('mailto:') ||
+      lower.startsWith('#')
+    )
+  }
+
+  private getPathExtname(filePath: string): string {
+    const withoutQuery = filePath.split(/[?#]/, 1)[0]
+    return extname(withoutQuery).toLowerCase()
+  }
+
+  private encodePathSegments(relativePath: string): string {
+    return relativePath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/')
+  }
+
+  private extractAttachmentReferences(content: string): Array<{ relativePath: string; isImage: boolean }> {
+    const refs = new Map<string, { isImage: boolean }>()
+    let match: RegExpExecArray | null
+
+    const addRef = (rawPath: string, isImage: boolean): void => {
+      const normalized = this.normalizeAttachmentPath(rawPath)
+      if (!normalized) {
+        return
+      }
+      const existing = refs.get(normalized)
+      if (existing) {
+        if (isImage) {
+          existing.isImage = true
+        }
+        return
+      }
+      refs.set(normalized, { isImage })
+    }
+
+    // 图片: ![alt](path)
+    const imageRegex = /!\[[^\]]*\]\(([^)]+)\)/g
+    while ((match = imageRegex.exec(content)) !== null) {
+      const src = match[1].trim()
+      if (!this.isExternalPath(src)) {
+        addRef(src, true)
+      }
+    }
+
+    // 文件链接: [name](path)
+    const attachmentRegex = /\[[^\]]*\]\(([^)]+)\)/g
+    while ((match = attachmentRegex.exec(content)) !== null) {
+      const src = match[1].trim()
+      if (this.isExternalPath(src)) {
+        continue
+      }
+      const normalized = this.normalizeAttachmentPath(src)
+      if (ATTACHMENT_LINK_EXTENSIONS.has(this.getPathExtname(normalized))) {
+        addRef(normalized, false)
+      }
+    }
+
+    // 媒体标签: <video src="..."> / <audio src='...'>
+    const mediaRegex = /<(?:video|audio)\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi
+    while ((match = mediaRegex.exec(content)) !== null) {
+      const src = match[1].trim()
+      if (!this.isExternalPath(src)) {
+        addRef(src, false)
+      }
+    }
+
+    return [...refs.entries()].map(([relativePath, meta]) => ({
+      relativePath,
+      isImage: meta.isImage,
+    }))
+  }
+
+  private ensureExportImageExtension(fileName: string, sourcePath: string, isImage: boolean): string {
+    if (!isImage) {
+      return fileName
+    }
+
+    const currentExt = extname(fileName).toLowerCase()
+    if (IMAGE_EXTENSIONS.has(currentExt)) {
+      return fileName
+    }
+
+    const detectedExt = this.detectImageExtensionFromSource(sourcePath)
+    if (!detectedExt) {
+      return fileName
+    }
+
+    const baseName = currentExt ? fileName.slice(0, -currentExt.length) : fileName
+    return `${baseName}${detectedExt}`
+  }
+
+  private detectImageExtensionFromSource(sourcePath: string): string | null {
+    try {
+      const buffer = readFileSync(sourcePath)
+      return this.detectImageExtensionFromBuffer(buffer)
+    } catch {
+      return null
+    }
+  }
+
+  private detectImageExtensionFromBuffer(buffer: Buffer): string | null {
+    if (buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a) {
+      return '.png'
+    }
+    if (buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff) {
+      return '.jpg'
+    }
+    if (buffer.length >= 6) {
+      const header6 = buffer.subarray(0, 6).toString('ascii')
+      if (header6 === 'GIF87a' || header6 === 'GIF89a') {
+        return '.gif'
+      }
+    }
+    if (buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+      return '.webp'
+    }
+    if (buffer.length >= 2 &&
+      buffer[0] === 0x42 &&
+      buffer[1] === 0x4d) {
+      return '.bmp'
+    }
+
+    const textHead = buffer.subarray(0, Math.min(buffer.length, 1024)).toString('utf-8').toLowerCase()
+    if (textHead.includes('<svg')) {
+      return '.svg'
+    }
+
+    return null
+  }
+
+  private replaceAttachmentReferences(content: string, relativePath: string, assetPath: string): string {
+    const pathVariants = new Set([relativePath, this.encodePathSegments(relativePath)])
+    let updated = content
+
+    for (const variant of pathVariants) {
+      const escaped = this.escapeRegExp(variant)
+      updated = updated
+        .replace(new RegExp(`\\]\\(sanqian://attachment/${escaped}\\)`, 'g'), `](${assetPath})`)
+        .replace(new RegExp(`\\]\\(attachment://${escaped}\\)`, 'g'), `](${assetPath})`)
+        .replace(new RegExp(`\\]\\(${escaped}\\)`, 'g'), `](${assetPath})`)
+        .replace(new RegExp(`src=(["'])sanqian://attachment/${escaped}\\1`, 'g'), `src=$1${assetPath}$1`)
+        .replace(new RegExp(`src=(["'])attachment://${escaped}\\1`, 'g'), `src=$1${assetPath}$1`)
+        .replace(new RegExp(`src=(["'])${escaped}\\1`, 'g'), `src=$1${assetPath}$1`)
+    }
+
+    return updated
+  }
+
+  private escapeRegExp(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   }
 
   /**

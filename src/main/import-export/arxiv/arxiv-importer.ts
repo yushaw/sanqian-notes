@@ -45,6 +45,9 @@ export class ArxivImporter {
   private static readonly CODE_MARKER_LINE_RE = /^(?:\{Code(?:Chunk|Input|Output)?\}\s*)+$/
   private static readonly PROMPT_LINE_RE = /^\s*(?:>>>|\.\.\.|…)\s?/
   private static readonly SHELL_PROMPT_LINE_RE = /^\s*>\s?/
+  private static readonly IMAGE_EXTENSIONS = new Set([
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'
+  ])
 
   /**
    * Import multiple arXiv papers
@@ -334,15 +337,7 @@ export class ArxivImporter {
       try {
         const { buffer, contentType } = await downloadImage(figure.imageUrl, baseUrl, signal)
 
-        // Determine extension from content type
-        const extMap: Record<string, string> = {
-          'image/png': '.png',
-          'image/jpeg': '.jpg',
-          'image/gif': '.gif',
-          'image/webp': '.webp',
-          'image/svg+xml': '.svg'
-        }
-        const ext = extMap[contentType] || extname(figure.imageUrl) || '.png'
+        const ext = this.resolveFigureImageExtension(contentType, figure.imageUrl, buffer)
 
         const filename = `${figure.id}${ext}`
         const localPath = join(this.tempDir, filename)
@@ -360,6 +355,74 @@ export class ArxivImporter {
     }
 
     return updatedFigures
+  }
+
+  private resolveFigureImageExtension(contentType: string, imageUrl: string, buffer: Buffer): string {
+    const normalizedType = contentType.split(';', 1)[0].trim().toLowerCase()
+    const extByType: Record<string, string> = {
+      'image/png': '.png',
+      'image/jpeg': '.jpg',
+      'image/jpg': '.jpg',
+      'image/gif': '.gif',
+      'image/webp': '.webp',
+      'image/svg+xml': '.svg',
+      'image/bmp': '.bmp',
+    }
+    if (extByType[normalizedType]) {
+      return extByType[normalizedType]
+    }
+
+    const urlPath = imageUrl.split(/[?#]/, 1)[0]
+    const extByUrl = extname(urlPath).toLowerCase()
+    if (ArxivImporter.IMAGE_EXTENSIONS.has(extByUrl)) {
+      return extByUrl
+    }
+
+    const extByMagic = this.detectImageExtensionFromBuffer(buffer)
+    return extByMagic || '.png'
+  }
+
+  private detectImageExtensionFromBuffer(buffer: Buffer): string | null {
+    if (buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a) {
+      return '.png'
+    }
+    if (buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff) {
+      return '.jpg'
+    }
+    if (buffer.length >= 6) {
+      const header6 = buffer.subarray(0, 6).toString('ascii')
+      if (header6 === 'GIF87a' || header6 === 'GIF89a') {
+        return '.gif'
+      }
+    }
+    if (buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+      return '.webp'
+    }
+    if (buffer.length >= 2 &&
+      buffer[0] === 0x42 &&
+      buffer[1] === 0x4d) {
+      return '.bmp'
+    }
+
+    const textHead = buffer.subarray(0, Math.min(buffer.length, 1024)).toString('utf-8').toLowerCase()
+    if (textHead.includes('<svg')) {
+      return '.svg'
+    }
+
+    return null
   }
 
   /**

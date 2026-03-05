@@ -341,47 +341,223 @@ function generateFrontMatter(note: {
   return lines.join('\n')
 }
 
+const ATTACHMENT_LINK_EXTENSIONS = new Set([
+  // 视频
+  '.mp4', '.webm', '.mov', '.avi', '.mkv',
+  // 音频
+  '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac',
+  // 文档
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  // 压缩包
+  '.zip', '.rar', '.7z', '.tar', '.gz',
+])
+
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp',
+])
+
+function decodeURIComponentSafe(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function normalizeAttachmentPath(rawPath: string): string {
+  let normalized = decodeURIComponentSafe(rawPath.trim())
+
+  if (normalized.startsWith('attachment://')) {
+    normalized = normalized.slice('attachment://'.length)
+  } else if (normalized.startsWith('sanqian://attachment/')) {
+    normalized = normalized.slice('sanqian://attachment/'.length)
+  }
+
+  return normalized
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '')
+}
+
+function isExternalPath(src: string): boolean {
+  const lower = src.trim().toLowerCase()
+  return (
+    lower.startsWith('http://') ||
+    lower.startsWith('https://') ||
+    lower.startsWith('data:') ||
+    lower.startsWith('mailto:') ||
+    lower.startsWith('#')
+  )
+}
+
+function getPathExtname(filePath: string): string {
+  const withoutQuery = filePath.split(/[?#]/, 1)[0]
+  return path.extname(withoutQuery).toLowerCase()
+}
+
+function encodePathSegments(relativePath: string): string {
+  return relativePath
+    .split('/')
+    .map(segment => encodeURIComponent(segment))
+    .join('/')
+}
+
+function resolveAttachmentSourcePath(relativePath: string): string | null {
+  const userDataPath = getUserDataPath()
+  const normalized = relativePath.replace(/^\/+/, '')
+
+  const candidates = [path.join(userDataPath, normalized)]
+  if (!normalized.startsWith('attachments/')) {
+    candidates.push(path.join(userDataPath, 'attachments', normalized))
+  }
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+function replaceAttachmentReferences(content: string, relativePath: string, assetPath: string): string {
+  const pathVariants = new Set([relativePath, encodePathSegments(relativePath)])
+  let updated = content
+
+  for (const variant of pathVariants) {
+    const escapedVariant = escapeRegExp(variant)
+
+    updated = updated
+      .replace(new RegExp(`\\]\\(sanqian://attachment/${escapedVariant}\\)`, 'g'), `](${assetPath})`)
+      .replace(new RegExp(`\\]\\(attachment://${escapedVariant}\\)`, 'g'), `](${assetPath})`)
+      .replace(new RegExp(`\\]\\(${escapedVariant}\\)`, 'g'), `](${assetPath})`)
+      .replace(new RegExp(`src=(["'])sanqian://attachment/${escapedVariant}\\1`, 'g'), `src=$1${assetPath}$1`)
+      .replace(new RegExp(`src=(["'])attachment://${escapedVariant}\\1`, 'g'), `src=$1${assetPath}$1`)
+      .replace(new RegExp(`src=(["'])${escapedVariant}\\1`, 'g'), `src=$1${assetPath}$1`)
+  }
+
+  return updated
+}
+
 /**
  * 从 Markdown 内容中提取附件路径
  */
-function extractAttachmentPaths(markdown: string): string[] {
-  const paths: string[] = []
+function extractAttachmentReferences(markdown: string): Array<{ relativePath: string; isImage: boolean }> {
+  const refs = new Map<string, { isImage: boolean }>()
 
-  // 匹配图片: ![alt](path) 或 ![alt](sanqian://attachment/path)
-  const imageRegex = /!\[([^\]]*)\]\((?:sanqian:\/\/attachment\/)?([^)]+)\)/g
+  const addRef = (rawPath: string, isImage: boolean): void => {
+    const normalized = normalizeAttachmentPath(rawPath)
+    if (!normalized) return
+    const existing = refs.get(normalized)
+    if (existing) {
+      if (isImage) existing.isImage = true
+      return
+    }
+    refs.set(normalized, { isImage })
+  }
+
+  // 匹配图片: ![alt](path)
+  const imageRegex = /!\[[^\]]*\]\(([^)]+)\)/g
   let match
   while ((match = imageRegex.exec(markdown)) !== null) {
-    const src = match[2]
-    // 只处理本地附件路径（不是 http/https）
-    if (!src.startsWith('http://') && !src.startsWith('https://')) {
-      paths.push(src)
+    const src = match[1].trim()
+    if (!isExternalPath(src)) {
+      addRef(src, true)
     }
   }
 
-  // 匹配视频/音频/文件附件
-  const attachmentRegex = /\[([^\]]*)\]\((?:sanqian:\/\/attachment\/)?([^)]+)\)/g
+  // 匹配文件链接: [text](path)
+  const attachmentRegex = /\[[^\]]*\]\(([^)]+)\)/g
   while ((match = attachmentRegex.exec(markdown)) !== null) {
-    const src = match[2]
-    if (!src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('#')) {
-      // 检查是否是附件文件（常见格式）
-      const ext = path.extname(src).toLowerCase()
-      const attachmentExts = [
-        // 视频
-        '.mp4', '.webm', '.mov', '.avi', '.mkv',
-        // 音频
-        '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac',
-        // 文档
-        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-        // 压缩包
-        '.zip', '.rar', '.7z', '.tar', '.gz',
-      ]
-      if (attachmentExts.includes(ext)) {
-        paths.push(src)
-      }
+    const src = match[1].trim()
+    if (isExternalPath(src)) {
+      continue
+    }
+    const normalized = normalizeAttachmentPath(src)
+    if (ATTACHMENT_LINK_EXTENSIONS.has(getPathExtname(normalized))) {
+      addRef(normalized, false)
     }
   }
 
-  return [...new Set(paths)] // 去重
+  // 匹配媒体标签: <video src="..."> 或 <audio src='...'>
+  const mediaRegex = /<(?:video|audio)\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi
+  while ((match = mediaRegex.exec(markdown)) !== null) {
+    const src = match[1].trim()
+    if (!isExternalPath(src)) {
+      addRef(src, false)
+    }
+  }
+
+  return [...refs.entries()].map(([relativePath, meta]) => ({
+    relativePath,
+    isImage: meta.isImage,
+  }))
+}
+
+function detectImageExtensionFromBuffer(buffer: Buffer): string | null {
+  if (buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a) {
+    return '.png'
+  }
+  if (buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff) {
+    return '.jpg'
+  }
+  if (buffer.length >= 6) {
+    const header6 = buffer.subarray(0, 6).toString('ascii')
+    if (header6 === 'GIF87a' || header6 === 'GIF89a') {
+      return '.gif'
+    }
+  }
+  if (buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return '.webp'
+  }
+  if (buffer.length >= 2 &&
+    buffer[0] === 0x42 &&
+    buffer[1] === 0x4d) {
+    return '.bmp'
+  }
+
+  const textHead = buffer.subarray(0, Math.min(buffer.length, 1024)).toString('utf-8').toLowerCase()
+  if (textHead.includes('<svg')) {
+    return '.svg'
+  }
+
+  return null
+}
+
+function ensureExportImageExtension(fileName: string, sourcePath: string, isImage: boolean): string {
+  if (!isImage) {
+    return fileName
+  }
+
+  const currentExt = path.extname(fileName).toLowerCase()
+  if (IMAGE_EXTENSIONS.has(currentExt)) {
+    return fileName
+  }
+
+  try {
+    const buffer = readFileSync(sourcePath)
+    const detectedExt = detectImageExtensionFromBuffer(buffer)
+    if (!detectedExt) {
+      return fileName
+    }
+    const baseName = currentExt ? fileName.slice(0, -currentExt.length) : fileName
+    return `${baseName}${detectedExt}`
+  } catch {
+    return fileName
+  }
 }
 
 /**
@@ -391,12 +567,11 @@ async function copyAttachmentsAndUpdateContent(
   markdown: string,
   exportFilePath: string
 ): Promise<{ content: string; copiedCount: number }> {
-  const attachmentDir = path.join(getUserDataPath(), 'attachments')
   const exportDir = path.dirname(exportFilePath)
   const assetsDir = path.join(exportDir, 'assets')
 
-  const attachmentPaths = extractAttachmentPaths(markdown)
-  if (attachmentPaths.length === 0) {
+  const attachmentRefs = extractAttachmentReferences(markdown)
+  if (attachmentRefs.length === 0) {
     return { content: markdown, copiedCount: 0 }
   }
 
@@ -408,25 +583,42 @@ async function copyAttachmentsAndUpdateContent(
   let updatedContent = markdown
   let copiedCount = 0
 
-  for (const relativePath of attachmentPaths) {
-    const sourcePath = path.join(attachmentDir, relativePath)
-    // 使用目录前缀避免同名文件冲突（images/photo.png -> images_photo.png）
-    const dir = path.dirname(relativePath)
-    const basename = path.basename(relativePath)
-    const uniqueFilename = dir && dir !== '.' ? `${dir.replace(/[\\/]/g, '_')}_${basename}` : basename
+  const usedNames = new Set<string>()
+
+  for (const { relativePath, isImage } of attachmentRefs) {
+    const sourcePath = resolveAttachmentSourcePath(relativePath)
+    if (!sourcePath) {
+      continue
+    }
+
+    // 使用目录前缀避免同名文件冲突（attachments/2026/03/photo.png -> 2026_03_photo.png）
+    const pathForName = relativePath.startsWith('attachments/')
+      ? relativePath.slice('attachments/'.length)
+      : relativePath
+    const dir = path.dirname(pathForName)
+    const baseName = path.basename(pathForName)
+    const originalExportName = dir && dir !== '.' ? `${dir.replace(/[\\/]/g, '_')}_${baseName}` : baseName
+    const normalizedBaseName = ensureExportImageExtension(originalExportName, sourcePath, isImage)
+    let uniqueFilename = normalizedBaseName
+    let counter = 1
+
+    while (usedNames.has(uniqueFilename)) {
+      const ext = path.extname(normalizedBaseName)
+      const bare = ext ? normalizedBaseName.slice(0, -ext.length) : normalizedBaseName
+      uniqueFilename = ext ? `${bare} (${counter})${ext}` : `${bare} (${counter})`
+      counter++
+    }
+    usedNames.add(uniqueFilename)
+
     const destPath = path.join(assetsDir, uniqueFilename)
 
     try {
-      if (existsSync(sourcePath)) {
-        await copyFile(sourcePath, destPath)
-        copiedCount++
+      await copyFile(sourcePath, destPath)
+      copiedCount++
 
-        // 更新 Markdown 中的路径
-        // 替换 sanqian://attachment/path 和 直接路径
-        updatedContent = updatedContent
-          .replace(new RegExp(`sanqian://attachment/${escapeRegExp(relativePath)}`, 'g'), `./assets/${uniqueFilename}`)
-          .replace(new RegExp(`\\]\\(${escapeRegExp(relativePath)}\\)`, 'g'), `](./assets/${uniqueFilename})`)
-      }
+      // 更新 Markdown 中的路径（图片/链接/media src）
+      const assetPath = `./assets/${uniqueFilename}`
+      updatedContent = replaceAttachmentReferences(updatedContent, relativePath, assetPath)
     } catch (error) {
       console.error(`Failed to copy attachment: ${relativePath}`, error)
     }
@@ -1239,8 +1431,8 @@ export async function exportNoteAsMarkdown(
   try {
     // 先转换内容，检查是否有附件
     let markdown = jsonToMarkdown(note.content)
-    const attachmentPaths = extractAttachmentPaths(markdown)
-    const hasAttachments = attachmentPaths.length > 0 && options.includeAttachments
+    const attachmentRefs = extractAttachmentReferences(markdown)
+    const hasAttachments = attachmentRefs.length > 0 && options.includeAttachments
 
     // 可选：添加 Front Matter
     if (options.includeFrontMatter) {

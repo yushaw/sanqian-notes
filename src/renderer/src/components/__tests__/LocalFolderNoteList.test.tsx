@@ -22,6 +22,7 @@ vi.mock('../../i18n', () => ({
     notebook: {
       createFile: 'Create File',
       createFolder: 'Create Folder',
+      createSubfolder: 'Create Subfolder',
     },
     actions: {
       rename: 'Rename',
@@ -268,7 +269,7 @@ describe('LocalFolderNoteList', () => {
     expect(screen.queryByTitle('Create File')).not.toBeInTheDocument()
   })
 
-  it('opens folder context menu with create/rename/delete actions', () => {
+  it('opens folder context menu with create-subfolder/rename/delete actions', () => {
     const onCreateFolder = vi.fn()
     const onRenameEntry = vi.fn()
     const onDeleteEntry = vi.fn()
@@ -276,7 +277,7 @@ describe('LocalFolderNoteList', () => {
 
     fireEvent.contextMenu(screen.getByText('Docs'))
 
-    fireEvent.click(screen.getByText('Create Folder'))
+    fireEvent.click(screen.getByText('Create Subfolder'))
     expect(onCreateFolder).toHaveBeenCalledWith('Docs')
 
     fireEvent.contextMenu(screen.getByText('Docs'))
@@ -335,7 +336,7 @@ describe('LocalFolderNoteList', () => {
     renderList({ treeNodes: deepTree, files: [] })
     fireEvent.contextMenu(screen.getByText('C'))
 
-    expect(screen.queryByText('Create Folder')).not.toBeInTheDocument()
+    expect(screen.queryByText('Create Subfolder')).not.toBeInTheDocument()
     expect(screen.getByText('Rename')).toBeInTheDocument()
     expect(screen.getByText('Delete')).toBeInTheDocument()
   })

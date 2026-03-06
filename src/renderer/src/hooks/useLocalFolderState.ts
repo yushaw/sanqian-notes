@@ -945,7 +945,9 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   // ---------------------------------------------------------------------------
 
   const getDefaultLocalCreateName = useCallback((kind: 'file' | 'folder', parentRelativePath: string | null): string => {
-    const baseName = kind === 'file' ? t.notebook.defaultNewFile : t.notebook.defaultNewFolder
+    const baseName = kind === 'file'
+      ? t.notebook.defaultNewFile
+      : t.notebook.defaultNewSubfolder
     const normalizedParentPath = parentRelativePath || ''
 
     if (kind === 'file') {
@@ -987,7 +989,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       }
     }
     return `${baseName} ${Date.now()}`
-  }, [localFolderTree, t.notebook.defaultNewFile, t.notebook.defaultNewFolder])
+  }, [localFolderTree, t.notebook.defaultNewFile, t.notebook.defaultNewSubfolder])
 
   // ---------------------------------------------------------------------------
   // useCallback: resolveLocalCreateParentPath

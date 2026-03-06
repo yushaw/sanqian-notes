@@ -441,7 +441,7 @@ export function LocalFolderNoteList({
     if (target.kind === 'root') {
       return [
         {
-          label: t.notebook.createFolder,
+          label: t.notebook.createSubfolder,
           onClick: () => onCreateFolder?.(null),
           disabled: !canCreateFolder || !onCreateFolder,
         },
@@ -454,7 +454,7 @@ export function LocalFolderNoteList({
       const folderItems: ContextMenuItem[] = []
       if (canCreateChildFolder && onCreateFolder) {
         folderItems.push({
-          label: t.notebook.createFolder,
+          label: t.notebook.createSubfolder,
           onClick: () => onCreateFolder(target.relativePath),
         })
       }
@@ -499,7 +499,7 @@ export function LocalFolderNoteList({
     onRenameEntry,
     t.actions.delete,
     t.actions.rename,
-    t.notebook.createFolder,
+    t.notebook.createSubfolder,
   ])
 
   useEffect(() => {

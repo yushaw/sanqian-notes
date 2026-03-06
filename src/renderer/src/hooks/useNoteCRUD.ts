@@ -116,6 +116,7 @@ export interface NoteCRUDAPI {
   handleTogglePinned: (id: string) => Promise<void>
   handleToggleFavorite: (id: string) => Promise<void>
   handleMoveToNotebook: (noteIdOrIds: string | string[], notebookId: string | null) => Promise<void>
+  handleMoveToFolder: (noteIdOrIds: string | string[], notebookId: string, folderPath: string) => Promise<void>
   handleDeleteNote: (id: string) => Promise<void>
   handleDuplicateNote: (id: string) => Promise<void>
   handleSearch: (query: string) => Promise<Note[]>
@@ -163,6 +164,53 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
   } = options
 
   const emptyNoteDeleteInFlightRef = useRef<Set<string>>(new Set())
+
+  const moveInternalNotes = useCallback(async (
+    noteIdOrIds: string | string[],
+    target: { notebookId: string | null; folderPath: string | null },
+    labels: {
+      partialFailure: (failedCount: number, totalCount: number) => string
+      logLabel: string
+    }
+  ) => {
+    if (target.notebookId) {
+      const targetNotebook = notebooks.find((nb) => nb.id === target.notebookId)
+      if (targetNotebook?.source_type === 'local-folder') {
+        toast(
+          isZh
+            ? '\u6682\u4E0D\u652F\u6301\u5C06\u5E94\u7528\u5185\u7B14\u8BB0\u79FB\u52A8\u5230\u672C\u5730\u6587\u4EF6\u5939\u7B14\u8BB0\u672C\u3002'
+            : 'Moving app-internal notes into local folder notebooks is not supported yet.',
+          { type: 'info' }
+        )
+        return
+      }
+    }
+
+    const ids = Array.isArray(noteIdOrIds) ? noteIdOrIds : [noteIdOrIds]
+    const uniqueIds = [...new Set(ids)].filter((id) => !isLocalResourceId(id))
+    if (uniqueIds.length === 0) return
+
+    const flushed = await flushQueuedEditorUpdatesForNotes(uniqueIds, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
+    if (!flushed) {
+      notifyFlushRequired()
+      return
+    }
+
+    const results = await runWithConcurrency(uniqueIds, BULK_NOTE_PATCH_CONCURRENCY, async (id) => {
+      const updated = await applyNonEditorNotePatch(id, {
+        notebook_id: target.notebookId,
+        folder_path: target.folderPath,
+      })
+      if (!updated) {
+        throw new Error(`Note move failed: ${id}`)
+      }
+    })
+    const failed = results.filter((result): result is { item: string; ok: false; error: unknown } => !result.ok)
+    if (failed.length > 0) {
+      console.warn(`[App] Partial ${labels.logLabel} failure:`, failed)
+      toast(labels.partialFailure(failed.length, uniqueIds.length), { type: 'error' })
+    }
+  }, [applyNonEditorNotePatch, flushQueuedEditorUpdatesForNotes, isZh, notebooks, notifyFlushRequired])
 
   const flushNotesInsert = useCallback(
     async (updater: (prev: Note[]) => Note[]) => {
@@ -537,51 +585,34 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
   // ---------------------------------------------------------------------------
 
   const handleMoveToNotebook = useCallback(async (noteIdOrIds: string | string[], notebookId: string | null) => {
-    if (notebookId) {
-      const targetNotebook = notebooks.find(nb => nb.id === notebookId)
-      if (targetNotebook?.source_type === 'local-folder') {
-        toast(
-          isZh
-            ? '\u6682\u4E0D\u652F\u6301\u5C06\u5E94\u7528\u5185\u7B14\u8BB0\u79FB\u52A8\u5230\u672C\u5730\u6587\u4EF6\u5939\u7B14\u8BB0\u672C\u3002'
-            : 'Moving app-internal notes into local folder notebooks is not supported yet.',
-          { type: 'info' }
-        )
-        return
-      }
-    }
-
-    const ids = Array.isArray(noteIdOrIds) ? noteIdOrIds : [noteIdOrIds]
-    const uniqueIds = [...new Set(ids)].filter((id) => !isLocalResourceId(id))
-    if (uniqueIds.length === 0) return
     try {
-      const flushed = await flushQueuedEditorUpdatesForNotes(uniqueIds, DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS)
-      if (!flushed) {
-        notifyFlushRequired()
-        return
-      }
-      const results = await runWithConcurrency(uniqueIds, BULK_NOTE_PATCH_CONCURRENCY, async (id) => {
-        const updated = await applyNonEditorNotePatch(id, {
-          notebook_id: notebookId,
-          folder_path: null,
-        })
-        if (!updated) {
-          throw new Error(`Note move failed: ${id}`)
-        }
-      })
-      const failed = results.filter((result): result is { item: string; ok: false; error: unknown } => !result.ok)
-      if (failed.length > 0) {
-        console.warn('[App] Partial move-to-notebook failure:', failed)
-        toast(
+      await moveInternalNotes(noteIdOrIds, { notebookId, folderPath: null }, {
+        logLabel: 'move-to-notebook',
+        partialFailure: (failedCount, totalCount) => (
           isZh
-            ? `\u90E8\u5206\u7B14\u8BB0\u79FB\u52A8\u5931\u8D25\uFF08${failed.length}/${uniqueIds.length}\uFF09`
-            : `Some notes failed to move (${failed.length}/${uniqueIds.length})`,
-          { type: 'error' }
-        )
-      }
+            ? `\u90E8\u5206\u7B14\u8BB0\u79FB\u52A8\u5931\u8D25\uFF08${failedCount}/${totalCount}\uFF09`
+            : `Some notes failed to move (${failedCount}/${totalCount})`
+        ),
+      })
     } catch (error) {
       console.error('Failed to move note(s) to notebook:', error)
     }
-  }, [applyNonEditorNotePatch, flushQueuedEditorUpdatesForNotes, isZh, notifyFlushRequired, notebooks])
+  }, [isZh, moveInternalNotes])
+
+  const handleMoveToFolder = useCallback(async (noteIdOrIds: string | string[], notebookId: string, folderPath: string) => {
+    try {
+      await moveInternalNotes(noteIdOrIds, { notebookId, folderPath }, {
+        logLabel: 'move-to-folder',
+        partialFailure: (failedCount, totalCount) => (
+          isZh
+            ? `\u90E8\u5206\u7B14\u8BB0\u79FB\u52A8\u5230\u6587\u4EF6\u5939\u5931\u8D25\uFF08${failedCount}/${totalCount}\uFF09`
+            : `Some notes failed to move to the folder (${failedCount}/${totalCount})`
+        ),
+      })
+    } catch (error) {
+      console.error('Failed to move note(s) to folder:', error)
+    }
+  }, [isZh, moveInternalNotes])
 
   // ---------------------------------------------------------------------------
   // handleDeleteNote
@@ -840,6 +871,7 @@ export function useNoteCRUD(options: UseNoteCRUDOptions): NoteCRUDAPI {
     handleTogglePinned,
     handleToggleFavorite,
     handleMoveToNotebook,
+    handleMoveToFolder,
     handleDeleteNote,
     handleDuplicateNote,
     handleSearch,

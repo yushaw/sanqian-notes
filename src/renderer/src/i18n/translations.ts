@@ -253,12 +253,11 @@ export interface Translations {
     unmountConfirmTitle: string
     unmountConfirmMessage: string
     createFile: string
-    createFolder: string
     createSubfolder: string
     openInFileManager: string
     deleteSelected: string
     createFileDialogTitle: string
-    createFolderDialogTitle: string
+    createSubfolderDialogTitle: string
     createNameLabel: string
     createNamePlaceholderFile: string
     createNamePlaceholderFolder: string
@@ -269,7 +268,7 @@ export interface Translations {
     renameNamePlaceholderFile: string
     renameNamePlaceholderFolder: string
     defaultNewFile: string
-    defaultNewFolder: string
+    defaultNewSubfolder: string
     mountErrorInvalidPath: string
     mountErrorPermissionDenied: string
     mountErrorUnreachable: string
@@ -1253,12 +1252,11 @@ const zh: Translations = {
     unmountConfirmTitle: '解除挂载',
     unmountConfirmMessage: '确定要解除「{name}」吗？这不会删除磁盘上的文件。',
     createFile: '新建文件',
-    createFolder: '新建文件夹',
     createSubfolder: '新建子文件夹',
     openInFileManager: '在文件管理器中打开',
     deleteSelected: '删除所选',
     createFileDialogTitle: '新建文件',
-    createFolderDialogTitle: '新建文件夹',
+    createSubfolderDialogTitle: '新建子文件夹',
     createNameLabel: '名称',
     createNamePlaceholderFile: '输入文件名',
     createNamePlaceholderFolder: '输入文件夹名',
@@ -1269,7 +1267,7 @@ const zh: Translations = {
     renameNamePlaceholderFile: '输入新文件名',
     renameNamePlaceholderFolder: '输入新文件夹名',
     defaultNewFile: '新建笔记',
-    defaultNewFolder: '新建文件夹',
+    defaultNewSubfolder: '新建子文件夹',
     mountErrorInvalidPath: '请选择有效的本地文件夹。',
     mountErrorPermissionDenied: '没有权限访问该文件夹，请检查系统权限。',
     mountErrorUnreachable: '无法访问该文件夹，请稍后重试。',
@@ -2249,12 +2247,11 @@ const en: Translations = {
     unmountConfirmTitle: 'Unmount Folder',
     unmountConfirmMessage: 'Are you sure you want to unmount "{name}"? Files on disk will not be deleted.',
     createFile: 'New File',
-    createFolder: 'New Folder',
     createSubfolder: 'New Subfolder',
     openInFileManager: 'Open in File Manager',
     deleteSelected: 'Delete Selected',
     createFileDialogTitle: 'Create File',
-    createFolderDialogTitle: 'Create Folder',
+    createSubfolderDialogTitle: 'Create Subfolder',
     createNameLabel: 'Name',
     createNamePlaceholderFile: 'Enter file name',
     createNamePlaceholderFolder: 'Enter folder name',
@@ -2265,7 +2262,7 @@ const en: Translations = {
     renameNamePlaceholderFile: 'Enter new file name',
     renameNamePlaceholderFolder: 'Enter new folder name',
     defaultNewFile: 'New Note',
-    defaultNewFolder: 'New Folder',
+    defaultNewSubfolder: 'New Subfolder',
     mountErrorInvalidPath: 'Please choose a valid local folder.',
     mountErrorPermissionDenied: 'Permission denied for this folder. Please check system permissions.',
     mountErrorUnreachable: 'This folder is currently unreachable. Please try again.',

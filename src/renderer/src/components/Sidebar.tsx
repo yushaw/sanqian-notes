@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react'
+import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { Notebook, SmartViewId, LocalFolderTreeNode, NotebookFolderTreeNode } from '../types/note'
 import { useTranslations } from '../i18n'
@@ -108,6 +109,7 @@ interface SidebarProps {
   onDeleteNotebook: (notebook: Notebook) => void
   onOpenSettings: (tab?: string) => void
   onMoveNoteToNotebook: (noteIds: string[], notebookId: string | null) => void
+  onMoveNoteToInternalFolder?: (noteIds: string[], notebookId: string, folderPath: string) => void
   onReorderNotebooks: (orderedIds: string[]) => void
   noteCounts: {
     all: number
@@ -175,6 +177,10 @@ const TREE_TOGGLE_BG_SIDE_EXTEND = 3
 const SIDEBAR_ROW_BASE_PADDING_X = 10
 const EMPTY_LOCAL_TREE_NODES: LocalFolderTreeNode[] = []
 const EMPTY_INTERNAL_TREE_NODES: NotebookFolderTreeNode[] = []
+const FOLDER_DROP_TARGET_STYLE: CSSProperties = {
+  backgroundColor: 'color-mix(in srgb, var(--color-accent) 16%, var(--color-card))',
+  boxShadow: 'inset 2px 0 0 0 var(--color-accent)',
+}
 
 /** Shared folder tree item component used by both local and internal folder trees. */
 const FolderTreeItem = memo(function FolderTreeItem({
@@ -187,6 +193,10 @@ const FolderTreeItem = memo(function FolderTreeItem({
   onToggleExpand,
   onSelect,
   onContextMenu,
+  isDropTarget,
+  onDragOverPath,
+  onDragLeavePath,
+  onDropPath,
   children,
 }: {
   name: string
@@ -198,6 +208,10 @@ const FolderTreeItem = memo(function FolderTreeItem({
   onToggleExpand: (path: string) => void
   onSelect: (path: string) => void
   onContextMenu: (event: React.MouseEvent, path: string) => void
+  isDropTarget?: boolean
+  onDragOverPath?: (path: string, event: React.DragEvent<HTMLDivElement>) => void
+  onDragLeavePath?: (path: string, event: React.DragEvent<HTMLDivElement>) => void
+  onDropPath?: (path: string, event: React.DragEvent<HTMLDivElement>) => void
   children?: React.ReactNode
 }) {
   const handleToggle = useCallback(() => onToggleExpand(path), [onToggleExpand, path])
@@ -213,16 +227,62 @@ const FolderTreeItem = memo(function FolderTreeItem({
     },
     [onToggleExpand, path],
   )
+  const handleDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.stopPropagation()
+      onDragOverPath?.(path, event)
+    },
+    [onDragOverPath, path],
+  )
+  const handleButtonDragOver = useCallback(
+    (event: React.DragEvent<HTMLButtonElement>) => {
+      event.stopPropagation()
+      onDragOverPath?.(path, event as unknown as React.DragEvent<HTMLDivElement>)
+    },
+    [onDragOverPath, path],
+  )
+  const handleDragLeave = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      const relatedTarget = event.relatedTarget as Node | null
+      if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+        return
+      }
+      event.stopPropagation()
+      onDragLeavePath?.(path, event)
+    },
+    [onDragLeavePath, path],
+  )
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.stopPropagation()
+      onDropPath?.(path, event)
+    },
+    [onDropPath, path],
+  )
+  const handleButtonDrop = useCallback(
+    (event: React.DragEvent<HTMLButtonElement>) => {
+      event.stopPropagation()
+      onDropPath?.(path, event as unknown as React.DragEvent<HTMLDivElement>)
+    },
+    [onDropPath, path],
+  )
 
   return (
     <div role="treeitem" aria-expanded={hasChildren ? isExpanded : undefined} aria-selected={isSelected}>
       <div
+        data-folder-path={path}
+        data-drop-target={isDropTarget ? 'true' : 'false'}
         className={`flex items-center rounded-md text-[0.76rem] transition-colors ${
-          isSelected
-            ? 'text-[var(--color-text)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]'
+          isDropTarget || isSelected
+            ? 'text-[var(--color-text)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)]'
-        }`}
+        } ${isDropTarget ? 'ring-2 ring-[var(--color-accent)] ring-opacity-60' : ''}`}
         style={{
+          ...(isDropTarget
+            ? FOLDER_DROP_TARGET_STYLE
+            : isSelected
+              ? { backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' }
+              : {}),
           paddingLeft: `${TREE_ROW_BASE_PADDING_LEFT + depth * TREE_LEVEL_INDENT + TREE_TOGGLE_BG_SIDE_EXTEND}px`,
           paddingRight: `${TREE_TOGGLE_BG_SIDE_EXTEND}px`,
           marginLeft: `-${TREE_TOGGLE_BG_SIDE_EXTEND}px`,
@@ -230,11 +290,16 @@ const FolderTreeItem = memo(function FolderTreeItem({
         }}
         onContextMenu={handleCtxMenu}
         onDoubleClick={hasChildren ? handleToggle : undefined}
+        onDragOver={onDragOverPath ? handleDragOver : undefined}
+        onDragLeave={onDragLeavePath ? handleDragLeave : undefined}
+        onDrop={onDropPath ? handleDrop : undefined}
       >
         {hasChildren ? (
           <button
             type="button"
             onClick={handleExpandClick}
+            onDragOver={onDragOverPath ? handleButtonDragOver : undefined}
+            onDrop={onDropPath ? handleButtonDrop : undefined}
             className="p-0.5 rounded-sm hover:bg-black/5 dark:hover:bg-white/10"
             aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
           >
@@ -253,6 +318,8 @@ const FolderTreeItem = memo(function FolderTreeItem({
         <button
           type="button"
           onClick={handleSelect}
+          onDragOver={onDragOverPath ? handleButtonDragOver : undefined}
+          onDrop={onDropPath ? handleButtonDrop : undefined}
           className="flex-1 min-w-0 text-left px-1 py-1"
         >
           <span className="inline-flex items-center min-w-0">
@@ -449,6 +516,24 @@ function getParentFolderPaths(folderPath: string): string[] {
   return parents
 }
 
+function parseDraggedNoteIds(event: React.DragEvent): string[] {
+  const jsonData = event.dataTransfer.getData('application/json')
+  const plainData = event.dataTransfer.getData('text/plain')
+  if (jsonData) {
+    try {
+      const parsed = JSON.parse(jsonData)
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
+    } catch {
+      return plainData ? [plainData] : []
+    }
+  }
+  return plainData ? [plainData] : []
+}
+
+function hasDragType(event: React.DragEvent, type: string): boolean {
+  return Array.from(event.dataTransfer.types || []).includes(type)
+}
+
 export function Sidebar({
   notebooks,
   selectedNotebookId,
@@ -462,6 +547,7 @@ export function Sidebar({
   onDeleteNotebook,
   onOpenSettings,
   onMoveNoteToNotebook,
+  onMoveNoteToInternalFolder,
   onReorderNotebooks,
   noteCounts,
   notebookHasChildFolders = {},
@@ -521,6 +607,7 @@ export function Sidebar({
   })
   const t = useTranslations()
   const [dragOverNotebookId, setDragOverNotebookId] = useState<string | null>(null)
+  const [dragOverInternalFolderPath, setDragOverInternalFolderPath] = useState<string | null>(null)
   const [showAddMenu, setShowAddMenu] = useState(false)
   const addMenuRef = useRef<HTMLDivElement>(null)
   const addButtonRef = useRef<HTMLButtonElement>(null)
@@ -637,11 +724,12 @@ export function Sidebar({
   const handleNotebookDragEnd = useCallback(() => {
     setDraggingNotebookId(null)
     setDropTargetIndex(null)
+    setDragOverInternalFolderPath(null)
   }, [])
 
   const handleNotebookDragOver = useCallback((notebookId: string, index: number, e: React.DragEvent) => {
     e.preventDefault()
-    const isNotebookDrag = e.dataTransfer.types.includes('application/x-notebook-id')
+    const isNotebookDrag = hasDragType(e, 'application/x-notebook-id')
     if (isNotebookDrag && draggingNotebookIdRef.current) {
       e.dataTransfer.dropEffect = 'move'
       const rect = e.currentTarget.getBoundingClientRect()
@@ -650,6 +738,7 @@ export function Sidebar({
       setDropTargetIndex(prev => prev === targetIndex ? prev : targetIndex)
     } else if (!isNotebookDrag) {
       e.dataTransfer.dropEffect = 'move'
+      setDragOverInternalFolderPath(null)
       setDragOverNotebookId(notebookId)
     }
   }, [])
@@ -691,6 +780,7 @@ export function Sidebar({
     }
     setDragOverNotebookId(null)
     setDropTargetIndex(null)
+    setDragOverInternalFolderPath(null)
   }, [onReorderNotebooks, onMoveNoteToNotebook])
 
   const closeContextMenu = () => {
@@ -748,6 +838,7 @@ export function Sidebar({
   useEffect(() => {
     if (!isInternalNotebookSelected) {
       setExpandedInternalFolders((prev) => (prev.size === 0 ? prev : new Set()))
+      setDragOverInternalFolderPath(null)
       return
     }
     setExpandedInternalFolders((prev) => {
@@ -877,7 +968,7 @@ export function Sidebar({
     if (target.kind === 'root') {
       return [
         {
-          label: t.notebook.createFolder,
+          label: t.notebook.createSubfolder,
           onClick: () => onCreateLocalFolder?.(null),
           disabled: !canCreateLocalFolder || !onCreateLocalFolder,
         },
@@ -915,7 +1006,6 @@ export function Sidebar({
     onRenameLocalFolder,
     t.actions.delete,
     t.actions.rename,
-    t.notebook.createFolder,
     t.notebook.createSubfolder,
   ])
 
@@ -926,7 +1016,7 @@ export function Sidebar({
     if (target.kind === 'root') {
       return [
         {
-          label: t.notebook.createFolder,
+          label: t.notebook.createSubfolder,
           onClick: () => onCreateInternalFolder?.(null),
           disabled: !canCreateInternalFolder || !onCreateInternalFolder,
         },
@@ -964,7 +1054,6 @@ export function Sidebar({
     onRenameInternalFolder,
     t.actions.delete,
     t.actions.rename,
-    t.notebook.createFolder,
     t.notebook.createSubfolder,
   ])
 
@@ -979,7 +1068,7 @@ export function Sidebar({
 
     if (canCreateFolder) {
       items.push({
-        label: t.notebook.createFolder,
+        label: t.notebook.createSubfolder,
         onClick: () => {
           if (notebook.source_type === 'local-folder') {
             onCreateLocalFolder?.(null)
@@ -1023,7 +1112,7 @@ export function Sidebar({
     onOpenLocalFolderInFileManager,
     t.actions.delete,
     t.actions.edit,
-    t.notebook.createFolder,
+    t.notebook.createSubfolder,
     t.notebook.openInFileManager,
   ])
 
@@ -1045,6 +1134,32 @@ export function Sidebar({
     (path: string) => onSelectInternalFolder?.(path),
     [onSelectInternalFolder],
   )
+
+  const handleInternalFolderDragOver = useCallback((folderPath: string, event: React.DragEvent<HTMLDivElement>) => {
+    if (!selectedNotebookId || !onMoveNoteToInternalFolder) return
+    const isNoteDrag = hasDragType(event, 'application/json')
+    if (!isNoteDrag) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    setDragOverNotebookId(null)
+    setDragOverInternalFolderPath((prev) => (prev === folderPath ? prev : folderPath))
+  }, [onMoveNoteToInternalFolder, selectedNotebookId])
+
+  const handleInternalFolderDragLeave = useCallback((folderPath: string) => {
+    setDragOverInternalFolderPath((prev) => (prev === folderPath ? null : prev))
+  }, [])
+
+  const handleInternalFolderDrop = useCallback((folderPath: string, event: React.DragEvent<HTMLDivElement>) => {
+    if (!selectedNotebookId || !onMoveNoteToInternalFolder) return
+    event.preventDefault()
+    event.stopPropagation()
+    const noteIds = parseDraggedNoteIds(event)
+    if (noteIds.length > 0) {
+      onMoveNoteToInternalFolder(noteIds, selectedNotebookId, folderPath)
+    }
+    setDragOverInternalFolderPath(null)
+  }, [onMoveNoteToInternalFolder, selectedNotebookId])
 
   const renderLocalFolderTree = useCallback((nodes: LocalFolderTreeNode[], depth = 0): React.ReactNode => {
     return nodes
@@ -1095,13 +1210,21 @@ export function Sidebar({
           onToggleExpand={toggleInternalFolderExpand}
           onSelect={handleSelectInternalFolder}
           onContextMenu={handleInternalFolderCtxMenu}
+          isDropTarget={dragOverInternalFolderPath === node.folder_path}
+          onDragOverPath={handleInternalFolderDragOver}
+          onDragLeavePath={handleInternalFolderDragLeave}
+          onDropPath={handleInternalFolderDrop}
         >
           {hasChildren && isExpanded ? renderInternalFolderTree(childFolders, depth + 1) : null}
         </FolderTreeItem>
       )
     })
   }, [
+    dragOverInternalFolderPath,
     expandedInternalFolders,
+    handleInternalFolderDragLeave,
+    handleInternalFolderDragOver,
+    handleInternalFolderDrop,
     handleSelectInternalFolder,
     handleInternalFolderCtxMenu,
     selectedInternalFolderPath,

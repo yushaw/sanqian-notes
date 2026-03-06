@@ -6,8 +6,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { NoteList } from '../NoteList'
-import type { Note } from '../../types/note'
+import { NoteList, buildHierarchicalMoveMenuItems } from '../NoteList'
+import type { Note, Notebook, NotebookFolderTreeNode } from '../../types/note'
 
 vi.mock('../../i18n', () => ({
   useTranslations: () => ({
@@ -26,8 +26,13 @@ vi.mock('../../i18n', () => ({
       unfavorite: 'Unfavorite',
       duplicate: 'Duplicate',
       move: 'Move',
+      moveToFolder: 'Move to folder',
       delete: 'Delete',
       allNotes: 'All notes',
+      bulkFavorite: 'Favorite {n}',
+      bulkMove: 'Move {n} notes',
+      bulkMoveToFolder: 'Move {n} notes to folder',
+      bulkDelete: 'Delete {n} notes',
     },
     date: {
       today: 'Today',
@@ -82,6 +87,31 @@ function createDeferred<T>() {
     reject = rej
   })
   return { promise, resolve, reject }
+}
+
+function createNotebook(id: string, name: string): Notebook {
+  return {
+    id,
+    name,
+    icon: 'logo:notes',
+    source_type: 'internal',
+    order_index: 0,
+    created_at: now,
+  }
+}
+
+function createFolderNode(
+  folderPath: string,
+  children: NotebookFolderTreeNode[] = [],
+): NotebookFolderTreeNode {
+  const segments = folderPath.split('/')
+  return {
+    id: `internal-folder:${folderPath}`,
+    name: segments[segments.length - 1],
+    folder_path: folderPath,
+    depth: segments.length,
+    children,
+  }
 }
 
 describe('NoteList keyboard navigation', () => {
@@ -274,7 +304,10 @@ describe('NoteList keyboard navigation', () => {
     expect(button).toBeTruthy()
 
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
-    const dispatched = button!.dispatchEvent(event)
+    let dispatched = true
+    act(() => {
+      dispatched = button!.dispatchEvent(event)
+    })
     expect(dispatched).toBe(false)
     expect(event.defaultPrevented).toBe(true)
   })
@@ -513,5 +546,86 @@ describe('NoteList keyboard navigation', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('buildHierarchicalMoveMenuItems', () => {
+  it('keeps notebook items clickable while exposing nested folders as submenus', () => {
+    const targetNoteId = 'note-1'
+    const onMoveToNotebook = vi.fn()
+    const onMoveToFolder = vi.fn()
+    const workNotebook = createNotebook('nb-work', 'Work')
+    const archiveNotebook = createNotebook('nb-archive', 'Archive')
+
+    const items = buildHierarchicalMoveMenuItems({
+      allNotesLabel: 'All Notes',
+      movableNotebooks: [workNotebook, archiveNotebook],
+      internalFolderTreeNodesByNotebook: {
+        [workNotebook.id]: [
+          createFolderNode('Projects', [
+            createFolderNode('Projects/Alpha'),
+          ]),
+        ],
+      },
+      target: targetNoteId,
+      onMoveToNotebook,
+      onMoveToFolder,
+    })
+
+    expect(items).toHaveLength(3)
+    expect(items[0]).toMatchObject({ label: 'All Notes' })
+    expect('subItems' in items[0]).toBe(false)
+
+    const workItem = items[1]
+    expect('subItems' in workItem).toBe(true)
+    if (!('subItems' in workItem)) {
+      throw new Error('Expected Work item to have nested folders')
+    }
+
+    expect(workItem.label).toBe('Work')
+    expect(workItem.subItems).toHaveLength(1)
+    expect(workItem.subItems[0]).toMatchObject({ label: 'Projects' })
+
+    workItem.onClick?.()
+    expect(onMoveToNotebook).toHaveBeenCalledWith(targetNoteId, workNotebook.id)
+
+    const projectsItem = workItem.subItems[0]
+    expect('subItems' in projectsItem).toBe(true)
+    if (!('subItems' in projectsItem)) {
+      throw new Error('Expected Projects item to stay expandable')
+    }
+
+    projectsItem.onClick?.()
+    expect(onMoveToFolder).toHaveBeenCalledWith(targetNoteId, workNotebook.id, 'Projects')
+
+    expect(projectsItem.subItems[0]).toMatchObject({ label: 'Alpha' })
+
+    const archiveItem = items[2]
+    expect('subItems' in archiveItem).toBe(false)
+    if ('subItems' in archiveItem) {
+      throw new Error('Archive should not expose a submenu without folders')
+    }
+
+    archiveItem.onClick()
+    expect(onMoveToNotebook).toHaveBeenCalledWith(targetNoteId, archiveNotebook.id)
+  })
+
+  it('omits folder submenus when folder move is unavailable', () => {
+    const onMoveToNotebook = vi.fn()
+    const workNotebook = createNotebook('nb-work', 'Work')
+
+    const items = buildHierarchicalMoveMenuItems({
+      allNotesLabel: 'All Notes',
+      movableNotebooks: [workNotebook],
+      internalFolderTreeNodesByNotebook: {
+        [workNotebook.id]: [createFolderNode('Projects')],
+      },
+      target: ['note-1', 'note-2'],
+      onMoveToNotebook,
+    })
+
+    expect(items).toHaveLength(2)
+    expect(items[1]).toMatchObject({ label: 'Work' })
+    expect('subItems' in items[1]).toBe(false)
   })
 })

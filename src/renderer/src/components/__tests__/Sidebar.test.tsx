@@ -645,7 +645,91 @@ describe('Sidebar add menu', () => {
     expect(screen.queryByText('C')).not.toBeInTheDocument()
   })
 
-  it('shows create folder action in notebook context menu for internal notebook', () => {
+  it('drops dragged notes onto an internal folder target', () => {
+    const onMoveNoteToInternalFolder = vi.fn()
+    const internalTreeNodes: NotebookFolderTreeNode[] = [
+      {
+        id: 'internal-folder-docs',
+        name: 'Docs',
+        folder_path: 'Docs',
+        depth: 1,
+        children: [],
+      },
+    ]
+
+    renderSidebar({
+      notebooks: [notebook],
+      selectedNotebookId: notebook.id,
+      selectedSmartView: null,
+      internalFolderTreeNodes: internalTreeNodes,
+      onSelectInternalFolder: vi.fn(),
+      onMoveNoteToInternalFolder,
+    })
+
+    fireEvent.click(screen.getByLabelText('Expand notebook'))
+
+    const dataTransfer = {
+      types: ['application/json'],
+      getData: vi.fn((type: string) => (type === 'application/json' ? JSON.stringify(['note-1']) : '')),
+      dropEffect: 'none',
+    }
+
+    fireEvent.dragOver(screen.getByText('Docs'), { dataTransfer })
+    fireEvent.drop(screen.getByText('Docs'), { dataTransfer })
+
+    expect(onMoveNoteToInternalFolder).toHaveBeenCalledWith(['note-1'], notebook.id, 'Docs')
+  })
+
+  it('drops dragged notes onto a nested internal subfolder target', () => {
+    const onMoveNoteToInternalFolder = vi.fn()
+    const internalTreeNodes: NotebookFolderTreeNode[] = [
+      {
+        id: 'internal-folder-docs',
+        name: 'Docs',
+        folder_path: 'Docs',
+        depth: 1,
+        children: [
+          {
+            id: 'internal-folder-docs-product',
+            name: 'Product',
+            folder_path: 'Docs/Product',
+            depth: 2,
+            children: [],
+          },
+        ],
+      },
+    ]
+
+    renderSidebar({
+      notebooks: [notebook],
+      selectedNotebookId: notebook.id,
+      selectedSmartView: null,
+      internalFolderTreeNodes: internalTreeNodes,
+      onSelectInternalFolder: vi.fn(),
+      onMoveNoteToInternalFolder,
+    })
+
+    fireEvent.click(screen.getByLabelText('Expand notebook'))
+    fireEvent.click(screen.getByLabelText('Expand folder'))
+
+    const dataTransfer = {
+      types: ['application/json'],
+      getData: vi.fn((type: string) => (type === 'application/json' ? JSON.stringify(['note-1']) : '')),
+      dropEffect: 'none',
+    }
+
+    const productLabel = screen.getByText('Product')
+    const productRow = productLabel.closest('[data-folder-path="Docs/Product"]')
+    expect(productRow).not.toBeNull()
+
+    fireEvent.dragOver(productLabel, { dataTransfer })
+    expect(productRow).toHaveAttribute('data-drop-target', 'true')
+    fireEvent.drop(productLabel, { dataTransfer })
+
+    expect(onMoveNoteToInternalFolder).toHaveBeenCalledWith(['note-1'], notebook.id, 'Docs/Product')
+  })
+
+  it('shows create subfolder action in notebook context menu for internal notebook', () => {
     const onCreateInternalFolder = vi.fn()
 
     renderSidebar({
@@ -657,7 +741,7 @@ describe('Sidebar add menu', () => {
     })
 
     fireEvent.contextMenu(screen.getByText('Work'))
-    fireEvent.click(screen.getByText('Create Folder'))
+    fireEvent.click(screen.getByText('New Subfolder'))
     expect(onCreateInternalFolder).toHaveBeenCalledWith(null)
   })
 

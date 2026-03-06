@@ -31,6 +31,7 @@ import { I18nProvider, useTranslations, useI18n } from './i18n'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from './utils/cursor'
 import { useChatShortcut } from './utils/shortcut'
 import {
+  buildInternalFolderTree,
   buildLocalNoteMetadataMap,
   mergeLocalNotebookStatuses,
   mergeNotebooksWithLocalMounts,
@@ -40,6 +41,7 @@ import {
   type Notebook,
   type SmartViewId,
   type NotebookFolder,
+  type NotebookFolderTreeNode,
   type LocalFolderNotebookMount,
 } from './types/note'
 import { parseLocalResourceId } from './utils/localResourceId'
@@ -316,6 +318,7 @@ function AppContent() {
     handleTogglePinned,
     handleToggleFavorite,
     handleMoveToNotebook,
+    handleMoveToFolder,
     handleDeleteNote,
     handleDuplicateNote,
     handleSearch,
@@ -375,6 +378,41 @@ function AppContent() {
   } = notebookMgmt
   // Wire up the ref now that internalFolderDialogs is available
   internalFolderDialogsResetRef.current = internalFolderDialogs.resetDialogs
+
+  const internalFolderTreeNodesByNotebook = useMemo(() => {
+    const internalNotebookIds = new Set(
+      notebooks
+        .filter((notebook) => notebook.source_type !== 'local-folder')
+        .map((notebook) => notebook.id),
+    )
+    const folderEntriesByNotebook = new Map<string, NotebookFolder[]>()
+    for (const folder of notebookFolders) {
+      if (!internalNotebookIds.has(folder.notebook_id)) continue
+      const existingFolders = folderEntriesByNotebook.get(folder.notebook_id) || []
+      existingFolders.push(folder)
+      folderEntriesByNotebook.set(folder.notebook_id, existingFolders)
+    }
+
+    const notesByNotebook = new Map<string, Note[]>()
+    for (const note of notes) {
+      if (!note.notebook_id || note.is_daily) continue
+      if (!internalNotebookIds.has(note.notebook_id)) continue
+      const existingNotes = notesByNotebook.get(note.notebook_id) || []
+      existingNotes.push(note)
+      notesByNotebook.set(note.notebook_id, existingNotes)
+    }
+
+    const nextTreeMap: Record<string, NotebookFolderTreeNode[]> = {}
+    for (const notebook of notebooks) {
+      if (notebook.source_type === 'local-folder') continue
+      nextTreeMap[notebook.id] = buildInternalFolderTree(
+        folderEntriesByNotebook.get(notebook.id) || [],
+        notesByNotebook.get(notebook.id) || [],
+      )
+    }
+
+    return nextTreeMap
+  }, [notebookFolders, notebooks, notes])
 
   // Note navigation (extracted hook)
   const navigation = useNoteNavigation({
@@ -727,6 +765,7 @@ function AppContent() {
           onDeleteNotebook={notebookDeleteDialog.requestDelete}
           onOpenSettings={handleOpenSettings}
           onMoveNoteToNotebook={handleMoveToNotebook}
+          onMoveNoteToInternalFolder={handleMoveToFolder}
           onReorderNotebooks={handleReorderNotebooks}
           noteCounts={noteCounts}
           notebookHasChildFolders={notebookHasChildFolders}
@@ -819,11 +858,14 @@ function AppContent() {
           onDeleteNote={handleDeleteNote}
           onDuplicateNote={handleDuplicateNote}
           onMoveToNotebook={handleMoveToNotebook}
+          onMoveToFolder={handleMoveToFolder}
           onBulkDelete={handleBulkDelete}
           onBulkMove={handleMoveToNotebook}
+          onBulkMoveToFolder={handleMoveToFolder}
           onBulkToggleFavorite={handleBulkToggleFavorite}
           onOpenInNewTab={handleOpenInNewTab}
           notebooks={notebooks}
+          internalFolderTreeNodesByNotebook={internalFolderTreeNodesByNotebook}
           isSidebarCollapsed={isSidebarCollapsed}
           showCreateButton={selectedSmartView !== 'favorites' && contextNotebook?.source_type !== 'local-folder'}
         />

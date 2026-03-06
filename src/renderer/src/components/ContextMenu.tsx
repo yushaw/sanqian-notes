@@ -13,7 +13,10 @@ export interface MenuItem {
 export interface SubMenuItem {
   label: string
   icon?: React.ReactNode
-  subItems: MenuItem[]
+  onClick?: () => void
+  disabled?: boolean
+  danger?: boolean
+  subItems: ContextMenuItem[]
 }
 
 export type ContextMenuItem = MenuItem | SubMenuItem
@@ -26,148 +29,148 @@ interface ContextMenuProps {
   onClose: () => void
 }
 
+interface ContextMenuPanelProps {
+  depth?: number
+  items: ContextMenuItem[]
+  x: number
+  y: number
+  onClose: () => void
+  onParentSubMenuEnter?: () => void
+  onParentSubMenuLeave?: () => void
+}
+
+const MENU_GAP = 0
+const MENU_ESTIMATED_WIDTH = 200
+const VIEWPORT_MARGIN = 8
+
 function isSubMenuItem(item: ContextMenuItem): item is SubMenuItem {
   return 'subItems' in item
 }
 
-export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps) {
+function estimateMenuHeight(items: ContextMenuItem[]): number {
+  return items.reduce((total, item) => total + (('divider' in item && item.divider) ? 9 : 32), 8)
+}
+
+function clampMenuPosition(left: number, top: number, width: number, height: number) {
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  return {
+    left: Math.min(Math.max(VIEWPORT_MARGIN, left), Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN)),
+    top: Math.min(Math.max(VIEWPORT_MARGIN, top), Math.max(VIEWPORT_MARGIN, viewportHeight - height - VIEWPORT_MARGIN)),
+  }
+}
+
+function ContextMenuPanel({
+  depth = 0,
+  items,
+  x,
+  y,
+  onClose,
+  onParentSubMenuEnter,
+  onParentSubMenuLeave,
+}: ContextMenuPanelProps) {
   const menuRef = useRef<HTMLDivElement>(null)
-  const subMenuRef = useRef<HTMLDivElement>(null)
+  const [menuPosition, setMenuPosition] = useState({ left: x, top: y })
   const [hoveredSubMenuIndex, setHoveredSubMenuIndex] = useState<number | null>(null)
-  const [subMenuPosition, setSubMenuPosition] = useState<{ top: number; left: number } | null>(null)
-  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const showTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [subMenuAnchorRect, setSubMenuAnchorRect] = useState<DOMRect | null>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Reset submenu state when menu closes
   useEffect(() => {
-    if (!visible) {
-      setHoveredSubMenuIndex(null)
-      setSubMenuPosition(null)
-    }
-  }, [visible])
+    setMenuPosition({ left: x, top: y })
+  }, [x, y])
 
-  // Close on click outside
   useEffect(() => {
-    if (!visible) return
+    if (!menuRef.current) return
 
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node
-      const isInsideMenu = menuRef.current?.contains(target)
-      const isInsideSubMenu = subMenuRef.current?.contains(target)
-
-      if (!isInsideMenu && !isInsideSubMenu) {
-        onClose()
-      }
+    const rect = menuRef.current.getBoundingClientRect()
+    const nextPosition = clampMenuPosition(x, y, rect.width, rect.height)
+    if (nextPosition.left !== menuPosition.left || nextPosition.top !== menuPosition.top) {
+      setMenuPosition(nextPosition)
     }
+  }, [menuPosition.left, menuPosition.top, x, y])
 
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [visible, onClose])
-
-  // Calculate menu position to keep it within viewport
-  useEffect(() => {
-    if (!visible || !menuRef.current) return
-
-    const menu = menuRef.current
-    const rect = menu.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-
-    let finalX = x
-    let finalY = y
-
-    // Adjust horizontal position
-    if (x + rect.width > viewportWidth) {
-      finalX = viewportWidth - rect.width - 8
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
     }
+  }
 
-    // Adjust vertical position
-    if (y + rect.height > viewportHeight) {
-      finalY = Math.max(8, viewportHeight - rect.height - 8)
-    }
-
-    if (finalX !== x || finalY !== y) {
-      menu.style.left = `${finalX}px`
-      menu.style.top = `${finalY}px`
-    }
-  }, [visible, x, y])
-
-  const handleSubMenuHover = (index: number, itemElement: HTMLElement) => {
-    // Clear any existing hide timer
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current)
-      hoverTimerRef.current = null
-    }
-
-    // Clear any existing show timer
+  const clearShowTimer = () => {
     if (showTimerRef.current) {
       clearTimeout(showTimerRef.current)
       showTimerRef.current = null
     }
+  }
 
-    // Add a short delay before showing submenu to avoid accidental triggers
+  const closeSubMenu = () => {
+    setHoveredSubMenuIndex(null)
+    setSubMenuAnchorRect(null)
+  }
+
+  const handleSubMenuHover = (index: number, itemElement: HTMLElement) => {
+    clearCloseTimer()
+    clearShowTimer()
+
     showTimerRef.current = setTimeout(() => {
-      const rect = itemElement.getBoundingClientRect()
-      const viewportWidth = window.innerWidth
-      const viewportHeight = window.innerHeight
-
-      // Default: show to the right
-      let left = rect.right + 4
-      let top = rect.top
-
-      // If not enough space on the right, show on the left
-      if (left + 200 > viewportWidth) {
-        left = rect.left - 204
-      }
-
-      // Adjust vertical position if needed
-      const estimatedHeight = (items[index] as SubMenuItem).subItems.length * 32 + 8
-      if (top + estimatedHeight > viewportHeight) {
-        top = Math.max(8, viewportHeight - estimatedHeight - 8)
-      }
-
-      setSubMenuPosition({ top, left })
       setHoveredSubMenuIndex(index)
-    }, 100) // 100ms delay to prevent accidental hover triggers
+      setSubMenuAnchorRect(itemElement.getBoundingClientRect())
+    }, 100)
   }
 
   const handleSubMenuLeave = () => {
-    // Clear show timer if still pending
-    if (showTimerRef.current) {
-      clearTimeout(showTimerRef.current)
-      showTimerRef.current = null
-    }
-
-    // Add delay before hiding to allow mouse to move to submenu
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current)
-    }
-    hoverTimerRef.current = setTimeout(() => {
-      setHoveredSubMenuIndex(null)
-      setSubMenuPosition(null)
+    clearShowTimer()
+    clearCloseTimer()
+    closeTimerRef.current = setTimeout(() => {
+      closeSubMenu()
     }, 150)
+  }
+
+  const handleDescendantSubMenuEnter = () => {
+    clearCloseTimer()
+    onParentSubMenuEnter?.()
+  }
+
+  const handleDescendantSubMenuLeave = () => {
+    handleSubMenuLeave()
+    onParentSubMenuLeave?.()
   }
 
   useEffect(() => {
     return () => {
-      if (hoverTimerRef.current) {
-        clearTimeout(hoverTimerRef.current)
-      }
-      if (showTimerRef.current) {
-        clearTimeout(showTimerRef.current)
-      }
+      clearCloseTimer()
+      clearShowTimer()
     }
   }, [])
 
-  if (!visible) return null
+  const hoveredSubMenuItem =
+    hoveredSubMenuIndex !== null && isSubMenuItem(items[hoveredSubMenuIndex])
+      ? items[hoveredSubMenuIndex]
+      : null
 
-  return createPortal(
+  let subMenuPosition: { left: number; top: number } | null = null
+  if (hoveredSubMenuItem && subMenuAnchorRect) {
+    const estimatedHeight = estimateMenuHeight(hoveredSubMenuItem.subItems)
+    const desiredLeft = subMenuAnchorRect.right + MENU_GAP
+    const fallbackLeft = subMenuAnchorRect.left - MENU_ESTIMATED_WIDTH - MENU_GAP
+    const nextLeft = desiredLeft + MENU_ESTIMATED_WIDTH > window.innerWidth ? fallbackLeft : desiredLeft
+    subMenuPosition = clampMenuPosition(nextLeft, subMenuAnchorRect.top, MENU_ESTIMATED_WIDTH, estimatedHeight)
+  }
+
+  return (
     <>
-      {/* Main menu */}
       <div
         ref={menuRef}
-        className="fixed z-[200] py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
-        style={{ left: x, top: y }}
+        className="sanqian-context-menu-panel fixed py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
+        style={{ left: menuPosition.left, top: menuPosition.top, zIndex: 200 + depth }}
+        onMouseEnter={() => {
+          onParentSubMenuEnter?.()
+        }}
+        onMouseLeave={() => {
+          onParentSubMenuLeave?.()
+        }}
       >
         {items.map((item, index) => {
           if (isSubMenuItem(item)) {
@@ -175,13 +178,26 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
               <div
                 key={index}
                 className="relative"
-                onMouseEnter={(e) => {
-                  handleSubMenuHover(index, e.currentTarget)
+                onMouseEnter={(event) => {
+                  if (item.disabled) return
+                  handleSubMenuHover(index, event.currentTarget)
                 }}
                 onMouseLeave={handleSubMenuLeave}
               >
                 <button
-                  className="w-full px-3 py-1.5 text-left text-[0.867rem] text-[var(--color-text)] hover:bg-[var(--color-surface)] flex items-center justify-between gap-2"
+                  type="button"
+                  disabled={item.disabled}
+                  onClick={() => {
+                    if (!item.disabled && item.onClick) {
+                      item.onClick()
+                      onClose()
+                    }
+                  }}
+                  className={`w-full px-3 py-1.5 text-left text-[0.867rem] flex items-center justify-between gap-2 ${
+                    item.danger
+                      ? 'text-red-500 hover:bg-red-500/10'
+                      : 'text-[var(--color-text)] hover:bg-[var(--color-surface)]'
+                  } ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span className="flex items-center gap-2">
                     {item.icon && <span className="flex-shrink-0">{item.icon}</span>}
@@ -201,6 +217,7 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
 
           return (
             <button
+              type="button"
               key={index}
               onClick={() => {
                 if (!item.disabled) {
@@ -222,50 +239,39 @@ export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps)
         })}
       </div>
 
-      {/* Submenu */}
-      {hoveredSubMenuIndex !== null && subMenuPosition && isSubMenuItem(items[hoveredSubMenuIndex]) && (
-        <div
-          ref={subMenuRef}
-          className="fixed z-[201] py-0.5 min-w-[140px] bg-[var(--color-card)]/95 backdrop-blur-xl rounded-lg shadow-lg border border-[var(--color-border)] select-none"
-          style={{ left: subMenuPosition.left, top: subMenuPosition.top }}
-          onMouseEnter={() => {
-            // Cancel hide timer when mouse enters submenu
-            if (hoverTimerRef.current) {
-              clearTimeout(hoverTimerRef.current)
-              hoverTimerRef.current = null
-            }
-          }}
-          onMouseLeave={handleSubMenuLeave}
-        >
-          {(items[hoveredSubMenuIndex] as SubMenuItem).subItems.map((subItem, subIndex) => {
-            if (subItem.divider) {
-              return <div key={subIndex} className="h-px bg-[var(--color-divider)] my-1" />
-            }
-
-            return (
-              <button
-                key={subIndex}
-                onClick={() => {
-                  if (!subItem.disabled) {
-                    subItem.onClick()
-                    onClose()
-                  }
-                }}
-                disabled={subItem.disabled}
-                className={`w-full px-3 py-1.5 text-left text-[0.867rem] flex items-center gap-2 ${
-                  subItem.danger
-                    ? 'text-red-500 hover:bg-red-500/10'
-                    : 'text-[var(--color-text)] hover:bg-[var(--color-surface)]'
-                } ${subItem.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {subItem.icon && <span className="flex-shrink-0">{subItem.icon}</span>}
-                <span>{subItem.label}</span>
-              </button>
-            )
-          })}
-        </div>
+      {hoveredSubMenuItem && subMenuPosition && (
+        <ContextMenuPanel
+          depth={depth + 1}
+          items={hoveredSubMenuItem.subItems}
+          x={subMenuPosition.left}
+          y={subMenuPosition.top}
+          onClose={onClose}
+          onParentSubMenuEnter={handleDescendantSubMenuEnter}
+          onParentSubMenuLeave={handleDescendantSubMenuLeave}
+        />
       )}
-    </>,
-    document.body
+    </>
+  )
+}
+
+export function ContextMenu({ visible, x, y, items, onClose }: ContextMenuProps) {
+  useEffect(() => {
+    if (!visible) return
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.sanqian-context-menu-panel')) return
+      onClose()
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [visible, onClose])
+
+  if (!visible) return null
+
+  return createPortal(
+    <ContextMenuPanel items={items} x={x} y={y} onClose={onClose} />,
+    document.body,
   )
 }

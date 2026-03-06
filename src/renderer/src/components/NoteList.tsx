@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Pin } from 'lucide-react'
-import type { Note, Notebook } from '../types/note'
+import type { Note, Notebook, NotebookFolderTreeNode } from '../types/note'
 import { useTranslations } from '../i18n'
 import { isMacOS } from '../utils/platform'
 import { formatShortcut } from '../utils/shortcut'
@@ -26,11 +26,14 @@ interface NoteListProps {
   onDeleteNote: (id: string) => void
   onDuplicateNote: (id: string) => void
   onMoveToNotebook: (noteIdOrIds: string | string[], notebookId: string | null) => void
+  onMoveToFolder?: (noteIdOrIds: string | string[], notebookId: string, folderPath: string) => void
   onBulkDelete?: (ids: string[]) => void
   onBulkMove?: (noteIdOrIds: string | string[], notebookId: string | null) => void
+  onBulkMoveToFolder?: (noteIdOrIds: string | string[], notebookId: string, folderPath: string) => void
   onBulkToggleFavorite?: (ids: string[]) => void
   onOpenInNewTab?: (id: string) => void
   notebooks: Notebook[]
+  internalFolderTreeNodesByNotebook?: Record<string, NotebookFolderTreeNode[]>
   isSidebarCollapsed?: boolean
   showCreateButton?: boolean
 }
@@ -46,6 +49,80 @@ interface ContextMenuState {
   isFavorite: boolean
 }
 
+interface HierarchicalMoveMenuOptions<TTarget> {
+  allNotesLabel: string
+  movableNotebooks: Notebook[]
+  internalFolderTreeNodesByNotebook: Record<string, NotebookFolderTreeNode[]>
+  target: TTarget
+  onMoveToNotebook: (target: TTarget, notebookId: string | null) => void
+  onMoveToFolder?: (target: TTarget, notebookId: string, folderPath: string) => void
+}
+
+const EMPTY_INTERNAL_FOLDER_TREE_MAP: Record<string, NotebookFolderTreeNode[]> = {}
+
+function buildFolderMoveMenuItems<TTarget>(
+  nodes: NotebookFolderTreeNode[],
+  notebookId: string,
+  target: TTarget,
+  onMoveToFolder: (target: TTarget, notebookId: string, folderPath: string) => void,
+): ContextMenuItem[] {
+  return nodes.map((node) => {
+    const childItems = node.children?.length
+      ? buildFolderMoveMenuItems(node.children, notebookId, target, onMoveToFolder)
+      : []
+
+    if (childItems.length > 0) {
+      return {
+        label: node.name,
+        onClick: () => onMoveToFolder(target, notebookId, node.folder_path),
+        subItems: childItems,
+      }
+    }
+
+    return {
+      label: node.name,
+      onClick: () => onMoveToFolder(target, notebookId, node.folder_path),
+    }
+  })
+}
+
+export function buildHierarchicalMoveMenuItems<TTarget>({
+  allNotesLabel,
+  movableNotebooks,
+  internalFolderTreeNodesByNotebook,
+  target,
+  onMoveToNotebook,
+  onMoveToFolder,
+}: HierarchicalMoveMenuOptions<TTarget>): ContextMenuItem[] {
+  return [
+    {
+      label: allNotesLabel,
+      onClick: () => onMoveToNotebook(target, null),
+    },
+    ...movableNotebooks.map((notebook) => {
+      const folderTreeNodes = onMoveToFolder
+        ? internalFolderTreeNodesByNotebook[notebook.id] || []
+        : []
+      const folderItems = onMoveToFolder
+        ? buildFolderMoveMenuItems(folderTreeNodes, notebook.id, target, onMoveToFolder)
+        : []
+
+      if (folderItems.length > 0) {
+        return {
+          label: notebook.name,
+          onClick: () => onMoveToNotebook(target, notebook.id),
+          subItems: folderItems,
+        }
+      }
+
+      return {
+        label: notebook.name,
+        onClick: () => onMoveToNotebook(target, notebook.id),
+      }
+    }),
+  ]
+}
+
 export function NoteList({
   notes,
   selectedNoteIds,
@@ -58,11 +135,14 @@ export function NoteList({
   onDeleteNote,
   onDuplicateNote,
   onMoveToNotebook,
+  onMoveToFolder,
   onBulkDelete,
   onBulkMove,
+  onBulkMoveToFolder,
   onBulkToggleFavorite,
   onOpenInNewTab,
   notebooks,
+  internalFolderTreeNodesByNotebook = EMPTY_INTERNAL_FOLDER_TREE_MAP,
   isSidebarCollapsed = false,
   showCreateButton = true,
 }: NoteListProps) {
@@ -422,7 +502,17 @@ export function NoteList({
       }
 
       // Bulk move (submenu)
-      if (onBulkMove) {
+      const bulkMoveSubItems = onBulkMove
+        ? buildHierarchicalMoveMenuItems({
+          allNotesLabel: t.noteList.allNotes,
+          movableNotebooks,
+          internalFolderTreeNodesByNotebook,
+          target: contextMenu.noteIds,
+          onMoveToNotebook: onBulkMove,
+          onMoveToFolder: onBulkMoveToFolder,
+        })
+        : []
+      if (bulkMoveSubItems.length > 0) {
         items.push({
           label: t.noteList.bulkMove?.replace('{n}', String(count)) || `移动 ${count} 个`,
           icon: (
@@ -430,16 +520,7 @@ export function NoteList({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
           ),
-          subItems: [
-            {
-              label: t.noteList.allNotes,
-              onClick: () => onBulkMove(contextMenu.noteIds, null)
-            },
-            ...movableNotebooks.map(notebook => ({
-              label: notebook.name,
-              onClick: () => onBulkMove(contextMenu.noteIds, notebook.id)
-            }))
-          ]
+          subItems: bulkMoveSubItems
         })
       }
 
@@ -508,16 +589,14 @@ export function NoteList({
           </svg>
         ),
         subItems: [
-          // All Notes option
-          {
-            label: t.noteList.allNotes,
-            onClick: () => onMoveToNotebook(contextMenu.noteId!, null)
-          },
-          // All notebooks
-          ...movableNotebooks.map(notebook => ({
-            label: notebook.name,
-            onClick: () => onMoveToNotebook(contextMenu.noteId!, notebook.id)
-          }))
+          ...buildHierarchicalMoveMenuItems({
+            allNotesLabel: t.noteList.allNotes,
+            movableNotebooks,
+            internalFolderTreeNodesByNotebook,
+            target: contextMenu.noteId!,
+            onMoveToNotebook,
+            onMoveToFolder,
+          })
         ]
       },
       // Divider
@@ -534,7 +613,27 @@ export function NoteList({
         onClick: () => onDeleteNote(contextMenu.noteId!)
       }
     ]
-  }, [contextMenu.isFavorite, contextMenu.isLocal, contextMenu.isPinned, contextMenu.noteId, contextMenu.noteIds, movableNotebooks, t, onTogglePinned, onToggleFavorite, onDuplicateNote, onMoveToNotebook, onDeleteNote, onBulkDelete, onBulkMove, onBulkToggleFavorite, onOpenInNewTab])
+  }, [
+    contextMenu.isFavorite,
+    contextMenu.isLocal,
+    contextMenu.isPinned,
+    contextMenu.noteId,
+    contextMenu.noteIds,
+    movableNotebooks,
+    onBulkDelete,
+    onBulkMove,
+    onBulkToggleFavorite,
+    onDeleteNote,
+    onDuplicateNote,
+    onMoveToNotebook,
+    onOpenInNewTab,
+    onToggleFavorite,
+    onTogglePinned,
+    onMoveToFolder,
+    onBulkMoveToFolder,
+    internalFolderTreeNodesByNotebook,
+    t,
+  ])
 
   // Dragging state
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)

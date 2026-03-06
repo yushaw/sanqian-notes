@@ -84,7 +84,7 @@ export function useInternalFolderDialogs(deps: InternalFolderDialogsDeps) {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
   const getDefaultFolderName = useCallback((parentFolderPath: string | null): string => {
-    const baseName = t.notebook.defaultNewFolder
+    const baseName = t.notebook.defaultNewSubfolder
     const existingNames = new Set<string>()
     if (!selectedNotebookId) return baseName
 
@@ -111,7 +111,7 @@ export function useInternalFolderDialogs(deps: InternalFolderDialogsDeps) {
       }
       index += 1
     }
-  }, [notebookFolders, notes, selectedNotebookId, t.notebook.defaultNewFolder])
+  }, [notebookFolders, notes, selectedNotebookId, t.notebook.defaultNewSubfolder])
 
   const handleOpenCreate = useCallback((parentFolderPath: string | null) => {
     if (!selectedNotebookId || !isSelectedNotebookInternal()) return
@@ -358,6 +358,7 @@ function InternalFolderDialogsJSX(props: InternalFolderDialogsJSXProps) {
     onDismissCreate, onDismissRename, onDismissDelete,
     onConfirmCreate, onConfirmRename, onConfirmDelete,
   } = props
+  const createTitle = t.notebook.createSubfolderDialogTitle
 
   return (
     <>
@@ -365,12 +366,12 @@ function InternalFolderDialogsJSX(props: InternalFolderDialogsJSXProps) {
       <Dialog
         open={!!createDialog}
         onClose={() => { if (!createSubmitting) onDismissCreate() }}
-        ariaLabel={t.notebook.createFolderDialogTitle}
+        ariaLabel={createTitle}
       >
         <form onSubmit={(event) => { event.preventDefault(); onConfirmCreate() }}>
           <div className="p-5">
             <h2 className="text-[1rem] font-semibold text-[var(--color-text)] mb-3 select-none">
-              {t.notebook.createFolderDialogTitle}
+              {createTitle}
             </h2>
             <label className="text-[0.8rem] text-[var(--color-text-secondary)] select-none">
               {t.notebook.createNameLabel}

@@ -608,7 +608,11 @@ function LocalFolderDialogsJSX(props: LocalFolderDialogsJSXProps) {
   } = props
 
   const createTitle = createDialog
-    ? (createDialog.kind === 'file' ? t.notebook.createFileDialogTitle : t.notebook.createFolderDialogTitle)
+    ? (
+      createDialog.kind === 'file'
+        ? t.notebook.createFileDialogTitle
+        : t.notebook.createSubfolderDialogTitle
+    )
     : ''
   const renameTitle = renameDialog
     ? (renameDialog.kind === 'file' ? t.notebook.renameFileDialogTitle : t.notebook.renameFolderDialogTitle)

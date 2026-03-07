@@ -11,6 +11,7 @@ import type { useTranslations } from '../../i18n'
 import { ColorPicker } from '../ColorPicker'
 import { shortcuts } from '../../utils/shortcuts'
 import { ScrollText } from 'lucide-react'
+import { selectionHasNonCodeText, toTextSelectionRange } from './link-selection'
 
 // SVG Icons for toolbar
 const ToolbarIcons = {
@@ -149,18 +150,21 @@ function ToolbarButton({
   icon,
   active,
   onClick,
-  title
+  title,
+  disabled = false,
 }: {
   icon: React.ReactNode
   active?: boolean
   onClick: () => void
   title: string
+  disabled?: boolean
 }) {
   return (
     <button
       onClick={onClick}
       data-tooltip={title}
       className={`zen-toolbar-btn ${active ? 'active' : ''}`}
+      disabled={disabled}
     >
       {icon}
     </button>
@@ -173,6 +177,7 @@ interface DropdownItem {
   active?: boolean
   onClick: () => void
   shortcut?: string
+  disabled?: boolean
 }
 
 function ToolbarDropdown({
@@ -220,6 +225,7 @@ function ToolbarDropdown({
             <button
               key={index}
               className={`zen-toolbar-dropdown-item ${item.active ? 'active' : ''}`}
+              disabled={item.disabled}
               onClick={() => {
                 item.onClick()
                 setIsOpen(false)
@@ -306,6 +312,12 @@ export function EditorToolbar({
   if (!editor) return null
 
   const isBody = editor.isActive('paragraph') && !editor.isActive('heading')
+  const currentTextSelection = toTextSelectionRange(editor.state.selection)
+  const inlineMarksDisabled = editor.isActive('code')
+    || (!!currentTextSelection && !selectionHasNonCodeText(editor.state.doc, currentTextSelection))
+  const inlineMarksTitle = inlineMarksDisabled
+    ? t.contextMenu.markUnavailableInCode
+    : ''
 
   if (isCompact) {
     return (
@@ -345,11 +357,11 @@ export function EditorToolbar({
           active={editor.isActive('bold') || editor.isActive('italic') || editor.isActive('strike') || editor.isActive('highlight') || editor.isActive('underline')}
           forceClose={!showToolbar}
           items={[
-            { label: t.toolbar.bold, icon: ToolbarIcons.bold, active: editor.isActive('bold'), onClick: () => editor.chain().focus().toggleBold().run(), shortcut: shortcuts.bold },
-            { label: t.toolbar.italic, icon: ToolbarIcons.italic, active: editor.isActive('italic'), onClick: () => editor.chain().focus().toggleItalic().run(), shortcut: shortcuts.italic },
-            { label: t.toolbar.strikethrough, icon: ToolbarIcons.strikethrough, active: editor.isActive('strike'), onClick: () => editor.chain().focus().toggleStrike().run(), shortcut: shortcuts.strike },
-            { label: t.toolbar.underline, icon: ToolbarIcons.underline, active: editor.isActive('underline'), onClick: () => editor.chain().focus().toggleUnderline().run(), shortcut: shortcuts.underline },
-            { label: t.toolbar.highlight, icon: ToolbarIcons.highlight, active: editor.isActive('highlight'), onClick: () => editor.chain().focus().toggleHighlight().run(), shortcut: shortcuts.highlight },
+            { label: t.toolbar.bold, icon: ToolbarIcons.bold, active: editor.isActive('bold'), onClick: () => editor.chain().focus().toggleBold().run(), shortcut: shortcuts.bold, disabled: inlineMarksDisabled },
+            { label: t.toolbar.italic, icon: ToolbarIcons.italic, active: editor.isActive('italic'), onClick: () => editor.chain().focus().toggleItalic().run(), shortcut: shortcuts.italic, disabled: inlineMarksDisabled },
+            { label: t.toolbar.strikethrough, icon: ToolbarIcons.strikethrough, active: editor.isActive('strike'), onClick: () => editor.chain().focus().toggleStrike().run(), shortcut: shortcuts.strike, disabled: inlineMarksDisabled },
+            { label: t.toolbar.underline, icon: ToolbarIcons.underline, active: editor.isActive('underline'), onClick: () => editor.chain().focus().toggleUnderline().run(), shortcut: shortcuts.underline, disabled: inlineMarksDisabled },
+            { label: t.toolbar.highlight, icon: ToolbarIcons.highlight, active: editor.isActive('highlight'), onClick: () => editor.chain().focus().toggleHighlight().run(), shortcut: shortcuts.highlight, disabled: inlineMarksDisabled },
           ]}
         />
         <ToolbarDropdown
@@ -388,8 +400,9 @@ export function EditorToolbar({
           <ToolbarButton
             active={showColorPicker}
             onClick={() => setShowColorPicker(!showColorPicker)}
-            title={t.toolbar.color}
+            title={inlineMarksDisabled ? inlineMarksTitle : t.toolbar.color}
             icon={ToolbarIcons.textColor}
+            disabled={inlineMarksDisabled}
           />
           {showColorPicker && (
             <div className="zen-toolbar-color-popup">
@@ -435,17 +448,18 @@ export function EditorToolbar({
         )}
       </div>
       <div className="zen-toolbar-divider" />
-      <ToolbarButton active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title={`${t.toolbar.bold} (${shortcuts.bold})`} icon={ToolbarIcons.bold} />
-      <ToolbarButton active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title={`${t.toolbar.italic} (${shortcuts.italic})`} icon={ToolbarIcons.italic} />
-      <ToolbarButton active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title={`${t.toolbar.underline} (${shortcuts.underline})`} icon={ToolbarIcons.underline} />
-      <ToolbarButton active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title={`${t.toolbar.strikethrough} (${shortcuts.strike})`} icon={ToolbarIcons.strikethrough} />
-      <ToolbarButton active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title={`${t.toolbar.highlight} (${shortcuts.highlight})`} icon={ToolbarIcons.highlight} />
+      <ToolbarButton active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title={inlineMarksDisabled ? inlineMarksTitle : `${t.toolbar.bold} (${shortcuts.bold})`} icon={ToolbarIcons.bold} disabled={inlineMarksDisabled} />
+      <ToolbarButton active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title={inlineMarksDisabled ? inlineMarksTitle : `${t.toolbar.italic} (${shortcuts.italic})`} icon={ToolbarIcons.italic} disabled={inlineMarksDisabled} />
+      <ToolbarButton active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title={inlineMarksDisabled ? inlineMarksTitle : `${t.toolbar.underline} (${shortcuts.underline})`} icon={ToolbarIcons.underline} disabled={inlineMarksDisabled} />
+      <ToolbarButton active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title={inlineMarksDisabled ? inlineMarksTitle : `${t.toolbar.strikethrough} (${shortcuts.strike})`} icon={ToolbarIcons.strikethrough} disabled={inlineMarksDisabled} />
+      <ToolbarButton active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title={inlineMarksDisabled ? inlineMarksTitle : `${t.toolbar.highlight} (${shortcuts.highlight})`} icon={ToolbarIcons.highlight} disabled={inlineMarksDisabled} />
       <div className="zen-toolbar-color-wrapper" ref={colorPickerRef}>
         <ToolbarButton
           active={showColorPicker}
           onClick={() => setShowColorPicker(!showColorPicker)}
-          title={t.toolbar.color}
+          title={inlineMarksDisabled ? inlineMarksTitle : t.toolbar.color}
           icon={ToolbarIcons.textColor}
+          disabled={inlineMarksDisabled}
         />
         {showColorPicker && (
           <div className="zen-toolbar-color-popup">

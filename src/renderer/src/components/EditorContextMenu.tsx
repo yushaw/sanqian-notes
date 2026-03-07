@@ -7,6 +7,7 @@ import { useAIActionExecutor } from '../hooks/useAIActionExecutor'
 import { SLASH_AI_ACTION_EVENT, type SlashAIActionDetail } from './extensions/SlashCommand'
 import { getAIContext, type AIContext } from '../utils/aiContext'
 import { AGENT_TASK_TARGET_TYPES } from './extensions/AgentTask'
+import { selectionHasNonCodeText } from './editor/link-selection'
 import { v4 as uuidv4 } from 'uuid'
 
 interface ContextMenuPosition {
@@ -19,6 +20,9 @@ interface EditorContextMenuProps {
   position: ContextMenuPosition | null
   onClose: () => void
   hasSelection: boolean
+  /** Selection range captured when context menu opened (immune to focus loss) */
+  savedSelection?: { from: number; to: number } | null
+  onShowLinkPopover?: (anchor: HTMLElement, href: string, savedSelection?: { from: number; to: number }) => void
 }
 
 // SVG 图标
@@ -172,6 +176,22 @@ const Icons = {
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   ),
+  link: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  ),
+  unlink: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="m5.17 11.75-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      <line x1="8" y1="2" x2="8" y2="5" />
+      <line x1="2" y1="8" x2="5" y2="8" />
+      <line x1="16" y1="19" x2="16" y2="22" />
+      <line x1="19" y1="16" x2="22" y2="16" />
+    </svg>
+  ),
 }
 
 // 将导入的数组转为 Set 以提高查找效率
@@ -192,7 +212,7 @@ const getInsertItems = (t: ReturnType<typeof useTranslations>) => [
 
 // AI 操作项配置现在从数据库动态加载
 
-export function EditorContextMenu({ editor, position, onClose, hasSelection }: EditorContextMenuProps) {
+export function EditorContextMenu({ editor, position, onClose, hasSelection, savedSelection: propSavedSelection, onShowLinkPopover }: EditorContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const insertSubmenuRef = useRef<HTMLDivElement>(null)
   const tableSubmenuRef = useRef<HTMLDivElement>(null)
@@ -240,6 +260,22 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
   // Check if cursor is in a table
   const isInTable = editor?.isActive('table') ?? false
+
+  // Check if cursor is on a link
+  const isOnLink = editor?.isActive('link') ?? false
+  const currentLinkHref = isOnLink ? (editor?.getAttributes('link')?.href || '') : ''
+  const activeTextSelection =
+    propSavedSelection
+    ?? (() => {
+      if (!editor) return null
+      const { from, to } = editor.state.selection
+      return from !== to ? { from, to } : null
+    })()
+  const inlineMarksDisabled = hasSelection
+    && !!editor
+    && activeTextSelection !== null
+    && !selectionHasNonCodeText(editor.state.doc, activeTextSelection)
+  const markUnavailableTitle = t.contextMenu.markUnavailableInCode
 
   // Check if any selected block supports Agent Task
   const hasAgentTaskSupportedBlock = (() => {
@@ -601,36 +637,75 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
 
   // 加粗
   const handleBold = useCallback(() => {
-    if (!editor) return
+    if (!editor || inlineMarksDisabled) return
     editor.chain().focus().toggleBold().run()
     onClose()
-  }, [editor, onClose])
+  }, [editor, inlineMarksDisabled, onClose])
 
   // 斜体
   const handleItalic = useCallback(() => {
-    if (!editor) return
+    if (!editor || inlineMarksDisabled) return
     editor.chain().focus().toggleItalic().run()
     onClose()
-  }, [editor, onClose])
+  }, [editor, inlineMarksDisabled, onClose])
 
   // 下划线
   const handleUnderline = useCallback(() => {
-    if (!editor) return
+    if (!editor || inlineMarksDisabled) return
     editor.chain().focus().toggleUnderline().run()
     onClose()
-  }, [editor, onClose])
+  }, [editor, inlineMarksDisabled, onClose])
 
   // 删除线
   const handleStrikethrough = useCallback(() => {
-    if (!editor) return
+    if (!editor || inlineMarksDisabled) return
     editor.chain().focus().toggleStrike().run()
     onClose()
-  }, [editor, onClose])
+  }, [editor, inlineMarksDisabled, onClose])
 
   // 高亮
   const handleHighlight = useCallback(() => {
-    if (!editor) return
+    if (!editor || inlineMarksDisabled) return
     editor.chain().focus().toggleHighlight().run()
+    onClose()
+  }, [editor, inlineMarksDisabled, onClose])
+
+  // Insert link (selection exists but no link)
+  const handleInsertLink = useCallback(() => {
+    if (!editor || !onShowLinkPopover || inlineMarksDisabled) return
+    // Use the selection captured when the context menu opened (immune to focus loss)
+    const sel = propSavedSelection ?? editor.state.selection
+    const from = sel.from
+    const to = sel.to
+    const savedSelection = from !== to ? { from, to } : undefined
+    // Get the DOM element for the current selection to anchor the popover
+    const domPos = editor.view.domAtPos(from)
+    const anchor = (domPos.node instanceof HTMLElement ? domPos.node : domPos.node.parentElement) as HTMLElement
+    onClose()
+    requestAnimationFrame(() => {
+      onShowLinkPopover(anchor, '', savedSelection)
+    })
+  }, [editor, inlineMarksDisabled, onClose, onShowLinkPopover, propSavedSelection])
+
+  // Edit link (cursor on link)
+  const handleEditLink = useCallback(() => {
+    if (!editor || !onShowLinkPopover) return
+    // Find the link DOM element at cursor
+    const { from } = editor.state.selection
+    const domPos = editor.view.domAtPos(from)
+    const linkEl = (domPos.node instanceof HTMLElement ? domPos.node : domPos.node.parentElement)?.closest('a.zen-link') as HTMLElement | null
+    onClose()
+    if (linkEl) {
+      requestAnimationFrame(() => {
+        onShowLinkPopover(linkEl, currentLinkHref)
+      })
+    }
+  }, [editor, onClose, onShowLinkPopover, currentLinkHref])
+
+  // Remove link
+  const handleRemoveLink = useCallback(() => {
+    if (!editor) return
+    editor.chain().focus().extendMarkRange('link').unsetLink().run()
     onClose()
   }, [editor, onClose])
 
@@ -738,9 +813,10 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
   const menuWidth = 220
   // 基础: 编辑行(40) + 段落行(40) + AI(32) + 插入(32) + padding(16) = 160
   // 有选中: +格式行(40) + Ask AI(32) = +72
-  // Agent Task: +32, 表格操作: +32
+  // 在链接上: +Edit/Remove Link(64), Agent Task: +32, 表格操作: +32
   let menuHeight = 160
   if (hasSelection) menuHeight += 72
+  if (onShowLinkPopover && isOnLink) menuHeight += 64
   if (hasAgentTaskSupportedBlock) menuHeight += 32
   if (isInTable) menuHeight += 32
 
@@ -829,37 +905,66 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
             <button
               className={`context-menu-icon-btn ${editor.isActive('bold') ? 'active' : ''}`}
               onClick={handleBold}
-              title={`${t.toolbar.bold} (${shortcuts.bold})`}
+              title={inlineMarksDisabled ? markUnavailableTitle : `${t.toolbar.bold} (${shortcuts.bold})`}
+              disabled={inlineMarksDisabled}
             >
               {Icons.bold}
             </button>
             <button
               className={`context-menu-icon-btn ${editor.isActive('italic') ? 'active' : ''}`}
               onClick={handleItalic}
-              title={`${t.toolbar.italic} (${shortcuts.italic})`}
+              title={inlineMarksDisabled ? markUnavailableTitle : `${t.toolbar.italic} (${shortcuts.italic})`}
+              disabled={inlineMarksDisabled}
             >
               {Icons.italic}
             </button>
             <button
               className={`context-menu-icon-btn ${editor.isActive('underline') ? 'active' : ''}`}
               onClick={handleUnderline}
-              title={`${t.toolbar.underline} (${shortcuts.underline})`}
+              title={inlineMarksDisabled ? markUnavailableTitle : `${t.toolbar.underline} (${shortcuts.underline})`}
+              disabled={inlineMarksDisabled}
             >
               {Icons.underline}
             </button>
             <button
               className={`context-menu-icon-btn ${editor.isActive('strike') ? 'active' : ''}`}
               onClick={handleStrikethrough}
-              title={`${t.toolbar.strikethrough} (${shortcuts.strike})`}
+              title={inlineMarksDisabled ? markUnavailableTitle : `${t.toolbar.strikethrough} (${shortcuts.strike})`}
+              disabled={inlineMarksDisabled}
             >
               {Icons.strikethrough}
             </button>
             <button
               className={`context-menu-icon-btn ${editor.isActive('highlight') ? 'active' : ''}`}
               onClick={handleHighlight}
-              title={`${t.toolbar.highlight} (${shortcuts.highlight})`}
+              title={inlineMarksDisabled ? markUnavailableTitle : `${t.toolbar.highlight} (${shortcuts.highlight})`}
+              disabled={inlineMarksDisabled}
             >
               {Icons.highlight}
+            </button>
+            {onShowLinkPopover && (
+              <button
+                className={`context-menu-icon-btn ${isOnLink ? 'active' : ''}`}
+                onClick={isOnLink ? handleEditLink : handleInsertLink}
+                title={inlineMarksDisabled ? markUnavailableTitle : isOnLink ? t.contextMenu.editLink : t.contextMenu.insertLink}
+                disabled={!isOnLink && inlineMarksDisabled}
+              >
+                {Icons.link}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Edit/Remove link - only when cursor is on a link */}
+        {onShowLinkPopover && isOnLink && (
+          <div className="context-menu-group">
+            <button className="context-menu-item" onClick={handleEditLink}>
+              <span className="context-menu-icon">{Icons.link}</span>
+              <span className="context-menu-label">{t.contextMenu.editLink}</span>
+            </button>
+            <button className="context-menu-item context-menu-item-danger" onClick={handleRemoveLink}>
+              <span className="context-menu-icon">{Icons.unlink}</span>
+              <span className="context-menu-label">{t.contextMenu.removeLink}</span>
             </button>
           </div>
         )}

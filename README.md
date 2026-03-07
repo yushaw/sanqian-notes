@@ -77,6 +77,16 @@ MIT
 
 ## Changelog
 
+### 2026-03-07 - Feature: External Link Management
+
+Added complete external link management to the TipTap editor:
+- **Link Hover Popover**: Hovering over a `.zen-link` shows a floating popover with URL preview, edit/open/remove actions. Uses `@floating-ui/react`.
+- **Context Menu**: Insert Link (when text selected), Edit Link / Remove Link (when cursor on link).
+- **Bottom Toolbar Link Button**: Link icon in `zen-stats` area opens URL input popover.
+- **Paste URL on Selection**: Selecting text and pasting a URL auto-wraps the selection as a link.
+
+Files: `LinkPopover.tsx` (new), `Editor.tsx`, `EditorContextMenu.tsx`, `MarkdownPaste.ts`, `Editor.css`, `translations.ts`.
+
 ### 2026-03-02 - Fix: Chat window white screen crash
 
 **Root cause:** `@yushaw/sanqian-chat` v0.2.36 referenced `defaultRemarkPlugins.math` and `defaultRehypePlugins.katex` from streamdown, but streamdown v2.x removed these exports (breaking change). The `undefined` values were passed to `unified().use()`, throwing "Expected usable value, not `undefined`", which crashed the entire React component tree and caused a blank white screen.

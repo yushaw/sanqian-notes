@@ -748,6 +748,13 @@ export interface Translations {
     aiContinueInChat: string
     askAI: string
     agentTask: string
+    // Link operations
+    insertLink: string
+    editLink: string
+    removeLink: string
+    openLink: string
+    linkUrlPlaceholder: string
+    markUnavailableInCode: string
   }
   agentTask: {
     title: string
@@ -1742,7 +1749,13 @@ const zh: Translations = {
     aiError: 'AI 处理失败',
     aiContinueInChat: '继续对话',
     askAI: '询问 AI',
-    agentTask: 'Agent 任务'
+    agentTask: 'Agent 任务',
+    insertLink: '插入链接',
+    editLink: '编辑链接',
+    removeLink: '移除链接',
+    openLink: '在浏览器中打开',
+    linkUrlPlaceholder: '输入 URL...',
+    markUnavailableInCode: '行内代码不支持这种格式',
   },
   agentTask: {
     title: 'Agent 任务',
@@ -2737,7 +2750,13 @@ const en: Translations = {
     aiError: 'AI processing failed',
     aiContinueInChat: 'Continue in chat',
     askAI: 'Ask AI',
-    agentTask: 'Agent Task'
+    agentTask: 'Agent Task',
+    insertLink: 'Insert Link',
+    editLink: 'Edit Link',
+    removeLink: 'Remove Link',
+    openLink: 'Open in Browser',
+    linkUrlPlaceholder: 'Enter URL...',
+    markUnavailableInCode: 'Inline code does not support this formatting',
   },
   agentTask: {
     title: 'Agent Task',

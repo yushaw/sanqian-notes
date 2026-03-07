@@ -56,6 +56,7 @@ import { EditorSearch, editorSearchPluginKey } from './extensions/EditorSearch'
 import { SearchBar } from './SearchBar'
 import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
+import { LinkPopover } from './editor/LinkPopover'
 import { EditorColumnShell } from './EditorColumnShell'
 import { ExportMenu } from './ExportMenu'
 import { isWindows } from '../utils/platform'
@@ -74,6 +75,12 @@ import { useEditorLinkPopup } from './editor/useEditorLinkPopup'
 import { useEditorTransclusionPopup } from './editor/useEditorTransclusionPopup'
 import { useEditorAgentTaskPanel } from './editor/useEditorAgentTaskPanel'
 import { useEditorEmbedPopup } from './editor/useEditorEmbedPopup'
+import {
+  resolveTextSelectionRange,
+  selectionHasNonCodeText,
+  toTextSelectionRange,
+  type TextSelectionRange,
+} from './editor/link-selection'
 import {
   tryParseImportedTiptapDoc,
   handleCursorPlaceholder,
@@ -256,6 +263,14 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
   // 右键菜单状态
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [contextMenuHasSelection, setContextMenuHasSelection] = useState(false)
+  const [contextMenuSavedSelection, setContextMenuSavedSelection] = useState<{ from: number; to: number } | null>(null)
+
+  // 链接浮窗状态
+  const [linkPopoverAnchor, setLinkPopoverAnchor] = useState<HTMLElement | null>(null)
+  const [linkPopoverHref, setLinkPopoverHref] = useState('')
+  const [linkPopoverEditMode, setLinkPopoverEditMode] = useState(false)
+  const linkHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const preservedTextSelectionRef = useRef<TextSelectionRange | null>(null)
 
   // 搜索栏状态
   const [showSearchBar, setShowSearchBar] = useState(false)
@@ -678,6 +693,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     }
     setContextMenuPosition(null)
     setContextMenuHasSelection(false)
+    preservedTextSelectionRef.current = null
+    handleCloseLinkPopover()
 
     // --- 3. Reset per-note state ---
     setTitle(note.title)
@@ -1054,22 +1071,146 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     setIsFocusMode(prev => !prev)
   }, [])
 
+  const clearLinkHoverTimer = useCallback(() => {
+    if (linkHoverTimeoutRef.current) {
+      clearTimeout(linkHoverTimeoutRef.current)
+      linkHoverTimeoutRef.current = null
+    }
+  }, [])
+
+  const getCurrentTextSelection = useCallback((): TextSelectionRange | null => {
+    if (!editor) return null
+    return toTextSelectionRange(editor.state.selection)
+  }, [editor])
+
+  const captureTextSelectionForLinkAction = useCallback(() => {
+    preservedTextSelectionRef.current = getCurrentTextSelection()
+  }, [getCurrentTextSelection])
+
+  const clearPreservedTextSelection = useCallback(() => {
+    preservedTextSelectionRef.current = null
+  }, [])
+
+  const resolveTextSelectionForLinkAction = useCallback((): TextSelectionRange | null => {
+    return resolveTextSelectionRange(getCurrentTextSelection(), preservedTextSelectionRef.current)
+  }, [getCurrentTextSelection])
+
+  const handleEditorMouseDownCapture = useCallback((e: React.MouseEvent) => {
+    if (e.button === 2) {
+      captureTextSelectionForLinkAction()
+    }
+  }, [captureTextSelectionForLinkAction])
+
   // 右键菜单处理
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     if (!editor) return
 
-    // 检查是否有选中文本
-    const { from, to } = editor.state.selection
-    const hasSelection = from !== to
+    // 右键按下可能会先让编辑器失焦；优先使用按下阶段缓存的选区
+    const savedSelection = resolveTextSelectionForLinkAction()
+    const hasSelection = savedSelection !== null
 
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setContextMenuHasSelection(hasSelection)
-  }, [editor])
+    setContextMenuSavedSelection(savedSelection)
+  }, [editor, resolveTextSelectionForLinkAction])
 
   const handleCloseContextMenu = useCallback(() => {
     setContextMenuPosition(null)
-  }, [])
+    setContextMenuSavedSelection(null)
+    clearPreservedTextSelection()
+  }, [clearPreservedTextSelection])
+
+  // Whether current popover was triggered by hover (vs explicit click/context-menu)
+  const [linkPopoverIsHover, setLinkPopoverIsHover] = useState(false)
+
+  const handleCloseLinkPopover = useCallback(() => {
+    setLinkPopoverAnchor(null)
+    setLinkPopoverHref('')
+    setLinkPopoverEditMode(false)
+    setLinkPopoverIsHover(false)
+    setLinkPopoverSavedSelection(null)
+    clearPreservedTextSelection()
+    clearLinkHoverTimer()
+  }, [clearLinkHoverTimer, clearPreservedTextSelection])
+
+  const scheduleLinkPopoverHoverClose = useCallback(() => {
+    clearLinkHoverTimer()
+    linkHoverTimeoutRef.current = setTimeout(() => {
+      handleCloseLinkPopover()
+    }, 300)
+  }, [clearLinkHoverTimer, handleCloseLinkPopover])
+
+  // Link hover detection
+  const handleEditorMouseOver = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    const linkEl = target.closest('a.zen-link') as HTMLElement | null
+    if (!linkEl) return
+
+    // Don't show hover popover when already in edit mode
+    if (linkPopoverEditMode) return
+
+    clearLinkHoverTimer()
+    linkHoverTimeoutRef.current = setTimeout(() => {
+      const href = linkEl.getAttribute('href') || ''
+      setLinkPopoverAnchor(linkEl)
+      setLinkPopoverHref(href)
+      setLinkPopoverEditMode(false)
+      setLinkPopoverIsHover(true)
+    }, 300)
+  }, [clearLinkHoverTimer, linkPopoverEditMode])
+
+  const handleEditorMouseOut = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    const linkEl = target.closest('a.zen-link')
+    if (!linkEl) return
+
+    clearLinkHoverTimer()
+
+    if (linkPopoverIsHover && !linkPopoverEditMode) {
+      scheduleLinkPopoverHoverClose()
+    }
+  }, [clearLinkHoverTimer, linkPopoverEditMode, linkPopoverIsHover, scheduleLinkPopoverHoverClose])
+
+  // Cleanup hover timeout on unmount
+  useEffect(() => {
+    return () => {
+      clearLinkHoverTimer()
+    }
+  }, [clearLinkHoverTimer])
+
+  // Saved selection range for insert-link flow (captured before focus is lost)
+  const [linkPopoverSavedSelection, setLinkPopoverSavedSelection] = useState<{ from: number; to: number } | null>(null)
+
+  // Show link popover in edit mode (for context menu / toolbar button)
+  const showLinkEditPopover = useCallback((anchor: HTMLElement, href: string, savedSelection?: { from: number; to: number }) => {
+    clearLinkHoverTimer()
+    setLinkPopoverAnchor(anchor)
+    setLinkPopoverHref(href)
+    setLinkPopoverEditMode(true)
+    setLinkPopoverIsHover(false)
+    setLinkPopoverSavedSelection(savedSelection || null)
+  }, [clearLinkHoverTimer])
+
+  // Bottom toolbar link button handler
+  const handleLinkButtonMouseDown = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    captureTextSelectionForLinkAction()
+  }, [captureTextSelectionForLinkAction])
+
+  const handleLinkButtonClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!editor) return
+    const textSelection = resolveTextSelectionForLinkAction()
+    const hasTextSelected = textSelection !== null
+    const isOnLink = editor.isActive('link')
+
+    // Need either selected text or cursor on an existing link
+    if (!hasTextSelected && !isOnLink) return
+
+    const existingHref = isOnLink ? (editor.getAttributes('link')?.href || '') : ''
+    const savedSel = textSelection ?? undefined
+    showLinkEditPopover(e.currentTarget as HTMLElement, existingHref, savedSel)
+  }, [editor, resolveTextSelectionForLinkAction, showLinkEditPopover])
 
   // 持续追踪最后的光标位置（即使焦点离开编辑器也能记住）
   const lastCursorInfo = useRef<CursorInfo | null>(null)
@@ -1310,6 +1451,13 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
   if (!editor) return null
 
+  const currentLinkButtonSelection = getCurrentTextSelection()
+  const canInsertLinkFromSelection = selectionHasNonCodeText(editor.state.doc, currentLinkButtonSelection)
+  const canOpenLinkPopover = editor.isActive('link') || canInsertLinkFromSelection
+  const linkButtonTitle = currentLinkButtonSelection && !canInsertLinkFromSelection
+    ? t.contextMenu.markUnavailableInCode
+    : t.contextMenu.insertLink
+
   return (
     <div
       ref={editorContainerRef}
@@ -1522,7 +1670,12 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             readOnly={!titleEditable}
           />
           {/* Editor */}
-          <div onContextMenu={handleContextMenu}>
+          <div
+            onMouseDownCapture={handleEditorMouseDownCapture}
+            onContextMenu={handleContextMenu}
+            onMouseOver={handleEditorMouseOver}
+            onMouseOut={handleEditorMouseOut}
+          >
             <EditorContent editor={editor} className="zen-editor-content" />
           </div>
         </div>
@@ -1535,6 +1688,18 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           ? `${selectedWordCount} / ${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
           : `${countWordsFromEditor(editor)} ${t.typewriter.wordCount}`
         }
+        <button
+          className="zen-stats-link-btn"
+          onMouseDown={handleLinkButtonMouseDown}
+          onClick={handleLinkButtonClick}
+          title={linkButtonTitle}
+          disabled={!canOpenLinkPopover}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+        </button>
       </div>
 
       {/* Note link popup */}
@@ -1628,12 +1793,29 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         </div>
       )}
 
+      {/* Link popover */}
+      {linkPopoverAnchor && editor && (
+        <LinkPopover
+          editor={editor}
+          anchorEl={linkPopoverAnchor}
+          href={linkPopoverHref}
+          editMode={linkPopoverEditMode}
+          isHover={linkPopoverIsHover}
+          savedSelection={linkPopoverSavedSelection}
+          onHoverEnter={clearLinkHoverTimer}
+          onHoverLeave={scheduleLinkPopoverHoverClose}
+          onClose={handleCloseLinkPopover}
+        />
+      )}
+
       {/* 右键菜单 */}
       <EditorContextMenu
         editor={editor}
         position={contextMenuPosition}
         onClose={handleCloseContextMenu}
         hasSelection={contextMenuHasSelection}
+        savedSelection={contextMenuSavedSelection}
+        onShowLinkPopover={showLinkEditPopover}
       />
 
       {/* Floating Table of Contents */}
@@ -1761,5 +1943,3 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     </EditorColumnShell>
   )
 })
-
-

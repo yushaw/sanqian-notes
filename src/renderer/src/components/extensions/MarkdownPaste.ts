@@ -242,6 +242,15 @@ export const MarkdownPaste = Extension.create({
             const clipboardData = event.clipboardData
             if (!clipboardData) return false
 
+            // 选中文字 + 粘贴 URL = 自动包裹为链接
+            const { from, to } = editor.state.selection
+            if (from !== to) {
+              const pastedText = clipboardData.getData('text/plain')?.trim()
+              if (pastedText && /^https?:\/\/\S+$/.test(pastedText)) {
+                return editor.chain().focus().setLink({ href: pastedText }).run()
+              }
+            }
+
             // 如果有 HTML 内容（从其他应用复制的富文本），让 TipTap 默认处理
             const html = clipboardData.getData('text/html')
             if (html && html.trim()) return false

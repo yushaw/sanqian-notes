@@ -342,12 +342,15 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     clearCloseTimeout()
 
     const rect = e.currentTarget.getBoundingClientRect()
+    const menuRect = menuRef.current?.getBoundingClientRect()
+    const menuRight = menuRect?.right ?? rect.right
+    const menuLeft = menuRect?.left ?? rect.left
     const submenuWidth = 160
     const submenuHeight = aiActions.length * 32 + 8
 
-    let left = rect.right - 2
-    if (rect.right + submenuWidth > window.innerWidth) {
-      left = rect.left - submenuWidth + 2
+    let left = menuRight - 4
+    if (menuRight + submenuWidth > window.innerWidth) {
+      left = menuLeft - submenuWidth + 4
     }
 
     let top = rect.top
@@ -653,12 +656,15 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     clearCloseTimeout()
 
     const rect = e.currentTarget.getBoundingClientRect()
+    const menuRect = menuRef.current?.getBoundingClientRect()
+    const menuRight = menuRect?.right ?? rect.right
+    const menuLeft = menuRect?.left ?? rect.left
     const submenuWidth = 160
     const submenuHeight = insertItems.length * 32 + 8
 
-    let left = rect.right - 2
-    if (rect.right + submenuWidth > window.innerWidth) {
-      left = rect.left - submenuWidth + 2
+    let left = menuRight - 4
+    if (menuRight + submenuWidth > window.innerWidth) {
+      left = menuLeft - submenuWidth + 4
     }
 
     let top = rect.top
@@ -686,12 +692,15 @@ export function EditorContextMenu({ editor, position, onClose, hasSelection }: E
     clearCloseTimeout()
 
     const rect = e.currentTarget.getBoundingClientRect()
+    const menuRect = menuRef.current?.getBoundingClientRect()
+    const menuRight = menuRect?.right ?? rect.right
+    const menuLeft = menuRect?.left ?? rect.left
     const submenuWidth = 160
     const submenuHeight = 7 * 32 + 8
 
-    let left = rect.right - 2
-    if (rect.right + submenuWidth > window.innerWidth) {
-      left = rect.left - submenuWidth + 2
+    let left = menuRight - 4
+    if (menuRight + submenuWidth > window.innerWidth) {
+      left = menuLeft - submenuWidth + 4
     }
 
     let top = rect.top

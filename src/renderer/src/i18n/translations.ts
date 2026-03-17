@@ -892,6 +892,7 @@ export interface Translations {
     folderStrategySingleNotebook: string
     folderStrategySingleNotebookDesc: string
     selectNotebook: string
+    targetNotebook: string
     tagStrategy: string
     tagStrategyKeepNested: string
     tagStrategyFlattenAll: string
@@ -1893,6 +1894,7 @@ const zh: Translations = {
     folderStrategySingleNotebook: '全部放入指定笔记本',
     folderStrategySingleNotebookDesc: '忽略原有文件夹结构',
     selectNotebook: '选择笔记本',
+    targetNotebook: '目标笔记本',
     tagStrategy: '标签处理',
     tagStrategyKeepNested: '保留嵌套格式',
     tagStrategyFlattenAll: '拆分为多个标签',
@@ -2894,6 +2896,7 @@ const en: Translations = {
     folderStrategySingleNotebook: 'All to specified notebook',
     folderStrategySingleNotebookDesc: 'Ignore original folder structure',
     selectNotebook: 'Select Notebook',
+    targetNotebook: 'Target Notebook',
     tagStrategy: 'Tag Handling',
     tagStrategyKeepNested: 'Keep nested format',
     tagStrategyFlattenAll: 'Split into multiple tags',

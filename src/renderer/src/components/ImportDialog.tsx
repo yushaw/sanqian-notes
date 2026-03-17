@@ -81,6 +81,9 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
   const [buildEmbedding, setBuildEmbedding] = useState(false)
   const [embeddingEnabled, setEmbeddingEnabled] = useState(false)
 
+  // 选中的来源是否包含文件夹
+  const [hasDirectories, setHasDirectories] = useState(false)
+
   // 笔记本列表（用于 single-notebook 策略）
   const [notebooks, setNotebooks] = useState<Array<{ id: string; name: string }>>([])
   const [targetNotebookId, setTargetNotebookId] = useState<string>('')
@@ -98,10 +101,21 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
   // 选择来源
   const handleSelectSource = async () => {
     // 传递 importerType 作为 importerId，让 main 进程使用正确的文件选择配置
-    const paths = await window.electron?.importExport?.selectSource(importerType)
+    const result = await window.electron?.importExport?.selectSource(importerType)
 
-    if (paths && paths.length > 0) {
-      setSourcePaths(paths)
+    if (result && result.paths.length > 0) {
+      setSourcePaths(result.paths)
+      setHasDirectories(result.hasDirectories)
+      // 仅 markdown 导入区分文件/文件夹（Notion/Obsidian 的文件夹策略始终有意义）
+      if (importerType === 'markdown') {
+        if (!result.hasDirectories) {
+          // 单文件导入时自动使用 single-notebook 策略
+          setFolderStrategy('single-notebook')
+        } else if (folderStrategy === 'single-notebook' && !targetNotebookId) {
+          // 从文件切换到文件夹时，重置为默认策略
+          setFolderStrategy('first-level')
+        }
+      }
       setError('')
     }
   }
@@ -284,8 +298,8 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
                 )}
               </div>
 
-              {/* 文件夹处理策略 */}
-              {showFolderStrategy && (
+              {/* 文件夹处理策略 - markdown 单文件导入时隐藏 */}
+              {showFolderStrategy && (hasDirectories || importerType !== 'markdown') && (
                 <div>
                   <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
                     {t.importExport.folderStrategy}
@@ -360,6 +374,27 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
                       </div>
                     </label>
                   </div>
+                </div>
+              )}
+
+              {/* markdown 单文件导入 - 选择目标笔记本 */}
+              {importerType === 'markdown' && !hasDirectories && (
+                <div>
+                  <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                    {t.importExport.targetNotebook}
+                  </label>
+                  <select
+                    value={targetNotebookId}
+                    onChange={(e) => setTargetNotebookId(e.target.value)}
+                    className="w-full px-2 py-1.5 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded"
+                  >
+                    <option value="">{t.importExport.selectNotebook}</option>
+                    {notebooks.map((nb) => (
+                      <option key={nb.id} value={nb.id}>
+                        {nb.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
@@ -552,7 +587,7 @@ export function ImportDialog({ importerType, onClose }: ImportDialogProps) {
               </button>
               <button
                 onClick={handleImport}
-                disabled={folderStrategy === 'single-notebook' && !targetNotebookId}
+                disabled={(folderStrategy === 'single-notebook') && !targetNotebookId}
                 className="px-4 py-2 text-sm bg-[var(--color-accent)] text-white rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t.importExport.startImport}

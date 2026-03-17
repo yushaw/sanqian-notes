@@ -399,7 +399,7 @@ declare global {
             duration: number
           }
         }>
-        selectSource: (importerId?: string) => Promise<string[] | null>
+        selectSource: (importerId?: string) => Promise<{ paths: string[]; hasDirectories: boolean } | null>
         export: (options: {
           noteIds: string[]
           notebookIds: string[]

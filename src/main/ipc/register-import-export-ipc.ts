@@ -108,7 +108,18 @@ export function registerImportExportIpc(
       ],
     })
 
-    return result.canceled ? null : result.filePaths
+    if (result.canceled) return null
+
+    const fs = await import('fs')
+    const hasDirectories = result.filePaths.some((p) => {
+      try {
+        return fs.statSync(p).isDirectory()
+      } catch {
+        return false
+      }
+    })
+
+    return { paths: result.filePaths, hasDirectories }
   }))
 
   ipcMainLike.handle('export:selectTarget', createSafeHandler('export:selectTarget', async () => {

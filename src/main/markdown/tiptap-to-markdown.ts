@@ -174,7 +174,7 @@ function applyMarks(text: string, marks?: TiptapMark[]): string {
         result = `[[${safeTitle}|${result}]]`
         break
       }
-      case 'textColor': {
+      case 'textStyle': {
         // 文字颜色在 markdown 中无法表示，保持原样
         break
       }

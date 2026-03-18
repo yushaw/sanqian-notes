@@ -1358,8 +1358,16 @@ function applyMarkToHTML(text: string, mark: { type: string; attrs?: Record<stri
       return `<code>${text}</code>`
     case 'underline':
       return `<u>${text}</u>`
-    case 'highlight':
+    case 'highlight': {
+      const hlColor = mark.attrs?.color as string || ''
+      if (hlColor) {
+        const r = parseInt(hlColor.slice(1, 3), 16)
+        const g = parseInt(hlColor.slice(3, 5), 16)
+        const b = parseInt(hlColor.slice(5, 7), 16)
+        return `<mark style="background-color: rgba(${r}, ${g}, ${b}, 0.15)">${text}</mark>`
+      }
       return `<mark>${text}</mark>`
+    }
     case 'link': {
       const href = mark.attrs?.href as string || ''
       return `<a href="${escapeHTML(href)}">${text}</a>`
@@ -1368,9 +1376,12 @@ function applyMarkToHTML(text: string, mark: { type: string; attrs?: Record<stri
       const noteTitle = mark.attrs?.noteTitle as string || ''
       return `<span class="note-link" title="${escapeHTML(noteTitle)}">${text}</span>`
     }
-    case 'textColor': {
+    case 'textStyle': {
       const color = mark.attrs?.color as string || ''
-      return `<span style="color: ${escapeHTML(color)}">${text}</span>`
+      if (color) {
+        return `<span style="color: ${escapeHTML(color)}">${text}</span>`
+      }
+      return text
     }
     default:
       return text

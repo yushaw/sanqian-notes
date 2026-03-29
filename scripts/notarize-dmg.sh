@@ -3,9 +3,10 @@
 # electron-builder only notarizes the .app; this script handles the DMG.
 set -euo pipefail
 
-DMG=$(ls dist/*-arm64.dmg 2>/dev/null | head -1)
-if [ -z "$DMG" ]; then
-  echo "No DMG found in dist/"
+VERSION=$(node -p "require('./package.json').version")
+DMG="dist/sanqian-notes-${VERSION}-arm64.dmg"
+if [ ! -f "$DMG" ]; then
+  echo "DMG not found: $DMG"
   exit 1
 fi
 

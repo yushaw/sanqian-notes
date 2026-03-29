@@ -168,7 +168,7 @@ export async function initializeSanqianSDK(): Promise<void> {
   const config: AppConfig = {
     appName: 'sanqian-notes',
     appVersion: app.getVersion(),
-    displayName: 'Flow',
+    displayName: 'Sanqian Notes',
     launchCommand,
     tools: buildTools(),
     contexts: buildContextProviders()

@@ -1012,7 +1012,7 @@ export interface Translations {
 
 const zh: Translations = {
   app: {
-    name: '心流'
+    name: '三千笔记'
   },
   sidebar: {
     smartViews: '智能视图',
@@ -1144,7 +1144,7 @@ const zh: Translations = {
     feedback: '反馈建议',
     github: 'GitHub',
     discord: 'Discord',
-    copyright: '© 2026 心流. All rights reserved.',
+    copyright: '© 2026 三千笔记. All rights reserved.',
     updating: {
       checking: '正在检查更新...',
       available: (version: string) => `发现新版本 ${version}`,
@@ -1863,7 +1863,7 @@ const zh: Translations = {
     dataManagement: '数据管理',
     // 导入
     import: '导入笔记',
-    importDescription: '从其他笔记应用迁移数据到心流',
+    importDescription: '从其他笔记应用迁移数据到三千笔记',
     importButton: '导入笔记...',
     // 导入来源选项
     importFrom: '选择导入来源',
@@ -2014,7 +2014,7 @@ const zh: Translations = {
 
 const en: Translations = {
   app: {
-    name: 'Flow'
+    name: 'Sanqian Notes'
   },
   sidebar: {
     smartViews: 'Smart Views',
@@ -2146,7 +2146,7 @@ const en: Translations = {
     feedback: 'Feedback',
     github: 'GitHub',
     discord: 'Discord',
-    copyright: '© 2026 Flow. All rights reserved.',
+    copyright: '© 2026 Sanqian Notes. All rights reserved.',
     updating: {
       checking: 'Checking for updates...',
       available: (version: string) => `New version ${version} available`,
@@ -2865,7 +2865,7 @@ const en: Translations = {
     dataManagement: 'Data',
     // Import
     import: 'Import Notes',
-    importDescription: 'Import notes from other apps to Flow',
+    importDescription: 'Import notes from other apps to Sanqian Notes',
     importButton: 'Import Notes...',
     // Import source options
     importFrom: 'Import From',

@@ -17,7 +17,7 @@ export function createDemoNotes(): void {
   const note3Id = uuidv4()
 
   const t = {
-    note1Title: isZh ? '\u6b22\u8fce\u4f7f\u7528\u5fc3\u6d41' : 'Welcome to Flow',
+    note1Title: isZh ? '欢迎使用三千笔记' : 'Welcome to Sanqian Notes',
     note2Title: isZh ? '\u7f16\u8f91\u5668\u529f\u80fd\u6f14\u793a' : 'Editor Features Demo',
     note3Title: isZh ? '\u5feb\u6377\u952e\u901f\u67e5\u8868' : 'Keyboard Shortcuts',
     intro1: isZh ? '\u8fd9\u662f\u4e00\u6b3e\u4e13\u6ce8\u4e8e ' : 'A note-taking app focused on ',
@@ -618,7 +618,7 @@ export function createDemoNotes(): void {
           { type: 'text', text: ' to create a code block:' }
         ]
       },
-      { type: 'codeBlock', attrs: { language: 'javascript', blockId: 'codex1' }, content: [{ type: 'text', text: '// Syntax highlighting\nfunction greet(name) {\n  console.log(`Hello, ${name}!`);\n}\n\ngreet("Flow");' }] },
+      { type: 'codeBlock', attrs: { language: 'javascript', blockId: 'codex1' }, content: [{ type: 'text', text: '// Syntax highlighting\nfunction greet(name) {\n  console.log(`Hello, ${name}!`);\n}\n\ngreet("Sanqian Notes");' }] },
       { type: 'heading', attrs: { level: 1, blockId: 'math' }, content: [{ type: 'text', text: 'Math Formulas' }] },
       {
         type: 'paragraph', content: [

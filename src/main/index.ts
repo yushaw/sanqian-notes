@@ -456,7 +456,7 @@ function createTrayWithPath(iconPath: string): void {
       }
     }
   ])
-  tray.setToolTip('Flow')
+  tray.setToolTip('Sanqian Notes')
 
   // Left-click: show/activate window (both platforms)
   tray.on('click', () => showMainWindow())

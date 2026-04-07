@@ -113,8 +113,7 @@ function DraggablePaneWrapper({
           <div
             {...attributes}
             {...listeners}
-            className={`absolute top-[10px] left-3 z-20 opacity-30 hover:opacity-100 transition-opacity cursor-grab ${isDragging ? 'cursor-grabbing' : ''}`}
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            className={`absolute top-[10px] left-3 z-20 opacity-30 hover:opacity-100 transition-opacity cursor-grab no-drag ${isDragging ? 'cursor-grabbing' : ''}`}
           >
             <div className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 text-[var(--color-text)]/60">
               <DragIcon />

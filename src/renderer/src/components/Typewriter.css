@@ -55,7 +55,6 @@
   left: 0;
   right: 0;
   height: 50px;
-  -webkit-app-region: drag;
   z-index: 10;
   /* 允许点击穿透到内容区域 */
   pointer-events: none;

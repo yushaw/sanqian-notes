@@ -66,6 +66,7 @@ import type { Editor as TiptapEditor } from '@tiptap/core'
 import { TypewriterToolbar } from './TypewriterToolbar'
 import { FloatingToc } from './FloatingToc'
 import { EditorContextMenu } from './EditorContextMenu'
+import { DragRegionContainer } from './DragRegionContainer'
 import { getCursorInfo, setCursorByBlockId, type CursorInfo } from '../utils/cursor'
 import { countWordsFromEditor, countSelectedWords } from '../utils/wordCount'
 import { useTypewriterSound } from '../hooks/useTypewriterSound'
@@ -1081,7 +1082,7 @@ export function TypewriterMode({
       className={`typewriter-container ${isTransitioning ? 'transitioning' : ''}`}
       style={cssVariables}
     >
-      <div className="typewriter-drag-region" onMouseDown={(e) => e.preventDefault()} />
+      <DragRegionContainer className="typewriter-drag-region" onMouseDown={(e) => e.preventDefault()} />
 
       {resolvedTheme.showCursorLine && <div className="typewriter-cursor-line" />}
 

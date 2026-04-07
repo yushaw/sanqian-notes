@@ -4,6 +4,7 @@ import { useTranslations } from '../i18n'
 import { isMacOS } from '../utils/platform'
 import { formatRelativeDate } from '../utils/dateFormat'
 import { getPreview } from '../utils/notePreview'
+import { WindowDragStrip } from './WindowDragStrip'
 
 // Should match TRASH_RETENTION_DAYS in database.ts
 const TRASH_RETENTION_DAYS = 30
@@ -115,9 +116,12 @@ export function TrashList({
   }
 
   return (
-    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col drag-region">
+    <div
+      className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col"
+      data-trash-list
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
+      <WindowDragStrip className="px-4 flex items-center justify-between">
         {!shouldHideTitle && (
           <h2 className="text-[1rem] font-semibold text-[var(--color-text)] select-none">
             {t.trash.title}
@@ -132,7 +136,7 @@ export function TrashList({
             {t.trash.emptyTrash}
           </button>
         )}
-      </div>
+      </WindowDragStrip>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto no-drag hide-scrollbar">

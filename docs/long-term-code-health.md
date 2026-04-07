@@ -207,6 +207,23 @@ Electron 主进程执行同步文件系统操作会冻结整个应用 UI。
 - [!] **TabBar SortableTabItem 无 memo**: 4 个 inline closure (onSelect/onClose/onContextMenu/onMiddleClick) 导致拖拽排序时所有 tab 重渲染。包裹 memo + 改为 id-based callback 接口，parent 直接传 stable context 引用。(2026-02-28)
   - 文件: `src/renderer/src/components/TabBar.tsx`
 
+### 2.7 桌面窗口拖拽契约
+
+- [!] **右侧空白态顶栏不可拖拽回归风险**: 建立统一拖拽契约并落地双护栏（静态测试 + ESLint）与 CI 校验入口，避免后续页面改造再次破坏拖拽行为。(2026-04-07)
+  - 核心文档: `docs/window-drag-contract.md`
+  - 统一组件: `src/renderer/src/components/WindowDragStrip.tsx`, `src/renderer/src/components/DragRegionContainer.tsx`
+  - 场景回归: `src/renderer/src/components/__tests__/EditorEmptyStateDragContract.test.tsx`
+  - 静态守卫:
+    - `src/renderer/src/components/__tests__/dragRegionStaticGuard.test.ts`
+    - `src/renderer/src/components/__tests__/dragRegionCssAllowlist.test.ts`
+    - `src/renderer/src/components/__tests__/dragRegionGlobalStyleContract.test.ts`
+    - `src/renderer/src/components/__tests__/dragRegionClassUsageAllowlist.test.ts`
+    - `src/renderer/src/components/__tests__/dragRegionTokenUsageAllowlist.test.ts`（AST 级限制 `drag-region` 独立 token 只能出现在包装组件）
+    - `src/renderer/src/components/__tests__/dragRegionContextMenuGuard.test.ts`（含 import alias 绕过防护）
+  - Lint 护栏: `eslint.config.mjs` `no-restricted-syntax`（禁止在 `DragRegionContainer` / `WindowDragStrip` 上声明 `onContextMenu` / `onContextMenuCapture`）
+  - 命令入口: `npm run verify:drag-contract`
+  - CI: `.github/workflows/drag-contract.yml`
+
 ---
 
 ## P3 -- 搜索/索引准确性

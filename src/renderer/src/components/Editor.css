@@ -33,7 +33,6 @@
   right: 0;
   height: var(--editor-header-height);
   z-index: 10;
-  -webkit-app-region: drag;
   pointer-events: auto;
   background: transparent;
   display: flex;
@@ -85,11 +84,6 @@
   flex-shrink: 0;
 }
 
-/* Buttons are not draggable */
-.zen-header-bar button {
-  -webkit-app-region: no-drag;
-}
-
 .zen-header-title {
   font-size: 1.3rem;
   font-weight: 600;
@@ -102,7 +96,6 @@
   outline: none;
   font-family: inherit;
   letter-spacing: -0.01em;
-  -webkit-app-region: no-drag;
   pointer-events: auto;
   cursor: text;
 }
@@ -933,7 +926,6 @@ span.zen-header-title {
 .zen-empty-header {
   height: 50px;
   flex-shrink: 0;
-  -webkit-app-region: drag;
 }
 
 .zen-empty-content {

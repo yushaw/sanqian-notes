@@ -52,6 +52,9 @@ npm run dev
 # Run tests
 npm run test
 
+# Verify desktop window drag contract (lint + tests)
+npm run verify:drag-contract
+
 # Build
 npm run build
 ```
@@ -65,9 +68,23 @@ npm run rebuild-index
 
 Environment variables:
 - `KB_MIN_CONTENT_LENGTH` - Minimum text length to index a note (default: 100)
+- `KB_INDEXING_VERBOSE` - Enable per-note indexing verbose logs (`1` = enabled, default off; keep off for large local-folder sync/import)
 - `SANQIAN_USERDATA` - Override userData path for the rebuild script
 - `REBUILD_BATCH_SIZE` - Notes per batch during rebuild (default: 1000)
 - `REBUILD_SLEEP_MS` - Sleep between batches (default: 0)
+- `IMPORT_EXPORT_YIELD_INTERVAL` - Yield interval for import/export hot loops (default: 32)
+- `IMPORT_DB_BATCH_SIZE` - Notes per DB batch insert during import (default: 64)
+- `IMPORT_INDEX_CONCURRENCY` - Concurrent indexing workers during import final phase (default: 2)
+- `IMPORT_EXEC_PROFILE` - Enable import execution profiling summary logs (`1` = enabled)
+- `IMPORT_EXEC_SLOW_LOG_MS` - Always log import summary when duration exceeds this threshold (default: 3000ms)
+- `LOCAL_NOTE_INDEX_SYNC_YIELD_INTERVAL` - Yield interval for local-folder index sync loops (default: 32)
+- `LOCAL_NOTE_INDEX_SYNC_MAX_INDEX_PER_RUN` - Max files indexed in one full-sync run before immediate requeue (default: 256, `0` = unlimited)
+- `LOCAL_NOTE_INDEX_SYNC_METADATA_BATCH_SIZE` - Batch size for local-folder metadata/popup DB sync during full indexing (default: 64)
+- `LOCAL_NOTE_INDEX_SYNC_INITIAL_FULL_DELAY_MS` - Delay before running an immediate cold full-sync request (default: 180ms in app, 0ms in tests)
+- `LOCAL_NOTE_INDEX_SYNC_REQUEUE_DELAY_MS` - Delay between capped full-sync requeue batches (default: 120ms in app, 0ms in tests)
+- `LOCAL_NOTE_INDEX_SYNC_PROFILE` - Enable local-folder index sync summary logs (`1` = enabled)
+- `LOCAL_NOTE_INDEX_SYNC_SLOW_LOG_MS` - Always log local-folder sync summary when duration exceeds this threshold (default: 3000ms)
+- `LOCAL_FOLDER_WATCHER_SYNC_DEBOUNCE_MS` - Debounce for background local-folder watcher reconciliation on startup/mount flows (default: 120ms in app, 0ms in tests)
 
 ## License
 
@@ -691,7 +708,7 @@ Systematic review focused on security, race conditions, type safety, and resourc
 
 **fix(preload): replace `unknown` with shared types in IPC bridge**
 - `note.add/update/updateSafe` now typed as `NoteInput` / `Partial<NoteInput>` (was `unknown`)
-- `notebook.add/update` now typed as `NotebookInput` / `Partial<NotebookInput>` (was `unknown`)
+- `notebook.add/update` now typed as `InternalNotebookInput` / `InternalNotebookUpdateInput` (was `unknown`)
 - `aiAction.create/update` now typed as `AIActionInput` / `Partial<AIActionInput>` (was `unknown`)
 - Both `preload/index.ts` (implementation) and `preload/index.d.ts` (declaration) updated
 
@@ -1286,3 +1303,23 @@ Key changes:
 - `App.tsx`: passes `notebookId` and `localNoteMetadataById` to `LocalFolderNoteList`.
 
 Files: `NotePreviewPopover.tsx`, `NoteList.tsx`, `LocalFolderNoteList.tsx`, `App.tsx`
+
+---
+
+### v0.5.2 (2026-03-29)
+
+**New Features / 新功能**
+
+- **Separate single file import / 单文件导入分离**: Single file import is now separated from folder import for a clearer workflow.
+- **Editor link management / 编辑器链接管理**: Robust bi-directional link tracking and management in the editor.
+
+**Improvements / 改进**
+
+- Shrink app icon logo to 70% with more padding / 缩小应用图标至 70% 并增加内边距
+- Unify markdown export layout and harden attachment extension handling / 统一 Markdown 导出布局，加固附件扩展名处理
+
+**Bug Fixes / 修复**
+
+- Fix PDF/Markdown export losing text color and highlight color / 修复 PDF/Markdown 导出时文字颜色和高亮颜色丢失
+- Fix context menu submenu misalignment / 修复右键菜单子菜单位置偏移
+- Fix notebook folder move interactions / 修复笔记本文件夹移动交互问题

@@ -58,6 +58,8 @@ import { FileHandler } from '@tiptap/extension-file-handler'
 import { EditorContextMenu } from './EditorContextMenu'
 import { LinkPopover } from './editor/LinkPopover'
 import { EditorColumnShell } from './EditorColumnShell'
+import { WindowDragStrip } from './WindowDragStrip'
+import { DragRegionContainer } from './DragRegionContainer'
 import { ExportMenu } from './ExportMenu'
 import { isWindows } from '../utils/platform'
 import { AgentTaskPanel } from './AgentTaskPanel'
@@ -116,7 +118,7 @@ function PaneCloseButton({ onClick, title }: { onClick: () => void; title: strin
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick() }}
-      className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-tertiary)] opacity-50 hover:opacity-100 hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+      className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-tertiary)] opacity-50 hover:opacity-100 hover:text-[var(--color-text)] hover:bg-black/5 dark:hover:bg-white/10 transition-all no-drag"
       title={title}
     >
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -1466,8 +1468,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       {/* Windows: 左侧竖向控件栏 */}
       {isWindows() && showPaneControls && (
         <div
-          className="absolute left-[10px] top-[42px] z-20 flex flex-col gap-0.5"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="absolute left-[10px] top-[42px] z-20 flex flex-col gap-0.5 no-drag"
         >
           {note && (
             <div style={{ marginLeft: -2 }}>
@@ -1489,7 +1490,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
       )}
 
       {/* Top header bar - shows title when scrolled (title hidden) */}
-      <div
+      <DragRegionContainer
         className={`zen-header-bar ${isTitleHidden ? 'with-title scrolled' : ''}`}
         style={showSearchBar ? { pointerEvents: 'none' } : undefined}
       >
@@ -1503,8 +1504,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
               <input
                 ref={headerTitleRef}
                 type="text"
-                className="zen-header-title"
-                style={{ WebkitAppRegion: 'no-drag', pointerEvents: showSearchBar ? 'none' : undefined } as React.CSSProperties}
+                className="zen-header-title no-drag"
+                style={{ pointerEvents: showSearchBar ? 'none' : undefined }}
                 value={title}
                 onChange={handleTitleChange}
                 onCompositionStart={handleTitleCompositionStart}
@@ -1546,8 +1547,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
               />
             ) : (
               <span
-                className="zen-header-title"
-                style={{ WebkitAppRegion: 'no-drag', pointerEvents: showSearchBar ? 'none' : undefined } as React.CSSProperties}
+                className="zen-header-title no-drag"
+                style={{ pointerEvents: showSearchBar ? 'none' : undefined }}
                 onClick={(e) => {
                   if (titleEditable && !isEditingHeaderTitle) {
                     const range = document.caretRangeFromPoint(e.clientX, e.clientY)
@@ -1569,11 +1570,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
         {/* macOS: More Menu + Close Pane - 更多菜单（含导出、分屏）+ 关闭按钮 */}
         {!isWindows() && (
           <div
-            className="flex items-center gap-0.5 ml-2 flex-shrink-0"
-            style={{
-              WebkitAppRegion: 'no-drag',
-              pointerEvents: showSearchBar ? 'none' : undefined
-            } as React.CSSProperties}
+            className="flex items-center gap-0.5 ml-2 flex-shrink-0 no-drag"
+            style={{ pointerEvents: showSearchBar ? 'none' : undefined }}
           >
             {note && (
               <ExportMenu
@@ -1591,7 +1589,7 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
             )}
           </div>
         )}
-      </div>
+      </DragRegionContainer>
 
       {/* Floating toolbar - appears on hover at bottom */}
       <EditorToolbar
@@ -1848,17 +1846,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   return (
     <EditorColumnShell className="bg-[var(--color-card-solid)] relative">
       {!note ? (
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col" data-editor-empty-state>
           {/* 空白页的标题栏 */}
-          <div
-            className="h-[42px] flex items-center justify-between px-3 flex-shrink-0 relative"
-            style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+          <WindowDragStrip
+            testId="editor-empty-drag-strip"
+            className="flex items-center justify-between px-3 relative"
           >
             {/* macOS: 左边留空，控件在右边 */}
             {!isWindows() && showPaneControls && (
               <div
-                className="w-8 h-8"
-                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                className="w-8 h-8 no-drag"
               />
             )}
             {/* 中间占位 */}
@@ -1866,8 +1863,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             {/* macOS: 控件在右边 */}
             {!isWindows() && showPaneControls && (
               <div
-                className="flex items-center gap-0.5"
-                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                className="flex items-center gap-0.5 no-drag"
               >
                 <ExportMenu
                   onSplitHorizontal={onSplitHorizontal}
@@ -1878,12 +1874,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
                 )}
               </div>
             )}
-          </div>
+          </WindowDragStrip>
           {/* Windows: 左侧竖向控件栏 */}
           {isWindows() && showPaneControls && (
             <div
-              className="absolute left-[10px] top-[42px] z-20 flex flex-col gap-0.5"
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              data-editor-empty-windows-controls
+              className="absolute left-[10px] top-[42px] z-20 flex flex-col gap-0.5 no-drag"
             >
               <div style={{ marginLeft: -2 }}>
                 <ExportMenu

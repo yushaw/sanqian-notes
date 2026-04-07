@@ -344,7 +344,7 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
       {/* 更多按钮 + 下拉菜单 */}
       <div className="more-menu-wrapper" ref={menuRef}>
         <button
-          className="more-menu-trigger"
+          className="more-menu-trigger no-drag"
           onClick={(e) => {
             if (!menuOpen) {
               const rect = e.currentTarget.getBoundingClientRect()
@@ -356,14 +356,13 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
             setMenuOpen(!menuOpen)
           }}
           disabled={isExporting || isImporting}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           {(isExporting || isImporting) ? <span className="more-menu-spinner" /> : Icons.more}
         </button>
 
         {menuOpen && dropdownPos && (
           <>
-            <div className="more-menu-backdrop" onClick={() => setMenuOpen(false)} />
+            <div className="more-menu-backdrop no-drag" onClick={() => setMenuOpen(false)} />
             <div
               className="more-menu-dropdown"
               style={{ top: dropdownPos.top, right: dropdownPos.right }}
@@ -720,7 +719,6 @@ export function ExportMenu({ noteId, noteTitle, notebookName, onSplitHorizontal,
           position: fixed;
           inset: 0;
           z-index: 999;
-          -webkit-app-region: no-drag;
         }
 
         .more-menu-dropdown {

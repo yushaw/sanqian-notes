@@ -5,6 +5,7 @@ import type { Notebook, SmartViewId, LocalFolderTreeNode, NotebookFolderTreeNode
 import { useTranslations } from '../i18n'
 import { useUpdate } from '../contexts/UpdateContext'
 import { Tooltip } from './Tooltip'
+import { WindowDragStrip } from './WindowDragStrip'
 import { isMacOS } from '../utils/platform'
 import { useTodayDateNumber } from '../hooks/useTodayDate'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -104,6 +105,7 @@ interface SidebarProps {
   onSelectSmartView: (view: SmartViewId) => void
   onAddNotebook: () => void
   onAddLocalFolder: () => void
+  localFolderMountMutationSubmitting?: boolean
   onOpenLocalFolderInFileManager?: (notebookId: string) => void
   onEditNotebook: (notebook: Notebook) => void
   onDeleteNotebook: (notebook: Notebook) => void
@@ -542,6 +544,7 @@ export function Sidebar({
   onSelectSmartView,
   onAddNotebook,
   onAddLocalFolder,
+  localFolderMountMutationSubmitting = false,
   onOpenLocalFolderInFileManager,
   onEditNotebook,
   onDeleteNotebook,
@@ -1268,9 +1271,13 @@ export function Sidebar({
 
   if (isCollapsed) {
     return (
-      <div className="w-12 flex-shrink-0 h-full bg-[var(--color-card-solid)] flex flex-col select-none overflow-hidden">
+      <div
+        className="w-12 flex-shrink-0 h-full bg-[var(--color-card-solid)] flex flex-col select-none overflow-hidden"
+        data-sidebar
+        data-sidebar-collapsed
+      >
         {/* Drag region - top area for window dragging */}
-        <div className="h-[42px] flex-shrink-0 drag-region" />
+        <WindowDragStrip />
 
         {/* Smart Views 图标 */}
         <div className="flex flex-col items-center gap-1 px-2 pb-2 no-drag">
@@ -1373,7 +1380,7 @@ export function Sidebar({
   return (
     <div className="w-44 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col relative select-none" data-sidebar>
       {/* Drag region - top area for window dragging, aligned with NoteList header */}
-      <div className="h-[42px] flex-shrink-0 drag-region" />
+      <WindowDragStrip />
 
       {/* Top right buttons in title bar area */}
       <div className="absolute top-[9px] right-2 z-10 no-drag flex items-center gap-0.5">
@@ -1507,11 +1514,12 @@ export function Sidebar({
                   <button
                     type="button"
                     role="menuitem"
+                    disabled={localFolderMountMutationSubmitting}
                     onClick={() => {
                       setShowAddMenu(false)
                       onAddLocalFolder()
                     }}
-                    className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-[0.8rem] text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+                    className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-[0.8rem] text-[var(--color-text)] hover:bg-[var(--color-surface)] disabled:text-[var(--color-muted)] disabled:hover:bg-transparent disabled:cursor-not-allowed"
                   >
                     {t.sidebar.addLocalFolder}
                   </button>

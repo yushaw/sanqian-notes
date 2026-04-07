@@ -8,6 +8,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { LocalFolderFileEntry, LocalFolderTreeNode } from '../../types/note'
 import { LocalFolderNoteList } from '../LocalFolderNoteList'
+import { expectHeaderOnlyDragRegion } from './dragRegionContract'
 
 vi.mock('../../i18n', () => ({
   useTranslations: () => ({
@@ -105,6 +106,11 @@ afterEach(() => {
 })
 
 describe('LocalFolderNoteList', () => {
+  it('limits drag-region to header strip instead of whole note list container', () => {
+    const { container } = renderList()
+    expectHeaderOnlyDragRegion({ container, rootSelector: '[data-note-list]' })
+  })
+
   it('opens search input on Ctrl+F when middle column is focused', () => {
     renderList()
     const fileButton = screen.getByText('README').closest('button')

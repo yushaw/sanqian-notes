@@ -8,6 +8,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { NoteList, buildHierarchicalMoveMenuItems } from '../NoteList'
 import type { Note, Notebook, NotebookFolderTreeNode } from '../../types/note'
+import { expectHeaderOnlyDragRegion } from './dragRegionContract'
 
 vi.mock('../../i18n', () => ({
   useTranslations: () => ({
@@ -241,6 +242,15 @@ describe('NoteList keyboard navigation', () => {
     expect(note2?.querySelector('[data-note-divider]')).toBeNull()
     // note-3 divider keeps normal rendering
     expect(note3?.querySelector('[data-note-divider]')).not.toBeNull()
+  })
+
+  it('limits drag-region to header strip instead of whole note list container', () => {
+    const { container } = render(
+      <NoteList
+        {...defaultProps}
+      />
+    )
+    expectHeaderOnlyDragRegion({ container, rootSelector: '[data-note-list]' })
   })
 
   it('does not start drag payload for local search resources', () => {

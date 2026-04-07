@@ -52,6 +52,27 @@ export default [
       'no-console': 'off',
       'prefer-const': 'warn',
       'no-unused-vars': 'off', // 用 @typescript-eslint/no-unused-vars 代替
+
+      // Drag region contract: draggable wrappers must not host custom context menus
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXOpeningElement[name.name='DragRegionContainer'] > JSXAttribute[name.name='onContextMenu']",
+          message: 'Do not attach onContextMenu to DragRegionContainer. Put context menu handlers on no-drag interactive content only.',
+        },
+        {
+          selector: "JSXOpeningElement[name.name='DragRegionContainer'] > JSXAttribute[name.name='onContextMenuCapture']",
+          message: 'Do not attach onContextMenuCapture to DragRegionContainer. Put context menu handlers on no-drag interactive content only.',
+        },
+        {
+          selector: "JSXOpeningElement[name.name='WindowDragStrip'] > JSXAttribute[name.name='onContextMenu']",
+          message: 'Do not attach onContextMenu to WindowDragStrip. Put context menu handlers on no-drag interactive content only.',
+        },
+        {
+          selector: "JSXOpeningElement[name.name='WindowDragStrip'] > JSXAttribute[name.name='onContextMenuCapture']",
+          message: 'Do not attach onContextMenuCapture to WindowDragStrip. Put context menu handlers on no-drag interactive content only.',
+        },
+      ],
     },
     settings: {
       react: {

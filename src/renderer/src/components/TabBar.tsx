@@ -29,6 +29,7 @@ import {
 import { restrictToHorizontalAxis } from '@dnd-kit/modifiers'
 import { useTabs, type Tab } from '../contexts/TabContext'
 import { useTranslations } from '../i18n'
+import { WindowDragStrip } from './WindowDragStrip'
 
 // ============================================================================
 // Icons
@@ -356,10 +357,7 @@ export function TabBar({ getNoteTitle }: TabBarProps) {
 
   return (
     <>
-      <div
-        className="flex items-center h-[42px] bg-[var(--color-bg)] border-b border-black/5 dark:border-white/5 overflow-y-hidden tabbar-scroll"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
+      <WindowDragStrip className="flex items-center bg-[var(--color-bg)] border-b border-black/5 dark:border-white/5 overflow-y-hidden tabbar-scroll">
         {/* Tabs with DnD */}
         <DndContext
           sensors={sensors}
@@ -368,7 +366,7 @@ export function TabBar({ getNoteTitle }: TabBarProps) {
           onDragEnd={handleDragEnd}
         >
           <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
-            <div className="flex items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <div className="flex items-center h-full no-drag">
               {tabs.map((tab) => (
                 <SortableTabItem
                   key={tab.id}
@@ -387,13 +385,12 @@ export function TabBar({ getNoteTitle }: TabBarProps) {
         {/* New Tab Button */}
         <button
           onClick={handleNewTab}
-          className="flex-shrink-0 p-2 text-[var(--color-text)]/40 hover:text-[var(--color-text)]/70 hover:bg-black/5 dark:hover:bg-white/5 rounded transition-colors"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="flex-shrink-0 p-2 text-[var(--color-text)]/40 hover:text-[var(--color-text)]/70 hover:bg-black/5 dark:hover:bg-white/5 rounded transition-colors no-drag"
           title="New Tab"
         >
           <PlusIcon />
         </button>
-      </div>
+      </WindowDragStrip>
 
       {/* Context Menu */}
       <ContextMenu

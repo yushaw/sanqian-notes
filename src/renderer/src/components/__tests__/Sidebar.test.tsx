@@ -8,6 +8,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { Notebook, LocalFolderTreeNode, NotebookFolderTreeNode } from '../../types/note'
 import { Sidebar } from '../Sidebar'
+import { expectHeaderOnlyDragRegion } from './dragRegionContract'
 
 vi.mock('../../i18n', () => ({
   useTranslations: () => ({
@@ -93,6 +94,7 @@ vi.mock('../Tooltip', () => ({
 const notebook: Notebook = {
   id: 'nb-1',
   name: 'Work',
+  source_type: 'internal',
   order_index: 0,
   created_at: '2026-02-25T00:00:00.000Z',
 }
@@ -153,11 +155,32 @@ function createRect(partial: Partial<DOMRect>): DOMRect {
 }
 
 afterEach(() => {
+  localStorage.removeItem('sanqian-notes-sidebar-collapsed')
   cleanup()
   vi.restoreAllMocks()
 })
 
 describe('Sidebar add menu', () => {
+  it('limits drag-region to top strip in expanded mode', () => {
+    const { container } = renderSidebar()
+    const { root: sidebar } = expectHeaderOnlyDragRegion({
+      container,
+      rootSelector: '[data-sidebar]:not([data-sidebar-collapsed])',
+    })
+    const content = sidebar?.querySelector('.flex-1.overflow-y-auto') as HTMLElement | null
+    expect(content).toBeTruthy()
+    expect(content).toHaveClass('no-drag')
+  })
+
+  it('keeps drag-region on top strip when sidebar is collapsed', () => {
+    localStorage.setItem('sanqian-notes-sidebar-collapsed', 'true')
+    const { container } = renderSidebar()
+    expectHeaderOnlyDragRegion({
+      container,
+      rootSelector: '[data-sidebar][data-sidebar-collapsed]',
+    })
+  })
+
   it('renders with fixed positioning in a portal', () => {
     renderSidebar()
     fireEvent.click(screen.getByTitle('New Notebook'))
@@ -165,6 +188,21 @@ describe('Sidebar add menu', () => {
     const menu = screen.getByTestId('sidebar-add-menu')
     expect(menu.parentElement).toBe(document.body)
     expect(menu.className).toContain('fixed')
+  })
+
+  it('disables add-local-folder action while local mount mutation is in progress', () => {
+    const onAddLocalFolder = vi.fn()
+    renderSidebar({
+      onAddLocalFolder,
+      localFolderMountMutationSubmitting: true,
+    })
+
+    fireEvent.click(screen.getByTitle('New Notebook'))
+    const addLocalFolderButton = screen.getByRole('menuitem', { name: 'Add Local Folder' })
+    expect(addLocalFolderButton).toBeDisabled()
+
+    fireEvent.click(addLocalFolderButton)
+    expect(onAddLocalFolder).not.toHaveBeenCalled()
   })
 
   it('clamps menu within viewport when trigger is near left edge', () => {

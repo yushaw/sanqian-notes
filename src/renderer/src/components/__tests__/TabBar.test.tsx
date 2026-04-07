@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { TabBar } from '../TabBar'
 import type { Tab, TabContextValue } from '../../contexts/TabContext'
+import { expectNoDragControl, expectRootDragRegion } from './dragRegionContract'
 
 // Mock useTabs
 const mockUseTabs = vi.fn<() => Partial<TabContextValue>>()
@@ -126,6 +127,22 @@ describe('TabBar', () => {
 
       const newTabButton = screen.getByTitle('New Tab')
       expect(newTabButton).toBeInTheDocument()
+    })
+
+    it('keeps drag-region on tab bar root and no-drag on interactive controls', () => {
+      const tabs = [createMockTab('tab_1', 'note_1'), createMockTab('tab_2', 'note_2')]
+
+      mockUseTabs.mockReturnValue({
+        ...defaultMockContext,
+        tabs,
+        activeTabId: 'tab_1',
+      })
+
+      const { container } = render(<TabBar getNoteTitle={mockGetNoteTitle} />)
+      expectRootDragRegion({ container, rootSelector: '.tabbar-scroll' })
+
+      const newTabButton = screen.getByTitle('New Tab')
+      expectNoDragControl(newTabButton)
     })
 
     it('shows pin indicator for pinned tabs', () => {

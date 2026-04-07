@@ -1,0 +1,42 @@
+name: Drag Contract
+
+on:
+  pull_request:
+    paths:
+      - 'src/renderer/src/**'
+      - 'docs/window-drag-contract.md'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'eslint.config.mjs'
+      - '.github/workflows/drag-contract.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/renderer/src/**'
+      - 'docs/window-drag-contract.md'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'eslint.config.mjs'
+      - '.github/workflows/drag-contract.yml'
+
+jobs:
+  drag-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (without lifecycle scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Verify drag contract
+        run: npm run verify:drag-contract

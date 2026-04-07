@@ -10,6 +10,7 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { NotePreviewPopover } from './NotePreviewPopover'
 import { NoteListItem } from './NoteListItem'
 import { Tooltip } from './Tooltip'
+import { WindowDragStrip } from './WindowDragStrip'
 
 // 检测是否为 macOS
 const isMac = isMacOS()
@@ -639,9 +640,9 @@ export function NoteList({
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
 
   return (
-    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col drag-region" data-note-list>
+    <div className="w-56 flex-shrink-0 h-full bg-[var(--color-card-solid)] border-r border-[var(--color-divider)] flex flex-col" data-note-list>
       {/* Header */}
-      <div className="px-4 h-[42px] flex items-center justify-between flex-shrink-0 border-b border-black/5 dark:border-white/5">
+      <WindowDragStrip className="px-4 flex items-center justify-between border-b border-black/5 dark:border-white/5">
         {isSearching ? (
           <div className="flex-1 flex items-center gap-2 no-drag min-w-0">
             {shouldHideTitle && <div className="w-[28px] flex-shrink-0" />}
@@ -703,7 +704,7 @@ export function NoteList({
             </div>
           </>
         )}
-      </div>
+      </WindowDragStrip>
 
       {/* Note list */}
       <div className="flex-1 overflow-y-auto no-drag hide-scrollbar">

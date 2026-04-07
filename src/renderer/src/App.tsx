@@ -15,6 +15,7 @@ import { AIChatDialog, openChatWithContext } from './components/AIChatDialog'
 import { ImageLightbox } from './components/ImageLightbox'
 import { TabBar } from './components/TabBar'
 import { PaneLayout } from './components/PaneLayout'
+import { WindowDragStrip } from './components/WindowDragStrip'
 import { TabProvider, useTabs } from './contexts/TabContext'
 import { UpdateProvider } from './contexts/UpdateContext'
 import { useEditorUpdateQueue } from './hooks/useEditorUpdateQueue'
@@ -742,8 +743,11 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center bg-app-bg">
-        <div className="text-app-muted">{t.common?.loading || 'Loading...'}</div>
+      <div className="h-full flex flex-col bg-app-bg">
+        <WindowDragStrip testId="app-loading-drag-region" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-app-muted">{t.common?.loading || 'Loading...'}</div>
+        </div>
       </div>
     )
   }
@@ -874,28 +878,35 @@ function AppContent() {
       {/* Editor Area - TabBar + PaneLayout */}
       {selectedSmartView === 'trash' ? (
         // Empty placeholder for trash view (same background as editor)
-        <div className="flex-1 bg-[var(--color-card-solid)]" />
+        <div className="flex-1 flex flex-col bg-[var(--color-card-solid)]">
+          <WindowDragStrip testId="trash-empty-drag-region" />
+          <div className="flex-1" />
+        </div>
       ) : shouldRenderLocalEditor ? (
-        <EditorColumnShell className="bg-[var(--color-card-solid)] no-drag">
+        <EditorColumnShell className="bg-[var(--color-card-solid)]">
           {activeLocalNotebookStatus !== 'active' ? (
-            <div className="flex-1 flex flex-col items-center justify-center px-8 gap-3">
-              <p className="text-[0.9rem] text-[var(--color-muted)] text-center">
-                {activeLocalNotebookStatus === 'permission_required'
-                  ? t.notebook.localFolderPermissionRequired
-                  : t.notebook.localFolderMissing}
-              </p>
-              <button
-                onClick={() => void handleRecoverLocalFolderAccess(activeLocalNotebookId || undefined)}
-                className="px-3 py-1.5 text-[0.8rem] rounded-md text-white bg-[var(--color-accent)] hover:opacity-90 transition-opacity"
-              >
-                {t.notebook.localFolderRecoverAction}
-              </button>
+            <div className="flex-1 flex flex-col">
+              <WindowDragStrip testId="local-editor-empty-drag-region" />
+              <div className="flex-1 flex flex-col items-center justify-center px-8 gap-3">
+                <p className="text-[0.9rem] text-[var(--color-muted)] text-center">
+                  {activeLocalNotebookStatus === 'permission_required'
+                    ? t.notebook.localFolderPermissionRequired
+                    : t.notebook.localFolderMissing}
+                </p>
+                <button
+                  data-testid="local-folder-recover-button"
+                  onClick={() => void handleRecoverLocalFolderAccess(activeLocalNotebookId || undefined)}
+                  className="px-3 py-1.5 text-[0.8rem] rounded-md text-white bg-[var(--color-accent)] hover:opacity-90 transition-opacity"
+                >
+                  {t.notebook.localFolderRecoverAction}
+                </button>
+              </div>
             </div>
           ) : localEditorNote ? (
             <EditorErrorBoundary resetKey={`local-${localEditorNote.id}`}>
               <EditorColumnShell
                 testId="local-editor-shell"
-                className="relative z-10 no-drag"
+                className="relative z-10"
               >
                 <Editor
                   ref={localEditorRef}
@@ -927,14 +938,20 @@ function AppContent() {
               </EditorColumnShell>
             </EditorErrorBoundary>
           ) : localEditorLoading ? (
-            <div className="flex-1 flex items-center justify-center text-[var(--color-muted)]">
-              {t.common?.loading || 'Loading...'}
+            <div className="flex-1 flex flex-col">
+              <WindowDragStrip testId="local-editor-empty-drag-region" />
+              <div className="flex-1 flex items-center justify-center text-[var(--color-muted)]">
+                {t.common?.loading || 'Loading...'}
+              </div>
             </div>
           ) : (
-            <div className="flex-1 flex items-center justify-center px-8">
-              <p className="text-[0.9rem] text-[var(--color-muted)] text-center">
-                {t.editor?.selectNote || 'Select a note to start editing'}
-              </p>
+            <div className="flex-1 flex flex-col">
+              <WindowDragStrip testId="local-editor-empty-drag-region" />
+              <div className="flex-1 flex items-center justify-center px-8">
+                <p className="text-[0.9rem] text-[var(--color-muted)] text-center">
+                  {t.editor?.selectNote || 'Select a note to start editing'}
+                </p>
+              </div>
             </div>
           )}
         </EditorColumnShell>
@@ -981,7 +998,7 @@ function AppContent() {
             }}
             renderEmpty={() => (
               <div className="h-full flex flex-col bg-[var(--color-card-solid)]">
-                <div className="h-[50px] flex-shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
+                <WindowDragStrip heightClassName="h-[50px]" />
                 <div className="flex-1 flex flex-col items-center justify-center gap-2">
                   <p className="text-lg font-medium text-[var(--color-muted)]">
                     {t.editor?.selectNote || 'Select a note to start editing'}

@@ -1,12 +1,157 @@
+import type Database from 'better-sqlite3'
 import { getDb } from './connection'
+import { runWithStatementCacheRefresh } from './statement-cache'
 import { normalizeRelativeSlashPath } from '../path-compat'
 import { normalizeLocalTagNames } from '../local-note-tags'
+import { parseNotebookIdArrayInput, parseRequiredNotebookIdInput } from '../notebook-id'
 import { escapeLikePrefix, LIKE_ESCAPE } from './helpers'
 import type { LocalNoteMetadataRow } from './helpers'
 import type { Notebook, LocalNoteMetadata, LocalFolderUpdateNoteMetadataInput } from '../../shared/types'
+import { hasOwnDefinedProperty } from '../../shared/property-guards'
+
+const LOCAL_NOTE_METADATA_BATCH_SELECT_CHUNK_SIZE = 300
+
+interface LocalNoteMetadataPathStatements {
+  getByPath: (notebookId: string, relativePath: string) => LocalNoteMetadataRow | null
+  updatePath: (
+    nextRelativePath: string,
+    updatedAt: string,
+    notebookId: string,
+    previousRelativePath: string
+  ) => number
+  upsertMerged: (input: {
+    notebookId: string
+    relativePath: string
+    isFavorite: number
+    isPinned: number
+    aiSummary: string | null
+    summaryContentHash: string | null
+    tagsJson: string | null
+    aiTagsJson: string | null
+    updatedAt: string
+  }) => number
+  deleteByPath: (notebookId: string, relativePath: string) => number
+  deleteByEitherPath: (notebookId: string, firstRelativePath: string, secondRelativePath: string) => number
+}
+
+type LocalNoteMetadataDbStatement = Database.Statement<unknown[], unknown>
+
+interface LocalNoteMetadataPathPreparedStatements {
+  getByPath: LocalNoteMetadataDbStatement
+  updatePath: LocalNoteMetadataDbStatement
+  upsertMerged: LocalNoteMetadataDbStatement
+  deleteByPath: LocalNoteMetadataDbStatement
+  deleteByEitherPath: LocalNoteMetadataDbStatement
+}
+
+const localNoteMetadataPathPreparedStatementsCache = new WeakMap<
+  ReturnType<typeof getDb>,
+  LocalNoteMetadataPathPreparedStatements
+>()
 
 function normalizeLocalMetadataRelativePath(relativePath: string): string {
   return normalizeRelativeSlashPath(relativePath)
+}
+
+function createLocalNoteMetadataPathPreparedStatements(
+  db: ReturnType<typeof getDb>
+): LocalNoteMetadataPathPreparedStatements {
+  return {
+    getByPath: db.prepare(`
+    SELECT notebook_id, relative_path, is_favorite, is_pinned, ai_summary, summary_content_hash, tags_json, ai_tags_json, updated_at
+    FROM local_note_metadata
+    WHERE notebook_id = ? AND relative_path = ?
+  `),
+    updatePath: db.prepare(`
+    UPDATE local_note_metadata
+    SET relative_path = ?, updated_at = ?
+    WHERE notebook_id = ? AND relative_path = ?
+  `),
+    upsertMerged: db.prepare(`
+    INSERT INTO local_note_metadata (
+      notebook_id, relative_path, is_favorite, is_pinned, ai_summary, summary_content_hash, tags_json, ai_tags_json, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(notebook_id, relative_path) DO UPDATE SET
+      is_favorite = excluded.is_favorite,
+      is_pinned = excluded.is_pinned,
+      ai_summary = excluded.ai_summary,
+      summary_content_hash = excluded.summary_content_hash,
+      tags_json = excluded.tags_json,
+      ai_tags_json = excluded.ai_tags_json,
+      updated_at = excluded.updated_at
+  `),
+    deleteByPath: db.prepare(`
+    DELETE FROM local_note_metadata
+    WHERE notebook_id = ? AND relative_path = ?
+  `),
+    deleteByEitherPath: db.prepare(`
+    DELETE FROM local_note_metadata
+    WHERE notebook_id = ? AND (relative_path = ? OR relative_path = ?)
+  `),
+  }
+}
+
+function runWithLocalNoteMetadataPathPreparedStatements<T>(
+  db: ReturnType<typeof getDb>,
+  run: (statements: LocalNoteMetadataPathPreparedStatements) => T
+): T {
+  return runWithStatementCacheRefresh(
+    localNoteMetadataPathPreparedStatementsCache,
+    db,
+    createLocalNoteMetadataPathPreparedStatements,
+    run
+  )
+}
+
+function getLocalNoteMetadataPathStatements(db: ReturnType<typeof getDb>): LocalNoteMetadataPathStatements {
+  return {
+    getByPath: (notebookId, relativePath) => {
+      return runWithLocalNoteMetadataPathPreparedStatements(db, (statements) => {
+        const row = statements.getByPath.get([notebookId, relativePath]) as LocalNoteMetadataRow | undefined
+        return row || null
+      })
+    },
+    updatePath: (nextRelativePath, updatedAt, notebookId, previousRelativePath) => {
+      return runWithLocalNoteMetadataPathPreparedStatements(db, (statements) => {
+        return statements.updatePath.run([
+          nextRelativePath,
+          updatedAt,
+          notebookId,
+          previousRelativePath,
+        ]).changes
+      })
+    },
+    upsertMerged: (input) => {
+      return runWithLocalNoteMetadataPathPreparedStatements(db, (statements) => {
+        return statements.upsertMerged.run([
+          input.notebookId,
+          input.relativePath,
+          input.isFavorite,
+          input.isPinned,
+          input.aiSummary,
+          input.summaryContentHash,
+          input.tagsJson,
+          input.aiTagsJson,
+          input.updatedAt,
+        ]).changes
+      })
+    },
+    deleteByPath: (notebookId, relativePath) => {
+      return runWithLocalNoteMetadataPathPreparedStatements(db, (statements) => {
+        return statements.deleteByPath.run([notebookId, relativePath]).changes
+      })
+    },
+    deleteByEitherPath: (notebookId, firstRelativePath, secondRelativePath) => {
+      return runWithLocalNoteMetadataPathPreparedStatements(db, (statements) => {
+        return statements.deleteByEitherPath.run([
+          notebookId,
+          firstRelativePath,
+          secondRelativePath,
+        ]).changes
+      })
+    },
+  }
 }
 
 function normalizeLocalMetadataSummary(summary: string | null | undefined): string | null | undefined {
@@ -23,7 +168,11 @@ function normalizeLocalMetadataSummaryHash(
   if (hash === null) return null
   const normalized = hash.trim().toLowerCase()
   if (!normalized) return null
-  if (!/^[a-f0-9]{32}$/.test(normalized)) return null
+  if (!/^[a-f0-9]{32}$/.test(normalized)) {
+    // Invalid hash input should not silently clear an existing persisted hash.
+    // Keep current value unless caller explicitly requests clearing via null/empty.
+    return undefined
+  }
   return normalized
 }
 
@@ -91,6 +240,19 @@ function isDefaultLocalMetadataValue(input: {
   )
 }
 
+function areNormalizedTagListsEqual(
+  previous: readonly string[] | null | undefined,
+  next: readonly string[] | null | undefined
+): boolean {
+  const previousList = Array.isArray(previous) ? previous : []
+  const nextList = Array.isArray(next) ? next : []
+  if (previousList.length !== nextList.length) return false
+  for (let index = 0; index < previousList.length; index += 1) {
+    if (previousList[index] !== nextList[index]) return false
+  }
+  return true
+}
+
 function rowToLocalNoteMetadata(row: LocalNoteMetadataRow): LocalNoteMetadata {
   return {
     notebook_id: row.notebook_id,
@@ -107,8 +269,12 @@ function rowToLocalNoteMetadata(row: LocalNoteMetadataRow): LocalNoteMetadata {
 
 function getLocalNoteMetadataRowByPath(
   notebookId: string,
-  relativePath: string
+  relativePath: string,
+  getByPath?: (notebookId: string, relativePath: string) => LocalNoteMetadataRow | null
 ): LocalNoteMetadataRow | null {
+  if (getByPath) {
+    return getByPath(notebookId, relativePath)
+  }
   const db = getDb()
   const row = db.prepare(`
     SELECT notebook_id, relative_path, is_favorite, is_pinned, ai_summary, summary_content_hash, tags_json, ai_tags_json, updated_at
@@ -121,22 +287,19 @@ function getLocalNoteMetadataRowByPath(
 function renameLocalNoteMetadataPathInternal(
   notebookId: string,
   fromRelativePath: string,
-  toRelativePath: string
+  toRelativePath: string,
+  statements?: LocalNoteMetadataPathStatements
 ): number {
   const db = getDb()
+  const pathStatements = statements || getLocalNoteMetadataPathStatements(db)
   if (fromRelativePath === toRelativePath) return 0
-  const source = getLocalNoteMetadataRowByPath(notebookId, fromRelativePath)
+  const source = getLocalNoteMetadataRowByPath(notebookId, fromRelativePath, pathStatements.getByPath)
   if (!source) return 0
 
   const now = new Date().toISOString()
-  const target = getLocalNoteMetadataRowByPath(notebookId, toRelativePath)
+  const target = getLocalNoteMetadataRowByPath(notebookId, toRelativePath, pathStatements.getByPath)
   if (!target) {
-    const result = db.prepare(`
-      UPDATE local_note_metadata
-      SET relative_path = ?, updated_at = ?
-      WHERE notebook_id = ? AND relative_path = ?
-    `).run(toRelativePath, now, notebookId, fromRelativePath)
-    return result.changes
+    return pathStatements.updatePath(toRelativePath, now, notebookId, fromRelativePath)
   }
 
   const mergedIsFavorite = source.is_favorite || target.is_favorite ? 1 : 0
@@ -159,52 +322,34 @@ function renameLocalNoteMetadataPathInternal(
     tags: mergedTags,
     ai_tags: mergedAiTags,
   })) {
-    db.prepare(`
-      DELETE FROM local_note_metadata
-      WHERE notebook_id = ? AND (relative_path = ? OR relative_path = ?)
-    `).run(notebookId, fromRelativePath, toRelativePath)
+    pathStatements.deleteByEitherPath(notebookId, fromRelativePath, toRelativePath)
     return 1
   }
 
-  db.prepare(`
-    INSERT INTO local_note_metadata (
-      notebook_id, relative_path, is_favorite, is_pinned, ai_summary, summary_content_hash, tags_json, ai_tags_json, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(notebook_id, relative_path) DO UPDATE SET
-      is_favorite = excluded.is_favorite,
-      is_pinned = excluded.is_pinned,
-      ai_summary = excluded.ai_summary,
-      summary_content_hash = excluded.summary_content_hash,
-      tags_json = excluded.tags_json,
-      ai_tags_json = excluded.ai_tags_json,
-      updated_at = excluded.updated_at
-  `).run(
+  pathStatements.upsertMerged({
     notebookId,
-    toRelativePath,
-    mergedIsFavorite,
-    mergedIsPinned,
-    mergedSummary,
-    mergedSummaryHash,
-    mergedTags.length > 0 ? JSON.stringify(mergedTags) : null,
-    mergedAiTags.length > 0 ? JSON.stringify(mergedAiTags) : null,
-    now
-  )
+    relativePath: toRelativePath,
+    isFavorite: mergedIsFavorite,
+    isPinned: mergedIsPinned,
+    aiSummary: mergedSummary,
+    summaryContentHash: mergedSummaryHash,
+    tagsJson: mergedTags.length > 0 ? JSON.stringify(mergedTags) : null,
+    aiTagsJson: mergedAiTags.length > 0 ? JSON.stringify(mergedAiTags) : null,
+    updatedAt: now,
+  })
 
-  db.prepare(`
-    DELETE FROM local_note_metadata
-    WHERE notebook_id = ? AND relative_path = ?
-  `).run(notebookId, fromRelativePath)
+  pathStatements.deleteByPath(notebookId, fromRelativePath)
   return 1
 }
 
-export function listLocalNoteMetadata(input?: { notebookIds?: string[] }): LocalNoteMetadata[] {
+export function listLocalNoteMetadata(input?: { notebookIds?: unknown }): LocalNoteMetadata[] {
   const db = getDb()
-  const notebookIds = Array.isArray(input?.notebookIds)
-    ? input.notebookIds
-      .map((id) => id.trim())
-      .filter(Boolean)
-    : []
+  const rawNotebookIds = input?.notebookIds
+  const hasExplicitNotebookFilter = hasOwnDefinedProperty(input, 'notebookIds')
+  const notebookIds = parseNotebookIdArrayInput(rawNotebookIds)
+  if (hasExplicitNotebookFilter && notebookIds.length === 0) {
+    return []
+  }
 
   if (notebookIds.length > 0) {
     const placeholders = notebookIds.map(() => '?').join(',')
@@ -229,7 +374,7 @@ export function getLocalNoteMetadata(input: {
   notebook_id: string
   relative_path: string
 }): LocalNoteMetadata | null {
-  const notebookId = input.notebook_id?.trim() || ''
+  const notebookId = parseRequiredNotebookIdInput(input.notebook_id)
   const relativePath = normalizeLocalMetadataRelativePath(input.relative_path || '')
   if (!notebookId || !relativePath) return null
 
@@ -241,7 +386,8 @@ export function updateLocalNoteMetadata(
   input: LocalFolderUpdateNoteMetadataInput
 ): LocalNoteMetadata | null {
   const db = getDb()
-  const notebookId = input.notebook_id?.trim() || ''
+  const pathStatements = getLocalNoteMetadataPathStatements(db)
+  const notebookId = parseRequiredNotebookIdInput(input.notebook_id)
   const relativePath = normalizeLocalMetadataRelativePath(input.relative_path || '')
   if (!notebookId || !relativePath) return null
 
@@ -249,11 +395,11 @@ export function updateLocalNoteMetadata(
     SELECT id, source_type
     FROM notebooks
     WHERE id = ?
-  `).get(notebookId) as { id: string; source_type: Notebook['source_type'] | null } | undefined
+  `).get(notebookId) as { id: string; source_type: Notebook['source_type'] } | undefined
   if (!notebook) return null
-  if ((notebook.source_type || 'internal') !== 'local-folder') return null
+  if (notebook.source_type !== 'local-folder') return null
 
-  const existing = getLocalNoteMetadataRowByPath(notebookId, relativePath)
+  const existing = getLocalNoteMetadataRowByPath(notebookId, relativePath, pathStatements.getByPath)
   const nextIsFavorite = input.is_favorite !== undefined
     ? (input.is_favorite ? 1 : 0)
     : (existing?.is_favorite ?? 0)
@@ -287,10 +433,7 @@ export function updateLocalNoteMetadata(
     ai_tags: nextAiTags,
   })) {
     if (existing) {
-      db.prepare(`
-        DELETE FROM local_note_metadata
-        WHERE notebook_id = ? AND relative_path = ?
-      `).run(notebookId, relativePath)
+      pathStatements.deleteByPath(notebookId, relativePath)
     }
     return {
       notebook_id: notebookId,
@@ -330,8 +473,121 @@ export function updateLocalNoteMetadata(
     now
   )
 
-  const row = getLocalNoteMetadataRowByPath(notebookId, relativePath)
+  const row = getLocalNoteMetadataRowByPath(notebookId, relativePath, pathStatements.getByPath)
   return row ? rowToLocalNoteMetadata(row) : null
+}
+
+export function updateLocalNoteTagsBatch(input: {
+  notebook_id: string
+  updates: ReadonlyArray<{
+    relative_path: string
+    tags: readonly string[]
+  }>
+}): number {
+  const db = getDb()
+  const notebookId = parseRequiredNotebookIdInput(input.notebook_id)
+  if (!notebookId) return 0
+
+  const notebook = db.prepare(`
+    SELECT id, source_type
+    FROM notebooks
+    WHERE id = ?
+  `).get(notebookId) as { id: string; source_type: Notebook['source_type'] } | undefined
+  if (!notebook || notebook.source_type !== 'local-folder') return 0
+
+  const normalizedUpdatesByPath = new Map<string, string[]>()
+  for (const update of input.updates || []) {
+    const relativePath = normalizeLocalMetadataRelativePath(update.relative_path || '')
+    if (!relativePath) continue
+    const nextTags = normalizeLocalMetadataTags(Array.isArray(update.tags) ? [...update.tags] : []) || []
+    normalizedUpdatesByPath.set(relativePath, nextTags)
+  }
+  if (normalizedUpdatesByPath.size === 0) return 0
+
+  const targetPaths = Array.from(normalizedUpdatesByPath.keys())
+  const existingByPath = new Map<string, LocalNoteMetadataRow>()
+  for (let offset = 0; offset < targetPaths.length; offset += LOCAL_NOTE_METADATA_BATCH_SELECT_CHUNK_SIZE) {
+    const chunk = targetPaths.slice(offset, offset + LOCAL_NOTE_METADATA_BATCH_SELECT_CHUNK_SIZE)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const rows = db.prepare(`
+      SELECT notebook_id, relative_path, is_favorite, is_pinned, ai_summary, summary_content_hash, tags_json, ai_tags_json, updated_at
+      FROM local_note_metadata
+      WHERE notebook_id = ?
+        AND relative_path IN (${placeholders})
+    `).all(notebookId, ...chunk) as LocalNoteMetadataRow[]
+    for (const row of rows) {
+      existingByPath.set(row.relative_path, row)
+    }
+  }
+
+  const deleteStmt = db.prepare(`
+    DELETE FROM local_note_metadata
+    WHERE notebook_id = ? AND relative_path = ?
+  `)
+  const upsertStmt = db.prepare(`
+    INSERT INTO local_note_metadata (
+      notebook_id, relative_path, is_favorite, is_pinned, ai_summary, summary_content_hash, tags_json, ai_tags_json, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(notebook_id, relative_path) DO UPDATE SET
+      is_favorite = excluded.is_favorite,
+      is_pinned = excluded.is_pinned,
+      ai_summary = excluded.ai_summary,
+      summary_content_hash = excluded.summary_content_hash,
+      tags_json = excluded.tags_json,
+      ai_tags_json = excluded.ai_tags_json,
+      updated_at = excluded.updated_at
+  `)
+
+  const tx = db.transaction(() => {
+    let changed = 0
+    const now = new Date().toISOString()
+
+    for (const relativePath of targetPaths) {
+      const existing = existingByPath.get(relativePath)
+      const nextTags = normalizedUpdatesByPath.get(relativePath) || []
+      const currentTags = parseLocalMetadataTagsJson(existing?.tags_json)
+      if (areNormalizedTagListsEqual(currentTags, nextTags)) {
+        continue
+      }
+
+      const nextIsFavorite = existing?.is_favorite ?? 0
+      const nextIsPinned = existing?.is_pinned ?? 0
+      const nextSummary = existing?.ai_summary ?? null
+      const nextSummaryHash = existing?.summary_content_hash ?? null
+      const nextAiTags = parseLocalMetadataAiTagsJson(existing?.ai_tags_json)
+
+      if (isDefaultLocalMetadataValue({
+        is_favorite: nextIsFavorite,
+        is_pinned: nextIsPinned,
+        ai_summary: nextSummary,
+        summary_content_hash: nextSummaryHash,
+        tags: nextTags,
+        ai_tags: nextAiTags,
+      })) {
+        if (existing) {
+          changed += deleteStmt.run(notebookId, relativePath).changes
+        }
+        continue
+      }
+
+      changed += upsertStmt.run(
+        notebookId,
+        relativePath,
+        nextIsFavorite,
+        nextIsPinned,
+        nextSummary,
+        nextSummaryHash,
+        nextTags.length > 0 ? JSON.stringify(nextTags) : null,
+        nextAiTags.length > 0 ? JSON.stringify(nextAiTags) : null,
+        now
+      ).changes
+    }
+
+    return changed
+  })
+
+  return tx()
 }
 
 export function renameLocalNoteMetadataPath(input: {
@@ -340,14 +596,20 @@ export function renameLocalNoteMetadataPath(input: {
   to_relative_path: string
 }): number {
   const db = getDb()
-  const notebookId = input.notebook_id?.trim() || ''
+  const notebookId = parseRequiredNotebookIdInput(input.notebook_id)
   const fromRelativePath = normalizeLocalMetadataRelativePath(input.from_relative_path || '')
   const toRelativePath = normalizeLocalMetadataRelativePath(input.to_relative_path || '')
   if (!notebookId || !fromRelativePath || !toRelativePath) return 0
   if (fromRelativePath === toRelativePath) return 0
 
   const tx = db.transaction(() => {
-    return renameLocalNoteMetadataPathInternal(notebookId, fromRelativePath, toRelativePath)
+    const pathStatements = getLocalNoteMetadataPathStatements(db)
+    return renameLocalNoteMetadataPathInternal(
+      notebookId,
+      fromRelativePath,
+      toRelativePath,
+      pathStatements
+    )
   })
   return tx()
 }
@@ -358,31 +620,36 @@ export function renameLocalNoteMetadataFolderPath(input: {
   to_relative_folder_path: string
 }): number {
   const db = getDb()
-  const notebookId = input.notebook_id?.trim() || ''
+  const notebookId = parseRequiredNotebookIdInput(input.notebook_id)
   const fromFolderPath = normalizeLocalMetadataRelativePath(input.from_relative_folder_path || '')
   const toFolderPath = normalizeLocalMetadataRelativePath(input.to_relative_folder_path || '')
   if (!notebookId || !fromFolderPath || !toFolderPath) return 0
   if (fromFolderPath === toFolderPath) return 0
-
-  const prefixLike = escapeLikePrefix(fromFolderPath)
-  const affectedRows = db.prepare(`
-    SELECT relative_path
-    FROM local_note_metadata
-    WHERE notebook_id = ?
-      AND (relative_path = ? OR relative_path ${LIKE_ESCAPE})
-    ORDER BY LENGTH(relative_path) ASC, relative_path ASC
-  `).all(notebookId, fromFolderPath, prefixLike) as Array<{ relative_path: string }>
-
-  if (affectedRows.length === 0) return 0
+  if (toFolderPath.startsWith(`${fromFolderPath}/`)) return 0
 
   const tx = db.transaction(() => {
+    const prefixLike = escapeLikePrefix(fromFolderPath)
+    const affectedRows = db.prepare(`
+      SELECT relative_path
+      FROM local_note_metadata
+      WHERE notebook_id = ?
+        AND (relative_path = ? OR relative_path ${LIKE_ESCAPE})
+      ORDER BY LENGTH(relative_path) ASC, relative_path ASC
+    `).all(notebookId, fromFolderPath, prefixLike) as Array<{ relative_path: string }>
+    if (affectedRows.length === 0) return 0
+    const pathStatements = getLocalNoteMetadataPathStatements(db)
     let changes = 0
     for (const row of affectedRows) {
       const suffix = row.relative_path === fromFolderPath
         ? ''
         : row.relative_path.slice(fromFolderPath.length + 1)
       const nextPath = suffix ? `${toFolderPath}/${suffix}` : toFolderPath
-      changes += renameLocalNoteMetadataPathInternal(notebookId, row.relative_path, nextPath)
+      changes += renameLocalNoteMetadataPathInternal(
+        notebookId,
+        row.relative_path,
+        nextPath,
+        pathStatements
+      )
     }
     return changes
   })
@@ -396,7 +663,7 @@ export function deleteLocalNoteMetadataByPath(input: {
   kind: 'file' | 'folder'
 }): number {
   const db = getDb()
-  const notebookId = input.notebook_id?.trim() || ''
+  const notebookId = parseRequiredNotebookIdInput(input.notebook_id)
   const relativePath = normalizeLocalMetadataRelativePath(input.relative_path || '')
   if (!notebookId || !relativePath) return 0
 

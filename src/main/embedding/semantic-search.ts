@@ -18,11 +18,34 @@ import {
 import { tokenizeForSearch } from './tokenizer'
 import { getLocalNoteIdentityByUid, getLocalNoteMetadata, getNotesByIds } from '../database'
 import { parseLocalResourceId } from '../../shared/local-resource-id'
+import { parseRequiredNotebookIdInput } from '../../shared/notebook-id'
+import { hasOwnDefinedProperty, hasOwnPropertyKey } from '../../shared/property-guards'
 import { resolveLocalNoteRef } from '../note-gateway'
 import { RECENT_DAYS, type NoteSearchFilter, type Note } from '../../shared/types'
 
 // RRF 常数，通常使用 60
 const RRF_K = 60
+const SEMANTIC_SEARCH_DEFAULT_LIMIT = 10
+const SEMANTIC_SEARCH_MAX_LIMIT = 100
+const DEFAULT_SIMILARITY_THRESHOLD = 2.0
+
+function resolveSemanticSearchLimit(limitInput: unknown): number {
+  if (typeof limitInput !== 'number' || !Number.isFinite(limitInput)) {
+    return SEMANTIC_SEARCH_DEFAULT_LIMIT
+  }
+  const normalized = Math.trunc(limitInput)
+  if (normalized <= 0) {
+    return SEMANTIC_SEARCH_DEFAULT_LIMIT
+  }
+  return Math.min(normalized, SEMANTIC_SEARCH_MAX_LIMIT)
+}
+
+function resolveSimilarityThreshold(thresholdInput: unknown): number {
+  if (typeof thresholdInput !== 'number' || !Number.isFinite(thresholdInput)) {
+    return DEFAULT_SIMILARITY_THRESHOLD
+  }
+  return thresholdInput
+}
 
 // ============================================
 // Query Expansion (查询扩展)
@@ -604,9 +627,21 @@ export async function semanticSearch(
     limit?: number
     notebookId?: string
     threshold?: number
-  } = {}
+  } | null = {}
 ): Promise<SemanticSearchResult[]> {
-  const { limit = 10, notebookId, threshold = 2.0 } = options
+  const safeOptions = (options && typeof options === 'object' ? options : {}) as {
+    limit?: number
+    notebookId?: string
+    threshold?: number
+  }
+  const limit = resolveSemanticSearchLimit(safeOptions.limit)
+  const threshold = resolveSimilarityThreshold(safeOptions.threshold)
+  const hasRawNotebookFilter = hasOwnPropertyKey(safeOptions, 'notebookId')
+  const notebookIdInput = hasRawNotebookFilter
+    ? (safeOptions as { notebookId?: unknown }).notebookId
+    : undefined
+  const hasExplicitNotebookFilter = hasOwnDefinedProperty(safeOptions, 'notebookId')
+  const notebookId = parseRequiredNotebookIdInput(notebookIdInput) ?? undefined
 
   const config = getEmbeddingConfig()
   if (!config.enabled) {
@@ -614,6 +649,9 @@ export async function semanticSearch(
   }
 
   if (!query.trim()) {
+    return []
+  }
+  if (hasExplicitNotebookFilter && !notebookId) {
     return []
   }
 
@@ -666,13 +704,30 @@ export async function hybridSearch(
     filter?: NoteSearchFilter
     threshold?: number
     conversationHistory?: ConversationMessage[] // 对话历史，用于 Query Rewrite
-  } = {}
+  } | null = {}
 ): Promise<SemanticSearchResult[]> {
-  const { limit = 10, filter, threshold = 2.0, conversationHistory = [] } = options
-  const notebookId = filter?.notebookId
+  const safeOptions = (options && typeof options === 'object' ? options : {}) as {
+    limit?: number
+    filter?: NoteSearchFilter
+    threshold?: number
+    conversationHistory?: ConversationMessage[]
+  }
+  const limit = resolveSemanticSearchLimit(safeOptions.limit)
+  const filter = safeOptions.filter
+  const threshold = resolveSimilarityThreshold(safeOptions.threshold)
+  const conversationHistory = Array.isArray(safeOptions.conversationHistory) ? safeOptions.conversationHistory : []
+  const hasRawNotebookFilter = hasOwnPropertyKey(filter, 'notebookId')
+  const rawNotebookId = hasRawNotebookFilter
+    ? (filter as { notebookId?: unknown }).notebookId
+    : undefined
+  const hasExplicitNotebookFilter = hasOwnDefinedProperty(filter, 'notebookId')
+  const notebookId = parseRequiredNotebookIdInput(rawNotebookId) ?? undefined
 
   const config = getEmbeddingConfig()
   if (!query.trim()) {
+    return []
+  }
+  if (hasExplicitNotebookFilter && !notebookId) {
     return []
   }
 
@@ -690,12 +745,12 @@ export async function hybridSearch(
 
   // 辅助函数：应用 filter 过滤并返回最终结果
   const applyFilterAndFinalize = (results: SemanticSearchResult[]): SemanticSearchResult[] => {
-    const needsFiltering = filter?.viewType || filter?.notebookId
+    const needsFiltering = Boolean(filter?.viewType) || hasExplicitNotebookFilter
     const expandedLimit = needsFiltering ? limit * 5 : limit
     const limitedResults = results.length > expandedLimit ? results.slice(0, expandedLimit) : results
     const filtered = filter?.viewType
       ? filterByViewType(limitedResults, filter.viewType)
-      : filter?.notebookId
+      : hasExplicitNotebookFilter
         ? filterByViewType(limitedResults, 'all')
         : limitedResults
     return applyAutoCut(filtered).slice(0, limit)
@@ -873,7 +928,7 @@ function filterByViewType(
     if (localIdentityCache.has(noteId)) {
       return localIdentityCache.get(noteId) || null
     }
-    const identity = getLocalNoteIdentityByUid({ note_uid: noteId })
+    const identity = getLocalNoteIdentityByUid({ note_uid: noteId }, { repairIfNeeded: false })
     localIdentityCache.set(noteId, identity)
     return identity
   }

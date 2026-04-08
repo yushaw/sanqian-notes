@@ -21,6 +21,10 @@ describe('path-compat', () => {
   it('normalizes relative slash paths for identity use', () => {
     expect(normalizeRelativeSlashPath('/docs//Plan///index.md')).toBe('docs/Plan/index.md')
     expect(normalizeRelativeSlashPath('folder/')).toBe('folder')
+    expect(normalizeRelativeSlashPath('./folder/./note.md')).toBe('folder/note.md')
+    expect(normalizeRelativeSlashPath('folder/../note.md')).toBe('folder/../note.md')
+    expect(normalizeRelativeSlashPath(' folder/note.md ')).toBe(' folder/note.md ')
+    expect(normalizeRelativeSlashPath('Cafe\u0301.md')).toBe('Café.md')
   })
 
   it('flags case-insensitive platforms', () => {

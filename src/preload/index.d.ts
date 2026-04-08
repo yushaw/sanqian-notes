@@ -16,13 +16,16 @@ import type {
   LocalFolderCreateFolderResponse,
   LocalFolderDeleteEntryInput,
   LocalFolderDeleteEntryResponse,
+  LocalFolderListResponse,
   LocalFolderMountInput,
   LocalFolderMountResponse,
-  LocalFolderNotebookMount,
+  LocalFolderOpenInFileManagerResponse,
   LocalFolderReadFileInput,
   LocalFolderReadFileResponse,
   LocalFolderRelinkInput,
   LocalFolderRelinkResponse,
+  LocalFolderSelectRootResponse,
+  LocalFolderUnmountResponse,
   LocalFolderRenameEntryInput,
   LocalFolderRenameEntryResponse,
   LocalFolderSaveFileInput,
@@ -30,12 +33,13 @@ import type {
   LocalFolderSearchInput,
   LocalFolderSearchResponse,
   LocalFolderListNoteMetadataResponse,
-  LocalFolderTreeResult,
+  LocalFolderGetTreeResponse,
   LocalFolderUpdateNoteMetadataInput,
   LocalFolderUpdateNoteMetadataResponse,
   LocalFolderWatchEvent,
   Note,
   Notebook,
+  NotebookDeleteInternalResponse,
   NotebookFolder,
   NotebookFolderCreateInput,
   NotebookFolderCreateResponse,
@@ -45,7 +49,6 @@ import type {
   NotebookFolderRenameResponse,
   NoteGetAllOptions,
   NoteInput,
-  NotebookInput,
   NoteSearchFilter,
   NoteUpdateSafeResult,
   Tag,
@@ -102,9 +105,9 @@ declare global {
       }
       notebook: {
         getAll: () => Promise<Notebook[]>
-        add: (notebook: NotebookInput) => Promise<Notebook>
-        update: (id: string, updates: Partial<NotebookInput>) => Promise<Notebook | null>
-        delete: (id: string) => Promise<boolean>
+        add: (notebook: { name: string; icon?: string }) => Promise<Notebook>
+        update: (id: string, updates: { name?: string; icon?: string }) => Promise<Notebook | null>
+        deleteInternalWithNotes: (input: { notebook_id: string }) => Promise<NotebookDeleteInternalResponse>
         reorder: (orderedIds: string[]) => Promise<void>
       }
       notebookFolder: {
@@ -114,8 +117,8 @@ declare global {
         delete: (input: NotebookFolderDeleteInput) => Promise<NotebookFolderDeleteResponse>
       }
       localFolder: {
-        list: () => Promise<LocalFolderNotebookMount[]>
-        getTree: (notebookId: string) => Promise<LocalFolderTreeResult | null>
+        list: () => Promise<LocalFolderListResponse>
+        getTree: (notebookId: string) => Promise<LocalFolderGetTreeResponse>
         createFile: (input: LocalFolderCreateFileInput) => Promise<LocalFolderCreateFileResponse>
         createFolder: (input: LocalFolderCreateFolderInput) => Promise<LocalFolderCreateFolderResponse>
         renameEntry: (input: LocalFolderRenameEntryInput) => Promise<LocalFolderRenameEntryResponse>
@@ -126,11 +129,11 @@ declare global {
         deleteEntry: (input: LocalFolderDeleteEntryInput) => Promise<LocalFolderDeleteEntryResponse>
         readFile: (input: LocalFolderReadFileInput) => Promise<LocalFolderReadFileResponse>
         saveFile: (input: LocalFolderSaveFileInput) => Promise<LocalFolderSaveFileResponse>
-        selectRoot: () => Promise<string | null>
+        selectRoot: () => Promise<LocalFolderSelectRootResponse>
         mount: (input: LocalFolderMountInput) => Promise<LocalFolderMountResponse>
         relink: (input: LocalFolderRelinkInput) => Promise<LocalFolderRelinkResponse>
-        openInFileManager: (notebookId: string) => Promise<boolean>
-        unmount: (notebookId: string) => Promise<boolean>
+        openInFileManager: (notebookId: string) => Promise<LocalFolderOpenInFileManagerResponse>
+        unmount: (notebookId: string) => Promise<LocalFolderUnmountResponse>
         onChanged: (callback: (event: LocalFolderWatchEvent) => void) => () => void
       }
       context: {

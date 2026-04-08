@@ -3,13 +3,14 @@
  * 通过可扩展的服务层将 PDF 转换为 Markdown 后导入
  */
 
-import { existsSync, readFileSync, statSync, mkdirSync, writeFileSync, rmSync } from 'fs'
+import { mkdir, readFile, rm, stat, writeFile } from 'fs/promises'
 import { join, basename, extname } from 'path'
 import { app } from 'electron'
 import { BaseImporter, MAX_FILE_SIZE } from '../base-importer'
 import { copyAttachmentsAndUpdateContent } from '../utils/attachment-handler'
 import { getPdfService, getDefaultPdfService } from '../pdf-services'
 import { getServiceConfig } from '../pdf-config'
+import { pathExists } from '../utils/fs-helpers'
 import type { ImporterInfo, ImportOptions, ParsedNote } from '../types'
 import type { PdfParseProgress, PdfImage } from '../pdf-services/types'
 
@@ -40,9 +41,9 @@ export class PdfImporter extends BaseImporter {
   }
 
   async canHandle(sourcePath: string): Promise<boolean> {
-    if (!existsSync(sourcePath)) return false
-    const stat = statSync(sourcePath)
-    if (!stat.isFile()) return false
+    if (!(await pathExists(sourcePath))) return false
+    const sourceStat = await stat(sourcePath)
+    if (!sourceStat.isFile()) return false
     return extname(sourcePath).toLowerCase() === '.pdf'
   }
 
@@ -75,19 +76,19 @@ export class PdfImporter extends BaseImporter {
     const service = getPdfService(serviceId) || getDefaultPdfService()
 
     // 验证文件
-    if (!existsSync(sourcePath)) {
+    if (!(await pathExists(sourcePath))) {
       throw new Error(`File not found: ${sourcePath}`)
     }
 
-    const stat = statSync(sourcePath)
-    if (stat.size > MAX_FILE_SIZE) {
+    const sourceStat = await stat(sourcePath)
+    if (sourceStat.size > MAX_FILE_SIZE) {
       throw new Error(
-        `File too large: ${sourcePath} (${Math.round(stat.size / 1024 / 1024)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`
+        `File too large: ${sourcePath} (${Math.round(sourceStat.size / 1024 / 1024)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`
       )
     }
 
     // 读取并解析 PDF
-    const pdfBuffer = readFileSync(sourcePath)
+    const pdfBuffer = await readFile(sourcePath)
     const result = await service.parse(pdfBuffer, serviceConfig, onProgress, abortSignal)
 
     if (!result.success) {
@@ -114,8 +115,8 @@ export class PdfImporter extends BaseImporter {
         content: tiptapContent,
         notebookName: undefined, // PDF 单文件，不设置笔记本
         tags: [],
-        createdAt: stat.birthtime,
-        updatedAt: stat.mtime,
+        createdAt: sourceStat.birthtime,
+        updatedAt: sourceStat.mtime,
         attachments,
         links: [],
       },
@@ -135,13 +136,13 @@ export class PdfImporter extends BaseImporter {
 
     const attachments: ParsedNote['attachments'] = []
     this.tempDir = join(app.getPath('temp'), 'sanqian-pdf-import', Date.now().toString())
-    mkdirSync(this.tempDir, { recursive: true })
+    await mkdir(this.tempDir, { recursive: true })
 
     for (const img of images) {
       const imageName = `${img.id}.${img.ext}`
       const imagePath = join(this.tempDir, imageName)
 
-      writeFileSync(imagePath, Buffer.from(img.base64, 'base64'))
+      await writeFile(imagePath, Buffer.from(img.base64, 'base64'))
 
       attachments.push({
         originalRef: `![${img.id}](${imageName})`,
@@ -182,19 +183,19 @@ export class PdfImporter extends BaseImporter {
     const service = getPdfService(serviceId) || getDefaultPdfService()
 
     // 验证文件
-    if (!existsSync(sourcePath)) {
+    if (!(await pathExists(sourcePath))) {
       throw new Error(`File not found: ${sourcePath}`)
     }
 
-    const stat = statSync(sourcePath)
-    if (stat.size > MAX_FILE_SIZE) {
+    const sourceStat = await stat(sourcePath)
+    if (sourceStat.size > MAX_FILE_SIZE) {
       throw new Error(
-        `File too large: ${sourcePath} (${Math.round(stat.size / 1024 / 1024)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`
+        `File too large: ${sourcePath} (${Math.round(sourceStat.size / 1024 / 1024)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`
       )
     }
 
     // 读取并解析 PDF
-    const pdfBuffer = readFileSync(sourcePath)
+    const pdfBuffer = await readFile(sourcePath)
     try {
       const result = await service.parse(pdfBuffer, serviceConfig, onProgress, abortSignal)
 
@@ -248,10 +249,12 @@ export class PdfImporter extends BaseImporter {
    */
   cleanup(): void {
     this.runtimeConfig = null
-    if (this.tempDir && existsSync(this.tempDir)) {
-      rmSync(this.tempDir, { recursive: true, force: true })
-      this.tempDir = null
-    }
+    const tempDir = this.tempDir
+    this.tempDir = null
+    if (!tempDir) return
+    void rm(tempDir, { recursive: true, force: true }).catch((error) => {
+      console.warn('[PdfImporter] Failed to clean temp dir:', tempDir, error)
+    })
   }
 }
 

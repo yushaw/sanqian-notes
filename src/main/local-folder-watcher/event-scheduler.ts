@@ -5,6 +5,7 @@ import { createLocalFolderWatchScheduler } from '../local-folder-watch'
 const LOCAL_FOLDER_WATCH_DEBOUNCE_MS = 350
 
 type LocalFolderWatchEventPayload = Omit<LocalFolderWatchEvent, 'sequence' | 'changed_at_ms'>
+type LocalFolderWatchReason = NonNullable<LocalFolderWatchEventPayload['reason']>
 
 let mainViewGetter: (() => WebContentsView | null) | null = null
 
@@ -14,20 +15,39 @@ function emitLocalFolderWatchEvent(event: LocalFolderWatchEvent): void {
   mainViewGetter?.()?.webContents.send('localFolder:changed', event)
 }
 
+function normalizeLocalFolderWatchReason(reason: LocalFolderWatchEventPayload['reason']): LocalFolderWatchReason {
+  return reason || 'content_changed'
+}
+
+function mergeLocalFolderWatchReason(
+  previousReason: LocalFolderWatchReason,
+  nextReason: LocalFolderWatchReason
+): LocalFolderWatchReason {
+  if (previousReason === 'status_changed' || nextReason === 'status_changed') {
+    return 'status_changed'
+  }
+  if (previousReason === 'rescan_required' || nextReason === 'rescan_required') {
+    return 'rescan_required'
+  }
+  return 'content_changed'
+}
+
 function mergeLocalFolderWatchEventPayload(
   previous: LocalFolderWatchEventPayload,
   next: LocalFolderWatchEventPayload
 ): LocalFolderWatchEventPayload {
-  const previousReason = previous.reason || 'content_changed'
-  const nextReason = next.reason || 'content_changed'
+  const previousReason = normalizeLocalFolderWatchReason(previous.reason)
+  const nextReason = normalizeLocalFolderWatchReason(next.reason)
+  const mergedReason = mergeLocalFolderWatchReason(previousReason, nextReason)
 
-  const mergedReason: LocalFolderWatchEventPayload['reason'] = (
-    previousReason === 'rescan_required' || nextReason === 'rescan_required'
-      ? 'rescan_required'
-      : previousReason === 'status_changed' || nextReason === 'status_changed'
-        ? 'status_changed'
-        : 'content_changed'
-  )
+  // Keep mount availability transitions authoritative within the debounce window.
+  // Content events emitted after a status transition (e.g. stale watcher callbacks)
+  // must not overwrite the transition status.
+  const mergedStatus = nextReason === 'status_changed'
+    ? next.status
+    : previousReason === 'status_changed'
+      ? previous.status
+      : next.status
 
   let changedRelativePath: string | null = null
   if (mergedReason === 'content_changed') {
@@ -48,7 +68,7 @@ function mergeLocalFolderWatchEventPayload(
 
   return {
     notebook_id: next.notebook_id,
-    status: next.status,
+    status: mergedStatus,
     reason: mergedReason,
     changed_relative_path: changedRelativePath,
   }

@@ -18,6 +18,12 @@ describe('note-gateway if_match', () => {
     expect(check).toEqual({ ok: true, expectedRevision: 8 })
   })
 
+  it('accepts internal etag when note id contains ":"', () => {
+    const etag = buildInternalEtag({ id: 'ext:note:1', revision: 8 })
+    const check = resolveIfMatchForInternal({ id: 'ext:note:1', revision: 8 }, etag)
+    expect(check).toEqual({ ok: true, expectedRevision: 8 })
+  })
+
   it('rejects internal etag when note id mismatches', () => {
     const etag = buildInternalEtag({ id: 'note-A', revision: 2 })
     const check = resolveIfMatchForInternal({ id: 'note-B', revision: 2 }, etag)
@@ -34,6 +40,30 @@ describe('note-gateway if_match', () => {
     const check = resolveIfMatchForLocal(
       {
         notebookId: 'nb-local',
+        relativePath: 'docs/plan.md',
+        mtimeMs: 1700000000123,
+        size: 128,
+      },
+      etag
+    )
+    expect(check).toEqual({
+      ok: true,
+      expectedMtimeMs: 1700000000123,
+      expectedSize: 128,
+    })
+  })
+
+  it('encodes notebook id in local etag when notebook contains ":"', () => {
+    const etag = buildLocalEtag({
+      notebookId: 'team:project',
+      relativePath: 'docs/plan.md',
+      mtimeMs: 1700000000123,
+      size: 128,
+    })
+    expect(etag).toBe('sqn-v1:local:nbenc:team%3Aproject:docs%2Fplan.md:1700000000123:128')
+    const check = resolveIfMatchForLocal(
+      {
+        notebookId: 'team:project',
         relativePath: 'docs/plan.md',
         mtimeMs: 1700000000123,
         size: 128,
@@ -88,6 +118,42 @@ describe('note-gateway if_match', () => {
     })
   })
 
+  it('accepts legacy local etag with raw ":" notebook id', () => {
+    const legacyEtag = 'sqn-v1:local:team:project:docs%2Fplan.md:1700000000123:128'
+    const check = resolveIfMatchForLocal(
+      {
+        notebookId: 'team:project',
+        relativePath: 'docs/plan.md',
+        mtimeMs: 1700000000123,
+        size: 128,
+      },
+      legacyEtag
+    )
+    expect(check).toEqual({
+      ok: true,
+      expectedMtimeMs: 1700000000123,
+      expectedSize: 128,
+    })
+  })
+
+  it('accepts legacy local etag when notebook id starts with "nbenc:"', () => {
+    const legacyEtag = 'sqn-v1:local:nbenc:project:docs%2Fplan.md:1700000000123:128'
+    const check = resolveIfMatchForLocal(
+      {
+        notebookId: 'nbenc:project',
+        relativePath: 'docs/plan.md',
+        mtimeMs: 1700000000123,
+        size: 128,
+      },
+      legacyEtag
+    )
+    expect(check).toEqual({
+      ok: true,
+      expectedMtimeMs: 1700000000123,
+      expectedSize: 128,
+    })
+  })
+
   it('accepts local etag with matching content hash', () => {
     const etag = buildLocalEtag({
       notebookId: 'nb-local',
@@ -111,6 +177,33 @@ describe('note-gateway if_match', () => {
       expectedMtimeMs: 1700000000123,
       expectedSize: 128,
       expectedContentHash: 'a'.repeat(64),
+    })
+  })
+
+  it('omits malformed content hash token when building local etag', () => {
+    const etag = buildLocalEtag({
+      notebookId: 'nb-local',
+      relativePath: 'docs/plan.md',
+      mtimeMs: 1700000000123,
+      size: 128,
+      contentHash: 'not-a-sha256',
+    })
+    expect(etag).toBe('sqn-v1:local:nb-local:docs%2Fplan.md:1700000000123:128')
+
+    const check = resolveIfMatchForLocal(
+      {
+        notebookId: 'nb-local',
+        relativePath: 'docs/plan.md',
+        mtimeMs: 1700000000123,
+        size: 128,
+        contentHash: 'a'.repeat(64),
+      },
+      etag
+    )
+    expect(check).toEqual({
+      ok: true,
+      expectedMtimeMs: 1700000000123,
+      expectedSize: 128,
     })
   })
 

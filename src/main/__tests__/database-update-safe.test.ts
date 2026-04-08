@@ -6,8 +6,8 @@ import { tmpdir } from 'os'
 import { app } from 'electron'
 import {
   addNote,
-  addNotebook,
   closeDatabase,
+  createLocalFolderNotebookMount,
   getNotes,
   getNotesByUpdated,
   initDatabase,
@@ -177,7 +177,11 @@ describeSqlite('database updateNoteSafe', () => {
   })
 
   it('returns failed:target_not_allowed for local-folder notebook_id', () => {
-    const localFolderNotebook = addNotebook({ name: 'Local Target', source_type: 'local-folder' })
+    const localFolderNotebook = createLocalFolderNotebookMount({
+      name: 'Local Target',
+      root_path: '/tmp/sanqian-db-update-safe-local-target',
+      canonical_root_path: '/tmp/sanqian-db-update-safe-local-target',
+    }).notebook
     const created = addNote({
       title: 'Draft',
       content: '{"type":"doc","content":[]}',

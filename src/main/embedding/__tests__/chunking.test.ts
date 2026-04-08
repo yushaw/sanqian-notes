@@ -1,7 +1,7 @@
 /**
  * 分块模块测试
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { ChunkingService, chunkNote, CHUNK_SIZE, CHUNK_OVERLAP } from '../chunking'
 
 describe('ChunkingService', () => {
@@ -209,12 +209,19 @@ ${'更多正文内容，继续填充以确保文档足够长。'.repeat(100)}`
 
 describe('chunkNote 便捷函数', () => {
   it('与 ChunkingService.chunkNote 结果一致', () => {
-    const service = new ChunkingService()
-    const text = '测试文本内容'
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
 
-    const result1 = chunkNote('note1', 'nb1', text)
-    const result2 = service.chunkNote('note1', 'nb1', text)
+      const service = new ChunkingService()
+      const text = '测试文本内容'
 
-    expect(result1).toEqual(result2)
+      const result1 = chunkNote('note1', 'nb1', text)
+      const result2 = service.chunkNote('note1', 'nb1', text)
+
+      expect(result1).toEqual(result2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

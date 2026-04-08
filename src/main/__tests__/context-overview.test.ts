@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { Note, Notebook } from '../../shared/types'
 import {
   buildNotesOverviewContext,
+  buildNotesOverviewContextAsync,
   buildNotebooksOverviewContext,
+  buildNotebooksOverviewContextAsync,
+  type AsyncContextOverviewDataSource,
   type ContextOverviewDataSource,
   type ContextOverviewNote,
   type UserContextSnapshot,
@@ -38,6 +41,7 @@ function createNotebook(id: string, name: string): Notebook {
   return {
     id,
     name,
+    source_type: 'internal',
     order_index: 0,
     created_at: '2026-01-01T00:00:00.000Z',
   }
@@ -62,6 +66,25 @@ function createDataSource(params: {
     getNoteCountByNotebookId: noteCountByNotebookId,
     getNoteById: () => noteById,
     getNotes: (limit: number, offset: number) => recentNotes.slice(offset, offset + limit),
+  }
+}
+
+function createAsyncDataSource(params: {
+  notebooks?: Notebook[]
+  noteCounts?: Record<string, number>
+  noteCountByNotebookId?: (notebookId: string) => number
+  noteById?: ContextOverviewNote | null
+  recentNotes?: ContextOverviewNote[]
+}): AsyncContextOverviewDataSource {
+  const sync = createDataSource(params)
+  return {
+    getNotebooks: async () => sync.getNotebooks(),
+    getNoteCountByNotebook: async () => sync.getNoteCountByNotebook(),
+    getNoteCountByNotebookId: sync.getNoteCountByNotebookId
+      ? async (notebookId: string) => sync.getNoteCountByNotebookId!(notebookId)
+      : undefined,
+    getNoteById: async (id: string) => sync.getNoteById(id),
+    getNotes: async (limit: number, offset: number) => sync.getNotes(limit, offset),
   }
 }
 
@@ -294,5 +317,44 @@ describe('context-overview', () => {
     })
     expect(context.content).toContain('Current notebook: "Unknown" (not found in database)')
     expect(context.content).toContain('No notebooks found.')
+  })
+
+  it('builds notes overview from async data source', async () => {
+    const note = createNote('note-a', {
+      title: 'Async Note',
+      notebook_id: 'nb-a',
+      updated_at: '2026-02-01T12:00:00.000Z',
+      ai_summary: 'Async summary',
+    })
+    const ds = createAsyncDataSource({
+      notebooks: [createNotebook('nb-a', 'Async NB')],
+      noteById: note,
+      recentNotes: [note],
+    })
+
+    const context = await buildNotesOverviewContextAsync(
+      { ...baseContext, currentNoteId: 'note-a' },
+      ds
+    )
+
+    expect(context.summary).toBe('Current note: Async Note')
+    expect(context.content).toContain('Notebook: Async NB')
+    expect(context.content).toContain('Summary: Async summary')
+  })
+
+  it('builds notebooks overview from async data source', async () => {
+    const ds = createAsyncDataSource({
+      notebooks: [createNotebook('nb-a', 'Async NB')],
+      noteCounts: { 'nb-a': 3 },
+      noteCountByNotebookId: () => 3,
+    })
+
+    const context = await buildNotebooksOverviewContextAsync(
+      { ...baseContext, currentNotebookId: 'nb-a' },
+      ds
+    )
+
+    expect(context.summary).toBe('Current notebook: Async NB')
+    expect(context.content).toContain('Notes in current notebook: 3')
   })
 })

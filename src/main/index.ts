@@ -16,7 +16,8 @@ import {
   getNotebooks,
   addNotebook,
   updateNotebook,
-  deleteNotebook,
+  deleteLocalFolderNotebook as deleteLocalFolderNotebookInDb,
+  deleteInternalNotebookWithNotes as deleteInternalNotebookWithNotesInDb,
   reorderNotebooks,
   getNotebookFolders,
   hasNotebookFolderPathReference,
@@ -26,7 +27,7 @@ import {
   getLocalFolderMounts,
   getLocalFolderMountByCanonicalPath,
   getLocalFolderMountByNotebookId,
-  createLocalFolderNotebookMount,
+  createLocalFolderNotebookMountSafe,
   updateLocalFolderMountRoot,
   updateLocalFolderMountStatus,
   listLocalNoteMetadata,
@@ -113,6 +114,12 @@ import { registerChatIpc } from './ipc/register-chat-ipc'
 import { registerAppIpc } from './ipc/register-app-ipc'
 import { registerLocalFolderIpc } from './ipc/register-local-folder-ipc'
 import {
+  createLocalFolderIpcConcurrencyRuntime,
+  type LocalFolderIpcConcurrencyRuntime,
+} from './local-folder-ipc-runtime'
+import { createLocalFolderIpcWaitStatsSampler } from './local-folder-ipc-wait-stats-sampler'
+import { flushLocalNoteIdentityUidRepairAuditSampling } from './local-note-identity-audit'
+import {
   buildLocalEtag,
   resolveIfMatchForLocal,
 } from './note-gateway'
@@ -177,8 +184,8 @@ import {
 } from './internal-folder-path'
 import {
   getAllNotesForRendererAsync,
-  getNoteByIdForRenderer,
-  getNotesByIdsForRenderer,
+  getNoteByIdForRendererAsync,
+  getNotesByIdsForRendererAsync,
   initNoteSynthesis,
 } from './note-synthesis'
 import {
@@ -190,8 +197,10 @@ import {
   onUserContextChange,
 } from './user-context'
 import {
+  cacheLocalFolderTree,
   getCachedLocalFolderTree,
   invalidateLocalFolderTreeCache,
+  scanLocalFolderTreeAsync,
   scanAndCacheLocalFolderTree,
   scanAndCacheLocalFolderTreeAsync,
 } from './local-folder-tree-cache'
@@ -213,7 +222,7 @@ import {
   stopLocalFolderWatcher,
   stopAllLocalFolderWatchers,
   ensureLocalFolderWatcher,
-  syncLocalFolderWatchers,
+  scheduleSyncLocalFolderWatchers,
 } from './local-folder-watcher'
 import {
   setupSessionResourceListeners,
@@ -279,6 +288,7 @@ let mainView: WebContentsView | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let attachmentCleanupTimer: ReturnType<typeof setTimeout> | null = null
+let localFolderIpcRuntime: LocalFolderIpcConcurrencyRuntime | null = null
 
 function resolveBoundedMsFromEnv(
   value: string | undefined,
@@ -286,9 +296,27 @@ function resolveBoundedMsFromEnv(
   minMs: number,
   maxMs: number
 ): number {
+  return resolveBoundedIntFromEnv(value, fallbackMs, minMs, maxMs)
+}
+
+function resolveBoundedIntFromEnv(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
   const parsed = Number.parseInt(value || '', 10)
-  if (!Number.isFinite(parsed)) return fallbackMs
-  return Math.min(Math.max(parsed, minMs), maxMs)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, min), max)
+}
+
+function resolveBoundedRatioFromEnv(
+  value: string | undefined,
+  fallback: number
+): number {
+  const parsed = Number.parseFloat(value || '')
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, 0), 1)
 }
 
 const LOCAL_FOLDER_SEARCH_SCAN_CACHE_TTL_MS = resolveBoundedMsFromEnv(
@@ -298,6 +326,62 @@ const LOCAL_FOLDER_SEARCH_SCAN_CACHE_TTL_MS = resolveBoundedMsFromEnv(
   120_000
 )
 const LOCAL_FOLDER_GLOBAL_SEARCH_CONCURRENCY = 4
+const LOCAL_FOLDER_IPC_WAIT_STATS_ENABLED = process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ENABLED !== '0'
+const LOCAL_FOLDER_IPC_WAIT_STATS_INTERVAL_MS = resolveBoundedMsFromEnv(
+  process.env.LOCAL_FOLDER_IPC_WAIT_STATS_INTERVAL_MS,
+  60_000,
+  5_000,
+  10 * 60 * 1000
+)
+const LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_ENABLED = process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_ENABLED !== '0'
+const LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MIN_SAMPLE_COUNT = resolveBoundedIntFromEnv(
+  process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MIN_SAMPLE_COUNT,
+  5,
+  1,
+  10_000
+)
+const LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MAX_WAIT_MS = resolveBoundedMsFromEnv(
+  process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MAX_WAIT_MS,
+  2_000,
+  0,
+  10 * 60 * 1000
+)
+const LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_AVG_WAIT_MS = resolveBoundedMsFromEnv(
+  process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_AVG_WAIT_MS,
+  500,
+  0,
+  10 * 60 * 1000
+)
+const LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_SLOW_RATIO = resolveBoundedRatioFromEnv(
+  process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_SLOW_RATIO,
+  0.3
+)
+const LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_LOG_WINDOW_MS = resolveBoundedMsFromEnv(
+  process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_LOG_WINDOW_MS,
+  5 * 60 * 1000,
+  1_000,
+  60 * 60 * 1000
+)
+const LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MAX_SIGNATURES = resolveBoundedIntFromEnv(
+  process.env.LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MAX_SIGNATURES,
+  512,
+  1,
+  10_000
+)
+const localFolderIpcWaitStatsSampler = createLocalFolderIpcWaitStatsSampler({
+  enabled: LOCAL_FOLDER_IPC_WAIT_STATS_ENABLED,
+  intervalMs: LOCAL_FOLDER_IPC_WAIT_STATS_INTERVAL_MS,
+  getRuntime: () => localFolderIpcRuntime,
+  alert: {
+    enabled: LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_ENABLED,
+    minSampleCount: LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MIN_SAMPLE_COUNT,
+    maxWaitMs: LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MAX_WAIT_MS,
+    avgWaitMs: LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_AVG_WAIT_MS,
+    slowRatio: LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_SLOW_RATIO,
+    logWindowMs: LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_LOG_WINDOW_MS,
+    maxSignatures: LOCAL_FOLDER_IPC_WAIT_STATS_ALERT_MAX_SIGNATURES,
+  },
+})
 // Re-export getRawUserContext for backward compatibility
 export { getRawUserContext } from './user-context'
 
@@ -873,7 +957,7 @@ app.whenReady().then(() => {
     resolveRendererNoteIdForNavigation,
     navigationResolverDeps: {
       getNoteById,
-      getLocalNoteIdentityByUid,
+      getLocalNoteIdentityByUid: (input) => getLocalNoteIdentityByUid(input, { repairIfNeeded: false }),
     },
     getThemeSettings,
     setThemeSettings,
@@ -926,8 +1010,8 @@ app.whenReady().then(() => {
   // IPC handlers for note/daily/trash operations
   registerNoteIpc(ipcMain, {
     getAllNotesForRendererAsync,
-    getNoteByIdForRenderer,
-    getNotesByIdsForRenderer,
+    getNoteByIdForRenderer: getNoteByIdForRendererAsync,
+    getNotesByIdsForRenderer: getNotesByIdsForRendererAsync,
     addNote,
     getNoteById,
     updateNote,
@@ -956,7 +1040,29 @@ app.whenReady().then(() => {
     getNotebooks,
     addNotebook,
     updateNotebook,
-    deleteNotebook,
+    deleteInternalNotebookWithNotes: ({ notebook_id }) => {
+      const deleted = deleteInternalNotebookWithNotesInDb({ notebook_id })
+      if (!deleted.ok) {
+        if (deleted.error === 'notebook_not_found') {
+          return {
+            success: false as const,
+            errorCode: 'NOTEBOOK_NOT_FOUND' as const,
+          }
+        }
+
+        return {
+          success: false as const,
+          errorCode: 'NOTEBOOK_NOT_INTERNAL' as const,
+        }
+      }
+
+      indexingService.deleteNoteIndexes(deleted.value.deleted_note_ids)
+
+      return {
+        success: true as const,
+        result: deleted.value,
+      }
+    },
     reorderNotebooks,
   })
 
@@ -967,25 +1073,16 @@ app.whenReady().then(() => {
     renameNotebookFolderEntry,
     deleteNotebookFolderEntry,
     deleteNoteIndex: (noteId) => indexingService.deleteNoteIndex(noteId),
+    deleteNoteIndexes: (noteIds) => indexingService.deleteNoteIndexes(noteIds),
   })
 
-  // IPC handlers for local folder notebook operations
-  registerLocalFolderSearchIpc(ipcMain, {
-    getLocalFolderMounts,
-    getCachedLocalFolderTree,
-    updateLocalFolderMountStatus,
-    invalidateLocalFolderTreeCache,
-    scheduleLocalFolderWatchEvent,
-    resolveMountStatusFromFsError,
-    globalSearchConcurrency: LOCAL_FOLDER_GLOBAL_SEARCH_CONCURRENCY,
-    searchScanCacheTtlMs: LOCAL_FOLDER_SEARCH_SCAN_CACHE_TTL_MS,
-  })
-
+  const runtime = createLocalFolderIpcConcurrencyRuntime()
+  localFolderIpcRuntime = runtime
   registerLocalFolderIpc(ipcMain, {
     getLocalFolderMounts,
     getLocalFolderMountByCanonicalPath,
     getLocalFolderMountByNotebookId,
-    createLocalFolderNotebookMount,
+    createLocalFolderNotebookMountSafe,
     updateLocalFolderMountRoot,
     updateLocalFolderMountStatus,
     readLocalFolderFileAsync,
@@ -1000,7 +1097,7 @@ app.whenReady().then(() => {
     renameLocalNoteIdentityPath,
     renameLocalNoteIdentityFolderPath,
     deleteLocalNoteIdentityByPath,
-    getLocalNoteIdentityByPath,
+    getLocalNoteIdentityByPath: (input) => getLocalNoteIdentityByPath(input, { repairIfNeeded: false }),
     listLocalNoteMetadata,
     updateLocalNoteMetadata,
     renameLocalNoteMetadataPath,
@@ -1017,15 +1114,42 @@ app.whenReady().then(() => {
     clearLocalNotebookIndexSyncForNotebook,
     scanAndCacheLocalFolderTree,
     scanAndCacheLocalFolderTreeAsync,
+    scanLocalFolderTreeAsync,
+    cacheLocalFolderTree,
+    getCachedLocalFolderTree,
     invalidateLocalFolderTreeCache,
     ensureLocalFolderWatcher,
     stopLocalFolderWatcher,
-    syncLocalFolderWatchers,
+    syncLocalFolderWatchers: scheduleSyncLocalFolderWatchers,
     scheduleLocalFolderWatchEvent,
     resolveMountStatusFromFsError,
+    selectLocalFolderRoot: async () => {
+      const result = await dialog.showOpenDialog({
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      return result.canceled ? null : result.filePaths[0]
+    },
     trashItem: (path) => shell.trashItem(path),
     openPath: (path) => shell.openPath(path),
-    deleteNotebook,
+    deleteLocalFolderNotebook: (notebookId) => deleteLocalFolderNotebookInDb(notebookId),
+  }, runtime)
+
+  // IPC handlers for local folder notebook operations
+  registerLocalFolderSearchIpc(ipcMain, {
+    getLocalFolderMounts,
+    getLocalFolderMountByNotebookId,
+    getCachedLocalFolderTree,
+    updateLocalFolderMountStatus,
+    enqueueLocalNotebookIndexSync,
+    invalidateLocalFolderTreeCache,
+    stopLocalFolderWatcher,
+    scheduleLocalFolderWatchEvent,
+    resolveMountStatusFromFsError,
+    globalSearchConcurrency: LOCAL_FOLDER_GLOBAL_SEARCH_CONCURRENCY,
+    searchScanCacheTtlMs: LOCAL_FOLDER_SEARCH_SCAN_CACHE_TTL_MS,
+    runWithLocalFolderConsistentRead: runtime.runWithLocalFolderConsistentRead,
+    waitForLocalFolderMutationTails: runtime.waitForLocalFolderMutationTails,
+    runWithLocalFolderTopologyReadScope: runtime.runWithLocalFolderTopologyReadScope,
   })
 
   registerAIIpc(ipcMain, {
@@ -1146,7 +1270,7 @@ app.whenReady().then(() => {
   })
 
   createWindow()
-  syncLocalFolderWatchers()
+  scheduleSyncLocalFolderWatchers()
 
   // Setup ChatPanel for chat (using sanqian-chat package)
   // Note: Must be after createWindow() so mainWindow and mainView are available
@@ -1229,6 +1353,7 @@ app.whenReady().then(() => {
   setupTray()
   setupAutoUpdater()
   scheduleAIPopupCleanup()
+  localFolderIpcWaitStatsSampler.start()
 
   // 启动 5 分钟后自动清理孤儿附件（不阻塞启动）
   attachmentCleanupTimer = setTimeout(async () => {
@@ -1260,6 +1385,9 @@ app.on('before-quit', (e) => {
     clearTimeout(attachmentCleanupTimer)
     attachmentCleanupTimer = null
   }
+  localFolderIpcWaitStatsSampler.stop()
+  localFolderIpcWaitStatsSampler.flush('before_quit')
+  flushLocalNoteIdentityUidRepairAuditSampling(console, Date.now())
   clearAIPopupCleanupTimers()
   stopAllLocalFolderWatchers()
   // Destroy chat panel before quitting
@@ -1287,6 +1415,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  localFolderIpcWaitStatsSampler.stop()
+  localFolderIpcWaitStatsSampler.flush('will_quit')
+  flushLocalNoteIdentityUidRepairAuditSampling(console, Date.now())
+  localFolderIpcRuntime = null
   // Unregister all global shortcuts
   globalShortcut.unregisterAll()
   stopPortWatcher()

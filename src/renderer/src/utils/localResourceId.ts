@@ -4,6 +4,7 @@ import {
   getLocalResourceFileTitle,
   isLocalResourceId,
   isLocalResourceUidRef,
+  normalizeLocalResourceRelativePath,
   parseLocalResourceId,
   type LocalResourceRef,
 } from '../../../shared/local-resource-id'
@@ -14,6 +15,7 @@ export {
   getLocalResourceFileTitle,
   isLocalResourceId,
   isLocalResourceUidRef,
+  normalizeLocalResourceRelativePath,
   parseLocalResourceId,
   type LocalResourceRef,
 }

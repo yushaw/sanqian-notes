@@ -1,10 +1,7 @@
 import type { IpcMain } from 'electron'
 import type {
-  NotebookFolderCreateInput,
   NotebookFolderCreateResponse,
-  NotebookFolderRenameInput,
   NotebookFolderRenameResponse,
-  NotebookFolderDeleteInput,
   NotebookFolderDeleteResponse,
   NotebookFolder,
   Result,
@@ -18,9 +15,39 @@ import {
   resolveInternalNotebook,
   INTERNAL_FOLDER_MAX_DEPTH,
 } from '../internal-folder-path'
+import { parseRequiredNotebookIdInput } from '../notebook-id'
 import { createSafeHandler } from './safe-handler'
 
 type IpcMainHandleLike = Pick<IpcMain, 'handle'>
+const NOTEBOOK_FOLDER_NAME_MAX_LENGTH = 255
+const NOTEBOOK_FOLDER_PATH_MAX_LENGTH = 4096
+const INVALID_BOUNDED_STRING = Symbol('INVALID_BOUNDED_STRING')
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseBoundedString(
+  input: unknown,
+  options: { maxLength: number; trim?: boolean; allowEmpty?: boolean }
+): string | null {
+  if (typeof input !== 'string') return null
+  if (input.includes('\0')) return null
+  if (input.length > options.maxLength) return null
+  const value = options.trim ? input.trim() : input
+  if (options.allowEmpty === false && !value) return null
+  return value
+}
+
+function parseOptionalNullableBoundedString(
+  input: unknown,
+  options: { maxLength: number; trim?: boolean; allowEmpty?: boolean }
+): string | null | undefined | typeof INVALID_BOUNDED_STRING {
+  if (input === undefined) return undefined
+  if (input === null) return null
+  const parsed = parseBoundedString(input, options)
+  return parsed === null ? INVALID_BOUNDED_STRING : parsed
+}
 
 export interface NotebookFolderIpcDeps {
   getNotebookFolders: (notebookId?: string) => NotebookFolder[]
@@ -36,19 +63,27 @@ export interface NotebookFolderIpcDeps {
     folder_path: string
   }) => Result<{ deletedNoteIds: string[] }, 'not_found'>
   deleteNoteIndex: (noteId: string) => void
+  deleteNoteIndexes?: (noteIds: readonly string[]) => number | void
 }
 
 export function registerNotebookFolderIpc(
   ipcMainLike: IpcMainHandleLike,
   deps: NotebookFolderIpcDeps
 ): void {
-  ipcMainLike.handle('notebookFolder:list', createSafeHandler('notebookFolder:list', (_, notebookId?: string) => {
-    const normalizedNotebookId = typeof notebookId === 'string' ? notebookId.trim() : ''
-    return deps.getNotebookFolders(normalizedNotebookId || undefined)
+  ipcMainLike.handle('notebookFolder:list', createSafeHandler('notebookFolder:list', (_, notebookIdInput?: unknown) => {
+    if (notebookIdInput === undefined) {
+      return deps.getNotebookFolders(undefined)
+    }
+    const notebookId = parseRequiredNotebookIdInput(notebookIdInput)
+    if (!notebookId) {
+      return []
+    }
+    return deps.getNotebookFolders(notebookId)
   }))
 
-  ipcMainLike.handle('notebookFolder:create', createSafeHandler('notebookFolder:create', (_, input: NotebookFolderCreateInput): NotebookFolderCreateResponse => {
-    const notebookId = input?.notebook_id?.trim() || ''
+  ipcMainLike.handle('notebookFolder:create', createSafeHandler('notebookFolder:create', (_, input: unknown): NotebookFolderCreateResponse => {
+    const payload = isRecord(input) ? input : {}
+    const notebookId = parseRequiredNotebookIdInput(payload.notebook_id)
     if (!notebookId) {
       return { success: false, errorCode: 'NOTEBOOK_NOT_FOUND' }
     }
@@ -58,13 +93,24 @@ export function registerNotebookFolderIpc(
       return { success: false, errorCode: notebookCheck.errorCode }
     }
 
-    const folderName = input?.folder_name?.trim() || ''
-    if (!isValidInternalFolderName(folderName)) {
+    const folderName = parseBoundedString(payload.folder_name, {
+      maxLength: NOTEBOOK_FOLDER_NAME_MAX_LENGTH,
+      trim: true,
+      allowEmpty: false,
+    })
+    if (!folderName || !isValidInternalFolderName(folderName)) {
       return { success: false, errorCode: 'NOTEBOOK_FOLDER_INVALID_NAME' }
     }
 
-    const normalizedParentPath = normalizeInternalFolderPath(input.parent_folder_path)
-    if (input.parent_folder_path && !normalizedParentPath) {
+    const parentFolderPathInput = parseOptionalNullableBoundedString(
+      payload.parent_folder_path,
+      { maxLength: NOTEBOOK_FOLDER_PATH_MAX_LENGTH }
+    )
+    if (parentFolderPathInput === INVALID_BOUNDED_STRING) {
+      return { success: false, errorCode: 'NOTEBOOK_FOLDER_NOT_FOUND' }
+    }
+    const normalizedParentPath = normalizeInternalFolderPath(parentFolderPathInput)
+    if (typeof parentFolderPathInput === 'string' && parentFolderPathInput && !normalizedParentPath) {
       return { success: false, errorCode: 'NOTEBOOK_FOLDER_NOT_FOUND' }
     }
     if (getInternalFolderDepth(normalizedParentPath) >= INTERNAL_FOLDER_MAX_DEPTH) {
@@ -107,8 +153,9 @@ export function registerNotebookFolderIpc(
     }
   }))
 
-  ipcMainLike.handle('notebookFolder:rename', createSafeHandler('notebookFolder:rename', (_, input: NotebookFolderRenameInput): NotebookFolderRenameResponse => {
-    const notebookId = input?.notebook_id?.trim() || ''
+  ipcMainLike.handle('notebookFolder:rename', createSafeHandler('notebookFolder:rename', (_, input: unknown): NotebookFolderRenameResponse => {
+    const payload = isRecord(input) ? input : {}
+    const notebookId = parseRequiredNotebookIdInput(payload.notebook_id)
     if (!notebookId) {
       return { success: false, errorCode: 'NOTEBOOK_NOT_FOUND' }
     }
@@ -118,13 +165,24 @@ export function registerNotebookFolderIpc(
       return { success: false, errorCode: notebookCheck.errorCode }
     }
 
-    const currentFolderPath = normalizeInternalFolderPath(input?.folder_path)
+    const currentFolderPathInput = parseBoundedString(payload.folder_path, {
+      maxLength: NOTEBOOK_FOLDER_PATH_MAX_LENGTH,
+      allowEmpty: false,
+    })
+    if (!currentFolderPathInput) {
+      return { success: false, errorCode: 'NOTEBOOK_FOLDER_NOT_FOUND' }
+    }
+    const currentFolderPath = normalizeInternalFolderPath(currentFolderPathInput)
     if (!currentFolderPath) {
       return { success: false, errorCode: 'NOTEBOOK_FOLDER_NOT_FOUND' }
     }
 
-    const nextName = input?.new_name?.trim() || ''
-    if (!isValidInternalFolderName(nextName)) {
+    const nextName = parseBoundedString(payload.new_name, {
+      maxLength: NOTEBOOK_FOLDER_NAME_MAX_LENGTH,
+      trim: true,
+      allowEmpty: false,
+    })
+    if (!nextName || !isValidInternalFolderName(nextName)) {
       return { success: false, errorCode: 'NOTEBOOK_FOLDER_INVALID_NAME' }
     }
 
@@ -165,8 +223,9 @@ export function registerNotebookFolderIpc(
     }
   }))
 
-  ipcMainLike.handle('notebookFolder:delete', createSafeHandler('notebookFolder:delete', (_, input: NotebookFolderDeleteInput): NotebookFolderDeleteResponse => {
-    const notebookId = input?.notebook_id?.trim() || ''
+  ipcMainLike.handle('notebookFolder:delete', createSafeHandler('notebookFolder:delete', (_, input: unknown): NotebookFolderDeleteResponse => {
+    const payload = isRecord(input) ? input : {}
+    const notebookId = parseRequiredNotebookIdInput(payload.notebook_id)
     if (!notebookId) {
       return { success: false, errorCode: 'NOTEBOOK_NOT_FOUND' }
     }
@@ -176,7 +235,14 @@ export function registerNotebookFolderIpc(
       return { success: false, errorCode: notebookCheck.errorCode }
     }
 
-    const folderPath = normalizeInternalFolderPath(input?.folder_path)
+    const folderPathInput = parseBoundedString(payload.folder_path, {
+      maxLength: NOTEBOOK_FOLDER_PATH_MAX_LENGTH,
+      allowEmpty: false,
+    })
+    if (!folderPathInput) {
+      return { success: false, errorCode: 'NOTEBOOK_FOLDER_NOT_FOUND' }
+    }
+    const folderPath = normalizeInternalFolderPath(folderPathInput)
     if (!folderPath) {
       return { success: false, errorCode: 'NOTEBOOK_FOLDER_NOT_FOUND' }
     }
@@ -189,14 +255,19 @@ export function registerNotebookFolderIpc(
       return { success: false, errorCode: 'NOTEBOOK_FOLDER_NOT_FOUND' }
     }
 
-    deleted.value.deletedNoteIds.forEach((noteId) => {
-      deps.deleteNoteIndex(noteId)
-    })
+    const deletedNoteIds = deleted.value.deletedNoteIds
+    if (deletedNoteIds.length > 1 && typeof deps.deleteNoteIndexes === 'function') {
+      deps.deleteNoteIndexes(deletedNoteIds)
+    } else {
+      deletedNoteIds.forEach((noteId) => {
+        deps.deleteNoteIndex(noteId)
+      })
+    }
 
     return {
       success: true,
       result: {
-        deleted_note_ids: deleted.value.deletedNoteIds,
+        deleted_note_ids: deletedNoteIds,
       },
     }
   }))

@@ -117,7 +117,7 @@ describe('ZIP Handler', () => {
         const files = require('fs').readdirSync(extractedDir, { recursive: true })
         expect(files.some((f: string) => f.includes('test.txt'))).toBe(true)
       } finally {
-        cleanupTempDir(extractedDir)
+        await cleanupTempDir(extractedDir)
       }
     })
 
@@ -127,19 +127,19 @@ describe('ZIP Handler', () => {
   })
 
   describe('cleanupTempDir', () => {
-    it('should remove directory', () => {
+    it('should remove directory', async () => {
       const tempDir = join(testDir, 'to-cleanup')
       mkdirSync(tempDir)
       writeFileSync(join(tempDir, 'file.txt'), 'content')
 
-      cleanupTempDir(tempDir)
+      await cleanupTempDir(tempDir)
 
       expect(existsSync(tempDir)).toBe(false)
     })
 
-    it('should handle non-existent directory', () => {
+    it('should handle non-existent directory', async () => {
       // Should not throw
-      expect(() => cleanupTempDir('/non/existent/dir')).not.toThrow()
+      await expect(cleanupTempDir('/non/existent/dir')).resolves.toBeUndefined()
     })
   })
 })

@@ -9,16 +9,14 @@ on:
       - 'package-lock.json'
       - 'eslint.config.mjs'
       - '.github/workflows/drag-contract.yml'
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/renderer/src/**'
-      - 'docs/window-drag-contract.md'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'eslint.config.mjs'
-      - '.github/workflows/drag-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: drag-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   drag-contract:

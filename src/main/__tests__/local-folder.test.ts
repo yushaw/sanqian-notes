@@ -91,6 +91,42 @@ describe('local-folder operations', () => {
     expect(scanned.files.some((file) => file.relative_path === 'lvl1/lvl2/lvl3/lvl4/lvl5/deep.md')).toBe(true)
   })
 
+  it('scanLocalFolderMount should cap uncached preview reads by scan budget', () => {
+    const configuredBudget = Number.isFinite(Number(process.env.LOCAL_LIST_PREVIEW_MAX_READS_PER_SCAN))
+      ? Math.max(0, Math.floor(Number(process.env.LOCAL_LIST_PREVIEW_MAX_READS_PER_SCAN)))
+      : 768
+    if (configuredBudget <= 0 || configuredBudget > 1200) {
+      return
+    }
+
+    const root = createTempDir()
+    const mount = createMount(root)
+    const totalFiles = configuredBudget + 12
+    for (let index = 0; index < totalFiles; index += 1) {
+      const fileName = `note-${String(index).padStart(4, '0')}.md`
+      writeFileSync(join(root, fileName), `# title ${index}\n\npreview ${index}\n`, 'utf-8')
+    }
+
+    const scanned = scanLocalFolderMount(mount)
+    expect(scanned.files).toHaveLength(totalFiles)
+    const nonEmptyPreviewCount = scanned.files.reduce((count, file) => (
+      (file.preview?.trim().length || 0) > 0 ? count + 1 : count
+    ), 0)
+    expect(nonEmptyPreviewCount).toBe(configuredBudget)
+  })
+
+  it('scanLocalFolderMountAsync can skip preview reads for fast tree loading', async () => {
+    const root = createTempDir()
+    const mount = createMount(root)
+    writeFileSync(join(root, 'alpha.md'), '# alpha\n\npreview text\n', 'utf-8')
+    writeFileSync(join(root, 'beta.md'), '# beta\n\npreview text\n', 'utf-8')
+
+    const scanned = await scanLocalFolderMountAsync(mount, { includePreview: false })
+    expect(scanned.files).toHaveLength(2)
+    expect(scanned.files.every((file) => (file.preview || '') === '')).toBe(true)
+    expect(scanned.tree.length).toBeGreaterThanOrEqual(1)
+  })
+
   it('createLocalFolder should still enforce UI depth limit for new folders', () => {
     const root = createTempDir()
     const mount = createMount(root)

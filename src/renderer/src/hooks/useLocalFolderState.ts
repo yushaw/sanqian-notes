@@ -2,6 +2,14 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { useLocalFolderSearch } from './useLocalFolderSearch'
 import { useLocalFolderWatchEvents } from './useLocalFolderWatchEvents'
+import { convergeRecoveredLocalFolder } from './localFolderRecovery'
+import {
+  clearStatusToastEntriesByNotebookId,
+  pruneNotebookScopedMap,
+  pruneNotebookScopedRecord,
+  removeNotebookScopedRecordKey,
+  resolveNotebookIdFromStatusToastKey,
+} from './localNotebookScopedState'
 import { useLocalFolderDialogs } from '../components/app/LocalFolderDialogs'
 import { toast } from '../utils/toast'
 import {
@@ -9,6 +17,7 @@ import {
   findFolderNodeByPath,
   getRelativePathDisplayName,
   hasLocalFolderNodes,
+  normalizeLocalRelativePath,
   normalizeLocalPreferredFileName,
 } from '../utils/localFolderNavigation'
 import {
@@ -17,11 +26,14 @@ import {
   type SmartViewId,
   type LocalFolderFileContent,
   type LocalFolderFileErrorCode,
+  type LocalFolderGetTreeResponse,
+  type LocalFolderNotebookMount,
   type LocalFolderTreeResult,
   type LocalFolderFileEntry,
   type NotebookStatus,
   type LocalNoteMetadata,
 } from '../types/note'
+import { hasOwnDefinedProperty } from '../../../shared/property-guards'
 import { createLocalResourceId, getLocalResourceFileTitle, parseLocalResourceId } from '../utils/localResourceId'
 import type { Translations } from '../i18n'
 
@@ -54,6 +66,7 @@ function toLocalNoteTags(tagNames?: string[] | null): Note['tags'] {
 const STORAGE_KEY_LOCAL_NOTE_COUNTS = 'sanqian-notes-local-note-counts'
 const LOCAL_FILE_CREATE_RETRY_LIMIT = 128
 const LOCAL_WATCH_SUPPRESS_MS = 1200
+const LOCAL_FOLDER_STATUS_REFRESH_MIN_INTERVAL_MS = 800
 
 // ---------------------------------------------------------------------------
 // Exported interfaces
@@ -140,7 +153,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       return {}
     }
   })
-  const [localFolderTreeLoading, setLocalFolderTreeLoading] = useState(false)
+  const [localFolderTreeLoadingByNotebook, setLocalFolderTreeLoadingByNotebook] = useState<Record<string, boolean>>({})
   const [localFolderStatuses, setLocalFolderStatuses] = useState<Record<string, NotebookStatus>>({})
   const [localNotebookHasChildFolders, setLocalNotebookHasChildFolders] = useState<Record<string, boolean>>({})
   const [selectedLocalFolderPath, setSelectedLocalFolderPath] = useState<string | null>(null)
@@ -149,6 +162,15 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   const [localEditorLoading, setLocalEditorLoading] = useState(false)
   const [localSaveConflictDialog, setLocalSaveConflictDialog] = useState<LocalSaveConflictDialogState | null>(null)
   const [localSaveConflictSubmitting, setLocalSaveConflictSubmitting] = useState(false)
+  const [localMountMutationSubmitting, setLocalMountMutationSubmitting] = useState(false)
+
+  const setSelectedLocalFilePathNormalized = useCallback((relativePath: string | null | undefined) => {
+    setSelectedLocalFilePath(normalizeLocalRelativePath(relativePath))
+  }, [])
+
+  const setSelectedLocalFolderPathNormalized = useCallback((folderPath: string | null | undefined) => {
+    setSelectedLocalFolderPath(normalizeLocalRelativePath(folderPath))
+  }, [])
 
   // ---------------------------------------------------------------------------
   // useRef
@@ -156,6 +178,8 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
 
   const localNoteMetadataByIdRef = useRef<Record<string, LocalNoteMetadata>>(localNoteMetadataById)
   localNoteMetadataByIdRef.current = localNoteMetadataById
+  const localFolderTreeRef = useRef<LocalFolderTreeResult | null>(localFolderTree)
+  localFolderTreeRef.current = localFolderTree
   const localFolderTreeCacheRef = useRef<Record<string, LocalFolderTreeResult>>(localFolderTreeCache)
   localFolderTreeCacheRef.current = localFolderTreeCache
   const localFolderTreeDirtyRef = useRef<Record<string, boolean>>(localFolderTreeDirty)
@@ -172,7 +196,14 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const localSaveTaskRef = useRef<Promise<void> | null>(null)
   const localFileReadVersionRef = useRef(0)
-  const localTreeLoadVersionRef = useRef(0)
+  const localTreeLoadEpochRef = useRef(0)
+  const localTreeLoadVersionRef = useRef<Map<string, number>>(new Map())
+  const localTreeLoadTaskRef = useRef<Map<string, {
+    epoch: number
+    task: Promise<LocalFolderTreeResult | null>
+  }>>(new Map())
+  const localFolderStatusRefreshInFlightRef = useRef<Promise<void> | null>(null)
+  const localFolderStatusRefreshLastRunAtRef = useRef(0)
   const localWatchRefreshTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const localWatchRefreshSuppressUntilRef = useRef<Map<string, number>>(new Map())
   const localStatusToastAtRef = useRef<Map<string, number>>(new Map())
@@ -183,6 +214,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   // processing the save queue. This bridges the two-level debounce architecture.
   const localEditorFlushRef = useRef<(() => void) | null>(null)
   const localRenameInFlightRef = useRef(false)
+  const localMountMutationInFlightRef = useRef(false)
   const localFolderDialogsResetRef = useRef<() => void>(() => {})
 
   // ---------------------------------------------------------------------------
@@ -209,6 +241,13 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   const isGlobalLocalAwareView = !selectedNotebookId && selectedSmartView !== 'trash'
   const isAllViewLocalEditorActive = isAllSourceViewActive && Boolean(allViewLocalEditorTarget)
   const shouldRenderLocalEditor = isLocalFolderNotebookSelected || isAllViewLocalEditorActive
+  const localNotebookIds = useMemo(() => new Set(
+    notebooks
+      .filter((notebook) => notebook.source_type === 'local-folder')
+      .map((notebook) => notebook.id)
+  ), [notebooks])
+  const localNotebookIdsRef = useRef<Set<string>>(localNotebookIds)
+  localNotebookIdsRef.current = localNotebookIds
 
   const activeLocalNotebookId = isLocalFolderNotebookSelected
     ? selectedNotebookId
@@ -223,6 +262,30 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     if (!selectedNotebookId) return 'active'
     return localFolderStatuses[selectedNotebookId] || 'active'
   }, [localFolderStatuses, selectedNotebookId])
+
+  const localFolderTreeLoading = useMemo(() => {
+    if (!selectedNotebookId) return false
+    return Boolean(localFolderTreeLoadingByNotebook[selectedNotebookId])
+  }, [localFolderTreeLoadingByNotebook, selectedNotebookId])
+
+  const setLocalFolderTreeLoadingForNotebook = useCallback((notebookId: string, isLoading: boolean) => {
+    setLocalFolderTreeLoadingByNotebook((prev) => {
+      const currentlyLoading = Boolean(prev[notebookId])
+      if (currentlyLoading === isLoading) return prev
+
+      if (isLoading) {
+        return {
+          ...prev,
+          [notebookId]: true,
+        }
+      }
+
+      if (!(notebookId in prev)) return prev
+      const next = { ...prev }
+      delete next[notebookId]
+      return next
+    })
+  }, [])
 
   // ---------------------------------------------------------------------------
   // useCallback: suppressLocalWatchRefresh
@@ -272,6 +335,128 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   localFileErrorMessageResolverRef.current = resolveLocalFileErrorMessage
 
   // ---------------------------------------------------------------------------
+  // useCallback: refreshLocalFolderStatuses
+  // ---------------------------------------------------------------------------
+
+  const refreshLocalFolderStatuses = useCallback((options?: { force?: boolean }): Promise<void> => {
+    const inFlightTask = localFolderStatusRefreshInFlightRef.current
+    if (inFlightTask) return inFlightTask
+
+    const now = Date.now()
+    const lastRunAt = localFolderStatusRefreshLastRunAtRef.current
+    if (
+      !options?.force
+      && now - lastRunAt < LOCAL_FOLDER_STATUS_REFRESH_MIN_INTERVAL_MS
+    ) {
+      return Promise.resolve()
+    }
+
+    localFolderStatusRefreshLastRunAtRef.current = now
+    const task = (async () => {
+      try {
+        const mountsResponse = await window.electron.localFolder.list()
+        if (!mountsResponse.success) {
+          console.error('[local-folder] failed to refresh local folder statuses:', mountsResponse.errorCode)
+          return
+        }
+        const nextStatuses: Record<string, NotebookStatus> = {}
+        for (const mount of mountsResponse.result.mounts) {
+          nextStatuses[mount.notebook.id] = mount.mount.status
+        }
+        setLocalFolderStatuses(nextStatuses)
+      } catch (error) {
+        console.error('Failed to refresh local folder statuses:', error)
+      }
+    })()
+
+    localFolderStatusRefreshInFlightRef.current = task
+    void task.finally(() => {
+      if (localFolderStatusRefreshInFlightRef.current === task) {
+        localFolderStatusRefreshInFlightRef.current = null
+      }
+    })
+    return task
+  }, [])
+
+  const handleMountStatusSearchError = useCallback((_errorCode: LocalFolderFileErrorCode) => {
+    void refreshLocalFolderStatuses()
+  }, [refreshLocalFolderStatuses])
+
+  const handleLocalFolderTreeResponseFailure = useCallback((
+    notebookId: string,
+    response: Extract<LocalFolderGetTreeResponse, { success: false }>
+  ) => {
+    if (response.errorCode === 'LOCAL_MOUNT_UNAVAILABLE') {
+      setLocalFolderTree((prev) => (
+        prev?.notebook_id === notebookId ? null : prev
+      ))
+      setLocalFolderTreeCache((prev) => {
+        if (!(notebookId in prev)) return prev
+        const next = { ...prev }
+        delete next[notebookId]
+        return next
+      })
+      setLocalFolderTreeDirty((prev) => {
+        if (!(notebookId in prev)) return prev
+        const next = { ...prev }
+        delete next[notebookId]
+        return next
+      })
+      setLocalNotebookHasChildFolders((prev) => {
+        if (!(notebookId in prev)) return prev
+        const next = { ...prev }
+        delete next[notebookId]
+        return next
+      })
+      setLocalNotebookNoteCounts((prev) => {
+        if (!(notebookId in prev)) return prev
+        const next = { ...prev }
+        delete next[notebookId]
+        return next
+      })
+      setLocalFolderStatuses((prev) => {
+        if (prev[notebookId] === response.mount_status) return prev
+        return { ...prev, [notebookId]: response.mount_status }
+      })
+      return
+    }
+
+    const cachedTree = localFolderTreeCacheRef.current[notebookId] || null
+    if (cachedTree) {
+      setLocalFolderTree((prev) => {
+        if (prev && prev.notebook_id !== notebookId) return prev
+        if (prev && prev.scanned_at === cachedTree.scanned_at) return prev
+        return cachedTree
+      })
+      setLocalNotebookHasChildFolders((prev) => {
+        const hasChildFolders = hasLocalFolderNodes(cachedTree.tree)
+        if (prev[notebookId] === hasChildFolders) return prev
+        return { ...prev, [notebookId]: hasChildFolders }
+      })
+      setLocalNotebookNoteCounts((prev) => {
+        const nextCount = cachedTree.files.length
+        if (prev[notebookId] === nextCount) return prev
+        return { ...prev, [notebookId]: nextCount }
+      })
+    } else {
+      setLocalFolderTree((prev) => (
+        prev?.notebook_id === notebookId ? null : prev
+      ))
+      setLocalNotebookHasChildFolders((prev) => {
+        if (prev[notebookId] === false) return prev
+        return { ...prev, [notebookId]: false }
+      })
+    }
+    setLocalFolderTreeDirty((prev) => {
+      if (prev[notebookId] === true) return prev
+      const hasCachedTree = Boolean(localFolderTreeCacheRef.current[notebookId])
+      if (!hasCachedTree && prev[notebookId] === undefined) return prev
+      return { ...prev, [notebookId]: true }
+    })
+    void refreshLocalFolderStatuses()
+  }, [refreshLocalFolderStatuses])
+
+  // ---------------------------------------------------------------------------
   // Local folder search (delegated to useLocalFolderSearch)
   // ---------------------------------------------------------------------------
 
@@ -292,31 +477,15 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     localFolderTreeScannedAt: localFolderTree?.scanned_at,
     localStatusToastAtRef,
     resolveLocalFileErrorMessage,
+    onMountStatusSearchError: handleMountStatusSearchError,
   })
-
-  // ---------------------------------------------------------------------------
-  // useCallback: refreshLocalFolderStatuses
-  // ---------------------------------------------------------------------------
-
-  const refreshLocalFolderStatuses = useCallback(async () => {
-    try {
-      const mounts = await window.electron.localFolder.list()
-      const nextStatuses: Record<string, NotebookStatus> = {}
-      for (const mount of mounts) {
-        nextStatuses[mount.notebook.id] = mount.mount.status
-      }
-      setLocalFolderStatuses(nextStatuses)
-    } catch (error) {
-      console.error('Failed to refresh local folder statuses:', error)
-    }
-  }, [])
 
   // ---------------------------------------------------------------------------
   // useCallback: warmupLocalNotebookSummaries
   // ---------------------------------------------------------------------------
 
   const warmupLocalNotebookSummaries = useCallback(async (
-    mounts: Awaited<ReturnType<typeof window.electron.localFolder.list>>,
+    mounts: LocalFolderNotebookMount[],
     warmupOptions?: { notebookIds?: string[] }
   ) => {
     const activeNotebookIdSet = new Set(
@@ -343,9 +512,17 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
             if (currentIndex >= items.length) break
             const notebookId = items[currentIndex]
             try {
-              const tree = await window.electron.localFolder.getTree(notebookId)
-              if (!tree) continue
-              scannedTrees[notebookId] = tree
+              const response = await window.electron.localFolder.getTree(notebookId)
+              if (!response.success) {
+                if (response.errorCode === 'LOCAL_MOUNT_UNAVAILABLE') {
+                  setLocalFolderStatuses((prev) => {
+                    if (prev[notebookId] === response.mount_status) return prev
+                    return { ...prev, [notebookId]: response.mount_status }
+                  })
+                }
+                continue
+              }
+              scannedTrees[notebookId] = response.result
             } catch (error) {
               console.warn('[local-folder] warmup failed for notebook:', notebookId, error)
             }
@@ -419,64 +596,93 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     notebookId: string,
     refreshOptions?: { showLoading?: boolean }
   ): Promise<LocalFolderTreeResult | null> => {
-    const requestVersion = localTreeLoadVersionRef.current + 1
-    localTreeLoadVersionRef.current = requestVersion
+    const currentEpoch = localTreeLoadEpochRef.current
+    const inFlight = localTreeLoadTaskRef.current.get(notebookId)
+    if (inFlight) {
+      if (inFlight.epoch === currentEpoch) {
+        if (refreshOptions?.showLoading) {
+          setLocalFolderTreeLoadingForNotebook(notebookId, true)
+        }
+        return inFlight.task
+      }
+      localTreeLoadTaskRef.current.delete(notebookId)
+    }
+
+    const requestEpoch = localTreeLoadEpochRef.current
+    const requestVersion = (localTreeLoadVersionRef.current.get(notebookId) ?? 0) + 1
+    localTreeLoadVersionRef.current.set(notebookId, requestVersion)
     const hasCachedTree = Boolean(localFolderTreeCacheRef.current[notebookId])
     const shouldShowLoading = refreshOptions?.showLoading ?? !hasCachedTree
     if (shouldShowLoading) {
-      setLocalFolderTreeLoading(true)
+      setLocalFolderTreeLoadingForNotebook(notebookId, true)
     }
 
-    try {
-      const tree = await window.electron.localFolder.getTree(notebookId)
-      if (requestVersion !== localTreeLoadVersionRef.current) {
-        return null
-      }
-      setLocalFolderTree(tree)
-      if (tree) {
+    const isCurrentRequest = () => (
+      localTreeLoadEpochRef.current === requestEpoch
+      && (localTreeLoadVersionRef.current.get(notebookId) ?? 0) === requestVersion
+    )
+
+    const task = (async (): Promise<LocalFolderTreeResult | null> => {
+      try {
+        const treeResponse = await window.electron.localFolder.getTree(notebookId)
+        if (!isCurrentRequest()) {
+          return null
+        }
+        if (!treeResponse.success) {
+          handleLocalFolderTreeResponseFailure(notebookId, treeResponse)
+          return null
+        }
+        const tree = treeResponse.result
+        setLocalFolderTree(tree)
         setLocalFolderTreeCache((prev) => ({ ...prev, [notebookId]: tree }))
         setLocalNotebookNoteCounts((prev) => {
           const nextCount = tree.files.length
           if (prev[notebookId] === nextCount) return prev
           return { ...prev, [notebookId]: nextCount }
         })
-      }
-      setLocalFolderTreeDirty((prev) => {
-        if (prev[notebookId] === false) return prev
-        return { ...prev, [notebookId]: false }
-      })
-      setLocalNotebookHasChildFolders((prev) => {
-        const hasChildFolders = Boolean(tree && hasLocalFolderNodes(tree.tree))
-        if (prev[notebookId] === hasChildFolders) return prev
-        return { ...prev, [notebookId]: hasChildFolders }
-      })
-      if (tree) {
+        setLocalFolderTreeDirty((prev) => {
+          if (prev[notebookId] === false) return prev
+          return { ...prev, [notebookId]: false }
+        })
+        setLocalNotebookHasChildFolders((prev) => {
+          const hasChildFolders = hasLocalFolderNodes(tree.tree)
+          if (prev[notebookId] === hasChildFolders) return prev
+          return { ...prev, [notebookId]: hasChildFolders }
+        })
         setLocalFolderStatuses((prev) => {
           if (prev[notebookId] === 'active') return prev
           return { ...prev, [notebookId]: 'active' }
         })
-      } else {
-        void refreshLocalFolderStatuses()
+        return tree
+      } catch (error) {
+        if (isCurrentRequest()) {
+          console.error('Failed to load local folder tree:', error)
+          handleLocalFolderTreeResponseFailure(notebookId, {
+            success: false,
+            errorCode: 'LOCAL_MOUNT_PATH_UNREACHABLE',
+          })
+        }
+        return null
+      } finally {
+        if (isCurrentRequest()) {
+          setLocalFolderTreeLoadingForNotebook(notebookId, false)
+        }
       }
-      return tree
-    } catch (error) {
-      if (requestVersion === localTreeLoadVersionRef.current) {
-        console.error('Failed to load local folder tree:', error)
-        setLocalFolderTree(null)
-        setLocalFolderTreeDirty((prev) => ({ ...prev, [notebookId]: true }))
-        setLocalNotebookHasChildFolders((prev) => {
-          if (prev[notebookId] === false) return prev
-          return { ...prev, [notebookId]: false }
-        })
-      }
-      void refreshLocalFolderStatuses()
-      return null
+    })()
+
+    localTreeLoadTaskRef.current.set(notebookId, {
+      epoch: requestEpoch,
+      task,
+    })
+    try {
+      return await task
     } finally {
-      if (requestVersion === localTreeLoadVersionRef.current) {
-        setLocalFolderTreeLoading(false)
+      const latestTask = localTreeLoadTaskRef.current.get(notebookId)
+      if (latestTask?.task === task) {
+        localTreeLoadTaskRef.current.delete(notebookId)
       }
     }
-  }, [refreshLocalFolderStatuses])
+  }, [handleLocalFolderTreeResponseFailure, setLocalFolderTreeLoadingForNotebook])
 
   // ---------------------------------------------------------------------------
   // useCallback: processLocalFileSaveQueue
@@ -487,6 +693,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       return localSaveTaskRef.current
     }
 
+    let shouldDrainPendingAfterTask = true
     const task = (async () => {
       while (true) {
         if (localSaveBlockedByConflictRef.current) {
@@ -531,6 +738,10 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
             toast(t.notebook.fileConflictDetected, { type: 'error' })
             break
           }
+          // Keep pending content for a later explicit flush/retry so transient
+          // write failures don't silently drop unsaved user edits.
+          localPendingContentRef.current = pending
+          shouldDrainPendingAfterTask = false
           toast(resolveLocalFileErrorMessage(result.errorCode), { type: 'error' })
           break
         }
@@ -545,7 +756,11 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       }
     })().finally(() => {
       localSaveTaskRef.current = null
-      if (localPendingContentRef.current && !localSaveBlockedByConflictRef.current) {
+      if (
+        shouldDrainPendingAfterTask
+        && localPendingContentRef.current
+        && !localSaveBlockedByConflictRef.current
+      ) {
         void processLocalFileSaveQueue()
       }
     })
@@ -704,7 +919,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         setLocalSaveConflictDialog(null)
         if (!keepNextSelection) {
           setLocalEditorNote(null)
-          setSelectedLocalFilePath(null)
+          setSelectedLocalFilePathNormalized(null)
         }
       }
       if (selectedNotebookId === draft.notebookId) {
@@ -717,35 +932,63 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     } finally {
       clearLocalAutoDraft()
     }
-  }, [clearLocalAutoDraft, flushLocalFileSave, refreshLocalFolderTree, selectedNotebookId, suppressLocalWatchRefresh])
+  }, [
+    clearLocalAutoDraft,
+    flushLocalFileSave,
+    refreshLocalFolderTree,
+    selectedNotebookId,
+    setSelectedLocalFilePathNormalized,
+    suppressLocalWatchRefresh,
+  ])
+
+  const clearLocalOpenFileRuntime = useCallback((options?: {
+    clearSelectedFilePath?: boolean
+    clearSelectedFolderPath?: boolean
+    clearSaveTimer?: boolean
+    clearAutoDraft?: boolean
+  }) => {
+    if (options?.clearSaveTimer && localSaveTimerRef.current) {
+      clearTimeout(localSaveTimerRef.current)
+      localSaveTimerRef.current = null
+    }
+    if (options?.clearSelectedFolderPath) {
+      setSelectedLocalFolderPathNormalized(null)
+    }
+    if (options?.clearSelectedFilePath) {
+      setSelectedLocalFilePathNormalized(null)
+    }
+    setLocalEditorNote(null)
+    setLocalEditorLoading(false)
+    localFileReadVersionRef.current += 1
+    localOpenFileRef.current = null
+    localOpeningFileRef.current = null
+    localOpeningFileTaskRef.current = null
+    localOpenFileMetaRef.current = null
+    localPendingContentRef.current = null
+    localSaveBlockedByConflictRef.current = false
+    setLocalSaveConflictDialog(null)
+    if (options?.clearAutoDraft) {
+      clearLocalAutoDraft()
+    }
+  }, [clearLocalAutoDraft, setSelectedLocalFilePathNormalized, setSelectedLocalFolderPathNormalized])
 
   // ---------------------------------------------------------------------------
   // useCallback: resetLocalEditorState
   // ---------------------------------------------------------------------------
 
   const resetLocalEditorState = useCallback(() => {
-    localFileReadVersionRef.current += 1
-    localTreeLoadVersionRef.current += 1
-    if (localSaveTimerRef.current) {
-      clearTimeout(localSaveTimerRef.current)
-      localSaveTimerRef.current = null
-    }
-    setSelectedLocalFolderPath(null)
-    setSelectedLocalFilePath(null)
-    setLocalEditorNote(null)
-    setLocalEditorLoading(false)
+    localTreeLoadEpochRef.current += 1
+    localTreeLoadTaskRef.current.clear()
+    clearLocalOpenFileRuntime({
+      clearSelectedFolderPath: true,
+      clearSelectedFilePath: true,
+      clearSaveTimer: true,
+      clearAutoDraft: true,
+    })
     localFolderDialogsResetRef.current()
-    setLocalSaveConflictDialog(null)
     setLocalSaveConflictSubmitting(false)
     resetLocalSearch()
-    localSaveBlockedByConflictRef.current = false
-    localOpenFileRef.current = null
-    localOpeningFileRef.current = null
-    localOpeningFileTaskRef.current = null
-    localOpenFileMetaRef.current = null
-    localPendingContentRef.current = null
-    localAutoDraftRef.current = null
-  }, [resetLocalSearch])
+  }, [clearLocalOpenFileRuntime, resetLocalSearch])
 
   // ---------------------------------------------------------------------------
   // useCallback: handleUpdateLocalFile
@@ -798,6 +1041,9 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     relativePath: string,
     notebookIdOverride?: string
   ): Promise<LocalFolderFileContent | null> => {
+    const normalizedRelativePath = normalizeLocalRelativePath(relativePath)
+    if (!normalizedRelativePath) return null
+
     const targetNotebookId = notebookIdOverride || selectedNotebookId
     if (!targetNotebookId) return null
     const selectedNotebook = notebooks.find((item) => item.id === targetNotebookId)
@@ -807,7 +1053,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     const isSameInFlightRequest = Boolean(
       currentOpeningFile
       && currentOpeningFile.notebookId === targetNotebookId
-      && currentOpeningFile.relativePath === relativePath
+      && currentOpeningFile.relativePath === normalizedRelativePath
     )
     if (isSameInFlightRequest) {
       const inFlightTask = localOpeningFileTaskRef.current
@@ -815,7 +1061,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       // Recover from stale in-flight marker.
       localOpeningFileRef.current = null
     }
-    localOpeningFileRef.current = { notebookId: targetNotebookId, relativePath }
+    localOpeningFileRef.current = { notebookId: targetNotebookId, relativePath: normalizedRelativePath }
 
     const openTaskHolder: { task: Promise<LocalFolderFileContent | null> | null } = { task: null }
     const openTask = (async (): Promise<LocalFolderFileContent | null> => {
@@ -824,7 +1070,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         currentOpenFile
         && (
           currentOpenFile.notebookId !== targetNotebookId
-          || currentOpenFile.relativePath !== relativePath
+          || currentOpenFile.relativePath !== normalizedRelativePath
         )
       )
       if (isSwitchingFile) {
@@ -833,21 +1079,21 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
 
       const requestVersion = localFileReadVersionRef.current + 1
       localFileReadVersionRef.current = requestVersion
-      setSelectedLocalFilePath(relativePath)
+      setSelectedLocalFilePathNormalized(normalizedRelativePath)
       setLocalEditorLoading(true)
 
       try {
         await flushLocalFileSave()
         if (requestVersion !== localFileReadVersionRef.current) return null
         await cleanupLocalAutoDraftIfNeeded(
-          { notebookId: targetNotebookId, relativePath },
+          { notebookId: targetNotebookId, relativePath: normalizedRelativePath },
           { skipFlush: true }
         )
         if (requestVersion !== localFileReadVersionRef.current) return null
 
         const result = await window.electron.localFolder.readFile({
           notebook_id: targetNotebookId,
-          relative_path: relativePath,
+          relative_path: normalizedRelativePath,
         })
         if (requestVersion !== localFileReadVersionRef.current) return null
 
@@ -863,7 +1109,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         setLocalEditorNote(buildLocalEditorNote(result.result))
         localOpenFileRef.current = {
           notebookId: targetNotebookId,
-          relativePath,
+          relativePath: normalizedRelativePath,
         }
         localOpenFileMetaRef.current = {
           size: result.result.size,
@@ -889,7 +1135,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         if (
           currentOpening
           && currentOpening.notebookId === targetNotebookId
-          && currentOpening.relativePath === relativePath
+          && currentOpening.relativePath === normalizedRelativePath
           && localOpeningFileTaskRef.current === openTaskHolder.task
         ) {
           localOpeningFileRef.current = null
@@ -910,6 +1156,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     flushLocalFileSave,
     notebooks,
     resolveLocalFileErrorMessage,
+    setSelectedLocalFilePathNormalized,
     selectedNotebookId,
     t.notebook.fileOpenFailed,
   ])
@@ -1003,7 +1250,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     const selectedFile = selectedFilePath
       ? (localFolderTree?.files || []).find((file) => file.relative_path === selectedFilePath) || null
       : null
-    const hasExplicitParent = Boolean(resolveOptions && Object.prototype.hasOwnProperty.call(resolveOptions, 'parentRelativePath'))
+    const hasExplicitParent = hasOwnDefinedProperty(resolveOptions, 'parentRelativePath')
     return hasExplicitParent
       ? resolveOptions?.parentRelativePath ?? null
       : (selectedLocalFolderPath !== null
@@ -1025,7 +1272,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     const selectedNotebook = notebooks.find((item) => item.id === selectedNotebookId)
     if (!selectedNotebook || selectedNotebook.source_type !== 'local-folder') return null
 
-    const parentRelativePath = createOptions && Object.prototype.hasOwnProperty.call(createOptions, 'parentRelativePath')
+    const parentRelativePath = hasOwnDefinedProperty(createOptions, 'parentRelativePath')
       ? resolveLocalCreateParentPath({ parentRelativePath: createOptions.parentRelativePath ?? null })
       : resolveLocalCreateParentPath()
     const normalizedPreferredName = normalizeLocalPreferredFileName(createOptions?.preferredName || '')
@@ -1063,7 +1310,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       return { relativePath: createdPath }
     }
 
-    setSelectedLocalFolderPath(parentRelativePath)
+    setSelectedLocalFolderPathNormalized(parentRelativePath)
     const openedFile = await openLocalFile(createdPath)
     if (createOptions?.autoDraft && openedFile) {
       localAutoDraftRef.current = {
@@ -1091,6 +1338,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     refreshLocalFolderTree,
     resolveLocalCreateParentPath,
     resolveLocalFileErrorMessage,
+    setSelectedLocalFolderPathNormalized,
     selectedNotebookId,
     suppressLocalWatchRefresh,
     t.notebook.createErrorAlreadyExists,
@@ -1259,21 +1507,13 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     void (async () => {
       await flushLocalFileSave()
       await cleanupLocalAutoDraftIfNeeded(null, { skipFlush: true })
-      setSelectedLocalFolderPath(folderPath)
-      setSelectedLocalFilePath(null)
-      setLocalEditorNote(null)
-      setLocalEditorLoading(false)
-      localFileReadVersionRef.current += 1
-      localOpenFileRef.current = null
-      localOpeningFileRef.current = null
-      localOpeningFileTaskRef.current = null
-      localOpenFileMetaRef.current = null
-      localSaveBlockedByConflictRef.current = false
-      setLocalSaveConflictDialog(null)
-      localPendingContentRef.current = null
-      clearLocalAutoDraft()
+      setSelectedLocalFolderPathNormalized(folderPath)
+      clearLocalOpenFileRuntime({
+        clearSelectedFilePath: true,
+        clearAutoDraft: true,
+      })
     })()
-  }, [cleanupLocalAutoDraftIfNeeded, clearLocalAutoDraft, flushLocalFileSave])
+  }, [cleanupLocalAutoDraftIfNeeded, clearLocalOpenFileRuntime, flushLocalFileSave, setSelectedLocalFolderPathNormalized])
 
   // ---------------------------------------------------------------------------
   // useLocalFolderDialogs
@@ -1294,8 +1534,8 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     refreshLocalFolderTree,
     getOpenFileInfo: () => localOpenFileRef.current,
     onSelectionChange: (updates) => {
-      if ('localFilePath' in updates) setSelectedLocalFilePath(updates.localFilePath ?? null)
-      if ('localFolderPath' in updates) setSelectedLocalFolderPath(updates.localFolderPath ?? null)
+      if ('localFilePath' in updates) setSelectedLocalFilePathNormalized(updates.localFilePath ?? null)
+      if ('localFolderPath' in updates) setSelectedLocalFolderPathNormalized(updates.localFolderPath ?? null)
     },
     onMetadataMigrate: migrateLocalNoteMetadataInState,
     onMetadataRemove: removeLocalNoteMetadataInState,
@@ -1315,16 +1555,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       }
     },
     onLocalEditorClear: () => {
-      setLocalEditorNote(null)
-      setLocalEditorLoading(false)
-      localFileReadVersionRef.current += 1
-      localOpenFileRef.current = null
-      localOpeningFileRef.current = null
-      localOpeningFileTaskRef.current = null
-      localOpenFileMetaRef.current = null
-      localSaveBlockedByConflictRef.current = false
-      setLocalSaveConflictDialog(null)
-      localPendingContentRef.current = null
+      clearLocalOpenFileRuntime()
     },
     allViewLocalEditorTarget,
     setAllViewLocalEditorTarget,
@@ -1590,20 +1821,19 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   // ---------------------------------------------------------------------------
 
   const handleLocalMountUnavailable = useCallback((notebookId: string) => {
-    setLocalFolderTree(null)
-    setSelectedLocalFilePath(null)
-    setLocalEditorNote(null)
-    setLocalEditorLoading(false)
-    localOpenFileRef.current = null
-    localOpenFileMetaRef.current = null
-    localPendingContentRef.current = null
-    localSaveBlockedByConflictRef.current = false
-    setLocalSaveConflictDialog(null)
-    clearLocalAutoDraft()
+    clearLocalOpenFileRuntime({
+      clearSelectedFolderPath: true,
+      clearSelectedFilePath: true,
+      clearSaveTimer: true,
+      clearAutoDraft: true,
+    })
+    setLocalFolderTree((prev) => (
+      prev?.notebook_id === notebookId ? null : prev
+    ))
     setAllViewLocalEditorTarget((prev) => (
       prev && prev.notebookId === notebookId ? null : prev
     ))
-  }, [clearLocalAutoDraft, setAllViewLocalEditorTarget])
+  }, [clearLocalOpenFileRuntime, setAllViewLocalEditorTarget])
 
   // ---------------------------------------------------------------------------
   // useCallback: resolveLocalFolderMountErrorMessage
@@ -1617,6 +1847,8 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         return t.notebook.mountErrorNotFound
       case 'LOCAL_NOTEBOOK_NOT_FOUND':
         return t.notebook.localFolderMissing
+      case 'LOCAL_MOUNT_OPEN_FAILED':
+        return t.notebook.mountErrorUnreachable
       case 'LOCAL_MOUNT_ALREADY_EXISTS':
         return t.notebook.mountErrorAlreadyExists
       case 'LOCAL_MOUNT_PATH_UNREACHABLE':
@@ -1633,55 +1865,55 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
 
   const handleOpenLocalFolderInFileManager = useCallback(async (notebookId: string) => {
     try {
-      const opened = await window.electron.localFolder.openInFileManager(notebookId)
-      if (!opened) {
-        toast(t.notebook.mountErrorNotFound, { type: 'error' })
+      const openResult = await window.electron.localFolder.openInFileManager(notebookId)
+      if (!openResult.success) {
+        toast(resolveLocalFolderMountErrorMessage(openResult.errorCode), { type: 'error' })
       }
     } catch (error) {
       console.error('Failed to open local folder in file manager:', error)
       toast(t.notebook.mountErrorUnreachable, { type: 'error' })
     }
   }, [
-    t.notebook.mountErrorNotFound,
+    resolveLocalFolderMountErrorMessage,
     t.notebook.mountErrorUnreachable,
   ])
 
-  // ---------------------------------------------------------------------------
-  // useCallback: handleAddLocalFolder
-  // ---------------------------------------------------------------------------
-
-  const handleAddLocalFolder = useCallback(async () => {
-    try {
-      await flushLocalFileSave()
-      await cleanupLocalAutoDraftIfNeeded(null, { skipFlush: true })
-      const rootPath = await window.electron.localFolder.selectRoot()
-      if (!rootPath) return
-
-      const mounted = await window.electron.localFolder.mount({ root_path: rootPath })
-      if (!mounted.success) {
-        toast(resolveLocalFolderMountErrorMessage(mounted.errorCode), { type: 'error' })
-        return
-      }
-
-      const notebooksData = await window.electron.notebook.getAll()
-      setNotebooks(notebooksData as Notebook[])
-      setLocalFolderStatuses((prev) => ({ ...prev, [mounted.result.notebook.id]: 'active' }))
-      setSelectedNotebookId(mounted.result.notebook.id)
-      setSelectedSmartView(null)
-      setIsTypewriterMode(false)
-      setSelectedNoteIds([])
-      setAnchorNoteId(null)
-      resetLocalEditorState()
-    } catch (error) {
-      console.error('Failed to mount local folder:', error)
-      toast(resolveLocalFolderMountErrorMessage('LOCAL_MOUNT_PATH_UNREACHABLE'), { type: 'error' })
-    }
+  const convergeRecoveredLocalFolderMount = useCallback(async (notebookId: string): Promise<boolean> => {
+    return convergeRecoveredLocalFolder({
+      notebookId,
+      refreshLocalFolderTree,
+      refreshLocalFolderStatuses: () => refreshLocalFolderStatuses({ force: true }),
+      setLocalFolderStatuses,
+      refreshOpenLocalFileFromDisk,
+      notifyRecovered: () => {
+        toast(t.notebook.localFolderRecovered, { type: 'success' })
+      },
+      notifyRecoverFailed: () => {
+        toast(resolveLocalFolderMountErrorMessage('LOCAL_MOUNT_PATH_UNREACHABLE'), { type: 'error' })
+      },
+      log: console.error,
+    })
   }, [
-    cleanupLocalAutoDraftIfNeeded,
-    flushLocalFileSave,
-    resetLocalEditorState,
+    refreshLocalFolderStatuses,
+    refreshLocalFolderTree,
+    refreshOpenLocalFileFromDisk,
     resolveLocalFolderMountErrorMessage,
-    setNotebooks,
+    t.notebook.localFolderRecovered,
+  ])
+
+  // ---------------------------------------------------------------------------
+  // useCallback: activateLocalNotebookSelection
+  // ---------------------------------------------------------------------------
+
+  const activateLocalNotebookSelection = useCallback((notebookId: string) => {
+    setSelectedNotebookId(notebookId)
+    setSelectedSmartView(null)
+    setIsTypewriterMode(false)
+    setSelectedNoteIds([])
+    setAnchorNoteId(null)
+    resetLocalEditorState()
+  }, [
+    resetLocalEditorState,
     setSelectedNotebookId,
     setSelectedSmartView,
     setIsTypewriterMode,
@@ -1690,39 +1922,153 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   ])
 
   // ---------------------------------------------------------------------------
+  // useCallback: handleAddLocalFolder
+  // ---------------------------------------------------------------------------
+
+  const handleAddLocalFolder = useCallback(async () => {
+    if (localMountMutationInFlightRef.current) return
+    localMountMutationInFlightRef.current = true
+    setLocalMountMutationSubmitting(true)
+    try {
+      await flushLocalFileSave()
+      await cleanupLocalAutoDraftIfNeeded(null, { skipFlush: true })
+      const selected = await window.electron.localFolder.selectRoot()
+      if (!selected.success) {
+        if (selected.errorCode !== 'LOCAL_MOUNT_DIALOG_CANCELED') {
+          toast(resolveLocalFolderMountErrorMessage(selected.errorCode), { type: 'error' })
+        }
+        return
+      }
+      const rootPath = selected.root_path
+
+      const mounted = await window.electron.localFolder.mount({ root_path: rootPath })
+      if (!mounted.success) {
+        if (mounted.errorCode === 'LOCAL_MOUNT_ALREADY_EXISTS' && mounted.existing_mount?.notebook_id) {
+          const existingNotebookId = mounted.existing_mount.notebook_id
+          setLocalFolderStatuses((prev) => ({
+            ...prev,
+            [existingNotebookId]: mounted.existing_mount?.status || prev[existingNotebookId] || 'active',
+          }))
+          activateLocalNotebookSelection(existingNotebookId)
+
+          if (mounted.existing_mount.status !== 'active') {
+            const relinked = await window.electron.localFolder.relink({
+              notebook_id: existingNotebookId,
+              root_path: rootPath,
+            })
+            if (!relinked.success) {
+              toast(resolveLocalFolderMountErrorMessage(relinked.errorCode), { type: 'error' })
+              return
+            }
+            await convergeRecoveredLocalFolderMount(existingNotebookId)
+            return
+          }
+
+          void refreshLocalFolderTree(existingNotebookId, { showLoading: false })
+          toast(resolveLocalFolderMountErrorMessage(mounted.errorCode), { type: 'info' })
+          return
+        }
+        toast(resolveLocalFolderMountErrorMessage(mounted.errorCode), { type: 'error' })
+        return
+      }
+
+      const mountedNotebook = mounted.result.notebook as Notebook
+      try {
+        const notebooksData = await window.electron.notebook.getAll()
+        setNotebooks(notebooksData as Notebook[])
+      } catch (error) {
+        // Mount already succeeded in main process. If notebook list refresh fails,
+        // keep UI convergent by appending the mounted notebook locally.
+        console.warn('[local-folder] mount succeeded but notebook refresh failed:', error)
+        setNotebooks((prev) => (
+          prev.some((item) => item.id === mountedNotebook.id)
+            ? prev
+            : [...prev, mountedNotebook]
+        ))
+      }
+      setLocalFolderStatuses((prev) => ({ ...prev, [mounted.result.notebook.id]: 'active' }))
+      activateLocalNotebookSelection(mounted.result.notebook.id)
+    } catch (error) {
+      console.error('Failed to mount local folder:', error)
+      toast(resolveLocalFolderMountErrorMessage('LOCAL_MOUNT_PATH_UNREACHABLE'), { type: 'error' })
+    } finally {
+      localMountMutationInFlightRef.current = false
+      setLocalMountMutationSubmitting(false)
+    }
+  }, [
+    activateLocalNotebookSelection,
+    cleanupLocalAutoDraftIfNeeded,
+    convergeRecoveredLocalFolderMount,
+    flushLocalFileSave,
+    refreshLocalFolderTree,
+    resolveLocalFolderMountErrorMessage,
+    setNotebooks,
+  ])
+
+  // ---------------------------------------------------------------------------
   // useCallback: handleRecoverLocalFolderAccess
   // ---------------------------------------------------------------------------
 
   const handleRecoverLocalFolderAccess = useCallback(async (notebookIdOverride?: string) => {
+    if (localMountMutationInFlightRef.current) return
+    localMountMutationInFlightRef.current = true
+    setLocalMountMutationSubmitting(true)
     const targetNotebookId = notebookIdOverride || selectedNotebookId
-    if (!targetNotebookId) return
     try {
-      const rootPath = await window.electron.localFolder.selectRoot()
-      if (!rootPath) return
+      if (!targetNotebookId) return
+      const selected = await window.electron.localFolder.selectRoot()
+      if (!selected.success) {
+        if (selected.errorCode !== 'LOCAL_MOUNT_DIALOG_CANCELED') {
+          toast(resolveLocalFolderMountErrorMessage(selected.errorCode), { type: 'error' })
+        }
+        return
+      }
+      const rootPath = selected.root_path
 
       const relinked = await window.electron.localFolder.relink({
         notebook_id: targetNotebookId,
         root_path: rootPath,
       })
       if (!relinked.success) {
+        if (relinked.errorCode === 'LOCAL_MOUNT_ALREADY_EXISTS' && relinked.existing_mount?.notebook_id) {
+          const existingNotebookId = relinked.existing_mount.notebook_id
+          setLocalFolderStatuses((prev) => ({
+            ...prev,
+            [existingNotebookId]: relinked.existing_mount?.status || prev[existingNotebookId] || 'active',
+          }))
+          activateLocalNotebookSelection(existingNotebookId)
+          if (relinked.existing_mount.status !== 'active') {
+            const recovered = await window.electron.localFolder.relink({
+              notebook_id: existingNotebookId,
+              root_path: rootPath,
+            })
+            if (!recovered.success) {
+              toast(resolveLocalFolderMountErrorMessage(recovered.errorCode), { type: 'error' })
+              return
+            }
+            await convergeRecoveredLocalFolderMount(existingNotebookId)
+            return
+          }
+          toast(resolveLocalFolderMountErrorMessage(relinked.errorCode), { type: 'info' })
+          return
+        }
         toast(resolveLocalFolderMountErrorMessage(relinked.errorCode), { type: 'error' })
         return
       }
 
-      setLocalFolderStatuses((prev) => ({ ...prev, [targetNotebookId]: 'active' }))
-      await refreshLocalFolderTree(targetNotebookId)
-      await refreshOpenLocalFileFromDisk()
-      toast(t.notebook.localFolderRecovered, { type: 'success' })
+      await convergeRecoveredLocalFolderMount(targetNotebookId)
     } catch (error) {
       console.error('Failed to relink local folder mount:', error)
       toast(resolveLocalFolderMountErrorMessage('LOCAL_MOUNT_PATH_UNREACHABLE'), { type: 'error' })
+    } finally {
+      localMountMutationInFlightRef.current = false
+      setLocalMountMutationSubmitting(false)
     }
   }, [
-    refreshOpenLocalFileFromDisk,
-    refreshLocalFolderTree,
+    convergeRecoveredLocalFolderMount,
     resolveLocalFolderMountErrorMessage,
     selectedNotebookId,
-    t.notebook.localFolderRecovered,
+    activateLocalNotebookSelection,
   ])
 
   // ---------------------------------------------------------------------------
@@ -1730,35 +2076,15 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   // ---------------------------------------------------------------------------
 
   const cleanupUnmountedLocalNotebook = useCallback((notebookId: string) => {
-    setLocalFolderStatuses((prev) => {
-      const next = { ...prev }
-      delete next[notebookId]
-      return next
-    })
-    setLocalNotebookHasChildFolders((prev) => {
-      if (!(notebookId in prev)) return prev
-      const next = { ...prev }
-      delete next[notebookId]
-      return next
-    })
-    setLocalFolderTreeCache((prev) => {
-      if (!(notebookId in prev)) return prev
-      const next = { ...prev }
-      delete next[notebookId]
-      return next
-    })
-    setLocalFolderTreeDirty((prev) => {
-      if (!(notebookId in prev)) return prev
-      const next = { ...prev }
-      delete next[notebookId]
-      return next
-    })
-    setLocalNotebookNoteCounts((prev) => {
-      if (!(notebookId in prev)) return prev
-      const next = { ...prev }
-      delete next[notebookId]
-      return next
-    })
+    setAllViewLocalEditorTarget((prev) => (
+      prev && prev.notebookId === notebookId ? null : prev
+    ))
+    setLocalFolderStatuses((prev) => removeNotebookScopedRecordKey(prev, notebookId))
+    setLocalFolderTreeLoadingByNotebook((prev) => removeNotebookScopedRecordKey(prev, notebookId))
+    setLocalNotebookHasChildFolders((prev) => removeNotebookScopedRecordKey(prev, notebookId))
+    setLocalFolderTreeCache((prev) => removeNotebookScopedRecordKey(prev, notebookId))
+    setLocalFolderTreeDirty((prev) => removeNotebookScopedRecordKey(prev, notebookId))
+    setLocalNotebookNoteCounts((prev) => removeNotebookScopedRecordKey(prev, notebookId))
     setLocalNoteMetadataById((prev) => {
       let changed = false
       const next: Record<string, LocalNoteMetadata> = {}
@@ -1771,7 +2097,47 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       }
       return changed ? next : prev
     })
-  }, [])
+    const pendingRefreshTimer = localWatchRefreshTimersRef.current.get(notebookId)
+    if (pendingRefreshTimer) {
+      clearTimeout(pendingRefreshTimer)
+      localWatchRefreshTimersRef.current.delete(notebookId)
+    }
+    localWatchRefreshSuppressUntilRef.current.delete(notebookId)
+    localWatchSequenceRef.current.delete(notebookId)
+    clearStatusToastEntriesByNotebookId(localStatusToastAtRef.current, notebookId)
+    localTreeLoadVersionRef.current.delete(notebookId)
+    localTreeLoadTaskRef.current.delete(notebookId)
+
+    if (localFolderTreeRef.current?.notebook_id === notebookId) {
+      setLocalFolderTree(null)
+      setSelectedLocalFolderPathNormalized(null)
+      setSelectedLocalFilePathNormalized(null)
+    }
+
+    const currentEditorLocalRef = localEditorNoteRef.current
+      ? parseLocalResourceId(localEditorNoteRef.current.id)
+      : null
+    if (
+      localOpenFileRef.current?.notebookId === notebookId
+      || localOpeningFileRef.current?.notebookId === notebookId
+      || currentEditorLocalRef?.notebookId === notebookId
+    ) {
+      clearLocalOpenFileRuntime({
+        clearSelectedFilePath: true,
+        clearSaveTimer: true,
+        clearAutoDraft: true,
+      })
+    }
+    if (localAutoDraftRef.current?.notebookId === notebookId) {
+      clearLocalAutoDraft()
+    }
+  }, [
+    clearLocalAutoDraft,
+    clearLocalOpenFileRuntime,
+    setAllViewLocalEditorTarget,
+    setSelectedLocalFilePathNormalized,
+    setSelectedLocalFolderPathNormalized,
+  ])
 
   // ---------------------------------------------------------------------------
   // useLocalFolderWatchEvents
@@ -1779,6 +2145,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
 
   useLocalFolderWatchEvents({
     allViewLocalEditorTarget,
+    localNotebookIdsRef,
     selectedNotebookId,
     isLocalFolderNotebookSelected,
     localFolderMissingText: t.notebook.localFolderMissing,
@@ -1810,35 +2177,52 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
   }, [localNotebookNoteCounts])
 
   // ---------------------------------------------------------------------------
-  // useEffect: Cleanup stale localNotebookNoteCounts entries when notebooks change
+  // useEffect: Cleanup stale local notebook scoped state when notebooks change
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    const localNotebookIds = new Set(
-      notebooks
-        .filter((notebook) => notebook.source_type === 'local-folder')
-        .map((notebook) => notebook.id)
-    )
-    setLocalNotebookNoteCounts((prev) => {
-      let changed = false
-      const next: Record<string, number> = {}
-      for (const [notebookId, count] of Object.entries(prev)) {
-        if (!localNotebookIds.has(notebookId)) {
-          changed = true
-          continue
-        }
-        next[notebookId] = count
-      }
-      return changed ? next : prev
-    })
+    setLocalNotebookNoteCounts((prev) => pruneNotebookScopedRecord(prev, localNotebookIds))
+    setLocalFolderStatuses((prev) => pruneNotebookScopedRecord(prev, localNotebookIds))
+    setLocalFolderTreeLoadingByNotebook((prev) => pruneNotebookScopedRecord(prev, localNotebookIds))
+    setLocalFolderTreeCache((prev) => pruneNotebookScopedRecord(prev, localNotebookIds))
+    setLocalFolderTreeDirty((prev) => pruneNotebookScopedRecord(prev, localNotebookIds))
+    setLocalNotebookHasChildFolders((prev) => pruneNotebookScopedRecord(prev, localNotebookIds))
 
-    const sequenceMap = localWatchSequenceRef.current
-    for (const notebookId of Array.from(sequenceMap.keys())) {
+    pruneNotebookScopedMap(localWatchSequenceRef.current, localNotebookIds)
+    pruneNotebookScopedMap(localWatchRefreshSuppressUntilRef.current, localNotebookIds)
+    pruneNotebookScopedMap(localWatchRefreshTimersRef.current, localNotebookIds, {
+      onPrune: (timer) => clearTimeout(timer),
+    })
+    pruneNotebookScopedMap(localStatusToastAtRef.current, localNotebookIds, {
+      resolveNotebookId: resolveNotebookIdFromStatusToastKey,
+    })
+    for (const notebookId of Array.from(localTreeLoadVersionRef.current.keys())) {
       if (!localNotebookIds.has(notebookId)) {
-        sequenceMap.delete(notebookId)
+        localTreeLoadVersionRef.current.delete(notebookId)
       }
     }
-  }, [notebooks])
+    for (const notebookId of Array.from(localTreeLoadTaskRef.current.keys())) {
+      if (!localNotebookIds.has(notebookId)) {
+        localTreeLoadTaskRef.current.delete(notebookId)
+      }
+    }
+
+    const currentTree = localFolderTreeRef.current
+    if (currentTree && !localNotebookIds.has(currentTree.notebook_id)) {
+      setLocalFolderTree(null)
+      setSelectedLocalFolderPathNormalized(null)
+      setSelectedLocalFilePathNormalized(null)
+    }
+    setAllViewLocalEditorTarget((prev) => {
+      if (!prev) return prev
+      return localNotebookIds.has(prev.notebookId) ? prev : null
+    })
+  }, [
+    localNotebookIds,
+    setAllViewLocalEditorTarget,
+    setSelectedLocalFilePathNormalized,
+    setSelectedLocalFolderPathNormalized,
+  ])
 
   // ---------------------------------------------------------------------------
   // useEffect: Clear allViewLocalEditorTarget when leaving all-source view
@@ -1867,9 +2251,10 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
 
   useEffect(() => {
     if (!selectedNotebookId || !isLocalFolderNotebookSelected) {
-      localTreeLoadVersionRef.current += 1
+      localTreeLoadEpochRef.current += 1
+      localTreeLoadTaskRef.current.clear()
       setLocalFolderTree(null)
-      setLocalFolderTreeLoading(false)
+      setLocalFolderTreeLoadingByNotebook({})
       return
     }
     const cachedTree = localFolderTreeCache[selectedNotebookId]
@@ -1877,7 +2262,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     if (cachedTree) {
       setLocalFolderTree(cachedTree)
       if (!isDirty) {
-        setLocalFolderTreeLoading(false)
+        setLocalFolderTreeLoadingForNotebook(selectedNotebookId, false)
         return
       }
       void refreshLocalFolderTree(selectedNotebookId, { showLoading: false })
@@ -1890,6 +2275,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     localFolderTreeCache,
     localFolderTreeDirty,
     refreshLocalFolderTree,
+    setLocalFolderTreeLoadingForNotebook,
   ])
 
   // ---------------------------------------------------------------------------
@@ -1912,9 +2298,13 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     let cancelled = false
     const refreshAllViewLocalSummaries = async () => {
       try {
-        const mounts = await window.electron.localFolder.list()
+        const mountsResponse = await window.electron.localFolder.list()
+        if (!mountsResponse.success) {
+          console.warn('[local-folder] all-view warmup skipped, mount list failed:', mountsResponse.errorCode)
+          return
+        }
         if (cancelled) return
-        await warmupLocalNotebookSummaries(mounts, { notebookIds: staleNotebookIds })
+        await warmupLocalNotebookSummaries(mountsResponse.result.mounts, { notebookIds: staleNotebookIds })
       } catch (error) {
         console.warn('[local-folder] all-view warmup failed:', error)
       }
@@ -1959,28 +2349,38 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     if (selectedLocalFolderPath) {
       const folderExists = Boolean(findFolderNodeByPath(localFolderTree.tree, selectedLocalFolderPath))
       if (!folderExists) {
-        setSelectedLocalFolderPath(null)
+        setSelectedLocalFolderPathNormalized(null)
       }
     }
 
     if (selectedLocalFilePath) {
       const fileExists = localFolderTree.files.some((file) => file.relative_path === selectedLocalFilePath)
       if (!fileExists) {
-        setSelectedLocalFilePath(null)
-        if (localOpenFileRef.current?.relativePath === selectedLocalFilePath) {
-          setLocalEditorNote(null)
-          setLocalEditorLoading(false)
-          localFileReadVersionRef.current += 1
-          localOpenFileRef.current = null
-          localOpenFileMetaRef.current = null
-          localSaveBlockedByConflictRef.current = false
-          setLocalSaveConflictDialog(null)
-          localPendingContentRef.current = null
-          clearLocalAutoDraft()
+        setSelectedLocalFilePathNormalized(null)
+        if (
+          localOpenFileRef.current?.notebookId === localFolderTree.notebook_id
+          && localOpenFileRef.current?.relativePath === selectedLocalFilePath
+        ) {
+          clearLocalOpenFileRuntime({ clearAutoDraft: true })
         }
       }
     }
-  }, [clearLocalAutoDraft, localFolderTree, selectedLocalFilePath, selectedLocalFolderPath])
+
+    setAllViewLocalEditorTarget((prev) => {
+      if (!prev) return prev
+      if (prev.notebookId !== localFolderTree.notebook_id) return prev
+      const targetExists = localFolderTree.files.some((file) => file.relative_path === prev.relativePath)
+      return targetExists ? prev : null
+    })
+  }, [
+    clearLocalOpenFileRuntime,
+    localFolderTree,
+    selectedLocalFilePath,
+    selectedLocalFolderPath,
+    setAllViewLocalEditorTarget,
+    setSelectedLocalFilePathNormalized,
+    setSelectedLocalFolderPathNormalized,
+  ])
 
   // ---------------------------------------------------------------------------
   // useEffect: Cleanup local auto-draft when leaving local folder editor
@@ -2073,7 +2473,12 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         return
       }
 
-      const newRelativePath = result.result.relative_path
+      const normalizedNewRelativePath = normalizeLocalRelativePath(result.result.relative_path)
+      if (!normalizedNewRelativePath) {
+        suppressLocalWatchRefresh(notebookId)
+        void refreshLocalFolderTree(notebookId, { showLoading: false })
+        return
+      }
 
       // Stale check: user may have navigated to a different file during the async IPC.
       // If so, skip in-place state swap to avoid corrupting the new file's state.
@@ -2084,16 +2489,16 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       if (isStale) {
         // Rename succeeded on disk but we can't do in-place swap.
         // Just refresh tree and migrate metadata so the sidebar reflects the new name.
-        migrateLocalNoteMetadataInState(notebookId, relativePath, newRelativePath, 'file')
+        migrateLocalNoteMetadataInState(notebookId, relativePath, normalizedNewRelativePath, 'file')
         suppressLocalWatchRefresh(notebookId)
         void refreshLocalFolderTree(notebookId, { showLoading: false })
         return
       }
 
       // In-place state swap (no openLocalFile re-read needed)
-      migrateLocalNoteMetadataInState(notebookId, relativePath, newRelativePath, 'file')
-      setSelectedLocalFilePath(newRelativePath)
-      localOpenFileRef.current = { notebookId, relativePath: newRelativePath }
+      migrateLocalNoteMetadataInState(notebookId, relativePath, normalizedNewRelativePath, 'file')
+      setSelectedLocalFilePathNormalized(normalizedNewRelativePath)
+      localOpenFileRef.current = { notebookId, relativePath: normalizedNewRelativePath }
       // Restore conflict-detection meta from rename response so the next save
       // can detect external changes instead of skipping the check entirely.
       if (result.result.mtime_ms != null && result.result.size != null) {
@@ -2106,7 +2511,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
         localOpenFileMetaRef.current = null
       }
 
-      const newNoteId = createLocalResourceId(notebookId, newRelativePath)
+      const newNoteId = createLocalResourceId(notebookId, normalizedNewRelativePath)
       setLocalEditorNote((prev) => {
         if (!prev || prev.id !== currentNoteId) return prev
         return { ...prev, id: newNoteId, title: trimmedTitle }
@@ -2114,7 +2519,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
 
       setAllViewLocalEditorTarget((prev) =>
         prev && prev.notebookId === notebookId && prev.relativePath === relativePath
-          ? { noteId: newNoteId, notebookId, relativePath: newRelativePath }
+          ? { noteId: newNoteId, notebookId, relativePath: normalizedNewRelativePath }
           : prev
       )
 
@@ -2143,6 +2548,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     refreshLocalFolderTree,
     resolveLocalFileErrorMessage,
     setAllViewLocalEditorTarget,
+    setSelectedLocalFilePathNormalized,
     suppressLocalWatchRefresh,
     t.notebook.renameFailed,
   ])
@@ -2167,6 +2573,7 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
     localEditorLoading,
     localSaveConflictDialog,
     localSaveConflictSubmitting,
+    localMountMutationSubmitting,
 
     // State setters (exposed for App.tsx loadData effect and useNoteDataChangedReload)
     setLocalNoteMetadataById,

@@ -14,6 +14,7 @@ import type { WebContents } from 'electron'
 import {
   getEmbeddingConfig,
   insertNoteChunks,
+  deleteNoteIndexes as deleteNoteIndexesFromDatabase,
   deleteChunksByIds,
   insertEmbeddings,
   deleteEmbeddingsByChunkIds,
@@ -21,7 +22,6 @@ import {
   deleteNoteEmbeddings,
   updateNoteIndexStatus,
   getNoteIndexStatus,
-  deleteNoteIndexStatus,
   getNoteChunks,
   updateChunksMetadata,
   clearAllIndexData,
@@ -38,12 +38,49 @@ import { parseLocalResourceId } from '../../shared/local-resource-id'
 
 // 摘要触发阈值：Chunk 变化率超过 30% 时重新生成摘要
 const SUMMARY_CHANGE_THRESHOLD = 0.3
+const INDEXING_VERBOSE = process.env.KB_INDEXING_VERBOSE === '1'
+const INDEXING_VERBOSE_SAMPLE_EVERY = Number.isFinite(Number(process.env.KB_INDEXING_VERBOSE_SAMPLE_EVERY))
+  ? Math.max(1, Math.floor(Number(process.env.KB_INDEXING_VERBOSE_SAMPLE_EVERY)))
+  : 200
+const INDEXING_COOPERATIVE_YIELD_ENABLED = process.env.NODE_ENV === 'test'
+  ? process.env.KB_INDEXING_COOPERATIVE_YIELD_ENABLED === '1'
+  : process.env.KB_INDEXING_COOPERATIVE_YIELD_ENABLED !== '0'
+const INDEXING_COOPERATIVE_YIELD_INTERVAL = Number.isFinite(Number(process.env.KB_INDEXING_COOPERATIVE_YIELD_INTERVAL))
+  ? Math.max(1, Math.floor(Number(process.env.KB_INDEXING_COOPERATIVE_YIELD_INTERVAL)))
+  : 2
+const verboseSampleCounters = new Map<string, number>()
+let cooperativeYieldCounter = 0
+
+function logVerbose(...args: unknown[]): void {
+  if (!INDEXING_VERBOSE) return
+  console.log(...args)
+}
+
+function logVerboseSampled(counterKey: string, message: string): void {
+  if (!INDEXING_VERBOSE) return
+  const nextCount = (verboseSampleCounters.get(counterKey) || 0) + 1
+  verboseSampleCounters.set(counterKey, nextCount)
+  if (nextCount === 1 || nextCount % INDEXING_VERBOSE_SAMPLE_EVERY === 0) {
+    console.log(`${message} [count=${nextCount}]`)
+  }
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
+async function maybeYieldToEventLoop(): Promise<void> {
+  if (!INDEXING_COOPERATIVE_YIELD_ENABLED) return
+  cooperativeYieldCounter += 1
+  if (cooperativeYieldCounter % INDEXING_COOPERATIVE_YIELD_INTERVAL !== 0) return
+  await yieldToEventLoop()
+}
 
 /**
  * 触发 AI Summary 生成（如果需要）
  */
 function triggerSummary(noteId: string, reason: string): void {
-  console.log(`[IndexingService] Note ${noteId} triggering summary (${reason})`)
+  logVerbose(`[IndexingService] Note ${noteId} triggering summary (${reason})`)
   generateSummary(noteId).catch((err) => {
     console.error(`[IndexingService] Summary generation failed for ${noteId}:`, err)
   })
@@ -268,6 +305,25 @@ export class IndexingService {
   private isRunning = false
   private indexingLocks = new Set<string>()  // 防止同一笔记并发索引
 
+  private backfillIndexedFileMtime(
+    existingStatus: NoteIndexStatus | null | undefined,
+    fileMtime?: string
+  ): boolean {
+    if (!existingStatus || !fileMtime) return false
+    if (existingStatus.status !== 'indexed' || existingStatus.ftsStatus !== 'indexed') return false
+    if (existingStatus.fileMtime === fileMtime) return false
+
+    updateNoteIndexStatus({
+      ...existingStatus,
+      fileMtime
+    })
+    logVerboseSampled(
+      'check_and_index:backfill_file_mtime',
+      `[IndexingService] Note ${existingStatus.noteId} backfilled file mtime`
+    )
+    return true
+  }
+
   /**
    * 设置 WebContents 引用（用于发送进度通知）
    */
@@ -281,8 +337,10 @@ export class IndexingService {
   start(): void {
     if (this.isRunning) return
     this.isRunning = true
+    verboseSampleCounters.clear()
+    cooperativeYieldCounter = 0
     scheduleFtsRebuild()
-    console.log('[IndexingService] Started')
+    logVerbose('[IndexingService] Started')
   }
 
   /**
@@ -290,7 +348,7 @@ export class IndexingService {
    */
   stop(): void {
     this.isRunning = false
-    console.log('[IndexingService] Stopped')
+    logVerbose('[IndexingService] Stopped')
   }
 
   /**
@@ -308,7 +366,13 @@ export class IndexingService {
     noteId: string,
     notebookId: string,
     content: string,
-    options?: { ftsOnly?: boolean; fileMtimeMs?: number }
+    options?: {
+      ftsOnly?: boolean
+      fileMtimeMs?: number
+      existingStatus?: NoteIndexStatus | null
+      extractedText?: string
+      contentHash?: string
+    }
   ): Promise<boolean> {
     if (!this.isRunning) return false
 
@@ -331,20 +395,30 @@ export class IndexingService {
 
     // 防止同一笔记并发索引
     if (this.indexingLocks.has(noteId)) {
-      console.log(`[IndexingService] Note ${noteId} is already being indexed, skipping`)
+      logVerboseSampled(
+        'check_and_index:already_locked',
+        `[IndexingService] Note ${noteId} is already being indexed, skipping`
+      )
       return false
     }
 
-    const text = extractTextFromTiptap(content)
+    await maybeYieldToEventLoop()
+
+    const text = options?.extractedText ?? extractTextFromTiptap(content)
 
     // 内容太短，不索引
     if (text.length < MIN_CONTENT_LENGTH) {
-      console.log(`[IndexingService] Note ${noteId} too short (${text.length} chars), skipping`)
+      logVerboseSampled(
+        'check_and_index:too_short',
+        `[IndexingService] Note ${noteId} too short (${text.length} chars), skipping`
+      )
       return false
     }
 
-    const newHash = computeContentHash(text)
-    const existingStatus = getNoteIndexStatus(noteId)
+    const newHash = options?.contentHash ?? computeContentHash(text)
+    const existingStatus = options?.existingStatus === undefined
+      ? getNoteIndexStatus(noteId)
+      : options.existingStatus
     const contentChanged = !existingStatus || existingStatus.contentHash !== newHash
 
     // 加锁
@@ -354,20 +428,33 @@ export class IndexingService {
       if (contentChanged) {
         if (ftsOnly) {
           // ftsOnly: 只建 FTS，不触发 embedding/summary
-          return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime)
+          return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime, {
+            extractedText: text,
+            contentHash: newHash,
+          })
         }
         // 内容变化：根据 embedding 配置决定索引方式
         if (config.enabled) {
           // FTS + Embedding
-          return await this.indexNoteIncremental(noteId, notebookId, text, fileMtime)
+          return await this.indexNoteIncremental(noteId, notebookId, text, fileMtime, {
+            contentHash: newHash,
+          })
         } else {
           // 仅 FTS
-          return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime)
+          return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime, {
+            extractedText: text,
+            contentHash: newHash,
+          })
         }
       } else {
+        this.backfillIndexedFileMtime(existingStatus, fileMtime)
+
         if (ftsOnly) {
           // ftsOnly + 内容未变: 跳过，不检查 embedding/summary
-          console.log(`[IndexingService] Note ${noteId} no change (ftsOnly), skipping`)
+          logVerboseSampled(
+            'check_and_index:no_change_fts_only',
+            `[IndexingService] Note ${noteId} no change (ftsOnly), skipping`
+          )
           return false
         }
 
@@ -375,15 +462,20 @@ export class IndexingService {
         if (existingStatus.status === 'error') {
           // 上次失败，重试
           if (config.enabled) {
-            return await this.indexNoteIncremental(noteId, notebookId, text, fileMtime)
+            return await this.indexNoteIncremental(noteId, notebookId, text, fileMtime, {
+              contentHash: newHash,
+            })
           } else {
-            return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime)
+            return await this.indexNoteFtsOnly(noteId, notebookId, content, fileMtime, {
+              extractedText: text,
+              contentHash: newHash,
+            })
           }
         }
 
         // 检查是否需要补建 embedding
         if (config.enabled && existingStatus.embeddingStatus === 'none') {
-          console.log(`[IndexingService] Note ${noteId} needs embedding build`)
+          logVerbose(`[IndexingService] Note ${noteId} needs embedding build`)
           return await this.buildEmbeddingForNote(noteId)
         }
 
@@ -392,7 +484,10 @@ export class IndexingService {
         if (!summaryInfo0?.ai_summary) {
           triggerSummary(noteId, 'no summary')
         } else {
-          console.log(`[IndexingService] Note ${noteId} no change, skipping`)
+          logVerboseSampled(
+            'check_and_index:no_change',
+            `[IndexingService] Note ${noteId} no change, skipping`
+          )
         }
         return false
       }
@@ -412,11 +507,22 @@ export class IndexingService {
    * 4. 只为新增的 chunks 生成 embedding
    * 5. 删除旧的、插入新的
    */
-  async indexNoteIncremental(noteId: string, notebookId: string, text: string, fileMtime?: string): Promise<boolean> {
+  async indexNoteIncremental(
+    noteId: string,
+    notebookId: string,
+    text: string,
+    fileMtime?: string,
+    options?: { contentHash?: string }
+  ): Promise<boolean> {
     const config = getEmbeddingConfig()
     if (!config.enabled) return false
 
-    console.log(`[IndexingService] Incremental indexing note ${noteId} (${text.length} chars)`)
+    logVerboseSampled(
+      'index_incremental:start',
+      `[IndexingService] Incremental indexing note ${noteId} (${text.length} chars)`
+    )
+    const contentHash = options?.contentHash ?? computeContentHash(text)
+    await maybeYieldToEventLoop()
 
     // 追踪 FTS 是否已写入，用于错误状态精确记录
     let ftsWritten = false
@@ -425,7 +531,7 @@ export class IndexingService {
       // 1. 分块（每个 chunk 已包含 chunkHash）
       const newChunks = chunkNote(noteId, notebookId, text)
       if (newChunks.length === 0) {
-        console.log(`[IndexingService] Note ${noteId} produced no chunks`)
+        logVerbose(`[IndexingService] Note ${noteId} produced no chunks`)
         return false
       }
 
@@ -435,7 +541,7 @@ export class IndexingService {
       // 3. 对比 hash，分类
       const result = diffChunks(oldChunks, newChunks)
 
-      console.log(
+      logVerbose(
         `[IndexingService] Note ${noteId}: +${result.toAdd.length} -${result.toDelete.length} =${result.unchanged.length}`
       )
 
@@ -448,7 +554,7 @@ export class IndexingService {
 
       // 5. 如果没有变化，检查是否需要补生成 summary
       if (result.toAdd.length === 0 && result.toDelete.length === 0) {
-        console.log(`[IndexingService] Note ${noteId} no chunk changes`)
+        logVerbose(`[IndexingService] Note ${noteId} no chunk changes`)
         // 即使 chunks 没变，也要检查是否缺少 summary
         const summaryInfo1 = getSummaryInfoForIndexedNote(noteId)
         if (!summaryInfo1?.ai_summary) {
@@ -463,6 +569,7 @@ export class IndexingService {
         const chunkTexts = result.toAdd.map((c) => c.chunkText)
         embeddings = await getEmbeddings(chunkTexts)
       }
+      await maybeYieldToEventLoop()
 
       // 7. 删除旧的 chunks 和 embeddings（在 embedding 获取成功后再删除）
       if (result.toDelete.length > 0) {
@@ -493,7 +600,7 @@ export class IndexingService {
       // 10. 更新索引状态
       const status: NoteIndexStatus = {
         noteId,
-        contentHash: computeContentHash(text),
+        contentHash,
         chunkCount: newChunks.length,
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
@@ -504,7 +611,10 @@ export class IndexingService {
       }
       updateNoteIndexStatus(status)
 
-      console.log(`[IndexingService] Note ${noteId} indexed successfully`)
+      logVerboseSampled(
+        'index_incremental:success',
+        `[IndexingService] Note ${noteId} indexed successfully`
+      )
 
       // 11. 检查是否需要更新摘要（新笔记、变化率 > 30%、或没有摘要）
       const isNewNote = totalOldChunks === 0
@@ -533,7 +643,7 @@ export class IndexingService {
       const existingStatusForError = getNoteIndexStatus(noteId)
       const status: NoteIndexStatus = {
         noteId,
-        contentHash: computeContentHash(text),
+        contentHash,
         chunkCount: 0,
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
@@ -560,12 +670,22 @@ export class IndexingService {
    * 删除笔记索引
    */
   deleteNoteIndex(noteId: string): void {
-    // 删除数据库中的索引数据
-    deleteNoteChunks(noteId)
-    deleteNoteEmbeddings(noteId)
-    deleteNoteIndexStatus(noteId)
+    this.deleteNoteIndexes([noteId])
+  }
 
-    console.log(`[IndexingService] Note ${noteId} index deleted`)
+  /**
+   * 批量删除笔记索引
+   */
+  deleteNoteIndexes(noteIds: readonly string[]): number {
+    if (!Array.isArray(noteIds) || noteIds.length === 0) return 0
+    const deletedCount = deleteNoteIndexesFromDatabase(noteIds)
+    if (deletedCount > 0) {
+      logVerboseSampled(
+        'delete_note_indexes',
+        `[IndexingService] Deleted note index batch (${deletedCount} notes)`
+      )
+    }
+    return deletedCount
   }
 
   /**
@@ -575,16 +695,30 @@ export class IndexingService {
    * - 导入后默认建立 FTS 索引（本地计算，无成本）
    * - Embedding 索引需要用户手动勾选
    */
-  async indexNoteFtsOnly(noteId: string, notebookId: string, content: string, fileMtime?: string): Promise<boolean> {
-    const text = extractTextFromTiptap(content)
+  async indexNoteFtsOnly(
+    noteId: string,
+    notebookId: string,
+    content: string,
+    fileMtime?: string,
+    options?: { extractedText?: string; contentHash?: string }
+  ): Promise<boolean> {
+    const text = options?.extractedText ?? extractTextFromTiptap(content)
+    const contentHash = options?.contentHash ?? computeContentHash(text)
 
     // 内容太短，不索引
     if (text.length < MIN_CONTENT_LENGTH) {
-      console.log(`[IndexingService] Note ${noteId} too short (${text.length} chars), skipping FTS`)
+      logVerboseSampled(
+        'index_fts_only:too_short',
+        `[IndexingService] Note ${noteId} too short (${text.length} chars), skipping FTS`
+      )
       return false
     }
 
-    console.log(`[IndexingService] FTS-only indexing note ${noteId} (${text.length} chars)`)
+    logVerboseSampled(
+      'index_fts_only:start',
+      `[IndexingService] FTS-only indexing note ${noteId} (${text.length} chars)`
+    )
+    await maybeYieldToEventLoop()
 
     // 追踪 FTS 是否已写入，用于错误状态精确记录
     let ftsWritten = false
@@ -593,9 +727,10 @@ export class IndexingService {
       // 1. 分块
       const chunks = chunkNote(noteId, notebookId, text)
       if (chunks.length === 0) {
-        console.log(`[IndexingService] Note ${noteId} produced no chunks`)
+        logVerbose(`[IndexingService] Note ${noteId} produced no chunks`)
         return false
       }
+      await maybeYieldToEventLoop()
 
       // 2. 删除旧数据（FTS 和 Embedding 都删）
       deleteNoteChunks(noteId)
@@ -608,7 +743,7 @@ export class IndexingService {
       // 4. 更新索引状态：FTS 已完成，Embedding 未建立
       const status: NoteIndexStatus = {
         noteId,
-        contentHash: computeContentHash(text),
+        contentHash,
         chunkCount: chunks.length,
         modelName: '',  // FTS-only 不涉及 embedding model
         indexedAt: new Date().toISOString(),
@@ -619,7 +754,10 @@ export class IndexingService {
       }
       updateNoteIndexStatus(status)
 
-      console.log(`[IndexingService] Note ${noteId} FTS indexed (${chunks.length} chunks)`)
+      logVerboseSampled(
+        'index_fts_only:success',
+        `[IndexingService] Note ${noteId} FTS indexed (${chunks.length} chunks)`
+      )
       return true
     } catch (error) {
       console.error(`[IndexingService] Failed to FTS index note ${noteId}:`, error)
@@ -628,7 +766,7 @@ export class IndexingService {
       const existingStatusForError = getNoteIndexStatus(noteId)
       const status: NoteIndexStatus = {
         noteId,
-        contentHash: computeContentHash(text),
+        contentHash,
         chunkCount: 0,
         modelName: '',
         indexedAt: new Date().toISOString(),
@@ -653,23 +791,24 @@ export class IndexingService {
   async buildEmbeddingForNote(noteId: string): Promise<boolean> {
     const config = getEmbeddingConfig()
     if (!config.enabled) {
-      console.log(`[IndexingService] Embedding disabled, skipping buildEmbeddingForNote`)
+      logVerbose(`[IndexingService] Embedding disabled, skipping buildEmbeddingForNote`)
       return false
     }
 
     // 获取已有的 chunks
     const chunks = getNoteChunks(noteId)
     if (chunks.length === 0) {
-      console.log(`[IndexingService] Note ${noteId} has no chunks, skipping embedding build`)
+      logVerbose(`[IndexingService] Note ${noteId} has no chunks, skipping embedding build`)
       return false
     }
 
-    console.log(`[IndexingService] Building embedding for note ${noteId} (${chunks.length} chunks)`)
+    logVerbose(`[IndexingService] Building embedding for note ${noteId} (${chunks.length} chunks)`)
 
     try {
       // 1. 获取 embeddings
       const chunkTexts = chunks.map((c) => c.chunkText)
       const embeddings = await getEmbeddings(chunkTexts)
+      await maybeYieldToEventLoop()
 
       // 2. 删除旧 embeddings（如果有）
       deleteNoteEmbeddings(noteId)
@@ -698,7 +837,7 @@ export class IndexingService {
       }
       updateNoteIndexStatus(status)
 
-      console.log(`[IndexingService] Note ${noteId} embedding built successfully`)
+      logVerbose(`[IndexingService] Note ${noteId} embedding built successfully`)
       return true
     } catch (error) {
       console.error(`[IndexingService] Failed to build embedding for note ${noteId}:`, error)
@@ -731,8 +870,13 @@ export class IndexingService {
     if (!config.enabled) return false
 
     const text = extractTextFromTiptap(content)
+    const contentHash = computeContentHash(text)
 
-    console.log(`[IndexingService] Full indexing note ${noteId} (${text.length} chars)`)
+    logVerboseSampled(
+      'index_full:start',
+      `[IndexingService] Full indexing note ${noteId} (${text.length} chars)`
+    )
+    await maybeYieldToEventLoop()
 
     // 追踪 FTS 是否已写入，用于错误状态精确记录
     let ftsWritten = false
@@ -741,15 +885,16 @@ export class IndexingService {
       // 1. 分块
       const chunks = chunkNote(noteId, notebookId, text)
       if (chunks.length === 0) {
-        console.log(`[IndexingService] Note ${noteId} produced no chunks`)
+        logVerbose(`[IndexingService] Note ${noteId} produced no chunks`)
         return false
       }
 
-      console.log(`[IndexingService] Note ${noteId} split into ${chunks.length} chunks`)
+      logVerbose(`[IndexingService] Note ${noteId} split into ${chunks.length} chunks`)
 
       // 2. 获取 embeddings
       const chunkTexts = chunks.map((c) => c.chunkText)
       const embeddings = await getEmbeddings(chunkTexts)
+      await maybeYieldToEventLoop()
 
       // 3. 删除旧数据
       deleteNoteChunks(noteId)
@@ -771,7 +916,7 @@ export class IndexingService {
       // 6. 更新索引状态
       const status: NoteIndexStatus = {
         noteId,
-        contentHash: computeContentHash(text),
+        contentHash,
         chunkCount: chunks.length,
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
@@ -782,7 +927,10 @@ export class IndexingService {
       }
       updateNoteIndexStatus(status)
 
-      console.log(`[IndexingService] Note ${noteId} indexed successfully`)
+      logVerboseSampled(
+        'index_full:success',
+        `[IndexingService] Note ${noteId} indexed successfully`
+      )
 
       // 检查是否需要生成摘要
       const summaryInfo3 = getSummaryInfoForIndexedNote(noteId)
@@ -804,7 +952,7 @@ export class IndexingService {
       const existingStatusForError = getNoteIndexStatus(noteId)
       const status: NoteIndexStatus = {
         noteId,
-        contentHash: computeContentHash(text),
+        contentHash,
         chunkCount: 0,
         modelName: config.modelName,
         indexedAt: new Date().toISOString(),
@@ -835,11 +983,11 @@ export class IndexingService {
   ): Promise<void> {
     const config = getEmbeddingConfig()
     if (!config.enabled) {
-      console.log('[IndexingService] Knowledge base disabled, skipping rebuild')
+      logVerbose('[IndexingService] Knowledge base disabled, skipping rebuild')
       return
     }
 
-    console.log(`[IndexingService] Starting full rebuild for ${notes.length} notes`)
+    logVerbose(`[IndexingService] Starting full rebuild for ${notes.length} notes`)
 
     // 清空所有索引数据
     clearAllIndexData()
@@ -906,7 +1054,7 @@ export class IndexingService {
       current: successCount
     })
 
-    console.log(`[IndexingService] Rebuild complete: ${successCount} success, ${errorCount} errors`)
+    logVerbose(`[IndexingService] Rebuild complete: ${successCount} success, ${errorCount} errors`)
   }
 
   /**

@@ -192,7 +192,7 @@ export async function searchLocalFolderMountAsync(
   }
 
   const scanned = scannedTree ?? getCachedLocalSearchTree(mount) ?? await (async () => {
-    const freshTree = await scanLocalFolderMountForSearchAsync(mount)
+    const freshTree = await scanLocalFolderMountForSearchAsync(mount, { sortEntries: false })
     setLocalSearchTreeCache(mount, freshTree)
     return freshTree
   })()

@@ -1,13 +1,31 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getDb } from './connection'
 import { buildCanonicalComparePath } from './helpers'
-import type { Notebook, NotebookStatus, LocalFolderMount, LocalFolderNotebookMount } from '../../shared/types'
+import type {
+  NotebookStatus,
+  LocalFolderMount,
+  LocalFolderNotebookMount,
+  LocalFolderMountCreatePersistResult,
+  LocalFolderMountRootPersistResult,
+  LocalFolderMountStatusPersistResult,
+} from '../../shared/types'
 
 function getNextNotebookOrderIndex(): number {
   const db = getDb()
   const maxStmt = db.prepare('SELECT MAX(order_index) as max FROM notebooks')
   const maxResult = maxStmt.get() as { max: number | null }
   return (maxResult.max ?? -1) + 1
+}
+
+function isSqliteConstraintError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  return code === 'SQLITE_CONSTRAINT_UNIQUE' || code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
+}
+
+function createCanonicalPathConflictError(canonicalRootPath: string): NodeJS.ErrnoException {
+  const error = new Error(`Duplicate canonical local-folder mount: ${canonicalRootPath}`) as NodeJS.ErrnoException
+  error.code = 'SQLITE_CONSTRAINT_UNIQUE'
+  return error
 }
 
 export function getLocalFolderMounts(): LocalFolderNotebookMount[] {
@@ -17,7 +35,6 @@ export function getLocalFolderMounts(): LocalFolderNotebookMount[] {
       n.id as notebook_id,
       n.name as notebook_name,
       n.icon as notebook_icon,
-      n.source_type as notebook_source_type,
       n.order_index as notebook_order_index,
       n.created_at as notebook_created_at,
       m.root_path as mount_root_path,
@@ -33,7 +50,6 @@ export function getLocalFolderMounts(): LocalFolderNotebookMount[] {
     notebook_id: string
     notebook_name: string
     notebook_icon: string
-    notebook_source_type: string
     notebook_order_index: number
     notebook_created_at: string
     mount_root_path: string
@@ -48,7 +64,7 @@ export function getLocalFolderMounts(): LocalFolderNotebookMount[] {
       id: row.notebook_id,
       name: row.notebook_name,
       icon: row.notebook_icon,
-      source_type: (row.notebook_source_type as Notebook['source_type']) || 'internal',
+      source_type: 'local-folder',
       order_index: row.notebook_order_index,
       created_at: row.notebook_created_at,
     },
@@ -70,15 +86,33 @@ export function getLocalFolderMountByCanonicalPath(
   const db = getDb()
   const targetComparePath = buildCanonicalComparePath(canonicalRootPath, canonicalRootPath)
   const indexedRows = db.prepare(`
-    SELECT notebook_id, root_path, canonical_root_path, canonical_compare_path, status, created_at, updated_at
-    FROM local_folder_mounts
-    WHERE canonical_compare_path = ?
+    SELECT
+      m.notebook_id,
+      m.root_path,
+      m.canonical_root_path,
+      m.canonical_compare_path,
+      m.status,
+      m.created_at,
+      m.updated_at
+    FROM local_folder_mounts m
+    JOIN notebooks n ON n.id = m.notebook_id
+    WHERE n.source_type = 'local-folder'
+      AND m.canonical_compare_path = ?
   `).all(targetComparePath) as Array<LocalFolderMount & { canonical_compare_path?: string | null }>
   const rows = indexedRows.length > 0
     ? indexedRows
     : (db.prepare(`
-      SELECT notebook_id, root_path, canonical_root_path, canonical_compare_path, status, created_at, updated_at
-      FROM local_folder_mounts
+      SELECT
+        m.notebook_id,
+        m.root_path,
+        m.canonical_root_path,
+        m.canonical_compare_path,
+        m.status,
+        m.created_at,
+        m.updated_at
+      FROM local_folder_mounts m
+      JOIN notebooks n ON n.id = m.notebook_id
+      WHERE n.source_type = 'local-folder'
     `).all() as Array<LocalFolderMount & { canonical_compare_path?: string | null }>)
 
   let matched: LocalFolderMount | null = null
@@ -90,14 +124,24 @@ export function getLocalFolderMountByCanonicalPath(
       continue
     }
 
-    const comparablePath = row.canonical_compare_path
-      || buildCanonicalComparePath(row.canonical_root_path || row.root_path, row.root_path)
+    const persistedComparablePath = typeof row.canonical_compare_path === 'string'
+      ? row.canonical_compare_path.trim()
+      : ''
+    const comparablePath = persistedComparablePath
+      || buildCanonicalComparePath(row.canonical_root_path, row.root_path)
     if (comparablePath !== targetComparePath) {
       continue
     }
 
     if (!matched) {
       matched = row
+      continue
+    }
+
+    if (row.status !== matched.status) {
+      if (row.status === 'active') {
+        matched = row
+      }
       continue
     }
 
@@ -116,9 +160,28 @@ export function getLocalFolderMountByCanonicalPath(
   return matched
 }
 
+function ensureCanonicalPathMountUnique(
+  canonicalRootPath: string,
+  options?: { excludeNotebookId?: string; activeOnly?: boolean }
+): void {
+  const duplicated = getLocalFolderMountByCanonicalPath(canonicalRootPath, {
+    excludeNotebookId: options?.excludeNotebookId,
+    activeOnly: options?.activeOnly,
+  })
+  if (!duplicated) return
+
+  throw createCanonicalPathConflictError(canonicalRootPath)
+}
+
 export function getLocalFolderMountByNotebookId(notebookId: string): LocalFolderMount | null {
   const db = getDb()
-  const row = db.prepare('SELECT * FROM local_folder_mounts WHERE notebook_id = ?').get(notebookId) as LocalFolderMount | undefined
+  const row = db.prepare(`
+    SELECT m.*
+    FROM local_folder_mounts m
+    JOIN notebooks n ON n.id = m.notebook_id
+    WHERE m.notebook_id = ?
+      AND n.source_type = 'local-folder'
+  `).get(notebookId) as LocalFolderMount | undefined
   return row || null
 }
 
@@ -129,7 +192,30 @@ export function createLocalFolderNotebookMount(input: {
   canonical_root_path: string
   status?: NotebookStatus
 }): LocalFolderNotebookMount {
+  const result = createLocalFolderNotebookMountSafe(input)
+  if (result.status === 'conflict') {
+    throw createCanonicalPathConflictError(input.canonical_root_path)
+  }
+  return result.mount
+}
+
+export function createLocalFolderNotebookMountSafe(input: {
+  name: string
+  icon?: string
+  root_path: string
+  canonical_root_path: string
+  status?: NotebookStatus
+}): LocalFolderMountCreatePersistResult {
   const db = getDb()
+  try {
+    ensureCanonicalPathMountUnique(input.canonical_root_path)
+  } catch (error) {
+    if (isSqliteConstraintError(error)) {
+      return { status: 'conflict' }
+    }
+    throw error
+  }
+
   const notebookId = uuidv4()
   const now = new Date().toISOString()
   const orderIndex = getNextNotebookOrderIndex()
@@ -151,37 +237,72 @@ export function createLocalFolderNotebookMount(input: {
     `).run(notebookId, input.root_path, input.canonical_root_path, canonicalComparePath, status, now, now)
   })
 
-  create()
+  try {
+    create()
+  } catch (error) {
+    if (isSqliteConstraintError(error)) {
+      return { status: 'conflict' }
+    }
+    throw error
+  }
 
   return {
-    notebook: {
-      id: notebookId,
-      name: input.name,
-      icon,
-      source_type: 'local-folder',
-      order_index: orderIndex,
-      created_at: now,
-    },
+    status: 'created',
     mount: {
-      notebook_id: notebookId,
-      root_path: input.root_path,
-      canonical_root_path: input.canonical_root_path,
-      status,
-      created_at: now,
-      updated_at: now,
+      notebook: {
+        id: notebookId,
+        name: input.name,
+        icon,
+        source_type: 'local-folder',
+        order_index: orderIndex,
+        created_at: now,
+      },
+      mount: {
+        notebook_id: notebookId,
+        root_path: input.root_path,
+        canonical_root_path: input.canonical_root_path,
+        status,
+        created_at: now,
+        updated_at: now,
+      },
     },
   }
 }
 
-export function updateLocalFolderMountStatus(notebookId: string, status: NotebookStatus): boolean {
+export function updateLocalFolderMountStatus(
+  notebookId: string,
+  status: NotebookStatus
+): LocalFolderMountStatusPersistResult {
   const db = getDb()
-  const result = db.prepare(`
-    UPDATE local_folder_mounts
-    SET status = ?, updated_at = ?
+  const current = db.prepare(`
+    SELECT status
+    FROM local_folder_mounts
     WHERE notebook_id = ?
-  `).run(status, new Date().toISOString(), notebookId)
+  `).get(notebookId) as { status: NotebookStatus } | undefined
 
-  return result.changes > 0
+  if (!current) return 'not_found'
+  if (current.status === status) {
+    return 'no_change'
+  }
+
+  try {
+    const result = db.prepare(`
+      UPDATE local_folder_mounts
+      SET status = ?, updated_at = ?
+      WHERE notebook_id = ?
+    `).run(status, new Date().toISOString(), notebookId)
+
+    return result.changes > 0 ? 'updated' : 'not_found'
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code === 'SQLITE_CONSTRAINT_UNIQUE' || code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+      console.warn(
+        `[Database] Skip local-folder status update due canonical-path conflict: notebook=${notebookId}, status=${status}`
+      )
+      return 'conflict'
+    }
+    throw error
+  }
 }
 
 export function updateLocalFolderMountRoot(input: {
@@ -189,19 +310,39 @@ export function updateLocalFolderMountRoot(input: {
   root_path: string
   canonical_root_path: string
   status?: NotebookStatus
-}): LocalFolderMount | null {
+}): LocalFolderMountRootPersistResult {
   const db = getDb()
   const nextStatus = input.status ?? 'active'
+  try {
+    ensureCanonicalPathMountUnique(input.canonical_root_path, {
+      excludeNotebookId: input.notebook_id,
+    })
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code === 'SQLITE_CONSTRAINT_UNIQUE' || code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+      return { status: 'conflict' }
+    }
+    throw error
+  }
   const now = new Date().toISOString()
   const canonicalComparePath = buildCanonicalComparePath(input.canonical_root_path, input.root_path)
-  const result = db.prepare(`
-    UPDATE local_folder_mounts
-    SET root_path = ?, canonical_root_path = ?, canonical_compare_path = ?, status = ?, updated_at = ?
-    WHERE notebook_id = ?
-  `).run(input.root_path, input.canonical_root_path, canonicalComparePath, nextStatus, now, input.notebook_id)
+  try {
+    const result = db.prepare(`
+      UPDATE local_folder_mounts
+      SET root_path = ?, canonical_root_path = ?, canonical_compare_path = ?, status = ?, updated_at = ?
+      WHERE notebook_id = ?
+    `).run(input.root_path, input.canonical_root_path, canonicalComparePath, nextStatus, now, input.notebook_id)
 
-  if (result.changes === 0) return null
+    if (result.changes === 0) return { status: 'not_found' }
 
-  const row = db.prepare('SELECT * FROM local_folder_mounts WHERE notebook_id = ?').get(input.notebook_id) as LocalFolderMount | undefined
-  return row || null
+    const row = db.prepare('SELECT * FROM local_folder_mounts WHERE notebook_id = ?').get(input.notebook_id) as LocalFolderMount | undefined
+    if (!row) return { status: 'not_found' }
+    return { status: 'updated', mount: row }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code === 'SQLITE_CONSTRAINT_UNIQUE' || code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+      return { status: 'conflict' }
+    }
+    throw error
+  }
 }

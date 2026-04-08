@@ -402,12 +402,13 @@ export function useEditorUpdateQueue(options: UseEditorUpdateQueueOptions): Edit
   // --- Cleanup on unmount ---
 
   useEffect(() => {
+    const resumeTimers = editorUpdateResumeTimerRef.current
     return () => {
       if (indexCheckTimerRef.current) {
         clearTimeout(indexCheckTimerRef.current)
       }
-      editorUpdateResumeTimerRef.current.forEach((timer) => clearTimeout(timer))
-      editorUpdateResumeTimerRef.current.clear()
+      resumeTimers.forEach((timer) => clearTimeout(timer))
+      resumeTimers.clear()
     }
   }, [])
 

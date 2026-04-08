@@ -86,6 +86,37 @@ export interface FileSystemWatchChange {
   absolutePath: string | null
 }
 
+const RECURSIVE_WATCH_UNSUPPORTED_ERROR_CODES = new Set([
+  'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM',
+  'ENOSYS',
+])
+
+const RECURSIVE_WATCH_LEGACY_UNSUPPORTED_ERROR_CODES = new Set([
+  'ERR_INVALID_ARG_VALUE',
+  'ERR_INVALID_OPT_VALUE',
+])
+
+function isRecursiveWatchUnsupportedError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  if (code && RECURSIVE_WATCH_UNSUPPORTED_ERROR_CODES.has(code)) {
+    return true
+  }
+
+  const message = (error as { message?: unknown } | undefined)?.message
+  if (typeof message !== 'string' || message.length === 0) {
+    return false
+  }
+
+  // Some Node.js builds report recursive-watch unsupported as argument-value
+  // validation errors instead of ERR_FEATURE_UNAVAILABLE_ON_PLATFORM.
+  if (code && RECURSIVE_WATCH_LEGACY_UNSUPPORTED_ERROR_CODES.has(code)) {
+    return /recursive/i.test(message)
+  }
+
+  // Best-effort fallback for environments that only provide message text.
+  return /watch recursively is unavailable|recursive .*?(unsupported|not supported|unavailable)/i.test(message)
+}
+
 function resolveFallbackWatchMaxDepth(): number {
   const explicitRaw = process.env.SANQIAN_LOCAL_WATCH_MAX_DEPTH
   if (explicitRaw) {
@@ -134,6 +165,36 @@ function shouldIgnoreWatchTraversalError(error: unknown): boolean {
   return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM'
 }
 
+function isKnownNonDirectoryDirent(entry: import('fs').Dirent<NonSharedBuffer>): boolean {
+  return entry.isFile()
+    || entry.isBlockDevice()
+    || entry.isCharacterDevice()
+    || entry.isFIFO()
+    || entry.isSocket()
+}
+
+function shouldWatchChildDirectory(
+  parentDirectoryPath: string,
+  entry: import('fs').Dirent<NonSharedBuffer>,
+  entryName: string
+): boolean {
+  if (entry.isSymbolicLink()) return false
+  if (entry.isDirectory()) return true
+  if (isKnownNonDirectoryDirent(entry)) return false
+
+  // Some filesystems return unknown dirent types. Fall back to lstat so we
+  // don't miss real directories when recursive watch fallback is active.
+  const childDirectoryPath = join(parentDirectoryPath, entryName)
+  try {
+    const stat = lstatSync(childDirectoryPath)
+    if (stat.isSymbolicLink()) return false
+    return stat.isDirectory()
+  } catch (error) {
+    if (shouldIgnoreWatchTraversalError(error)) return false
+    throw error
+  }
+}
+
 function collectWatchDirectories(rootPath: string, maxDepth: number): Set<string> {
   const directories = new Set<string>()
   const stack: Array<{ directoryPath: string; depth: number }> = [{ directoryPath: rootPath, depth: 1 }]
@@ -160,21 +221,14 @@ function collectWatchDirectories(rootPath: string, maxDepth: number): Set<string
 
     for (const entry of entries) {
       const entryName = toNFC(entry.name.toString('utf8'))
-      if (!entry.isDirectory() || shouldIgnoreWatchedDirectoryName(entryName)) {
+      if (shouldIgnoreWatchedDirectoryName(entryName)) {
+        continue
+      }
+      if (!shouldWatchChildDirectory(current.directoryPath, entry, entryName)) {
         continue
       }
 
       const childDirectoryPath = join(current.directoryPath, entryName)
-      try {
-        const stat = lstatSync(childDirectoryPath)
-        if (stat.isSymbolicLink() || !stat.isDirectory()) continue
-      } catch (error) {
-        if (shouldIgnoreWatchTraversalError(error)) {
-          continue
-        }
-        throw error
-      }
-
       stack.push({ directoryPath: childDirectoryPath, depth: current.depth + 1 })
     }
   }
@@ -204,8 +258,13 @@ function createFallbackDirectoryTreeWatcher(
     const watcher = directoryWatchers.get(directoryPath)
     if (!watcher) return
     watcher.removeListener('error', emitCompositeError)
-    watcher.close()
-    directoryWatchers.delete(directoryPath)
+    try {
+      watcher.close()
+    } catch (error) {
+      emitCompositeError(error)
+    } finally {
+      directoryWatchers.delete(directoryPath)
+    }
   }
 
   const addDirectoryWatcher = (directoryPath: string): void => {
@@ -297,8 +356,7 @@ export function createFileSystemWatcher(
       })
     })
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException | undefined)?.code
-    if (code === 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM' || code === 'ENOSYS') {
+    if (isRecursiveWatchUnsupportedError(error)) {
       return createFallbackDirectoryTreeWatcher(rootPath, onChanged, watchFactory)
     }
     throw error

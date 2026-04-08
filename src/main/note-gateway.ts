@@ -15,6 +15,7 @@ import type {
   LocalFolderFileContent,
   LocalFolderFileErrorCode,
   LocalFolderNotebookMount,
+  LocalFolderReadFileResponse,
   LocalNoteMetadata,
   Note,
   Notebook,
@@ -33,11 +34,16 @@ import {
   getNotebooks,
 } from './database'
 import { extractLocalTagNamesFromTiptapContent, mergeLocalUserAndAITagNames } from './local-note-tags'
-import { readLocalFolderFile } from './local-folder'
+import { readLocalFolderFile, readLocalFolderFileAsync } from './local-folder'
+import { parseRequiredNotebookIdInput } from './notebook-id'
+import { parseRequiredLocalNoteUidInput } from './local-note-uid'
 import { normalizeRelativeSlashPath } from './path-compat'
 
 const ETAG_PREFIX = 'sqn-v1'
+const LOCAL_ETAG_PREFIX = `${ETAG_PREFIX}:local:`
+const LOCAL_ETAG_ENCODED_NOTEBOOK_MARKER = 'nbenc'
 const EMPTY_TIPTAP_DOC = '{"type":"doc","content":[]}'
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i
 
 type ParsedIfMatch =
   | { sourceType: 'internal'; noteId?: string; revision: number }
@@ -119,6 +125,98 @@ function normalizeLocalRelativePathForIdentity(relativePath: string): string {
   return normalizeRelativeSlashPath(relativePath)
 }
 
+function normalizeOptionalContentHash(contentHash: string | undefined): string | undefined {
+  if (typeof contentHash !== 'string') return undefined
+  const trimmed = contentHash.trim()
+  if (!trimmed || !SHA256_HEX_PATTERN.test(trimmed)) return undefined
+  return trimmed.toLowerCase()
+}
+
+function encodeLocalEtagNotebookSegment(notebookId: string): string {
+  if (!notebookId.includes(':')) return notebookId
+  return `${LOCAL_ETAG_ENCODED_NOTEBOOK_MARKER}:${encodeURIComponent(notebookId)}`
+}
+
+function decodeLocalEtagNotebookSegments(notebookSegments: string[]): string | null {
+  if (notebookSegments.length === 0) return null
+
+  if (
+    notebookSegments.length === 2
+    && notebookSegments[0] === LOCAL_ETAG_ENCODED_NOTEBOOK_MARKER
+  ) {
+    try {
+      const decodedNotebookId = decodeURIComponent(notebookSegments[1])
+      // Encoded mode is only canonical when notebookId actually contains ":".
+      // Otherwise keep compatibility with legacy raw notebook IDs like "nbenc:foo".
+      if (decodedNotebookId && decodedNotebookId.includes(':')) {
+        return decodedNotebookId
+      }
+    } catch {
+      // Keep legacy fallback below for raw notebook IDs like "nbenc:%".
+    }
+  }
+
+  const notebookId = notebookSegments.join(':')
+  return notebookId || null
+}
+
+function parseLocalIfMatch(normalized: string): ParsedIfMatch | null {
+  if (!normalized.startsWith(LOCAL_ETAG_PREFIX)) return null
+
+  const body = normalized.slice(LOCAL_ETAG_PREFIX.length)
+  const segments = body.split(':')
+  if (segments.length < 4) return null
+
+  let endIndex = segments.length
+  let contentHash: string | undefined
+  const hashCandidate = segments[endIndex - 1]
+  if (SHA256_HEX_PATTERN.test(hashCandidate)) {
+    contentHash = hashCandidate.toLowerCase()
+    endIndex -= 1
+  }
+
+  if (endIndex < 4) return null
+
+  const sizeToken = segments[endIndex - 1]
+  const mtimeMsToken = segments[endIndex - 2]
+  const encodedRelativePath = segments[endIndex - 3]
+  const notebookSegments = segments.slice(0, endIndex - 3)
+
+  if (!encodedRelativePath || notebookSegments.length === 0) return null
+  if (!/^\d+$/.test(mtimeMsToken) || !/^\d+$/.test(sizeToken)) return null
+
+  const mtimeMs = Number.parseInt(mtimeMsToken, 10)
+  const size = Number.parseInt(sizeToken, 10)
+  if (
+    !Number.isFinite(mtimeMs)
+    || !Number.isFinite(size)
+    || !Number.isSafeInteger(mtimeMs)
+    || !Number.isSafeInteger(size)
+    || mtimeMs < 0
+    || size < 0
+  ) {
+    return null
+  }
+
+  const notebookId = decodeLocalEtagNotebookSegments(notebookSegments)
+  if (!notebookId) return null
+
+  try {
+    const relativePath = normalizeLocalRelativePathForIdentity(decodeURIComponent(encodedRelativePath))
+    if (!relativePath) return null
+    return {
+      sourceType: 'local-folder',
+      notebookId,
+      relativePath,
+      mtimeMs,
+      size,
+      contentHash,
+    }
+  } catch {
+    return null
+  }
+}
+
 function parseIfMatch(raw: unknown): ParsedIfMatch | null {
   const normalized = normalizeIfMatchInput(raw)
   if (normalized === null) return null
@@ -137,47 +235,22 @@ function parseIfMatch(raw: unknown): ParsedIfMatch | null {
     return { sourceType: 'internal', revision }
   }
 
-  const internalMatch = normalized.match(/^sqn-v1:internal:([^:]+):(\d+)$/)
-  if (internalMatch) {
-    const noteId = internalMatch[1]
-    const revision = Number.parseInt(internalMatch[2], 10)
-    if (!noteId || !Number.isFinite(revision) || revision < 0 || !Number.isSafeInteger(revision)) return null
+  if (normalized.startsWith(`${ETAG_PREFIX}:internal:`)) {
+    const body = normalized.slice(`${ETAG_PREFIX}:internal:`.length)
+    const revisionSeparator = body.lastIndexOf(':')
+    if (revisionSeparator <= 0) return null
+
+    const noteId = body.slice(0, revisionSeparator)
+    const revisionToken = body.slice(revisionSeparator + 1)
+    if (!noteId || !/^\d+$/.test(revisionToken)) return null
+
+    const revision = Number.parseInt(revisionToken, 10)
+    if (!Number.isFinite(revision) || revision < 0 || !Number.isSafeInteger(revision)) return null
     return { sourceType: 'internal', noteId, revision }
   }
 
-  const localMatch = normalized.match(/^sqn-v1:local:([^:]+):([^:]+):(\d+):(\d+)(?::([a-f0-9]{64}))?$/i)
-  if (localMatch) {
-    const notebookId = localMatch[1]
-    const encodedRelativePath = localMatch[2]
-    const mtimeMs = Number.parseInt(localMatch[3], 10)
-    const size = Number.parseInt(localMatch[4], 10)
-    const contentHash = localMatch[5]?.toLowerCase()
-    if (!notebookId || !encodedRelativePath) return null
-    if (
-      !Number.isFinite(mtimeMs)
-      || !Number.isFinite(size)
-      || !Number.isSafeInteger(mtimeMs)
-      || !Number.isSafeInteger(size)
-      || mtimeMs < 0
-      || size < 0
-    ) {
-      return null
-    }
-    try {
-      const relativePath = normalizeLocalRelativePathForIdentity(decodeURIComponent(encodedRelativePath))
-      if (!relativePath) return null
-      return {
-        sourceType: 'local-folder',
-        notebookId,
-        relativePath,
-        mtimeMs,
-        size,
-        contentHash,
-      }
-    } catch {
-      return null
-    }
-  }
+  const parsedLocal = parseLocalIfMatch(normalized)
+  if (parsedLocal) return parsedLocal
 
   return null
 }
@@ -214,16 +287,16 @@ export function resolveLocalNoteRef(
       const identity = getLocalNoteIdentityByUid({
         note_uid: localRef.noteUid,
         notebook_id: localRef.notebookId,
-      })
+      }, { repairIfNeeded: false })
       if (identity) {
         return { notebookId: identity.notebook_id, relativePath: identity.relative_path }
       }
     }
   }
 
-  // Bare UUID fallback: treat the string itself as a note_uid
+  // Bare note-uid fallback: treat the string itself as a note_uid
   if (typeof noteIdOrRef === 'string') {
-    const identity = getLocalNoteIdentityByUid({ note_uid: noteIdOrRef })
+    const identity = getLocalNoteIdentityByUid({ note_uid: noteIdOrRef }, { repairIfNeeded: false })
     if (identity) {
       return { notebookId: identity.notebook_id, relativePath: identity.relative_path }
     }
@@ -240,12 +313,29 @@ export function buildCanonicalLocalResourceId(input: {
   notebookId: string
   relativePath: string
 }): string {
-  const identity = ensureLocalNoteIdentity({
-    notebook_id: input.notebookId,
-    relative_path: input.relativePath,
-  })
+  let identity: ReturnType<typeof ensureLocalNoteIdentity> = null
+  try {
+    identity = ensureLocalNoteIdentity({
+      notebook_id: input.notebookId,
+      relative_path: input.relativePath,
+    })
+  } catch (error) {
+    console.warn('[Main] Failed to ensure local note identity while building canonical local resource id:', {
+      notebookId: input.notebookId,
+      relativePath: input.relativePath,
+      error,
+    })
+  }
+  const parsedIdentityUid = parseRequiredLocalNoteUidInput(identity?.note_uid)
+  if (parsedIdentityUid) {
+    return parsedIdentityUid
+  }
   if (identity?.note_uid) {
-    return identity.note_uid
+    console.warn('[Main] Invalid local note identity note_uid while building canonical local resource id; falling back to path id:', {
+      notebookId: input.notebookId,
+      relativePath: input.relativePath,
+      noteUid: identity.note_uid,
+    })
   }
   return createLocalResourceId(input.notebookId, input.relativePath)
 }
@@ -269,22 +359,24 @@ export function buildLocalEtag(input: {
   contentHash?: string
 }): string {
   const normalizedRelativePath = normalizeLocalRelativePathForIdentity(input.relativePath)
-  const base = `${ETAG_PREFIX}:local:${input.notebookId}:${encodeURIComponent(normalizedRelativePath)}:${Math.trunc(input.mtimeMs)}:${Math.trunc(input.size)}`
-  return input.contentHash ? `${base}:${input.contentHash.toLowerCase()}` : base
+  const notebookSegment = encodeLocalEtagNotebookSegment(input.notebookId)
+  const base = `${ETAG_PREFIX}:local:${notebookSegment}:${encodeURIComponent(normalizedRelativePath)}:${Math.trunc(input.mtimeMs)}:${Math.trunc(input.size)}`
+  const normalizedContentHash = normalizeOptionalContentHash(input.contentHash)
+  return normalizedContentHash ? `${base}:${normalizedContentHash}` : base
 }
 
 export function resolveNotebookForCreate(notebookId: string | null | undefined): ResolveNotebookForCreateResult {
-  const normalizedNotebookId = notebookId?.trim() || null
-  if (!normalizedNotebookId) {
+  const parsedNotebookId = parseRequiredNotebookIdInput(notebookId)
+  if (!parsedNotebookId) {
     return { ok: true, sourceType: 'internal', notebook: null }
   }
 
-  const notebook = getNotebooks().find((item) => item.id === normalizedNotebookId)
+  const notebook = getNotebooks().find((item) => item.id === parsedNotebookId)
   if (!notebook) {
     return { ok: false, error: 'notebook_not_found' }
   }
 
-  if ((notebook.source_type || 'internal') !== 'local-folder') {
+  if (notebook.source_type !== 'local-folder') {
     return { ok: true, sourceType: 'internal', notebook }
   }
 
@@ -296,7 +388,62 @@ export function resolveNotebookForCreate(notebookId: string | null | undefined):
   return { ok: true, sourceType: 'local-folder', notebook, mount }
 }
 
-export function resolveNoteResource(id: string): ResolveNoteResourceResult {
+function buildResolvedLocalResource(input: {
+  notebookId: string
+  mount: LocalFolderNotebookMount
+  file: LocalFolderFileContent
+}): ResolveNoteResourceResult {
+  const notebook = getNotebooks().find((item) => item.id === input.notebookId) || input.mount.notebook
+  const rendererId = buildRendererLocalResourceId({
+    notebookId: input.notebookId,
+    relativePath: input.file.relative_path,
+  })
+  return {
+    ok: true,
+    resource: {
+      sourceType: 'local-folder',
+      id: rendererId,
+      notebook,
+      mount: input.mount,
+      relativePath: input.file.relative_path,
+      file: input.file,
+      etag: buildLocalEtag({
+        notebookId: input.notebookId,
+        relativePath: input.file.relative_path,
+        mtimeMs: input.file.mtime_ms,
+        size: input.file.size,
+        contentHash: input.file.content_hash,
+      }),
+    },
+  }
+}
+
+function buildResolveResultFromLocalRead(input: {
+  notebookId: string
+  mount: LocalFolderNotebookMount
+  readResult: LocalFolderReadFileResponse
+}): ResolveNoteResourceResult {
+  if (!input.readResult.success) {
+    return { ok: false, errorCode: mapLocalReadErrorCode(input.readResult.errorCode) }
+  }
+  return buildResolvedLocalResource({
+    notebookId: input.notebookId,
+    mount: input.mount,
+    file: input.readResult.result,
+  })
+}
+
+function parseResolvableNoteIdInput(idInput: unknown): string | null {
+  if (typeof idInput !== 'string') return null
+  return idInput
+}
+
+export function resolveNoteResource(idInput: unknown): ResolveNoteResourceResult {
+  const id = parseResolvableNoteIdInput(idInput)
+  if (id === null) {
+    return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
+  }
+
   const localRef = parseLocalResourceId(id)
   if (localRef) {
     const mount = getActiveLocalMount(localRef.notebookId)
@@ -309,41 +456,16 @@ export function resolveNoteResource(id: string): ResolveNoteResourceResult {
       return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
     }
 
-    const readResult = readLocalFolderFile(mount, resolvedRelativePath)
-    if (!readResult.success) {
-      return { ok: false, errorCode: mapLocalReadErrorCode(readResult.errorCode) }
-    }
-
-    const notebook = getNotebooks().find((item) => item.id === localRef.notebookId) || mount.notebook
-    const file = readResult.result
-    const rendererId = buildRendererLocalResourceId({
+    return buildResolveResultFromLocalRead({
       notebookId: localRef.notebookId,
-      relativePath: file.relative_path,
+      mount,
+      readResult: readLocalFolderFile(mount, resolvedRelativePath),
     })
-
-    return {
-      ok: true,
-      resource: {
-        sourceType: 'local-folder',
-        id: rendererId,
-        notebook,
-        mount,
-        relativePath: file.relative_path,
-        file,
-        etag: buildLocalEtag({
-          notebookId: localRef.notebookId,
-          relativePath: file.relative_path,
-          mtimeMs: file.mtime_ms,
-          size: file.size,
-          contentHash: file.content_hash,
-        }),
-      },
-    }
   }
 
   const note = getNoteById(id)
   if (!note || note.deleted_at) {
-    const localIdentity = getLocalNoteIdentityByUid({ note_uid: id })
+    const localIdentity = getLocalNoteIdentityByUid({ note_uid: id }, { repairIfNeeded: false })
     if (!localIdentity) {
       return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
     }
@@ -353,36 +475,66 @@ export function resolveNoteResource(id: string): ResolveNoteResourceResult {
       return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
     }
 
-    const readResult = readLocalFolderFile(mount, localIdentity.relative_path)
-    if (!readResult.success) {
-      return { ok: false, errorCode: mapLocalReadErrorCode(readResult.errorCode) }
-    }
-
-    const notebook = getNotebooks().find((item) => item.id === localIdentity.notebook_id) || mount.notebook
-    const file = readResult.result
-    const rendererId = buildRendererLocalResourceId({
+    return buildResolveResultFromLocalRead({
       notebookId: localIdentity.notebook_id,
-      relativePath: file.relative_path,
+      mount,
+      readResult: readLocalFolderFile(mount, localIdentity.relative_path),
     })
+  }
 
-    return {
-      ok: true,
-      resource: {
-        sourceType: 'local-folder',
-        id: rendererId,
-        notebook,
-        mount,
-        relativePath: file.relative_path,
-        file,
-        etag: buildLocalEtag({
-          notebookId: localIdentity.notebook_id,
-          relativePath: file.relative_path,
-          mtimeMs: file.mtime_ms,
-          size: file.size,
-          contentHash: file.content_hash,
-        }),
-      },
+  return {
+    ok: true,
+    resource: {
+      sourceType: 'internal',
+      id: note.id,
+      note,
+      etag: buildInternalEtag(note),
+    },
+  }
+}
+
+export async function resolveNoteResourceAsync(idInput: unknown): Promise<ResolveNoteResourceResult> {
+  const id = parseResolvableNoteIdInput(idInput)
+  if (id === null) {
+    return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
+  }
+
+  const localRef = parseLocalResourceId(id)
+  if (localRef) {
+    const mount = getActiveLocalMount(localRef.notebookId)
+    if (!mount) {
+      return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
     }
+
+    const resolvedRelativePath = resolveLocalRefRelativePath(localRef)
+    if (!resolvedRelativePath) {
+      return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
+    }
+
+    return buildResolveResultFromLocalRead({
+      notebookId: localRef.notebookId,
+      mount,
+      readResult: await readLocalFolderFileAsync(mount, resolvedRelativePath),
+    })
+  }
+
+  const note = getNoteById(id)
+  if (!note || note.deleted_at) {
+    const localIdentity = getLocalNoteIdentityByUid({ note_uid: id }, { repairIfNeeded: false })
+    if (!localIdentity) {
+      return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
+    }
+
+    const mount = getActiveLocalMount(localIdentity.notebook_id)
+    if (!mount) {
+      return { ok: false, errorCode: 'NOTE_NOT_FOUND' }
+    }
+
+    return buildResolveResultFromLocalRead({
+      notebookId: localIdentity.notebook_id,
+      mount,
+      readResult: await readLocalFolderFileAsync(mount, localIdentity.relative_path),
+    })
   }
 
   return {

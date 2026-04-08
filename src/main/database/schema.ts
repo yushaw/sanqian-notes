@@ -76,7 +76,7 @@ export function initDatabase(): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       icon TEXT DEFAULT 'logo:notes',
-      source_type TEXT NOT NULL DEFAULT 'internal',
+      source_type TEXT NOT NULL DEFAULT 'internal' CHECK (source_type IN ('internal', 'local-folder')),
       order_index INTEGER NOT NULL,
       created_at TEXT NOT NULL
     );
@@ -87,7 +87,7 @@ export function initDatabase(): void {
       root_path TEXT NOT NULL,
       canonical_root_path TEXT NOT NULL,
       canonical_compare_path TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'permission_required', 'missing')),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
@@ -208,7 +208,7 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS ai_popup_refs (
       popup_id TEXT NOT NULL,
       note_id TEXT NOT NULL,
-      source_type TEXT NOT NULL DEFAULT 'internal',
+      source_type TEXT NOT NULL DEFAULT 'internal' CHECK (source_type IN ('internal', 'local-folder')),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (popup_id, note_id)
@@ -270,6 +270,199 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_local_note_metadata_updated_at ON local_note_metadata(updated_at);
     CREATE INDEX IF NOT EXISTS idx_local_note_identity_notebook_id ON local_note_identity(notebook_id);
     CREATE INDEX IF NOT EXISTS idx_local_note_identity_updated_at ON local_note_identity(updated_at);
+    CREATE TRIGGER IF NOT EXISTS trg_local_note_identity_note_uid_validate_insert
+    BEFORE INSERT ON local_note_identity
+    FOR EACH ROW
+    WHEN NEW.note_uid IS NULL
+      OR LENGTH(TRIM(NEW.note_uid)) = 0
+      OR NEW.note_uid <> TRIM(NEW.note_uid)
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_note_identity.note_uid');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_local_note_identity_note_uid_validate_update
+    BEFORE UPDATE OF note_uid ON local_note_identity
+    FOR EACH ROW
+    WHEN NEW.note_uid IS NULL
+      OR LENGTH(TRIM(NEW.note_uid)) = 0
+      OR NEW.note_uid <> TRIM(NEW.note_uid)
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_note_identity.note_uid');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_local_note_identity_note_uid_conflict_validate_insert
+    BEFORE INSERT ON local_note_identity
+    FOR EACH ROW
+    WHEN EXISTS (
+      SELECT 1
+      FROM notes
+      WHERE id = NEW.note_uid
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_note_identity.note_uid');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_local_note_identity_note_uid_conflict_validate_update
+    BEFORE UPDATE OF note_uid ON local_note_identity
+    FOR EACH ROW
+    WHEN EXISTS (
+      SELECT 1
+      FROM notes
+      WHERE id = NEW.note_uid
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_note_identity.note_uid');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_notes_id_conflict_with_local_identity_validate_insert
+    BEFORE INSERT ON notes
+    FOR EACH ROW
+    WHEN EXISTS (
+      SELECT 1
+      FROM local_note_identity
+      WHERE note_uid = NEW.id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid notes.id');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_notes_id_conflict_with_local_identity_validate_update
+    BEFORE UPDATE OF id ON notes
+    FOR EACH ROW
+    WHEN EXISTS (
+      SELECT 1
+      FROM local_note_identity
+      WHERE note_uid = NEW.id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid notes.id');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_local_folder_mounts_status_validate_insert
+    BEFORE INSERT ON local_folder_mounts
+    FOR EACH ROW
+    WHEN NEW.status NOT IN ('active', 'permission_required', 'missing')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_folder_mounts.status');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_local_folder_mounts_status_validate_update
+    BEFORE UPDATE OF status ON local_folder_mounts
+    FOR EACH ROW
+    WHEN NEW.status NOT IN ('active', 'permission_required', 'missing')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_folder_mounts.status');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_local_folder_mounts_notebook_source_validate_insert
+    BEFORE INSERT ON local_folder_mounts
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM notebooks
+      WHERE id = NEW.notebook_id
+        AND source_type = 'local-folder'
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_folder_mounts.notebook_source_type');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_local_folder_mounts_notebook_source_validate_update
+    BEFORE UPDATE OF notebook_id ON local_folder_mounts
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM notebooks
+      WHERE id = NEW.notebook_id
+        AND source_type = 'local-folder'
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid local_folder_mounts.notebook_source_type');
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_notebooks_source_type_validate_local_mounts
+    BEFORE UPDATE OF source_type ON notebooks
+    FOR EACH ROW
+    WHEN OLD.source_type = 'local-folder'
+      AND NEW.source_type <> 'local-folder'
+      AND EXISTS (
+        SELECT 1
+        FROM local_folder_mounts
+        WHERE notebook_id = OLD.id
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid notebooks.source_type for mounted local folder');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_ai_popup_refs_source_type_validate_insert
+    BEFORE INSERT ON ai_popup_refs
+    FOR EACH ROW
+    WHEN NEW.source_type NOT IN ('internal', 'local-folder')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid ai_popup_refs.source_type');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_ai_popup_refs_source_type_validate_update
+    BEFORE UPDATE OF source_type ON ai_popup_refs
+    FOR EACH ROW
+    WHEN NEW.source_type NOT IN ('internal', 'local-folder')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid ai_popup_refs.source_type');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_ai_popup_refs_popup_reference_validate_insert
+    BEFORE INSERT ON ai_popup_refs
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM ai_popups
+      WHERE id = NEW.popup_id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid ai_popup_refs.popup_reference');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_ai_popup_refs_popup_reference_validate_update
+    BEFORE UPDATE OF popup_id ON ai_popup_refs
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM ai_popups
+      WHERE id = NEW.popup_id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid ai_popup_refs.popup_reference');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_ai_popup_refs_note_reference_validate_insert
+    BEFORE INSERT ON ai_popup_refs
+    FOR EACH ROW
+    WHEN (
+      (NEW.source_type = 'internal' AND NOT EXISTS (
+        SELECT 1
+        FROM notes
+        WHERE id = NEW.note_id
+      ))
+      OR
+      (NEW.source_type = 'local-folder' AND NOT EXISTS (
+        SELECT 1
+        FROM local_note_identity
+        WHERE note_uid = NEW.note_id
+      ))
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid ai_popup_refs.note_reference');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_ai_popup_refs_note_reference_validate_update
+    BEFORE UPDATE OF note_id, source_type ON ai_popup_refs
+    FOR EACH ROW
+    WHEN (
+      (NEW.source_type = 'internal' AND NOT EXISTS (
+        SELECT 1
+        FROM notes
+        WHERE id = NEW.note_id
+      ))
+      OR
+      (NEW.source_type = 'local-folder' AND NOT EXISTS (
+        SELECT 1
+        FROM local_note_identity
+        WHERE note_uid = NEW.note_id
+      ))
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid ai_popup_refs.note_reference');
+    END;
 
     CREATE TRIGGER IF NOT EXISTS trg_ai_popup_refs_cleanup_internal_note_delete
     AFTER DELETE ON notes

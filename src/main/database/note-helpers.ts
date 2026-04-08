@@ -36,10 +36,10 @@ export function moveNote(noteId: string, notebookId: string | null): MoveNoteRes
 
   if (notebookId !== null) {
     const notebook = db.prepare('SELECT id, source_type FROM notebooks WHERE id = ?').get(notebookId) as
-      | { id: string; source_type: Notebook['source_type'] | null }
+      | { id: string; source_type: Notebook['source_type'] }
       | undefined
     if (!notebook) return { ok: false, error: 'notebook_not_found' }
-    if ((notebook.source_type || 'internal') === 'local-folder') {
+    if (notebook.source_type === 'local-folder') {
       return { ok: false, error: 'target_not_allowed' }
     }
   }

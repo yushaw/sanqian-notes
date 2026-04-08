@@ -20,13 +20,17 @@ import type {
   LocalFolderUpdateNoteMetadataResponse,
   LocalFolderSaveFileInput,
   LocalFolderSaveFileResponse,
-  LocalFolderTreeResult,
+  LocalFolderListResponse,
+  LocalFolderGetTreeResponse,
   LocalFolderMountInput,
   LocalFolderMountResponse,
+  LocalFolderOpenInFileManagerResponse,
   LocalFolderRelinkInput,
   LocalFolderRelinkResponse,
+  LocalFolderSelectRootResponse,
+  LocalFolderUnmountResponse,
   NoteInput,
-  NotebookInput,
+  NotebookDeleteInternalResponse,
   NotebookFolderCreateInput,
   NotebookFolderCreateResponse,
   NotebookFolderRenameInput,
@@ -100,9 +104,10 @@ contextBridge.exposeInMainWorld('electron', {
   },
   notebook: {
     getAll: () => ipcRenderer.invoke('notebook:getAll'),
-    add: (notebook: NotebookInput) => ipcRenderer.invoke('notebook:add', notebook),
-    update: (id: string, updates: Partial<NotebookInput>) => ipcRenderer.invoke('notebook:update', id, updates),
-    delete: (id: string) => ipcRenderer.invoke('notebook:delete', id),
+    add: (notebook: { name: string; icon?: string }) => ipcRenderer.invoke('notebook:add', notebook),
+    update: (id: string, updates: { name?: string; icon?: string }) => ipcRenderer.invoke('notebook:update', id, updates),
+    deleteInternalWithNotes: (input: { notebook_id: string }): Promise<NotebookDeleteInternalResponse> =>
+      ipcRenderer.invoke('notebook:deleteInternalWithNotes', input),
     reorder: (orderedIds: string[]) => ipcRenderer.invoke('notebook:reorder', orderedIds),
   },
   notebookFolder: {
@@ -116,8 +121,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('notebookFolder:delete', input),
   },
   localFolder: {
-    list: () => ipcRenderer.invoke('localFolder:list'),
-    getTree: (notebookId: string): Promise<LocalFolderTreeResult | null> =>
+    list: (): Promise<LocalFolderListResponse> => ipcRenderer.invoke('localFolder:list'),
+    getTree: (notebookId: string): Promise<LocalFolderGetTreeResponse> =>
       ipcRenderer.invoke('localFolder:getTree', notebookId),
     createFile: (input: LocalFolderCreateFileInput): Promise<LocalFolderCreateFileResponse> =>
       ipcRenderer.invoke('localFolder:createFile', input),
@@ -139,14 +144,16 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('localFolder:readFile', input),
     saveFile: (input: LocalFolderSaveFileInput): Promise<LocalFolderSaveFileResponse> =>
       ipcRenderer.invoke('localFolder:saveFile', input),
-    selectRoot: () => ipcRenderer.invoke('localFolder:selectRoot') as Promise<string | null>,
+    selectRoot: (): Promise<LocalFolderSelectRootResponse> =>
+      ipcRenderer.invoke('localFolder:selectRoot'),
     mount: (input: LocalFolderMountInput): Promise<LocalFolderMountResponse> =>
       ipcRenderer.invoke('localFolder:mount', input),
     relink: (input: LocalFolderRelinkInput): Promise<LocalFolderRelinkResponse> =>
       ipcRenderer.invoke('localFolder:relink', input),
-    openInFileManager: (notebookId: string): Promise<boolean> =>
+    openInFileManager: (notebookId: string): Promise<LocalFolderOpenInFileManagerResponse> =>
       ipcRenderer.invoke('localFolder:openInFileManager', notebookId),
-    unmount: (notebookId: string) => ipcRenderer.invoke('localFolder:unmount', notebookId),
+    unmount: (notebookId: string): Promise<LocalFolderUnmountResponse> =>
+      ipcRenderer.invoke('localFolder:unmount', notebookId),
     onChanged: (callback: (event: LocalFolderWatchEvent) => void) => {
       const handler = (_: Electron.IpcRendererEvent, event: LocalFolderWatchEvent) => callback(event)
       ipcRenderer.on('localFolder:changed', handler)

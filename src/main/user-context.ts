@@ -8,6 +8,7 @@ import {
   getLocalNoteIdentityByPath,
   getLocalNoteIdentityByUid,
 } from './database'
+import { parseRequiredLocalNoteUidInput } from './local-note-uid'
 
 export interface CursorContext {
   nearestHeading: string | null
@@ -96,7 +97,7 @@ export function buildAgentExecutionContext(context?: AgentExecutionContext | nul
     ? parseLocalResourceId(resolved.localResourceId)
     : (resolved.noteId ? parseLocalResourceId(resolved.noteId) : null)
   const inferredLocalIdentityByUid = (!inferredLocalRef && resolved.noteId)
-    ? getLocalNoteIdentityByUid({ note_uid: resolved.noteId })
+    ? getLocalNoteIdentityByUid({ note_uid: resolved.noteId }, { repairIfNeeded: false })
     : null
   const inferredLocalRelativePath = inferredLocalRef
     ? (
@@ -104,7 +105,7 @@ export function buildAgentExecutionContext(context?: AgentExecutionContext | nul
         ? (getLocalNoteIdentityByUid({
           note_uid: inferredLocalRef.noteUid,
           notebook_id: inferredLocalRef.notebookId,
-        })?.relative_path || null)
+        }, { repairIfNeeded: false })?.relative_path || null)
         : (inferredLocalRef.relativePath || null)
     )
     : (inferredLocalIdentityByUid?.relative_path || null)
@@ -128,8 +129,8 @@ export function buildAgentExecutionContext(context?: AgentExecutionContext | nul
       const identity = getLocalNoteIdentityByPath({
         notebook_id: parsedLocalResourceId.notebookId,
         relative_path: resolvedPath,
-      })
-      return identity?.note_uid || resolved.localResourceId
+      }, { repairIfNeeded: false })
+      return parseRequiredLocalNoteUidInput(identity?.note_uid) || resolved.localResourceId
     }
     if (!resolved.noteId) return null
     if (inferredLocalIdentityByUid) return inferredLocalIdentityByUid.note_uid
@@ -142,8 +143,8 @@ export function buildAgentExecutionContext(context?: AgentExecutionContext | nul
     const identity = getLocalNoteIdentityByPath({
       notebook_id: inferredLocalRef.notebookId,
       relative_path: inferredPath,
-    })
-    return identity?.note_uid || resolved.noteId
+    }, { repairIfNeeded: false })
+    return parseRequiredLocalNoteUidInput(identity?.note_uid) || resolved.noteId
   })()
   const resolvedLocalResourceId = inferredCanonicalLocalResourceId
   const resolvedLocalRelativePath = resolved.localRelativePath
@@ -224,9 +225,10 @@ function resolveChatNoteContextId(noteId: string | null): string | null {
   const identity = getLocalNoteIdentityByPath({
     notebook_id: localRef.notebookId,
     relative_path: localRef.relativePath,
-  })
-  if (!identity?.note_uid) return noteId
-  return createLocalResourceIdFromUid(localRef.notebookId, identity.note_uid)
+  }, { repairIfNeeded: false })
+  const normalizedIdentityUid = parseRequiredLocalNoteUidInput(identity?.note_uid)
+  if (!normalizedIdentityUid) return noteId
+  return createLocalResourceIdFromUid(localRef.notebookId, normalizedIdentityUid)
 }
 
 /**

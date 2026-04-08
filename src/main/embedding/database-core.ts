@@ -8,6 +8,7 @@ import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { app } from 'electron'
 import { join } from 'path'
+import { getStartupPhaseState } from '../startup-phase'
 
 /**
  * 获取 sqlite-vec 扩展的实际路径
@@ -53,7 +54,7 @@ function getVecExtensionPath(): string {
   }
 }
 import type { EmbeddingConfig } from './types'
-import { DEFAULT_CONFIG } from './types'
+import { DEFAULT_CONFIG, EMBEDDING_MAX_DIMENSIONS } from './types'
 import { encrypt, decrypt } from './encryption'
 import { buildSearchTokens, warmupTokenizer } from './tokenizer'
 
@@ -70,8 +71,96 @@ export const fts = {
   rebuildDirty: false,
 }
 
+const FTS_REBUILD_BATCH_SIZE = Number.isFinite(Number(process.env.KB_FTS_REBUILD_BATCH_SIZE))
+  ? Math.max(16, Math.floor(Number(process.env.KB_FTS_REBUILD_BATCH_SIZE)))
+  : (process.env.NODE_ENV === 'test' ? 2000 : 512)
+const FTS_REBUILD_STARTUP_ADAPTIVE_ENABLED = process.env.NODE_ENV === 'test'
+  ? process.env.KB_FTS_REBUILD_STARTUP_ADAPTIVE_ENABLED === '1'
+  : process.env.KB_FTS_REBUILD_STARTUP_ADAPTIVE_ENABLED !== '0'
+const FTS_REBUILD_STARTUP_BATCH_SIZE = Number.isFinite(Number(process.env.KB_FTS_REBUILD_STARTUP_BATCH_SIZE))
+  ? Math.max(16, Math.floor(Number(process.env.KB_FTS_REBUILD_STARTUP_BATCH_SIZE)))
+  : (process.env.NODE_ENV === 'test' ? FTS_REBUILD_BATCH_SIZE : Math.min(192, FTS_REBUILD_BATCH_SIZE))
+const FTS_REBUILD_DELAY_MS = Number.isFinite(Number(process.env.KB_FTS_REBUILD_DELAY_MS))
+  ? Math.max(0, Math.floor(Number(process.env.KB_FTS_REBUILD_DELAY_MS)))
+  : 0
+const FTS_REBUILD_STARTUP_DELAY_MS = Number.isFinite(Number(process.env.KB_FTS_REBUILD_STARTUP_DELAY_MS))
+  ? Math.max(0, Math.floor(Number(process.env.KB_FTS_REBUILD_STARTUP_DELAY_MS)))
+  : (process.env.NODE_ENV === 'test' ? 0 : 1500)
+const FTS_REBUILD_INTER_BATCH_DELAY_MS = Number.isFinite(Number(process.env.KB_FTS_REBUILD_INTER_BATCH_DELAY_MS))
+  ? Math.max(0, Math.floor(Number(process.env.KB_FTS_REBUILD_INTER_BATCH_DELAY_MS)))
+  : 0
+const FTS_REBUILD_STARTUP_INTER_BATCH_DELAY_MS = Number.isFinite(
+  Number(process.env.KB_FTS_REBUILD_STARTUP_INTER_BATCH_DELAY_MS)
+)
+  ? Math.max(0, Math.floor(Number(process.env.KB_FTS_REBUILD_STARTUP_INTER_BATCH_DELAY_MS)))
+  : (process.env.NODE_ENV === 'test' ? 0 : 8)
+
+function resolveFtsRebuildRunParams(): {
+  batchSize: number
+  delayMs: number
+  interBatchDelayMs: number
+} {
+  let batchSize = FTS_REBUILD_BATCH_SIZE
+  let delayMs = FTS_REBUILD_DELAY_MS
+  let interBatchDelayMs = FTS_REBUILD_INTER_BATCH_DELAY_MS
+
+  if (FTS_REBUILD_STARTUP_ADAPTIVE_ENABLED && getStartupPhaseState().inStartupPhase) {
+    batchSize = Math.min(batchSize, FTS_REBUILD_STARTUP_BATCH_SIZE)
+    delayMs = Math.max(delayMs, FTS_REBUILD_STARTUP_DELAY_MS)
+    interBatchDelayMs = Math.max(interBatchDelayMs, FTS_REBUILD_STARTUP_INTER_BATCH_DELAY_MS)
+  }
+
+  return { batchSize, delayMs, interBatchDelayMs }
+}
+
 const DEFAULT_L2_THRESHOLD = 2.0
 const DEFAULT_EMBEDDING_DIM = 1536
+const EMBEDDING_API_TYPES = new Set<EmbeddingConfig['apiType']>([
+  'openai',
+  'zhipu',
+  'local',
+  'custom',
+])
+const EMBEDDING_SOURCES = new Set<EmbeddingConfig['source']>(['sanqian', 'custom'])
+
+function isValidEmbeddingDimensionsValue(dimensions: unknown): dimensions is number {
+  return (
+    typeof dimensions === 'number'
+    && Number.isFinite(dimensions)
+    && Number.isInteger(dimensions)
+    && dimensions >= 0
+    && dimensions <= EMBEDDING_MAX_DIMENSIONS
+  )
+}
+
+function assertValidConfiguredEmbeddingDimensions(dimensions: unknown): void {
+  if (!isValidEmbeddingDimensionsValue(dimensions)) {
+    throw new Error(
+      `Invalid embedding dimensions: expected integer between 0 and ${EMBEDDING_MAX_DIMENSIONS}`
+    )
+  }
+}
+
+function normalizeStoredEmbeddingConfig(raw: unknown): EmbeddingConfig {
+  const data = (raw && typeof raw === 'object') ? (raw as Record<string, unknown>) : {}
+
+  const source = EMBEDDING_SOURCES.has(data.source as EmbeddingConfig['source'])
+    ? (data.source as EmbeddingConfig['source'])
+    : 'custom'
+  const apiType = EMBEDDING_API_TYPES.has(data.apiType as EmbeddingConfig['apiType'])
+    ? (data.apiType as EmbeddingConfig['apiType'])
+    : 'custom'
+
+  return {
+    enabled: data.enabled === true,
+    source,
+    apiType,
+    apiUrl: typeof data.apiUrl === 'string' ? data.apiUrl : '',
+    apiKey: typeof data.apiKey === 'string' ? data.apiKey : '',
+    modelName: typeof data.modelName === 'string' ? data.modelName : '',
+    dimensions: isValidEmbeddingDimensionsValue(data.dimensions) ? data.dimensions : 0,
+  }
+}
 
 export function getScaledThreshold(threshold: number): number {
   if (!Number.isFinite(threshold)) return DEFAULT_L2_THRESHOLD
@@ -215,7 +304,11 @@ function initFtsIndex(database: Database.Database): void {
 /**
  * 重建 FTS 索引（用于升级或损坏修复）
  */
-function rebuildFtsIndex(database: Database.Database, batchSize: number = 2000): void {
+function rebuildFtsIndex(
+  database: Database.Database,
+  batchSize: number,
+  interBatchDelayMs: number
+): void {
   if (!fts.enabled) return
 
   const targetTable = 'note_chunks_fts'
@@ -327,7 +420,7 @@ function rebuildFtsIndex(database: Database.Database, batchSize: number = 2000):
     try {
       insertMany(batch)
       cursor += batch.length
-      setTimeout(insertBatch, 0)
+      setTimeout(insertBatch, interBatchDelayMs)
     } catch (error) {
       fts.rebuildRunning = false
       fts.needsRebuild = true
@@ -346,16 +439,17 @@ export function scheduleFtsRebuild(): void {
 
   fts.rebuildRunning = true
   const database = db
+  const runParams = resolveFtsRebuildRunParams()
 
   setTimeout(() => {
     try {
-      rebuildFtsIndex(database)
+      rebuildFtsIndex(database, runParams.batchSize, runParams.interBatchDelayMs)
     } catch (error) {
       fts.rebuildRunning = false
       fts.needsRebuild = true
       console.warn('[Embedding] FTS rebuild failed:', error)
     }
-  }, 0)
+  }, runParams.delayMs)
 }
 
 /**
@@ -457,7 +551,11 @@ function migrateDatabase(database: Database.Database): void {
  * 创建向量虚拟表（如果维度变更需要重建）
  */
 function createVectorTable(database: Database.Database, dimensions: number): void {
-  // 维度无效时跳过创建（用户尚未配置 embedding）
+  // 维度无效时跳过创建（用户尚未配置 embedding / 配置数据损坏）
+  if (!isValidEmbeddingDimensionsValue(dimensions)) {
+    console.warn('[Embedding] Skipping vector table creation: dimensions are invalid')
+    return
+  }
   if (dimensions <= 0) {
     console.log('[Embedding] Skipping vector table creation: dimensions not configured')
     return
@@ -576,12 +674,7 @@ function getEmbeddingConfigInternal(database: Database.Database): EmbeddingConfi
 
   if (row) {
     try {
-      const config = JSON.parse(row.value) as EmbeddingConfig
-
-      // 兼容旧版本配置（没有 source 字段）
-      if (!config.source) {
-        config.source = 'custom'
-      }
+      const config = normalizeStoredEmbeddingConfig(JSON.parse(row.value))
 
       // 解密 API key（所有模式都加密存储）
       if (config.apiKey) {
@@ -613,17 +706,14 @@ export function setEmbeddingConfig(config: EmbeddingConfig): {
   modelChanged: boolean
 } {
   const database = getDb()
-  const oldConfig = getEmbeddingConfig()
+  const oldConfig = getEmbeddingConfigInternal(database)
+  assertValidConfiguredEmbeddingDimensions(config.dimensions)
 
   // 准备存储的配置（加密 API key，所有模式统一加密）
   const configToStore = { ...config }
   if (configToStore.apiKey) {
     configToStore.apiKey = encrypt(configToStore.apiKey)
   }
-
-  database
-    .prepare('INSERT OR REPLACE INTO embedding_config (key, value) VALUES (?, ?)')
-    .run('config', JSON.stringify(configToStore))
 
   // 检测模型变化（dimensions 或 modelName 变化）
   const isFirstSetup = oldConfig.dimensions === 0 && config.dimensions > 0
@@ -633,30 +723,41 @@ export function setEmbeddingConfig(config: EmbeddingConfig): {
     oldConfig.modelName !== '' && // 旧配置为空时不触发（首次设置）
     config.modelName !== '' // 新配置为空时不触发（清空配置）
 
-  // 首次配置：创建向量表（无需清空索引）
-  if (isFirstSetup) {
-    console.log('[Embedding] First setup, creating vector table')
-    createVectorTable(database, config.dimensions)
+  const applyConfig = database.transaction(() => {
+    database
+      .prepare('INSERT OR REPLACE INTO embedding_config (key, value) VALUES (?, ?)')
+      .run('config', JSON.stringify(configToStore))
+
+    // 首次配置：创建向量表（无需清空索引）
+    if (isFirstSetup) {
+      console.log('[Embedding] First setup, creating vector table')
+      createVectorTable(database, config.dimensions)
+      return { indexCleared: false, modelChanged: false }
+    }
+
+    // 如果维度变更，需要重建向量表
+    if (dimensionsChanged) {
+      console.log('[Embedding] Dimensions changed, recreating vector table')
+      clearAllIndexDataInDatabase(database, { updateFtsState: false, emitLog: false })
+      createVectorTable(database, config.dimensions)
+      return { indexCleared: true, modelChanged: true }
+    }
+
+    // 如果只是模型名变化（dimensions 相同），需要 rebuild 但不用重建表
+    if (modelChanged) {
+      console.log(`[Embedding] Model changed from ${oldConfig.modelName} to ${config.modelName}`)
+      return { indexCleared: false, modelChanged: true }
+    }
+
     return { indexCleared: false, modelChanged: false }
-  }
+  })
 
-  // 如果维度变更，需要重建向量表
-  if (dimensionsChanged) {
-    console.log('[Embedding] Dimensions changed, recreating vector table')
-    // 清空旧索引数据
-    clearAllIndexData()
-    // 重建向量表
-    createVectorTable(database, config.dimensions)
-    return { indexCleared: true, modelChanged: true }
+  const result = applyConfig()
+  if (result.indexCleared) {
+    fts.needsRebuild = false
+    console.log('[Embedding] All index data cleared')
   }
-
-  // 如果只是模型名变化（dimensions 相同），需要 rebuild 但不用重建表
-  if (modelChanged) {
-    console.log(`[Embedding] Model changed from ${oldConfig.modelName} to ${config.modelName}`)
-    return { indexCleared: false, modelChanged: true }
-  }
-
-  return { indexCleared: false, modelChanged: false }
+  return result
 }
 
 /**
@@ -714,17 +815,29 @@ export function checkModelConsistency(): {
  * 清空所有索引数据
  */
 export function clearAllIndexData(): void {
-  const database = getDb()
+  clearAllIndexDataInDatabase(getDb())
+}
 
+function clearAllIndexDataInDatabase(
+  database: Database.Database,
+  options?: {
+    updateFtsState?: boolean
+    emitLog?: boolean
+  }
+): void {
   database.exec('DELETE FROM note_chunks;')
   if (fts.enabled) {
     database.exec('DELETE FROM note_chunks_fts;')
   }
-  fts.needsRebuild = false
+  if (options?.updateFtsState !== false) {
+    fts.needsRebuild = false
+  }
   if (embeddingsTableExists(database)) {
     database.exec('DELETE FROM note_embeddings;')
   }
   database.exec('DELETE FROM note_index_status;')
 
-  console.log('[Embedding] All index data cleared')
+  if (options?.emitLog !== false) {
+    console.log('[Embedding] All index data cleared')
+  }
 }

@@ -88,6 +88,7 @@ function createMockStatus(
     ftsStatus?: 'none' | 'indexed'
     embeddingStatus?: 'none' | 'indexed' | 'pending' | 'error'
     contentHash?: string
+    fileMtime?: string
   } = {}
 ): NoteIndexStatus {
   return {
@@ -98,7 +99,8 @@ function createMockStatus(
     indexedAt: new Date().toISOString(),
     status: 'indexed',
     ftsStatus: options.ftsStatus ?? 'indexed',
-    embeddingStatus: options.embeddingStatus ?? 'indexed'
+    embeddingStatus: options.embeddingStatus ?? 'indexed',
+    fileMtime: options.fileMtime
   } as NoteIndexStatus
 }
 
@@ -289,6 +291,70 @@ describe('FTS 与 Embedding 索引拆分', () => {
   })
 
   describe('local note behavior', () => {
+    it('uses preloaded existingStatus in checkAndIndex without extra status query', async () => {
+      vi.mocked(getEmbeddingConfig).mockReturnValue(createMockConfig(true))
+      const content = createTiptapContent(LONG_TEXT)
+      const existingStatus = createMockStatus('note1', {
+        contentHash: computeContentHash(LONG_TEXT),
+        embeddingStatus: 'indexed',
+      })
+
+      const result = await service.checkAndIndex('note1', 'nb1', content, {
+        ftsOnly: true,
+        existingStatus,
+      })
+
+      expect(result).toBe(false)
+      expect(getNoteIndexStatus).not.toHaveBeenCalled()
+    })
+
+    it('backfills file mtime for unchanged ftsOnly checks when status has no file mtime', async () => {
+      vi.mocked(getEmbeddingConfig).mockReturnValue(createMockConfig(true))
+      const content = createTiptapContent(LONG_TEXT)
+      const existingStatus = createMockStatus('note1', {
+        contentHash: computeContentHash(LONG_TEXT),
+        embeddingStatus: 'indexed',
+      })
+      const fileMtimeMs = Date.parse('2026-01-02T03:04:05.000Z')
+
+      const result = await service.checkAndIndex('note1', 'nb1', content, {
+        ftsOnly: true,
+        fileMtimeMs,
+        existingStatus,
+      })
+
+      expect(result).toBe(false)
+      expect(updateNoteIndexStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          noteId: 'note1',
+          fileMtime: '2026-01-02T03:04:05.000Z',
+          status: 'indexed',
+          ftsStatus: 'indexed',
+          embeddingStatus: 'indexed',
+        })
+      )
+    })
+
+    it('skips file mtime backfill when unchanged ftsOnly status already has same mtime', async () => {
+      vi.mocked(getEmbeddingConfig).mockReturnValue(createMockConfig(true))
+      const content = createTiptapContent(LONG_TEXT)
+      const fileMtimeIso = '2026-01-02T03:04:05.000Z'
+      const existingStatus = createMockStatus('note1', {
+        contentHash: computeContentHash(LONG_TEXT),
+        embeddingStatus: 'indexed',
+        fileMtime: fileMtimeIso,
+      })
+
+      const result = await service.checkAndIndex('note1', 'nb1', content, {
+        ftsOnly: true,
+        fileMtimeMs: Date.parse(fileMtimeIso),
+        existingStatus,
+      })
+
+      expect(result).toBe(false)
+      expect(updateNoteIndexStatus).not.toHaveBeenCalled()
+    })
+
     it('normalizes local:path IDs to UUID and triggers summary on no-change check', async () => {
       const localUuid = 'a0000000-0000-4000-a000-000000000001'
       const identity = {

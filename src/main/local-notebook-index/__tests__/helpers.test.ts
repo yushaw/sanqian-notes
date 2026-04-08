@@ -8,8 +8,10 @@ vi.mock('../../database', () => ({
   getLocalNoteIdentityUidsByNotebook: vi.fn(),
   getLocalNoteMetadata: vi.fn(),
   updateLocalNoteMetadata: vi.fn(),
+  updateLocalNoteTagsBatch: vi.fn(),
   ensureLocalNoteIdentity: vi.fn(),
   replaceAIPopupRefsForNote: vi.fn(),
+  replaceAIPopupRefsForNotesBatch: vi.fn(),
   deleteLocalNoteMetadataByPath: vi.fn(),
   deleteLocalNoteIdentityByPath: vi.fn(),
 }))
@@ -18,15 +20,16 @@ vi.mock('../../local-note-tags', () => ({
   areLocalTagNameListsEqual: vi.fn(),
 }))
 vi.mock('../../../shared/local-resource-id', () => ({
+  buildLocalResourceIdPrefix: vi.fn(),
   createLocalResourceId: vi.fn(),
-  parseLocalResourceId: vi.fn(),
 }))
 vi.mock('../../note-gateway', () => ({
   buildCanonicalLocalResourceId: vi.fn(),
 }))
 vi.mock('../../embedding', () => ({
   indexingService: { deleteNoteIndex: vi.fn() },
-  getAllIndexStatus: vi.fn(),
+  getIndexedNoteIdsByPrefix: vi.fn(),
+  getIndexedExistingNoteIds: vi.fn(),
 }))
 vi.mock('../../local-folder/path', () => ({
   ALLOWED_EXTENSIONS: new Set(['.md', '.txt']),
@@ -38,16 +41,22 @@ import {
   getLocalNoteIdentityUidsByNotebook,
   getLocalNoteMetadata,
   updateLocalNoteMetadata,
+  updateLocalNoteTagsBatch,
   ensureLocalNoteIdentity,
   replaceAIPopupRefsForNote,
+  replaceAIPopupRefsForNotesBatch,
 } from '../../database'
 import {
   extractLocalTagNamesFromTiptapContent,
   areLocalTagNameListsEqual,
 } from '../../local-note-tags'
-import { createLocalResourceId, parseLocalResourceId } from '../../../shared/local-resource-id'
+import { buildLocalResourceIdPrefix, createLocalResourceId } from '../../../shared/local-resource-id'
 import { buildCanonicalLocalResourceId } from '../../note-gateway'
-import { indexingService, getAllIndexStatus } from '../../embedding'
+import {
+  indexingService,
+  getIndexedNoteIdsByPrefix,
+  getIndexedExistingNoteIds,
+} from '../../embedding'
 
 import {
   normalizeLocalIndexSyncPath,
@@ -57,7 +66,9 @@ import {
   deleteIndexedLocalNotesByNotebook,
   deleteIndexForLocalPath,
   syncLocalNoteTagsMetadata,
+  syncLocalNoteTagsMetadataBatch,
   syncLocalNotePopupRefs,
+  syncLocalNotePopupRefsBatch,
 } from '../helpers'
 
 beforeEach(() => {
@@ -146,52 +157,65 @@ describe('deleteLegacyLocalIndexByPath', () => {
 })
 
 describe('collectIndexedLocalNoteIdsByNotebook', () => {
-  it('collects legacy local:nb:path format IDs', () => {
+  it('collects canonical local ids by prefix', () => {
     vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set())
-    vi.mocked(getAllIndexStatus).mockReturnValue([
-      { noteId: 'local:nb-1:foo.md' },
-      { noteId: 'local:nb-2:bar.md' },
-    ] as any)
-    vi.mocked(parseLocalResourceId).mockImplementation((id: string) => {
-      if (id === 'local:nb-1:foo.md') return { notebookId: 'nb-1', relativePath: 'foo.md', noteUid: null, scheme: 'legacy-path' as const }
-      if (id === 'local:nb-2:bar.md') return { notebookId: 'nb-2', relativePath: 'bar.md', noteUid: null, scheme: 'legacy-path' as const }
-      return null
-    })
+    vi.mocked(buildLocalResourceIdPrefix).mockReturnValue('local:nb-1:')
+    vi.mocked(getIndexedNoteIdsByPrefix)
+      .mockReturnValueOnce(['local:nb-1:foo.md'])
+      .mockReturnValueOnce([])
+    vi.mocked(getIndexedExistingNoteIds).mockReturnValue([])
 
     const ids = collectIndexedLocalNoteIdsByNotebook('nb-1')
     expect(ids).toEqual(new Set(['local:nb-1:foo.md']))
+    expect(buildLocalResourceIdPrefix).toHaveBeenCalledWith('nb-1')
+    expect(getIndexedNoteIdsByPrefix).toHaveBeenCalledWith('local:nb-1:')
+    expect(getIndexedNoteIdsByPrefix).toHaveBeenCalledWith('nb-1:')
   })
 
-  it('collects UUID format IDs via identity UIDs', () => {
-    vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set(['uuid-1', 'uuid-2']))
-    vi.mocked(getAllIndexStatus).mockReturnValue([
-      { noteId: 'uuid-1' },
-      { noteId: 'uuid-3' },
-    ] as any)
-    vi.mocked(parseLocalResourceId).mockReturnValue(null)
+  it('collects legacy notebook:path ids by legacy prefix', () => {
+    vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set())
+    vi.mocked(buildLocalResourceIdPrefix).mockReturnValue('local:nb-1:')
+    vi.mocked(getIndexedNoteIdsByPrefix)
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce(['nb-1:legacy.md'])
+    vi.mocked(getIndexedExistingNoteIds).mockReturnValue([])
+
+    const ids = collectIndexedLocalNoteIdsByNotebook('nb-1')
+    expect(ids).toEqual(new Set(['nb-1:legacy.md']))
+  })
+
+  it('collects UUID ids via identity exact-match query', () => {
+    vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set(['uuid-1']))
+    vi.mocked(buildLocalResourceIdPrefix).mockReturnValue('local:nb-1:')
+    vi.mocked(getIndexedNoteIdsByPrefix)
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([])
+    vi.mocked(getIndexedExistingNoteIds).mockReturnValue(['uuid-1'])
 
     const ids = collectIndexedLocalNoteIdsByNotebook('nb-1')
     expect(ids).toEqual(new Set(['uuid-1']))
+    expect(getIndexedExistingNoteIds).toHaveBeenCalledWith(['uuid-1'])
   })
 
-  it('collects both legacy and UUID format IDs', () => {
+  it('collects canonical, legacy and UUID ids together', () => {
     vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set(['uuid-1']))
-    vi.mocked(getAllIndexStatus).mockReturnValue([
-      { noteId: 'local:nb-1:foo.md' },
-      { noteId: 'uuid-1' },
-    ] as any)
-    vi.mocked(parseLocalResourceId).mockImplementation((id: string) => {
-      if (id === 'local:nb-1:foo.md') return { notebookId: 'nb-1', relativePath: 'foo.md', noteUid: null, scheme: 'legacy-path' as const }
-      return null
-    })
+    vi.mocked(buildLocalResourceIdPrefix).mockReturnValue('local:nb-1:')
+    vi.mocked(getIndexedNoteIdsByPrefix)
+      .mockReturnValueOnce(['local:nb-1:foo.md'])
+      .mockReturnValueOnce(['nb-1:legacy.md'])
+    vi.mocked(getIndexedExistingNoteIds).mockReturnValue(['uuid-1'])
 
     const ids = collectIndexedLocalNoteIdsByNotebook('nb-1')
-    expect(ids).toEqual(new Set(['local:nb-1:foo.md', 'uuid-1']))
+    expect(ids).toEqual(new Set(['local:nb-1:foo.md', 'nb-1:legacy.md', 'uuid-1']))
   })
 
   it('returns empty set when no indexes exist', () => {
     vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set())
-    vi.mocked(getAllIndexStatus).mockReturnValue([])
+    vi.mocked(buildLocalResourceIdPrefix).mockReturnValue('local:nb-1:')
+    vi.mocked(getIndexedNoteIdsByPrefix)
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([])
+    vi.mocked(getIndexedExistingNoteIds).mockReturnValue([])
 
     const ids = collectIndexedLocalNoteIdsByNotebook('nb-1')
     expect(ids.size).toBe(0)
@@ -211,19 +235,35 @@ describe('collectIndexedLocalNoteIdsByNotebook', () => {
     )
     warnSpy.mockRestore()
   })
+
+  it('uses encoded canonical prefix for notebook ids containing colon', () => {
+    vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set())
+    vi.mocked(buildLocalResourceIdPrefix).mockReturnValue('local:nbenc:team%3Aproject:')
+    vi.mocked(getIndexedNoteIdsByPrefix)
+      .mockReturnValueOnce(['local:nbenc:team%3Aproject:foo.md'])
+      .mockReturnValueOnce(['local:team:project:legacy-canonical.md'])
+      .mockReturnValueOnce([])
+    vi.mocked(getIndexedExistingNoteIds).mockReturnValue([])
+
+    const ids = collectIndexedLocalNoteIdsByNotebook('team:project')
+    expect(ids).toEqual(new Set([
+      'local:nbenc:team%3Aproject:foo.md',
+      'local:team:project:legacy-canonical.md',
+    ]))
+    expect(buildLocalResourceIdPrefix).toHaveBeenCalledWith('team:project')
+    expect(getIndexedNoteIdsByPrefix).toHaveBeenCalledWith('local:nbenc:team%3Aproject:')
+    expect(getIndexedNoteIdsByPrefix).toHaveBeenCalledWith('local:team:project:')
+    expect(getIndexedNoteIdsByPrefix).toHaveBeenCalledWith('team:project:')
+  })
 })
 
 describe('deleteIndexedLocalNotesByNotebook', () => {
   it('deletes all collected IDs via indexingService.deleteNoteIndex', () => {
     vi.mocked(getLocalNoteIdentityUidsByNotebook).mockReturnValue(new Set(['uuid-1']))
-    vi.mocked(getAllIndexStatus).mockReturnValue([
-      { noteId: 'local:nb-1:foo.md' },
-      { noteId: 'uuid-1' },
-    ] as any)
-    vi.mocked(parseLocalResourceId).mockImplementation((id: string) => {
-      if (id === 'local:nb-1:foo.md') return { notebookId: 'nb-1', relativePath: 'foo.md', noteUid: null, scheme: 'legacy-path' as const }
-      return null
-    })
+    vi.mocked(getIndexedNoteIdsByPrefix)
+      .mockReturnValueOnce(['local:nb-1:foo.md'])
+      .mockReturnValueOnce([])
+    vi.mocked(getIndexedExistingNoteIds).mockReturnValue(['uuid-1'])
 
     deleteIndexedLocalNotesByNotebook('nb-1')
     expect(indexingService.deleteNoteIndex).toHaveBeenCalledWith('local:nb-1:foo.md')
@@ -256,8 +296,26 @@ describe('deleteIndexForLocalPath', () => {
     expect(getLocalNoteIdentityByPath).toHaveBeenCalledWith({
       notebook_id: 'nb-1',
       relative_path: 'foo.md',
-    })
+    }, { repairIfNeeded: false })
     expect(indexingService.deleteNoteIndex).toHaveBeenCalledWith('uuid-from-db')
+    expect(indexingService.deleteNoteIndex).toHaveBeenCalledWith('local:nb-1:foo.md')
+  })
+
+  it('falls back to identity lookup when provided noteUid has trim alias spaces', () => {
+    vi.mocked(getLocalNoteIdentityByPath).mockReturnValue({ note_uid: 'uuid-from-db' } as any)
+    deleteIndexForLocalPath('nb-1', 'foo.md', { noteUid: ' uuid-from-options ' })
+    expect(getLocalNoteIdentityByPath).toHaveBeenCalledWith({
+      notebook_id: 'nb-1',
+      relative_path: 'foo.md',
+    }, { repairIfNeeded: false })
+    expect(indexingService.deleteNoteIndex).toHaveBeenCalledWith('uuid-from-db')
+    expect(indexingService.deleteNoteIndex).toHaveBeenCalledWith('local:nb-1:foo.md')
+  })
+
+  it('skips invalid trim-alias uid from identity lookup and only deletes legacy id', () => {
+    vi.mocked(getLocalNoteIdentityByPath).mockReturnValue({ note_uid: ' uuid-from-db ' } as any)
+    deleteIndexForLocalPath('nb-1', 'foo.md')
+    expect(indexingService.deleteNoteIndex).toHaveBeenCalledTimes(1)
     expect(indexingService.deleteNoteIndex).toHaveBeenCalledWith('local:nb-1:foo.md')
   })
 
@@ -329,5 +387,128 @@ describe('syncLocalNotePopupRefs', () => {
       source_type: 'local-folder',
       tiptap_content: content,
     })
+  })
+
+  it('reuses provided noteUid without querying identity table', () => {
+    const content = '{"type":"doc"}'
+    syncLocalNotePopupRefs('nb-1', 'foo.md', content, { noteUid: 'uuid-provided' })
+    expect(ensureLocalNoteIdentity).not.toHaveBeenCalled()
+    expect(replaceAIPopupRefsForNote).toHaveBeenCalledWith({
+      note_id: 'uuid-provided',
+      source_type: 'local-folder',
+      tiptap_content: content,
+    })
+  })
+
+  it('falls back to identity lookup when provided noteUid has trim alias spaces', () => {
+    vi.mocked(ensureLocalNoteIdentity).mockReturnValue({ note_uid: 'uuid-from-db' } as any)
+    const content = '{"type":"doc"}'
+    syncLocalNotePopupRefs('nb-1', 'foo.md', content, { noteUid: ' uuid-provided ' })
+    expect(ensureLocalNoteIdentity).toHaveBeenCalledWith({
+      notebook_id: 'nb-1',
+      relative_path: 'foo.md',
+    })
+    expect(replaceAIPopupRefsForNote).toHaveBeenCalledWith({
+      note_id: 'uuid-from-db',
+      source_type: 'local-folder',
+      tiptap_content: content,
+    })
+  })
+
+  it('skips popup ref sync when ensured identity note_uid is trim alias', () => {
+    vi.mocked(ensureLocalNoteIdentity).mockReturnValue({ note_uid: ' uuid-from-db ' } as any)
+    const content = '{"type":"doc"}'
+    syncLocalNotePopupRefs('nb-1', 'foo.md', content)
+    expect(replaceAIPopupRefsForNote).not.toHaveBeenCalled()
+  })
+})
+
+describe('syncLocalNoteTagsMetadataBatch', () => {
+  beforeEach(() => {
+    vi.mocked(normalizeRelativeSlashPath).mockImplementation((p: string) => p)
+  })
+
+  it('normalizes paths, extracts tags, and writes through batch DB API', () => {
+    vi.mocked(extractLocalTagNamesFromTiptapContent)
+      .mockReturnValueOnce(['tag-a'])
+      .mockReturnValueOnce(['tag-b'])
+
+    syncLocalNoteTagsMetadataBatch({
+      notebookId: 'nb-1',
+      updates: [
+        { relativePath: 'a.md', tiptapContent: '{"a":1}' },
+        { relativePath: 'b.md', tiptapContent: '{"b":1}' },
+      ],
+    })
+
+    expect(updateLocalNoteTagsBatch).toHaveBeenCalledWith({
+      notebook_id: 'nb-1',
+      updates: [
+        { relative_path: 'a.md', tags: ['tag-a'] },
+        { relative_path: 'b.md', tags: ['tag-b'] },
+      ],
+    })
+  })
+
+  it('preserves notebookId surrounding spaces when forwarding batch updates', () => {
+    vi.mocked(extractLocalTagNamesFromTiptapContent).mockReturnValueOnce(['tag-a'])
+
+    syncLocalNoteTagsMetadataBatch({
+      notebookId: '  nb-1  ',
+      updates: [
+        { relativePath: 'a.md', tiptapContent: '{"a":1}' },
+      ],
+    })
+
+    expect(updateLocalNoteTagsBatch).toHaveBeenCalledWith({
+      notebook_id: '  nb-1  ',
+      updates: [
+        { relative_path: 'a.md', tags: ['tag-a'] },
+      ],
+    })
+  })
+
+  it('skips invalid or empty updates', () => {
+    vi.mocked(normalizeRelativeSlashPath).mockReturnValue('')
+    syncLocalNoteTagsMetadataBatch({
+      notebookId: 'nb-1',
+      updates: [{ relativePath: '', tiptapContent: '{}' }],
+    })
+    expect(updateLocalNoteTagsBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('syncLocalNotePopupRefsBatch', () => {
+  it('forwards popup ref updates through popup batch DB API', () => {
+    syncLocalNotePopupRefsBatch({
+      updates: [
+        { noteUid: 'uuid-a', tiptapContent: '{"old":1}' },
+        { noteUid: 'uuid-a', tiptapContent: '{"new":1}' },
+        { noteUid: 'uuid-b', tiptapContent: '{"b":1}' },
+      ],
+    })
+
+    expect(replaceAIPopupRefsForNotesBatch).toHaveBeenCalledWith({
+      source_type: 'local-folder',
+      notes: [
+        { note_id: 'uuid-a', tiptap_content: '{"old":1}' },
+        { note_id: 'uuid-a', tiptap_content: '{"new":1}' },
+        { note_id: 'uuid-b', tiptap_content: '{"b":1}' },
+      ],
+    })
+  })
+
+  it('skips when noteUid is missing', () => {
+    syncLocalNotePopupRefsBatch({
+      updates: [{ noteUid: null, tiptapContent: '{}' }],
+    })
+    expect(replaceAIPopupRefsForNotesBatch).not.toHaveBeenCalled()
+  })
+
+  it('skips noteUid trim aliases in popup batch updates', () => {
+    syncLocalNotePopupRefsBatch({
+      updates: [{ noteUid: ' uuid-a ', tiptapContent: '{"x":1}' }],
+    })
+    expect(replaceAIPopupRefsForNotesBatch).not.toHaveBeenCalled()
   })
 })

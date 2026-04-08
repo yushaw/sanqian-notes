@@ -35,12 +35,14 @@ import {
 import {
   createLocalResourceId,
 } from '../../../shared/local-resource-id'
+import { parseRequiredNotebookIdInput } from '../../../shared/notebook-id'
+import { hasOwnDefinedProperty } from '../../../shared/property-guards'
 import {
   buildInternalEtag,
   buildLocalEtag,
   resolveIfMatchForInternal,
   resolveIfMatchForLocal,
-  resolveNoteResource,
+  resolveNoteResourceAsync,
   resolveNotebookForCreate,
   buildCanonicalLocalResourceId,
 } from '../../note-gateway'
@@ -56,6 +58,7 @@ import {
   moveLocalNoteIdentityAcrossNotebooks,
   cleanupLocalNoteMetadata,
 } from '../helpers/local-note-helpers'
+import { parseRequiredLocalNoteUidInput } from '../../local-note-uid'
 import {
   notifyDataChange,
   triggerIndexingForNote,
@@ -91,7 +94,12 @@ export function buildCreateNoteTool(): AppToolDefinition {
       try {
         const title = args.title as string
         const content = args.content as string | undefined
-        const notebook_id = (args.notebook_id as string | undefined)?.trim() || null
+        const notebookIdInput = args.notebook_id
+        const hasNotebookIdArg = hasOwnDefinedProperty(args, 'notebook_id')
+        const notebook_id = parseRequiredNotebookIdInput(notebookIdInput) ?? null
+        if (hasNotebookIdArg && notebook_id === null) {
+          throw new ToolError(`${tools.createNote.notebookNotFound}: ${String(notebookIdInput ?? '')}`)
+        }
         const notebookTarget = resolveNotebookForCreate(notebook_id)
         if (!notebookTarget.ok) {
           if (notebookTarget.error === 'notebook_not_found') {
@@ -271,7 +279,7 @@ export function buildUpdateNoteTool(): AppToolDefinition {
         const before = args.before as string | undefined
         const edit = args.edit as { old_string: string; new_string: string; replace_all?: boolean } | undefined
 
-        const resolved = resolveNoteResource(id)
+        const resolved = await resolveNoteResourceAsync(id)
         if (!resolved.ok) {
           throw new ToolError(`${tools.updateNote.notFound}: ${id}`)
         }
@@ -566,7 +574,7 @@ export function buildDeleteNoteTool(): AppToolDefinition {
       try {
         const id = args.id as string
         const ifMatch = args.if_match
-        const resolved = resolveNoteResource(id)
+        const resolved = await resolveNoteResourceAsync(id)
         if (!resolved.ok) {
           throw new ToolError(`${tools.deleteNote.notFound}: ${id}`)
         }
@@ -603,16 +611,17 @@ export function buildDeleteNoteTool(): AppToolDefinition {
         const localIdentity = getLocalNoteIdentityByPath({
           notebook_id: local.file.notebook_id,
           relative_path: local.file.relative_path,
-        })
-        const canonicalLocalId = localIdentity?.note_uid || local.id
+        }, { repairIfNeeded: false })
+        const normalizedIdentityUid = parseRequiredLocalNoteUidInput(localIdentity?.note_uid)
+        const canonicalLocalId = normalizedIdentityUid || local.id
         const indexIdsToDelete = new Set<string>([
           id,
           local.id,
           canonicalLocalId,
           createLocalResourceId(local.file.notebook_id, local.file.relative_path),
         ])
-        if (localIdentity?.note_uid) {
-          indexIdsToDelete.add(localIdentity.note_uid)
+        if (normalizedIdentityUid) {
+          indexIdsToDelete.add(normalizedIdentityUid)
         }
         const localIfMatch = resolveIfMatchForLocal(
           {
@@ -711,7 +720,7 @@ export function buildMoveNoteTool(): AppToolDefinition {
         const id = args.id as string
         const ifMatch = args.if_match
         const notebook_id = (args.notebook_id as string | undefined) ?? null
-        const resolved = resolveNoteResource(id)
+        const resolved = await resolveNoteResourceAsync(id)
         if (!resolved.ok) {
           throw new ToolError(`${tools.moveNote.notFound}: ${id}`)
         }
@@ -797,7 +806,7 @@ export function buildMoveNoteTool(): AppToolDefinition {
         if (!targetNotebook) {
           throw new ToolError(`${tools.moveNote.notebookNotFound}: ${notebook_id}`)
         }
-        if ((targetNotebook.source_type || 'internal') !== 'local-folder') {
+        if (targetNotebook.source_type !== 'local-folder') {
           throw new ToolError(tools.moveNote.targetNotAllowed)
         }
 

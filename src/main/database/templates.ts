@@ -129,14 +129,36 @@ export function deleteTemplate(id: string): boolean {
 }
 
 export function reorderTemplates(orderedIds: string[]): void {
+  if (orderedIds.length === 0) return
+
   const db = getDb()
+  const existingIds = (
+    db.prepare('SELECT id FROM templates ORDER BY order_index ASC').all() as Array<{ id: string }>
+  ).map((row) => row.id)
+  const existingIdSet = new Set(existingIds)
+  const seenIds = new Set<string>()
+  for (const id of orderedIds) {
+    if (!existingIdSet.has(id)) {
+      throw new Error(`reorderTemplates: unknown id ${id}`)
+    }
+    if (seenIds.has(id)) {
+      throw new Error(`reorderTemplates: duplicate id ${id}`)
+    }
+    seenIds.add(id)
+  }
+
+  const finalOrderIds = [
+    ...orderedIds,
+    ...existingIds.filter((id) => !seenIds.has(id)),
+  ]
+
   const stmt = db.prepare('UPDATE templates SET order_index = ? WHERE id = ?')
   const updateMany = db.transaction((ids: string[]) => {
     ids.forEach((id, index) => {
       stmt.run(index, id)
     })
   })
-  updateMany(orderedIds)
+  updateMany(finalOrderIds)
 }
 
 export function setDailyDefaultTemplate(id: string | null): void {

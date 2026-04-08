@@ -736,10 +736,10 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
 
     // --- 5. Clear undo/redo history ---
     const historyPlugin = editor.state.plugins.find(
-      (p) => (p as any).key === 'history$'
+      (p) => (p as { key?: string }).key === 'history$'
     )
     if (historyPlugin && historyPlugin.spec.state) {
-      const freshState = historyPlugin.spec.state.init({} as any, editor.state)
+      const freshState = historyPlugin.spec.state.init({}, editor.state)
       const htr = editor.state.tr
       htr.setMeta(historyPlugin, { historyState: freshState })
       editor.view.dispatch(htr)

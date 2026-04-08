@@ -1,6 +1,10 @@
 import { useEffect } from 'react'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import type { LocalFolderTreeResult, NotebookStatus } from '../types/note'
+import {
+  buildNotebookStatusToastKey,
+  clearStatusToastEntriesByNotebookId,
+} from './localNotebookScopedState'
 import { toast } from '../utils/toast'
 
 interface AllViewLocalEditorTarget {
@@ -11,6 +15,7 @@ interface AllViewLocalEditorTarget {
 
 interface UseLocalFolderWatchEventsOptions {
   allViewLocalEditorTarget: AllViewLocalEditorTarget | null
+  localNotebookIdsRef: MutableRefObject<Set<string>>
   selectedNotebookId: string | null
   isLocalFolderNotebookSelected: boolean
   localFolderMissingText: string
@@ -35,6 +40,7 @@ const LOCAL_WATCH_REFRESH_DEBOUNCE_MS = 180
 export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOptions): void {
   const {
     allViewLocalEditorTarget,
+    localNotebookIdsRef,
     selectedNotebookId,
     isLocalFolderNotebookSelected,
     localFolderMissingText,
@@ -56,6 +62,18 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
   useEffect(() => {
     const localWatchRefreshTimers = localWatchRefreshTimersRef.current
     const unsubscribe = window.electron.localFolder.onChanged((event) => {
+      if (!localNotebookIdsRef.current.has(event.notebook_id)) {
+        const pendingRefreshTimer = localWatchRefreshTimers.get(event.notebook_id)
+        if (pendingRefreshTimer) {
+          clearTimeout(pendingRefreshTimer)
+          localWatchRefreshTimers.delete(event.notebook_id)
+        }
+        localWatchRefreshSuppressUntilRef.current.delete(event.notebook_id)
+        localWatchSequenceRef.current.delete(event.notebook_id)
+        clearStatusToastEntriesByNotebookId(localStatusToastAtRef.current, event.notebook_id)
+        return
+      }
+
       const incomingSequence = typeof event.sequence === 'number' ? event.sequence : null
       if (incomingSequence !== null) {
         const lastSequence = localWatchSequenceRef.current.get(event.notebook_id) ?? 0
@@ -101,6 +119,15 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
         })
       }
 
+      if (event.status !== 'active') {
+        const pendingRefreshTimer = localWatchRefreshTimers.get(event.notebook_id)
+        if (pendingRefreshTimer) {
+          clearTimeout(pendingRefreshTimer)
+          localWatchRefreshTimers.delete(event.notebook_id)
+        }
+        localWatchRefreshSuppressUntilRef.current.delete(event.notebook_id)
+      }
+
       const isActiveSelectedLocalNotebook = event.notebook_id === selectedNotebookId
       const isActiveAllViewLocalNotebook = Boolean(
         !selectedNotebookId
@@ -110,7 +137,7 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
       if (!isActiveSelectedLocalNotebook && !isActiveAllViewLocalNotebook) return
 
       if (event.status !== 'active') {
-        const toastKey = `${event.notebook_id}:${event.status}`
+        const toastKey = buildNotebookStatusToastKey(event.notebook_id, event.status)
         const now = Date.now()
         const lastToastAt = localStatusToastAtRef.current.get(toastKey) ?? 0
         if (now - lastToastAt > LOCAL_STATUS_TOAST_COOLDOWN_MS) {
@@ -174,6 +201,7 @@ export function useLocalFolderWatchEvents(options: UseLocalFolderWatchEventsOpti
     }
   }, [
     allViewLocalEditorTarget,
+    localNotebookIdsRef,
     isLocalFolderNotebookSelected,
     localFolderMissingText,
     localFolderPermissionRequiredText,

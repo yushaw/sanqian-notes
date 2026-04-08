@@ -3,7 +3,7 @@
  */
 
 import type { AppContextListItem } from '@yushaw/sanqian-chat/main'
-import type { LocalNoteMetadata } from '../../../shared/types'
+import type { LocalFolderSearchHit, LocalNoteMetadata } from '../../../shared/types'
 import {
   getLocalResourceFileTitle,
 } from '../../../shared/local-resource-id'
@@ -13,15 +13,15 @@ import {
 import { hybridSearch } from '../../embedding/semantic-search'
 import {
   dedupeLocalFolderSearchHits,
-  searchLocalFolderMount,
+  searchLocalFolderMountAsync,
 } from '../../local-folder'
-import { resolveNoteResource, buildCanonicalLocalResourceId } from '../../note-gateway'
+import { resolveNoteResourceAsync, buildCanonicalLocalResourceId } from '../../note-gateway'
 import { extractLocalTagNamesFromTiptapContent } from '../../local-note-tags'
 import { truncateText, generateNoteLink } from './note-link'
 import {
   type LocalContextSourceItem,
   resolveLocalNotebookIdFromAnyId,
-  getLocalFolderScanWithCache,
+  getLocalFolderScanWithCacheAsync,
   pruneLocalFolderScanCache,
   pruneLocalOverviewSummaryCache,
   buildLocalCanonicalPath,
@@ -58,16 +58,19 @@ export interface SearchToolResultItem {
 
 // --- Local search collection ---
 
-export function collectLocalSearchHitsSafely(
+export async function collectLocalSearchHitsSafely(
   mounts: ReturnType<typeof getLocalFolderMounts>,
   query: string,
   folderRelativePath: string | null = null
-): ReturnType<typeof dedupeLocalFolderSearchHits> {
+): Promise<ReturnType<typeof dedupeLocalFolderSearchHits>> {
   pruneLocalFolderScanCache(mounts)
-  const hits = mounts.flatMap((mount) => {
+  const hits: LocalFolderSearchHit[] = []
+
+  for (const mount of mounts) {
     try {
-      const scanned = getLocalFolderScanWithCache(mount)
-      return searchLocalFolderMount(mount, query, folderRelativePath, scanned)
+      const scanned = await getLocalFolderScanWithCacheAsync(mount)
+      const mountHits = await searchLocalFolderMountAsync(mount, query, folderRelativePath, scanned)
+      hits.push(...mountHits)
     } catch (error) {
       console.warn(
         '[SanqianSDK] Failed to search local mount:',
@@ -75,18 +78,18 @@ export function collectLocalSearchHitsSafely(
         mount.mount.root_path,
         error
       )
-      return []
     }
-  })
+  }
+
   return dedupeLocalFolderSearchHits(hits, Number.MAX_SAFE_INTEGER)
 }
 
 // --- Context list building ---
 
-export function buildLocalContextListItems(
+export async function buildLocalContextListItems(
   notebookNameMap: Map<string, string>,
   query?: string
-): AppContextListItem[] {
+): Promise<AppContextListItem[]> {
   const mounts = getLocalFolderMounts().filter((mount) => mount.mount.status === 'active')
   pruneLocalFolderScanCache(mounts)
   pruneLocalOverviewSummaryCache(mounts)
@@ -113,7 +116,7 @@ export function buildLocalContextListItems(
   const sourceItems: LocalContextSourceItem[] = []
 
   if (trimmedQuery) {
-    const hits = collectLocalSearchHitsSafely(mounts, trimmedQuery)
+    const hits = await collectLocalSearchHitsSafely(mounts, trimmedQuery)
     for (const hit of hits) {
       const metadata = getLocalNoteMetadataFromMap(metadataById, hit.notebook_id, hit.relative_path)
       sourceItems.push({
@@ -139,7 +142,7 @@ export function buildLocalContextListItems(
     for (const mount of mounts) {
       let scanned: ReturnType<typeof import('../../local-folder').scanLocalFolderMount>
       try {
-        scanned = getLocalFolderScanWithCache(mount)
+        scanned = await getLocalFolderScanWithCacheAsync(mount)
       } catch (error) {
         console.warn(
           '[SanqianSDK] Failed to scan local mount:',
@@ -209,10 +212,10 @@ export function buildLocalContextListItems(
 
 // --- Hybrid search result mapping ---
 
-export function buildHybridSearchResultItems(
+export async function buildHybridSearchResultItems(
   hybridResults: Awaited<ReturnType<typeof hybridSearch>>,
   notebookNameMap: Map<string, string>
-): SearchToolResultItem[] {
+): Promise<SearchToolResultItem[]> {
   const localNotebookIds = Array.from(new Set(
     hybridResults
       .map((result) => resolveLocalNotebookIdFromAnyId(result.noteId))
@@ -224,7 +227,7 @@ export function buildHybridSearchResultItems(
 
   const items: SearchToolResultItem[] = []
   for (const result of hybridResults) {
-    const resolved = resolveNoteResource(result.noteId)
+    const resolved = await resolveNoteResourceAsync(result.noteId)
     if (!resolved.ok) continue
 
     const preview = result.matchedChunks[0]?.chunkText
@@ -325,20 +328,22 @@ export function mergeSearchResultItems(items: SearchToolResultItem[]): SearchToo
 
 // --- Local keyword search result building ---
 
-export function buildLocalSearchResultItems(
+export async function buildLocalSearchResultItems(
   query: string,
   notebookNameMap: Map<string, string>,
   notebookId?: string,
   folderRelativePath?: string | null
-): SearchToolResultItem[] {
+): Promise<SearchToolResultItem[]> {
   const mounts = getLocalFolderMounts()
   const targetMounts = notebookId
     ? mounts.filter((mount) => mount.notebook.id === notebookId)
     : mounts
   const activeMounts = targetMounts.filter((mount) => mount.mount.status === 'active')
 
-  const normalizedFolderScope = folderRelativePath?.trim() || null
-  const hits = collectLocalSearchHitsSafely(activeMounts, query, normalizedFolderScope)
+  const normalizedFolderScope = typeof folderRelativePath === 'string'
+    ? (folderRelativePath.trim() ? folderRelativePath : null)
+    : null
+  const hits = await collectLocalSearchHitsSafely(activeMounts, query, normalizedFolderScope)
   const metadataById = buildLocalNoteMetadataByIdMap(activeMounts.map((mount) => mount.notebook.id))
 
   return hits.map((hit) => {

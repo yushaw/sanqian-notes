@@ -1,11 +1,9 @@
 import type { IpcMain } from 'electron'
 import type {
-  LocalFolderSearchInput,
   LocalFolderSearchResponse,
 } from '../../shared/types'
 import type { LocalFolderSearchHandlerDependencies } from '../local-folder-search-ipc'
 import { createLocalFolderSearchHandler } from '../local-folder-search-ipc'
-import { createSafeHandler } from './safe-handler'
 
 type IpcMainHandleLike = Pick<IpcMain, 'handle'>
 
@@ -16,8 +14,13 @@ export function registerLocalFolderSearchIpc(
   const handleLocalFolderSearch = createLocalFolderSearchHandler(deps)
   ipcMainLike.handle(
     'localFolder:search',
-    createSafeHandler('localFolder:search', async (_, input: LocalFolderSearchInput): Promise<LocalFolderSearchResponse> => {
-      return handleLocalFolderSearch(input)
-    })
+    async (_, input: unknown): Promise<LocalFolderSearchResponse> => {
+      try {
+        return await handleLocalFolderSearch(input)
+      } catch (error) {
+        console.error('[localFolder:search] ipc handler failed:', error)
+        return { success: false, errorCode: 'LOCAL_FILE_UNREADABLE' }
+      }
+    }
   )
 }

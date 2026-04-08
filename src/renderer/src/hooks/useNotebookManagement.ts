@@ -3,18 +3,21 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { useInternalFolderDialogs } from '../components/app/InternalFolderDialogs'
 import { useNotebookDeleteDialog } from '../components/app/NotebookDeleteDialog'
 import { DESTRUCTIVE_FLUSH_WAIT_TIMEOUT_MS } from './editor-update-types'
+import { toast } from '../utils/toast'
 import {
   buildInternalFolderTree,
   hasInternalFolderPath,
   hasLocalFolderNodes,
   normalizeInternalFolderPath,
 } from '../utils/localFolderNavigation'
+import type { Translations } from '../i18n'
 import type {
   Note,
   Notebook,
   NotebookFolder,
   NotebookFolderTreeNode,
   LocalFolderTreeResult,
+  LocalFolderUnmountErrorCode,
 } from '../types/note'
 
 // ---------------------------------------------------------------------------
@@ -61,6 +64,9 @@ export interface UseNotebookManagementOptions {
 
   // From note CRUD
   refreshInternalNotebookData: () => Promise<void>
+
+  // i18n
+  t: Translations
 }
 
 export interface NotebookManagementAPI {
@@ -77,7 +83,7 @@ export interface NotebookManagementAPI {
   handleAddNotebook: () => void
   handleEditNotebook: (notebook: Notebook) => void
   handleSaveNotebook: (data: { name: string; icon: string }) => Promise<void>
-  handleConfirmDeleteNotebook: (notebook: Notebook) => Promise<void>
+  handleConfirmDeleteNotebook: (notebook: Notebook) => Promise<boolean>
   handleDeleteNotebook: () => Promise<void>
 
   // Derived values
@@ -126,6 +132,7 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
     cleanupUnmountedLocalNotebook,
     resetLocalEditorState,
     refreshInternalNotebookData,
+    t,
   } = options
 
   // ---------------------------------------------------------------------------
@@ -335,7 +342,19 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
   // handleConfirmDeleteNotebook
   // ---------------------------------------------------------------------------
 
-  const handleConfirmDeleteNotebook = useCallback(async (notebook: Notebook) => {
+  const handleConfirmDeleteNotebook = useCallback(async (notebook: Notebook): Promise<boolean> => {
+    const resolveLocalUnmountErrorMessage = (errorCode: LocalFolderUnmountErrorCode): string => {
+      switch (errorCode) {
+        case 'LOCAL_NOTEBOOK_NOT_FOUND':
+          return t.notebook.mountErrorNotFound || t.notebook.deleteFailed
+        case 'LOCAL_MOUNT_PATH_UNREACHABLE':
+          return t.notebook.mountErrorUnreachable || t.notebook.deleteFailed
+        case 'LOCAL_NOTEBOOK_NOT_LOCAL_FOLDER':
+        default:
+          return t.notebook.deleteFailed
+      }
+    }
+
     try {
       if (notebook.source_type === 'local-folder') {
         if (localOpenFileRef.current?.notebookId === notebook.id) {
@@ -344,8 +363,8 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
         if (localAutoDraftRef.current?.notebookId === notebook.id) {
           await cleanupLocalAutoDraftIfNeeded(null, { skipFlush: true })
         }
-        const success = await window.electron.localFolder.unmount(notebook.id)
-        if (success) {
+        const unmountResult = await window.electron.localFolder.unmount(notebook.id)
+        if (unmountResult.success) {
           setNotebooks(prev => prev.filter(nb => nb.id !== notebook.id))
           setNotebookFolders(prev => prev.filter(folder => folder.notebook_id !== notebook.id))
           cleanupUnmountedLocalNotebook(notebook.id)
@@ -358,11 +377,13 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
             setSelectedInternalFolderPath(null)
             resetLocalEditorState()
           }
+          return true
         }
-        return
+        toast(resolveLocalUnmountErrorMessage(unmountResult.errorCode), { type: 'error' })
+        return false
       }
 
-      // Soft-delete all notes in this notebook first (move to trash)
+      // Flush pending editor updates before destructive delete.
       const notesInNotebook = notes.filter(n => n.notebook_id === notebook.id)
       const flushed = await flushQueuedEditorUpdatesForNotes(
         notesInNotebook.map(note => note.id),
@@ -370,37 +391,55 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
       )
       if (!flushed) {
         notifyFlushRequired()
-        return
-      }
-      for (const note of notesInNotebook) {
-        await window.electron.note.delete(note.id)
-        clearEditorUpdateRuntimeState(note.id)
+        return false
       }
 
-      // Delete the notebook
-      const success = await window.electron.notebook.delete(notebook.id)
-      if (success) {
+      const deleteResult = await window.electron.notebook.deleteInternalWithNotes({
+        notebook_id: notebook.id,
+      })
+      if (deleteResult.success) {
+        const deletedAt = deleteResult.result.deleted_at
+        const deletedIds = new Set(deleteResult.result.deleted_note_ids)
+        for (const deletedNoteId of deletedIds) {
+          clearEditorUpdateRuntimeState(deletedNoteId)
+        }
+
         setNotebooks(prev => prev.filter(nb => nb.id !== notebook.id))
         setNotebookFolders(prev => prev.filter(folder => folder.notebook_id !== notebook.id))
-        setNotes(prev => prev.filter(n => n.notebook_id !== notebook.id))
+        setNotes(prev => prev.filter(n => !deletedIds.has(n.id)))
         // Add deleted notes to trash
-        const now = new Date().toISOString()
         setTrashNotes(prev => [
-          ...notesInNotebook.map(n => ({ ...n, deleted_at: now })),
+          ...notesInNotebook
+            .filter(note => deletedIds.has(note.id))
+            .map(note => ({ ...note, deleted_at: deletedAt })),
           ...prev
         ])
         // If the deleted notebook was selected, go back to all notes
         if (selectedNotebookId === notebook.id) {
           setSelectedNotebookId(null)
           setSelectedSmartView('all')
+          setIsTypewriterMode(false)
           setSelectedInternalFolderPath(null)
         }
         // Remove deleted notes from selection
-        const deletedIds = new Set(notesInNotebook.map(n => n.id))
         setSelectedNoteIds(prev => prev.filter(id => !deletedIds.has(id)))
+        setAnchorNoteId((prev) => (prev && deletedIds.has(prev) ? null : prev))
+        return true
       }
+      await refreshInternalNotebookData()
+      toast(t.notebook.deleteFailed, { type: 'error' })
+      return false
     } catch (error) {
       console.error('Failed to delete notebook:', error)
+      if (notebook.source_type !== 'local-folder') {
+        try {
+          await refreshInternalNotebookData()
+        } catch (refreshError) {
+          console.error('Failed to refresh internal notebook data after delete failure:', refreshError)
+        }
+      }
+      toast(t.notebook.deleteFailed, { type: 'error' })
+      return false
     }
   }, [
     clearEditorUpdateRuntimeState,
@@ -412,6 +451,7 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
     flushQueuedEditorUpdatesForNotes,
     notifyFlushRequired,
     resetLocalEditorState,
+    refreshInternalNotebookData,
     localOpenFileRef,
     localAutoDraftRef,
     setNotebooks,
@@ -424,6 +464,9 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
     setSelectedNoteIds,
     setAnchorNoteId,
     setSelectedInternalFolderPath,
+    t.notebook.mountErrorNotFound,
+    t.notebook.mountErrorUnreachable,
+    t.notebook.deleteFailed,
   ])
 
   // ---------------------------------------------------------------------------
@@ -433,6 +476,7 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
   const notebookDeleteDialog = useNotebookDeleteDialog({
     onConfirmDelete: handleConfirmDeleteNotebook,
   })
+  const { requestDelete } = notebookDeleteDialog
 
   // ---------------------------------------------------------------------------
   // handleDeleteNotebook (from modal)
@@ -440,10 +484,10 @@ export function useNotebookManagement(options: UseNotebookManagementOptions): No
 
   const handleDeleteNotebook = useCallback(async () => {
     if (!editingNotebook) return
-    notebookDeleteDialog.requestDelete(editingNotebook)
+    requestDelete(editingNotebook)
     setShowNotebookModal(false)
     setEditingNotebook(null)
-  }, [editingNotebook, notebookDeleteDialog.requestDelete])
+  }, [editingNotebook, requestDelete])
 
   // ---------------------------------------------------------------------------
   // Return

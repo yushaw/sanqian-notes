@@ -12,7 +12,8 @@ export type {
   Tag,
   TagWithSource,
   Notebook,
-  NotebookInput,
+  InternalNotebookInput,
+  InternalNotebookUpdateInput,
   NotebookStatus,
   NotebookFolder,
   LocalFolderMount,
@@ -43,9 +44,13 @@ export { createDemoNotes, createDemoNote } from './demo-notes'
 export {
   getNotes,
   getNotesByUpdated,
+  getNotesByNotebookIds,
+  getLiveNoteTitleEntries,
+  getLiveNotesForDataviewProjection,
   getNoteById,
   getNotesByIds,
   addNote,
+  addNotesBatch,
   updateNote,
   updateNoteSafe,
   deleteNote,
@@ -70,7 +75,8 @@ export {
   getNotebooks,
   addNotebook,
   updateNotebook,
-  deleteNotebook,
+  deleteLocalFolderNotebook,
+  deleteInternalNotebookWithNotes,
   reorderNotebooks,
   getNotebookFolders,
   hasNotebookFolderPathReference,
@@ -87,6 +93,7 @@ export {
   getLocalNoteIdentityByPath,
   getLocalNoteIdentityByUid,
   ensureLocalNoteIdentity,
+  ensureLocalNoteIdentitiesBatch,
   renameLocalNoteIdentityPath,
   moveLocalNoteIdentity,
   renameLocalNoteIdentityFolderPath,
@@ -98,6 +105,7 @@ export {
   listLocalNoteMetadata,
   getLocalNoteMetadata,
   updateLocalNoteMetadata,
+  updateLocalNoteTagsBatch,
   renameLocalNoteMetadataPath,
   renameLocalNoteMetadataFolderPath,
   deleteLocalNoteMetadataByPath
@@ -109,6 +117,7 @@ export {
   getLocalFolderMountByCanonicalPath,
   getLocalFolderMountByNotebookId,
   createLocalFolderNotebookMount,
+  createLocalFolderNotebookMountSafe,
   updateLocalFolderMountStatus,
   updateLocalFolderMountRoot
 } from './local-folder-mounts'
@@ -155,6 +164,7 @@ export {
 export type { PopupData, PopupInput } from './ai-popups'
 export {
   replaceAIPopupRefsForNote,
+  replaceAIPopupRefsForNotesBatch,
   deleteAIPopupRefsForNote,
   rebuildAIPopupRefsForInternalNotes,
   getPopup,

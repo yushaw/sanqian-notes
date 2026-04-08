@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { buildLocalNoteMetadataMap, mergeLocalNotebookStatuses, mergeNotebooksWithLocalMounts } from '../utils/localFolderNavigation'
 import type {
-  LocalFolderNotebookMount,
   LocalNoteMetadata,
   Note,
   NoteInput,
@@ -41,14 +40,19 @@ export function useNoteDataChangedReload(options: UseNoteDataChangedReloadOption
     const cleanup = window.electron.note.onDataChanged(async () => {
       console.log('[App] Data changed, reloading data...')
       try {
-        const [notesData, notebooksData, localMounts, notebookFolderData, localMetadataResponse] = await Promise.all([
+        const [notesData, notebooksData, localMountsResponse, notebookFolderData, localMetadataResponse] = await Promise.all([
           window.electron.note.getAll(),
           window.electron.notebook.getAll(),
           window.electron.localFolder.list(),
           window.electron.notebookFolder.list(),
           window.electron.localFolder.listNoteMetadata(),
         ])
-        const localMountSnapshots = localMounts as LocalFolderNotebookMount[]
+        const localMountSnapshots = localMountsResponse.success
+          ? localMountsResponse.result.mounts
+          : []
+        if (!localMountsResponse.success) {
+          console.warn('[App] Failed to reload local folder mounts:', localMountsResponse.errorCode)
+        }
         const mergedNotebooks = mergeNotebooksWithLocalMounts(notebooksData as Notebook[], localMountSnapshots)
         const localMetadataItems = localMetadataResponse.success ? localMetadataResponse.result.items : []
         if (!localMetadataResponse.success) {

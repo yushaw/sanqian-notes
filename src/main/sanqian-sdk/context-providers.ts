@@ -12,10 +12,10 @@ import {
   getLocalNoteMetadata,
 } from '../database'
 import { t } from '../i18n'
-import { resolveNoteResource, buildCanonicalLocalResourceId } from '../note-gateway'
+import { resolveNoteResourceAsync, buildCanonicalLocalResourceId } from '../note-gateway'
 import {
-  buildNotesOverviewContext,
-  buildNotebooksOverviewContext,
+  buildNotesOverviewContextAsync,
+  buildNotebooksOverviewContextAsync,
 } from '../context-overview'
 import { getRawUserContext } from '../user-context'
 import { sanitizeContextInlineText, generateNoteLink } from './helpers/note-link'
@@ -23,8 +23,8 @@ import {
   resolveLocalPathFromAnyId,
 } from './helpers/caching'
 import {
-  buildContextOverviewDataSource,
-  getNotebookNoteCountsForAgent,
+  buildContextOverviewDataSourceAsync,
+  getNotebookNoteCountsForAgentAsync,
   getInternalContextNotes,
 } from './helpers/context-overview-helpers'
 import { buildLocalContextListItems } from './helpers/search-helpers'
@@ -107,9 +107,9 @@ export function buildContextProviders(): AppContextProvider[] {
       name: t().contexts.notes.name,
       description: t().contexts.notes.description,
       getCurrent: async () => {
-        return buildNotesOverviewContext(
+        return buildNotesOverviewContextAsync(
           getRawUserContext(),
-          buildContextOverviewDataSource(),
+          buildContextOverviewDataSourceAsync(),
           { includeCurrentNote: false }
         )
       },
@@ -134,7 +134,7 @@ export function buildContextProviders(): AppContextProvider[] {
           tags: note.tags?.map((tag) => tag.name) || undefined,
         }))
 
-        const localItems = buildLocalContextListItems(notebookNameMap, query)
+        const localItems = await buildLocalContextListItems(notebookNameMap, query)
         const merged = [...internalItems, ...localItems].sort((a, b) => {
           const leftUpdated = a.updatedAt || ''
           const rightUpdated = b.updatedAt || ''
@@ -151,7 +151,7 @@ export function buildContextProviders(): AppContextProvider[] {
         return { items, hasMore }
       },
       getById: async (id: string) => {
-        const resolved = resolveNoteResource(id)
+        const resolved = await resolveNoteResourceAsync(id)
         if (!resolved.ok) {
           return null
         }
@@ -243,11 +243,11 @@ export function buildContextProviders(): AppContextProvider[] {
       name: t().contexts.notebooks.name,
       description: t().contexts.notebooks.description,
       getCurrent: async () => {
-        return buildNotebooksOverviewContext(getRawUserContext(), buildContextOverviewDataSource())
+        return buildNotebooksOverviewContextAsync(getRawUserContext(), buildContextOverviewDataSourceAsync())
       },
       getList: async () => {
         const notebooks = getNotebooks()
-        const noteCounts = getNotebookNoteCountsForAgent()
+        const noteCounts = await getNotebookNoteCountsForAgentAsync()
 
         const items = notebooks.map(notebook => ({
           id: notebook.id,
@@ -264,7 +264,7 @@ export function buildContextProviders(): AppContextProvider[] {
           return null
         }
 
-        const noteCounts = getNotebookNoteCountsForAgent()
+        const noteCounts = await getNotebookNoteCountsForAgentAsync()
         const noteCount = noteCounts[notebook.id] || 0
 
         const lines = [

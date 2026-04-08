@@ -9,7 +9,7 @@ import { join, extname, basename, relative } from 'path'
 import { promises as fs, realpathSync } from 'fs'
 import { randomBytes } from 'crypto'
 import type { AttachmentResult } from '../shared/types'
-import { toSlashPath } from './path-compat'
+import { normalizeComparablePathForFileSystem, toSlashPath } from './path-compat'
 
 // 重新导出类型，方便其他模块使用
 export type { AttachmentResult } from '../shared/types'
@@ -107,7 +107,7 @@ export function getFullPath(relativePath: string): string {
   if (normalized.includes('..') || normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
     throw new Error('Invalid path: directory traversal detected')
   }
-  const fullPath = join(app.getPath('userData'), relativePath)
+  const fullPath = join(app.getPath('userData'), normalized)
   // 解析符号链接后再验证是否仍在 userData 下
   let realPath: string
   try {
@@ -117,7 +117,13 @@ export function getFullPath(relativePath: string): string {
     return fullPath
   }
   const realUserData = realpathSync(app.getPath('userData'))
-  if (!realPath.startsWith(realUserData + '/') && realPath !== realUserData) {
+  const comparableRealPath = normalizeComparablePathForFileSystem(realPath, realPath)
+  const comparableRealUserData = normalizeComparablePathForFileSystem(realUserData, realUserData)
+  const pathSeparator = comparableRealUserData.includes('\\') ? '\\' : '/'
+  if (
+    comparableRealPath !== comparableRealUserData
+    && !comparableRealPath.startsWith(`${comparableRealUserData}${pathSeparator}`)
+  ) {
     throw new Error('Invalid path: resolved path escapes user data directory')
   }
   return fullPath

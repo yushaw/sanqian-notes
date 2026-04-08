@@ -17,9 +17,9 @@ import { formatDailyDate } from '../utils/dateFormat'
 import { setAndPersistNoteScrollPosition } from '../utils/noteScrollStorage'
 import { buildSmartViewNoteCounts, type SmartViewNoteCounts } from '../utils/noteCounts'
 import { mergeAllSourceNotes } from '../utils/allSourceNotes'
-import { isInternalPathInSubtree } from '../utils/localFolderNavigation'
+import { isInternalPathInSubtree, normalizeLocalRelativePath } from '../utils/localFolderNavigation'
 import { resolveSearchResultNavigationTarget } from '../utils/searchResultNavigation'
-import { isLocalResourceId, parseLocalResourceId } from '../utils/localResourceId'
+import { createLocalResourceId, isLocalResourceId, parseLocalResourceId } from '../utils/localResourceId'
 import { compareNotesByPinnedAndUpdated } from '../utils/noteSort'
 import type { CursorContext } from '../utils/cursor'
 
@@ -437,21 +437,28 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
     const navigationTarget = resolveSearchResultNavigationTarget(noteId)
 
     if (navigationTarget.type === 'local') {
+      const normalizedTargetRelativePath = normalizeLocalRelativePath(navigationTarget.relativePath)
+      if (!normalizedTargetRelativePath) return
+      const normalizedTargetNoteId = createLocalResourceId(
+        navigationTarget.notebookId,
+        normalizedTargetRelativePath,
+      )
+
       captureNoteScrollPosition(leavingFocusedNoteId, focusedPaneId)
 
       if (isAllSourceViewActive) {
         setIsTypewriterMode(false)
-        setSelectedNoteIds([noteId])
-        setAnchorNoteId(noteId)
+        setSelectedNoteIds([normalizedTargetNoteId])
+        setAnchorNoteId(normalizedTargetNoteId)
         setAllViewLocalEditorTarget({
-          noteId,
+          noteId: normalizedTargetNoteId,
           notebookId: navigationTarget.notebookId,
-          relativePath: navigationTarget.relativePath,
+          relativePath: normalizedTargetRelativePath,
         })
         if (!hasFreshLocalTreeSnapshot(navigationTarget.notebookId)) {
           void refreshLocalFolderTree(navigationTarget.notebookId, { showLoading: false })
         }
-        void openLocalFile(navigationTarget.relativePath, navigationTarget.notebookId)
+        void openLocalFile(normalizedTargetRelativePath, navigationTarget.notebookId)
       }
 
       // In all-source view we already switched the UI and kicked off file open.
@@ -460,7 +467,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
         await flushLocalFileSave()
         if (selectionVersion !== noteSelectionVersionRef.current) return
         await cleanupLocalAutoDraftIfNeeded(
-          { notebookId: navigationTarget.notebookId, relativePath: navigationTarget.relativePath },
+          { notebookId: navigationTarget.notebookId, relativePath: normalizedTargetRelativePath },
           { skipFlush: true }
         )
         if (selectionVersion !== noteSelectionVersionRef.current) return
@@ -473,7 +480,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       }
 
       triggerIndexCheck(leavingLocalEditorNote?.id || leavingFocusedNoteId, leavingLocalEditorNote)
-      if (leavingFocusedNoteId && leavingFocusedNoteId !== noteId) {
+      if (leavingFocusedNoteId && leavingFocusedNoteId !== normalizedTargetNoteId) {
         deleteEmptyNoteIfNeeded(leavingFocusedNoteId)
       }
 
@@ -491,7 +498,7 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
 
       await refreshLocalFolderTree(navigationTarget.notebookId)
       if (selectionVersion !== noteSelectionVersionRef.current) return
-      await openLocalFile(navigationTarget.relativePath, navigationTarget.notebookId)
+      await openLocalFile(normalizedTargetRelativePath, navigationTarget.notebookId)
       return
     }
 
@@ -852,6 +859,12 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
       initialLocalSelectionRestoreRef.current = true
       return
     }
+    const normalizedSavedRelativePath = normalizeLocalRelativePath(localRef.relativePath)
+    if (!normalizedSavedRelativePath) {
+      initialLocalSelectionRestoreRef.current = true
+      return
+    }
+    const normalizedSavedNoteId = createLocalResourceId(localRef.notebookId, normalizedSavedRelativePath)
 
     const hasLocalNotebook = notebooks.some(
       (notebook) => notebook.id === localRef.notebookId && notebook.source_type === 'local-folder'
@@ -873,19 +886,19 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
     initialLocalSelectionRestoreRef.current = true
 
     setIsTypewriterMode(false)
-    setSelectedNoteIds([savedNoteId])
-    setAnchorNoteId(savedNoteId)
+    setSelectedNoteIds([normalizedSavedNoteId])
+    setAnchorNoteId(normalizedSavedNoteId)
     try {
-      localStorage.setItem(STORAGE_KEY_NOTE, savedNoteId)
+      localStorage.setItem(STORAGE_KEY_NOTE, normalizedSavedNoteId)
     } catch {
       // ignore storage errors
     }
     setAllViewLocalEditorTarget(
       shouldRestoreAllViewLocalEditor
         ? {
-          noteId: savedNoteId,
+          noteId: normalizedSavedNoteId,
           notebookId: localRef.notebookId,
-          relativePath: localRef.relativePath,
+          relativePath: normalizedSavedRelativePath,
         }
         : null
     )
@@ -900,16 +913,16 @@ export function useNoteNavigation(options: UseNoteNavigationOptions): NoteNaviga
     }
 
     void (async () => {
-      const opened = await openLocalFile(localRef.relativePath, localRef.notebookId)
+      const opened = await openLocalFile(normalizedSavedRelativePath, localRef.notebookId)
       if (opened) return
 
       setAllViewLocalEditorTarget((prev) => (
-        prev && prev.noteId === savedNoteId ? null : prev
+        prev && prev.noteId === normalizedSavedNoteId ? null : prev
       ))
       setSelectedNoteIds((prev) => (
-        prev.length === 1 && prev[0] === savedNoteId ? [] : prev
+        prev.length === 1 && prev[0] === normalizedSavedNoteId ? [] : prev
       ))
-      setAnchorNoteId((prev) => (prev === savedNoteId ? null : prev))
+      setAnchorNoteId((prev) => (prev === normalizedSavedNoteId ? null : prev))
       try {
         localStorage.removeItem(STORAGE_KEY_NOTE)
       } catch {

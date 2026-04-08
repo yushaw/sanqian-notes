@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest'
 import { markdownToTiptap } from '../markdown-to-tiptap'
 
 // Helper to safely access nested properties
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyNode = any
 
 describe('markdownToTiptap', () => {

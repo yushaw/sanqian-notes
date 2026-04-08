@@ -17,7 +17,7 @@ import {
 } from './database'
 import { jsonToMarkdown } from './markdown/tiptap-to-markdown'
 import { getClient } from './sanqian-sdk'
-import { buildNoteFromResolvedResource, resolveNoteResource } from './note-gateway'
+import { buildNoteFromResolvedResource, resolveNoteResourceAsync } from './note-gateway'
 
 // ============ Constants ============
 
@@ -245,7 +245,7 @@ export async function generateSummary(noteId: string): Promise<boolean> {
     return false
   }
 
-  const resolved = resolveNoteResource(noteId)
+  const resolved = await resolveNoteResourceAsync(noteId)
   if (!resolved.ok) {
     console.log(`[Summary] Note not found: ${noteId}`)
     return false

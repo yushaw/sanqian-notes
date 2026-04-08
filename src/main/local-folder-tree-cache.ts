@@ -1,5 +1,6 @@
 import type { LocalFolderTreeResult, LocalFolderNotebookMount } from '../shared/types'
 import { scanLocalFolderMount, scanLocalFolderMountAsync } from './local-folder'
+import type { LocalFolderTreeScanOptions } from './local-folder/scan'
 
 const localFolderTreeCache = new Map<string, { tree: LocalFolderTreeResult; cachedAtMs: number }>()
 
@@ -30,8 +31,18 @@ export function scanAndCacheLocalFolderTree(mount: LocalFolderNotebookMount): Lo
   return tree
 }
 
-export async function scanAndCacheLocalFolderTreeAsync(mount: LocalFolderNotebookMount): Promise<LocalFolderTreeResult> {
-  const tree = await scanLocalFolderMountAsync(mount)
+export async function scanLocalFolderTreeAsync(
+  mount: LocalFolderNotebookMount,
+  options?: LocalFolderTreeScanOptions
+): Promise<LocalFolderTreeResult> {
+  return scanLocalFolderMountAsync(mount, options)
+}
+
+export async function scanAndCacheLocalFolderTreeAsync(
+  mount: LocalFolderNotebookMount,
+  options?: LocalFolderTreeScanOptions
+): Promise<LocalFolderTreeResult> {
+  const tree = await scanLocalFolderTreeAsync(mount, options)
   cacheLocalFolderTree(tree)
   return tree
 }

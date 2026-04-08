@@ -3,10 +3,12 @@ import dayjs from 'dayjs'
 import weekOfYear from 'dayjs/plugin/weekOfYear'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { getDb } from './connection'
-import { TRASH_RETENTION_DAYS, hasInternalNoteId, hasLocalNoteUid } from './helpers'
+import { TRASH_RETENTION_DAYS } from './helpers'
 import { replaceAIPopupRefsForNote } from './ai-popups'
 import { getDailyDefaultTemplate } from './templates'
 import { markdownToTiptapString } from '../markdown'
+import { parseNotebookIdArrayInput, parseRequiredNotebookIdInput } from '../notebook-id'
+import { hasOwnDefinedProperty } from '../../shared/property-guards'
 import type {
   Note,
   NoteInput,
@@ -97,6 +99,66 @@ export function getNotesByUpdated(limit = -1, offset = 0): Note[] {
   return stmt.all(limit, offset).map(row => rowToNote(row as Record<string, unknown>))
 }
 
+export function getNotesByNotebookIds(notebookIds: readonly string[]): Note[] {
+  const db = getDb()
+  const uniqueNotebookIds = Array.from(new Set(parseNotebookIdArrayInput(notebookIds)))
+  if (uniqueNotebookIds.length === 0) return []
+
+  const placeholders = uniqueNotebookIds.map(() => '?').join(',')
+  const stmt = db.prepare(`
+    SELECT ${NOTE_SELECT_COLUMNS}
+    FROM notes n
+    WHERE n.deleted_at IS NULL
+      AND n.notebook_id IN (${placeholders})
+    ORDER BY n.is_pinned DESC, n.updated_at DESC
+  `)
+  return stmt.all(...uniqueNotebookIds).map(row => rowToNote(row as Record<string, unknown>))
+}
+
+export function getLiveNoteTitleEntries(): Array<{ id: string; title: string }> {
+  const db = getDb()
+  const stmt = db.prepare(`
+    SELECT id, title
+    FROM notes
+    WHERE deleted_at IS NULL
+  `)
+  return (stmt.all() as Array<{ id: string; title: string }>)
+}
+
+export interface LiveNoteDataviewProjection {
+  id: string
+  title: string
+  notebook_id: string | null
+  updated_at: string
+  is_pinned: boolean
+  tags: TagWithSource[]
+}
+
+export function getLiveNotesForDataviewProjection(): LiveNoteDataviewProjection[] {
+  const db = getDb()
+  const stmt = db.prepare(`
+    SELECT
+      n.id,
+      n.title,
+      n.notebook_id,
+      n.updated_at,
+      n.is_pinned,
+      ${TAGS_SUBQUERY}
+    FROM notes n
+    WHERE n.deleted_at IS NULL
+    ORDER BY n.is_pinned DESC, n.updated_at DESC
+  `)
+  const rows = stmt.all() as Array<Record<string, unknown>>
+  return rows.map((row) => ({
+    id: row.id as string,
+    title: row.title as string,
+    notebook_id: (row.notebook_id as string | null) ?? null,
+    updated_at: row.updated_at as string,
+    is_pinned: Boolean(row.is_pinned),
+    tags: parseTags((row.tags_json as string | null) ?? null),
+  }))
+}
+
 export function getNoteById(id: string): Note | null {
   const db = getDb()
   const stmt = db.prepare(`
@@ -109,20 +171,28 @@ export function getNoteById(id: string): Note | null {
   return rowToNote(row)
 }
 
-export function getNotesByIds(ids: string[]): Note[] {
+export function getNotesByIds(ids: string[], options?: { includeDeleted?: boolean }): Note[] {
   const db = getDb()
   if (ids.length === 0) return []
 
-  const placeholders = ids.map(() => '?').join(',')
+  const normalizedIds = ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+  if (normalizedIds.length === 0) return []
+
+  const uniqueIds = Array.from(new Set(normalizedIds))
+  const placeholders = uniqueIds.map(() => '?').join(',')
+  const whereConditions = [`n.id IN (${placeholders})`]
+  if (!options?.includeDeleted) {
+    whereConditions.push('n.deleted_at IS NULL')
+  }
   const stmt = db.prepare(`
     SELECT ${NOTE_SELECT_COLUMNS}
     FROM notes n
-    WHERE n.id IN (${placeholders})
+    WHERE ${whereConditions.join(' AND ')}
   `)
-  const rows = stmt.all(...ids) as Array<Record<string, unknown>>
+  const rows = stmt.all(...uniqueIds) as Array<Record<string, unknown>>
 
   const noteMap = new Map(rows.map(row => [row.id as string, row]))
-  return ids
+  return normalizedIds
     .map(id => noteMap.get(id))
     .filter((row): row is Record<string, unknown> => row !== undefined)
     .map(rowToNote)
@@ -137,13 +207,13 @@ function resolveNoteNotebookAssignment(
   }
 
   const notebook = db.prepare('SELECT id, source_type FROM notebooks WHERE id = ?').get(notebookId) as
-    | { id: string; source_type: Notebook['source_type'] | null }
+    | { id: string; source_type: Notebook['source_type'] }
     | undefined
   if (!notebook) {
     return { ok: false, error: 'notebook_not_found' }
   }
 
-  if ((notebook.source_type || 'internal') === 'local-folder') {
+  if (notebook.source_type === 'local-folder') {
     return { ok: false, error: 'target_not_allowed' }
   }
 
@@ -167,54 +237,108 @@ function hasMeaningfulNoteChange(existing: Note, updates: Partial<NoteInput>): b
   )
 }
 
-export function addNote(input: NoteInput): Note {
-  const db = getDb()
-  if (!canAssignNoteToNotebook(input.notebook_id)) {
-    throw new Error(`Cannot assign note to notebook: ${input.notebook_id ?? 'null'}`)
-  }
+const INTERNAL_NOTE_ID_MAX_ATTEMPTS = 128
 
-  let id = ''
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+function createHasInternalNoteIdConflictChecker(
+  db: ReturnType<typeof getDb>
+): (noteId: string) => boolean {
+  const hasConflictStmt = db.prepare(`
+    SELECT 1 as ok
+    FROM notes
+    WHERE id = ?
+    UNION ALL
+    SELECT 1 as ok
+    FROM local_note_identity
+    WHERE note_uid = ?
+    LIMIT 1
+  `)
+  return (noteId: string): boolean => {
+    return Boolean((hasConflictStmt.get(noteId, noteId) as { ok: number } | undefined)?.ok)
+  }
+}
+
+function generateInternalNoteId(
+  hasInternalNoteIdConflict: (noteId: string) => boolean,
+  generatedInBatch?: Set<string>
+): string {
+  for (let attempt = 0; attempt < INTERNAL_NOTE_ID_MAX_ATTEMPTS; attempt += 1) {
     const candidate = uuidv4().toLowerCase()
-    if (hasLocalNoteUid(candidate) || hasInternalNoteId(candidate)) {
+    if (generatedInBatch?.has(candidate)) {
       continue
     }
-    id = candidate
-    break
+    if (hasInternalNoteIdConflict(candidate)) {
+      continue
+    }
+    return candidate
   }
-  if (!id) {
-    id = uuidv4().toLowerCase()
-  }
-  const now = new Date().toISOString()
+  throw new Error('Failed to generate unique internal note id')
+}
 
-  const insertAndReplaceRefs = db.transaction(() => {
-    db.prepare(`
+export function addNotesBatch(inputs: readonly NoteInput[]): Note[] {
+  if (inputs.length === 0) return []
+
+  const notebookValidationCache = new Map<string | null, boolean>()
+  for (const input of inputs) {
+    const notebookId = input.notebook_id ?? null
+    let canAssign = notebookValidationCache.get(notebookId)
+    if (canAssign === undefined) {
+      canAssign = canAssignNoteToNotebook(notebookId)
+      notebookValidationCache.set(notebookId, canAssign)
+    }
+    if (!canAssign) {
+      throw new Error(`Cannot assign note to notebook: ${input.notebook_id ?? 'null'}`)
+    }
+  }
+
+  const db = getDb()
+  const insertStmt = db.prepare(`
       INSERT INTO notes (id, title, content, notebook_id, folder_path, is_daily, daily_date, is_favorite, is_pinned, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      input.title,
-      input.content,
-      input.notebook_id ?? null,
-      input.folder_path ?? null,
-      input.is_daily ? 1 : 0,
-      input.daily_date ?? null,
-      input.is_favorite ? 1 : 0,
-      input.is_pinned ? 1 : 0,
-      now,
-      now
-    )
+    `)
 
-    replaceAIPopupRefsForNote({
-      note_id: id,
-      source_type: 'internal',
-      tiptap_content: input.content,
-    })
+  const insertAndReplaceRefs = db.transaction((batch: readonly NoteInput[]) => {
+    const now = new Date().toISOString()
+    const createdIds: string[] = []
+    const generatedInBatch = new Set<string>()
+    const hasInternalNoteIdConflict = createHasInternalNoteIdConflictChecker(db)
+    for (const input of batch) {
+      const id = generateInternalNoteId(hasInternalNoteIdConflict, generatedInBatch)
+      generatedInBatch.add(id)
+      insertStmt.run(
+        id,
+        input.title,
+        input.content,
+        input.notebook_id ?? null,
+        input.folder_path ?? null,
+        input.is_daily ? 1 : 0,
+        input.daily_date ?? null,
+        input.is_favorite ? 1 : 0,
+        input.is_pinned ? 1 : 0,
+        now,
+        now
+      )
+
+      replaceAIPopupRefsForNote({
+        note_id: id,
+        source_type: 'internal',
+        tiptap_content: input.content,
+      })
+      createdIds.push(id)
+    }
+    return createdIds
   })
-  insertAndReplaceRefs()
 
-  const note = getNoteById(id)
-  if (!note) throw new Error(`Failed to create note with id ${id}`)
+  const createdIds = insertAndReplaceRefs(inputs)
+  const created = getNotesByIds(createdIds)
+  if (created.length !== createdIds.length) {
+    throw new Error(`Failed to create notes in batch: expected ${createdIds.length}, got ${created.length}`)
+  }
+  return created
+}
+
+export function addNote(input: NoteInput): Note {
+  const [note] = addNotesBatch([input])
+  if (!note) throw new Error('Failed to create note')
   return note
 }
 
@@ -413,10 +537,17 @@ export function searchNotes(
   ]
   const params: (string | number)[] = [likeQuery, likeQuery, likeQuery]
 
-  if (filter?.notebookId) {
+  const rawNotebookId = filter?.notebookId
+  const hasExplicitNotebookFilter = hasOwnDefinedProperty(filter, 'notebookId')
+  const notebookId = parseRequiredNotebookIdInput(rawNotebookId)
+  if (hasExplicitNotebookFilter && !notebookId) {
+    return []
+  }
+
+  if (notebookId) {
     conditions.push('n.notebook_id = ?')
     conditions.push('n.is_daily = 0')
-    params.push(filter.notebookId)
+    params.push(notebookId)
   } else if (filter?.viewType) {
     switch (filter.viewType) {
       case 'daily':

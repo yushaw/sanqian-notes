@@ -77,21 +77,47 @@ export interface NoteInput {
 
 export type NotebookSourceType = 'internal' | 'local-folder'
 export type NotebookStatus = 'active' | 'permission_required' | 'missing'
+export type LocalFolderMountStatusPersistResult =
+  | 'updated'
+  | 'no_change'
+  | 'not_found'
+  | 'conflict'
 
 export interface Notebook {
   id: string
   name: string
   icon?: string // logo:notes, logo:todolist, logo:sanqian, logo:yinian, or emoji
-  source_type?: NotebookSourceType
+  source_type: NotebookSourceType
   order_index: number
   created_at: string
 }
 
-export interface NotebookInput {
+export interface InternalNotebookInput {
   name: string
   icon?: string
-  source_type?: NotebookSourceType
 }
+
+export interface InternalNotebookUpdateInput {
+  name?: string
+  icon?: string
+}
+
+export type NotebookDeleteInternalErrorCode =
+  | 'NOTEBOOK_NOT_FOUND'
+  | 'NOTEBOOK_NOT_INTERNAL'
+
+export type NotebookDeleteInternalResponse =
+  | {
+    success: true
+    result: {
+      deleted_note_ids: string[]
+      deleted_at: string
+    }
+  }
+  | {
+    success: false
+    errorCode: NotebookDeleteInternalErrorCode
+  }
 
 export interface NotebookFolder {
   id: string
@@ -156,6 +182,11 @@ export interface LocalFolderMount {
   updated_at: string
 }
 
+export type LocalFolderMountRootPersistResult =
+  | { status: 'updated'; mount: LocalFolderMount }
+  | { status: 'not_found' }
+  | { status: 'conflict' }
+
 export interface LocalFolderMountInput {
   root_path: string
   name?: string
@@ -171,6 +202,10 @@ export interface LocalFolderNotebookMount {
   notebook: Notebook
   mount: LocalFolderMount
 }
+
+export type LocalFolderMountCreatePersistResult =
+  | { status: 'created'; mount: LocalFolderNotebookMount }
+  | { status: 'conflict' }
 
 export interface LocalFolderWatchEvent {
   notebook_id: string
@@ -316,6 +351,12 @@ export interface LocalFolderFileContent {
   tiptap_content: string
 }
 
+export type LocalFolderListErrorCode = 'LOCAL_MOUNT_PATH_UNREACHABLE'
+
+export type LocalFolderListResponse =
+  | { success: true; result: { mounts: LocalFolderNotebookMount[] } }
+  | { success: false; errorCode: LocalFolderListErrorCode }
+
 export type LocalFolderMountErrorCode =
   | 'LOCAL_MOUNT_PATH_PERMISSION_DENIED'
   | 'LOCAL_MOUNT_PATH_UNREACHABLE'
@@ -323,15 +364,56 @@ export type LocalFolderMountErrorCode =
   | 'LOCAL_MOUNT_ALREADY_EXISTS'
   | 'LOCAL_MOUNT_INVALID_PATH'
 
+export interface LocalFolderExistingMountHint {
+  notebook_id: string
+  status: NotebookStatus
+}
+
 export type LocalFolderMountResponse =
   | { success: true; result: LocalFolderNotebookMount }
-  | { success: false; errorCode: LocalFolderMountErrorCode }
+  | { success: false; errorCode: LocalFolderMountErrorCode; existing_mount?: LocalFolderExistingMountHint }
 
 export type LocalFolderRelinkErrorCode = LocalFolderMountErrorCode | 'LOCAL_NOTEBOOK_NOT_FOUND'
 
 export type LocalFolderRelinkResponse =
   | { success: true; result: LocalFolderMount }
-  | { success: false; errorCode: LocalFolderRelinkErrorCode }
+  | { success: false; errorCode: LocalFolderRelinkErrorCode; existing_mount?: LocalFolderExistingMountHint }
+
+export type LocalFolderSelectRootErrorCode =
+  | 'LOCAL_MOUNT_DIALOG_CANCELED'
+  | 'LOCAL_MOUNT_PATH_UNREACHABLE'
+
+export type LocalFolderSelectRootResponse =
+  | { success: true; root_path: string }
+  | { success: false; errorCode: LocalFolderSelectRootErrorCode }
+
+export type LocalFolderUnmountErrorCode =
+  | 'LOCAL_NOTEBOOK_NOT_FOUND'
+  | 'LOCAL_NOTEBOOK_NOT_LOCAL_FOLDER'
+  | 'LOCAL_MOUNT_PATH_UNREACHABLE'
+
+export type LocalFolderUnmountResponse =
+  | { success: true }
+  | { success: false; errorCode: LocalFolderUnmountErrorCode }
+
+export type LocalFolderOpenInFileManagerErrorCode =
+  | 'LOCAL_NOTEBOOK_NOT_FOUND'
+  | 'LOCAL_MOUNT_PATH_UNREACHABLE'
+  | 'LOCAL_MOUNT_OPEN_FAILED'
+
+export type LocalFolderOpenInFileManagerResponse =
+  | { success: true }
+  | { success: false; errorCode: LocalFolderOpenInFileManagerErrorCode }
+
+export type LocalFolderGetTreeErrorCode =
+  | 'LOCAL_NOTEBOOK_NOT_FOUND'
+  | 'LOCAL_MOUNT_UNAVAILABLE'
+  | 'LOCAL_MOUNT_PATH_UNREACHABLE'
+
+export type LocalFolderGetTreeResponse =
+  | { success: true; result: LocalFolderTreeResult }
+  | { success: false; errorCode: 'LOCAL_MOUNT_UNAVAILABLE'; mount_status: Extract<NotebookStatus, 'missing' | 'permission_required'> }
+  | { success: false; errorCode: Exclude<LocalFolderGetTreeErrorCode, 'LOCAL_MOUNT_UNAVAILABLE'> }
 
 export type LocalFolderFileErrorCode =
   | 'LOCAL_FILE_NOT_FOUND'

@@ -3,11 +3,12 @@
  * 复制附件到 userData 目录，更新内容中的路径引用
  */
 
-import { existsSync, readFileSync, statSync } from 'fs'
+import { readFile, stat } from 'fs/promises'
 import { extname, basename } from 'path'
 import { saveAttachmentBuffer } from '../../attachment'
 import { MAX_ATTACHMENT_SIZE } from '../base-importer'
 import type { PendingAttachment } from '../types'
+import { pathExists } from './fs-helpers'
 
 export interface AttachmentCopyResult {
   /** 成功复制的附件数量 */
@@ -97,7 +98,7 @@ export async function copyAttachmentsAndUpdateContent(
     try {
 
       // 检查文件是否存在
-      if (!existsSync(attachment.sourcePath)) {
+      if (!(await pathExists(attachment.sourcePath))) {
         failed.push({
           path: attachment.sourcePath,
           error: 'File not found',
@@ -106,9 +107,9 @@ export async function copyAttachmentsAndUpdateContent(
       }
 
       // 检查文件大小
-      const stat = statSync(attachment.sourcePath)
-      if (stat.size > MAX_ATTACHMENT_SIZE) {
-        const sizeMB = Math.round(stat.size / 1024 / 1024)
+      const fileStat = await stat(attachment.sourcePath)
+      if (fileStat.size > MAX_ATTACHMENT_SIZE) {
+        const sizeMB = Math.round(fileStat.size / 1024 / 1024)
         const limitMB = Math.round(MAX_ATTACHMENT_SIZE / 1024 / 1024)
         failed.push({
           path: attachment.sourcePath,
@@ -119,7 +120,7 @@ export async function copyAttachmentsAndUpdateContent(
 
 
       // 读取文件内容
-      const buffer = readFileSync(attachment.sourcePath)
+      const buffer = await readFile(attachment.sourcePath)
       const rawExt = extname(attachment.sourcePath)
       const ext = rawExt ? rawExt.toLowerCase() : '.bin'
       const baseName = basename(attachment.sourcePath, rawExt)

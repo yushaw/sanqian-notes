@@ -8,4 +8,5 @@ export {
   stopAllLocalFolderWatchers,
   ensureLocalFolderWatcher,
   syncLocalFolderWatchers,
+  scheduleSyncLocalFolderWatchers,
 } from './manager'

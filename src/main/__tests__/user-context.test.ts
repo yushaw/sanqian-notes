@@ -14,6 +14,7 @@ import {
   getLocalNoteIdentityByUid,
 } from '../database'
 import {
+  buildAgentExecutionContext,
   getCurrentNoteContext,
   setUserContext,
 } from '../user-context'
@@ -77,6 +78,23 @@ describe('user-context note snapshot', () => {
     })
   })
 
+  it('normalizes local path ids to stable legacy uid-form ids', () => {
+    const localPathId = createLocalResourceId('nb-1', 'docs/legacy.md')
+    vi.mocked(getLocalNoteIdentityByPath).mockReturnValue({
+      note_uid: 'legacy:UID-42',
+    } as ReturnType<typeof getLocalNoteIdentityByPath>)
+
+    setUserContext({
+      currentNoteId: localPathId,
+      currentNoteTitle: 'Legacy Local',
+    })
+
+    expect(getCurrentNoteContext()).toEqual({
+      noteId: createLocalResourceIdFromUid('nb-1', 'legacy:UID-42'),
+      noteTitle: 'Legacy Local',
+    })
+  })
+
   it('falls back to original local id when identity lookup misses', () => {
     const localPathId = createLocalResourceId('nb-1', 'docs/missing.md')
     vi.mocked(getLocalNoteIdentityByPath).mockReturnValue(null)
@@ -91,5 +109,44 @@ describe('user-context note snapshot', () => {
       noteId: localPathId,
       noteTitle: 'Local',
     })
+  })
+
+  it('falls back to original local path id when identity uid is invalid trim alias', () => {
+    const localPathId = createLocalResourceId('nb-1', 'docs/plan.md')
+    vi.mocked(getLocalNoteIdentityByPath).mockReturnValue({
+      note_uid: ' legacy:UID-42 ',
+    } as ReturnType<typeof getLocalNoteIdentityByPath>)
+
+    setUserContext({
+      currentNoteId: localPathId,
+      currentNoteTitle: 'Local',
+    })
+
+    expect(getCurrentNoteContext()).toEqual({
+      noteId: localPathId,
+      noteTitle: 'Local',
+    })
+  })
+
+  it('buildAgentExecutionContext falls back to localResourceId when identity uid is invalid trim alias', () => {
+    const localPathId = createLocalResourceId('nb-1', 'docs/plan.md')
+    vi.mocked(getLocalNoteIdentityByPath).mockReturnValue({
+      note_uid: ' legacy:UID-42 ',
+    } as ReturnType<typeof getLocalNoteIdentityByPath>)
+
+    const context = buildAgentExecutionContext({
+      sourceApp: 'sanqian-notes',
+      sourceType: 'local-folder',
+      noteId: localPathId,
+      localResourceId: localPathId,
+      localRelativePath: 'docs/plan.md',
+      noteTitle: 'Local Plan',
+      notebookId: 'nb-1',
+      notebookName: 'Local',
+      heading: null,
+    })
+
+    expect(context).toContain(`local_resource_id: ${localPathId}`)
+    expect(context).not.toContain('legacy:UID-42')
   })
 })

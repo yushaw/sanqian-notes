@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getDb } from './connection'
 import { escapeLikePrefix, LIKE_ESCAPE } from './helpers'
-import type { Notebook, NotebookInput, NotebookFolder, Result } from '../../shared/types'
+import type { InternalNotebookInput, InternalNotebookUpdateInput, Notebook, NotebookFolder, Result } from '../../shared/types'
 
 function getNextNotebookOrderIndex(): number {
   const db = getDb()
@@ -13,20 +13,25 @@ function getNextNotebookOrderIndex(): number {
 export function getNotebooks(): Notebook[] {
   const db = getDb()
   const stmt = db.prepare('SELECT * FROM notebooks ORDER BY order_index')
-  const rows = stmt.all() as Notebook[]
-  return rows.map((row) => ({
-    ...row,
-    source_type: row.source_type || 'internal',
-  }))
+  return stmt.all() as Notebook[]
 }
 
-export function addNotebook(input: NotebookInput): Notebook {
+export function addNotebook(input: InternalNotebookInput): Notebook {
   const db = getDb()
   const id = uuidv4()
   const now = new Date().toISOString()
+  const normalizedName = input.name.trim()
+  if (!normalizedName) {
+    throw new Error('addNotebook requires non-empty name')
+  }
+
+  const sourceTypeInput = (input as { source_type?: unknown }).source_type
+  if (sourceTypeInput && sourceTypeInput !== 'internal') {
+    throw new Error(`addNotebook only supports internal notebooks, received source_type=${sourceTypeInput}`)
+  }
 
   const icon = input.icon ?? 'logo:notes'
-  const sourceType = input.source_type ?? 'internal'
+  const sourceType = 'internal'
   const orderIndex = getNextNotebookOrderIndex()
 
   const stmt = db.prepare(`
@@ -34,11 +39,11 @@ export function addNotebook(input: NotebookInput): Notebook {
     VALUES (?, ?, ?, ?, ?, ?)
   `)
 
-  stmt.run(id, input.name, icon, sourceType, orderIndex, now)
+  stmt.run(id, normalizedName, icon, sourceType, orderIndex, now)
 
   return {
     id,
-    name: input.name,
+    name: normalizedName,
     icon,
     source_type: sourceType,
     order_index: orderIndex,
@@ -46,38 +51,124 @@ export function addNotebook(input: NotebookInput): Notebook {
   }
 }
 
-export function updateNotebook(id: string, updates: Partial<NotebookInput>): Notebook | null {
+export function updateNotebook(id: string, updates: InternalNotebookUpdateInput): Notebook | null {
   const db = getDb()
   const stmt = db.prepare('SELECT * FROM notebooks WHERE id = ?')
   const existing = stmt.get(id) as Notebook | undefined
   if (!existing) return null
+
+  const normalizedName = updates.name !== undefined
+    ? updates.name.trim()
+    : undefined
+  if (normalizedName !== undefined && !normalizedName) {
+    throw new Error('updateNotebook requires non-empty name when provided')
+  }
+
+  const sourceTypeUpdate = (updates as { source_type?: unknown }).source_type
+  if (sourceTypeUpdate && sourceTypeUpdate !== 'internal') {
+    throw new Error(`updateNotebook does not support source_type updates, received source_type=${sourceTypeUpdate}`)
+  }
 
   const updateStmt = db.prepare(`
     UPDATE notebooks SET name = ?, icon = ? WHERE id = ?
   `)
 
   updateStmt.run(
-    updates.name ?? existing.name,
+    normalizedName ?? existing.name,
     updates.icon ?? existing.icon,
     id
   )
 
   const result = db.prepare('SELECT * FROM notebooks WHERE id = ?').get(id) as Notebook
-  return {
-    ...result,
-    source_type: result.source_type || 'internal',
-  }
+  return result
 }
 
-export function deleteNotebook(id: string): boolean {
+export function deleteLocalFolderNotebook(id: string): Result<void, 'notebook_not_found' | 'notebook_not_local_folder'> {
   const db = getDb()
-  const remove = db.transaction((notebookId: string) => {
+  const remove = db.transaction((notebookId: string): Result<void, 'notebook_not_found' | 'notebook_not_local_folder'> => {
+    const notebook = db.prepare('SELECT source_type FROM notebooks WHERE id = ?')
+      .get(notebookId) as { source_type: Notebook['source_type'] } | undefined
+    if (!notebook) {
+      return { ok: false, error: 'notebook_not_found' }
+    }
+
+    if (notebook.source_type !== 'local-folder') {
+      return { ok: false, error: 'notebook_not_local_folder' }
+    }
+
     db.prepare('UPDATE notes SET folder_path = NULL WHERE notebook_id = ? AND folder_path IS NOT NULL').run(notebookId)
-    const result = db.prepare('DELETE FROM notebooks WHERE id = ?').run(notebookId)
-    return result.changes > 0
+    const deleted = db.prepare('DELETE FROM notebooks WHERE id = ?').run(notebookId)
+    if (deleted.changes === 0) {
+      return { ok: false, error: 'notebook_not_found' }
+    }
+
+    return { ok: true }
   })
 
   return remove(id)
+}
+
+export function deleteInternalNotebookWithNotes(input: {
+  notebook_id: string
+}): Result<{
+  deleted_note_ids: string[]
+  deleted_at: string
+}, 'notebook_not_found' | 'notebook_not_internal'> {
+  const db = getDb()
+  const now = new Date().toISOString()
+
+  const remove = db.transaction((notebookId: string, deletedAt: string): (
+    | { status: 'deleted'; deleted_note_ids: string[]; deleted_at: string }
+    | { status: 'not_found' }
+    | { status: 'not_internal' }
+  ) => {
+    const notebook = db.prepare('SELECT source_type FROM notebooks WHERE id = ?')
+      .get(notebookId) as { source_type: Notebook['source_type'] } | undefined
+    if (!notebook) {
+      return { status: 'not_found' }
+    }
+
+    if (notebook.source_type !== 'internal') {
+      return { status: 'not_internal' }
+    }
+
+    const deletedNoteIds = (
+      db.prepare('SELECT id FROM notes WHERE notebook_id = ? AND deleted_at IS NULL')
+        .all(notebookId) as { id: string }[]
+    ).map(row => row.id)
+
+    db.prepare('UPDATE notes SET deleted_at = ? WHERE notebook_id = ? AND deleted_at IS NULL')
+      .run(deletedAt, notebookId)
+    db.prepare('UPDATE notes SET folder_path = NULL WHERE notebook_id = ? AND folder_path IS NOT NULL')
+      .run(notebookId)
+
+    const result = db.prepare('DELETE FROM notebooks WHERE id = ?').run(notebookId)
+    if (result.changes === 0) {
+      return { status: 'not_found' }
+    }
+
+    return {
+      status: 'deleted',
+      deleted_note_ids: deletedNoteIds,
+      deleted_at: deletedAt,
+    }
+  })
+
+  const result = remove(input.notebook_id, now)
+  if (result.status === 'not_found') {
+    return { ok: false, error: 'notebook_not_found' }
+  }
+  if (result.status === 'not_internal') {
+    return { ok: false, error: 'notebook_not_internal' }
+  }
+
+  return {
+    ok: true,
+    value: {
+      deleted_note_ids: result.deleted_note_ids,
+      deleted_at: result.deleted_at,
+    },
+  }
 }
 
 export function reorderNotebooks(orderedIds: string[]): void {
@@ -85,14 +176,24 @@ export function reorderNotebooks(orderedIds: string[]): void {
   const existingIds = new Set(
     (db.prepare('SELECT id FROM notebooks').all() as { id: string }[]).map(r => r.id)
   )
-  const validIds = orderedIds.filter(id => existingIds.has(id))
-  if (validIds.length !== existingIds.size) {
-    throw new Error(`reorderNotebooks: id mismatch, expected ${existingIds.size} got ${validIds.length}`)
+  if (orderedIds.length !== existingIds.size) {
+    throw new Error(`reorderNotebooks: id mismatch, expected ${existingIds.size} got ${orderedIds.length}`)
+  }
+
+  const seenIds = new Set<string>()
+  for (const id of orderedIds) {
+    if (!existingIds.has(id)) {
+      throw new Error(`reorderNotebooks: unknown id ${id}`)
+    }
+    if (seenIds.has(id)) {
+      throw new Error(`reorderNotebooks: duplicate id ${id}`)
+    }
+    seenIds.add(id)
   }
 
   const stmt = db.prepare('UPDATE notebooks SET order_index = ? WHERE id = ?')
   const reorder = db.transaction(() => {
-    validIds.forEach((id, index) => {
+    orderedIds.forEach((id, index) => {
       stmt.run(index, id)
     })
   })

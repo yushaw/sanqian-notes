@@ -35,6 +35,23 @@ describe('resolveRendererNoteIdForNavigation', () => {
     expect(result).toBe('local:nb-1:docs%2Fplan.md')
   })
 
+  it('resolves legacy opaque local uid resource id to local path id', () => {
+    const uid = 'legacy:UID-42'
+    const result = resolveRendererNoteIdForNavigation(`local:nb-1:uid:${uid}`, {
+      getNoteById: () => null,
+      getLocalNoteIdentityByUid: ({ note_uid, notebook_id }) => {
+        if (note_uid !== uid || notebook_id !== 'nb-1') {
+          return null
+        }
+        return {
+          notebook_id: 'nb-1',
+          relative_path: 'docs/legacy.md',
+        }
+      },
+    })
+    expect(result).toBe('local:nb-1:docs%2Flegacy.md')
+  })
+
   it('resolves raw local uuid id to local path id', () => {
     const uid = 'ef84fb2a-8f5e-4e21-bd24-e1d6f2627d53'
     const result = resolveRendererNoteIdForNavigation(uid, {
@@ -57,5 +74,19 @@ describe('resolveRendererNoteIdForNavigation', () => {
       getLocalNoteIdentityByUid: () => null,
     })
     expect(result).toBe(uid)
+  })
+
+  it('fails closed for invalid note id input', () => {
+    const deps = {
+      getNoteById: () => ({ id: 'note-1' }),
+      getLocalNoteIdentityByUid: () => ({
+        notebook_id: 'nb-1',
+        relative_path: 'docs/plan.md',
+      }),
+    }
+    expect(resolveRendererNoteIdForNavigation(undefined, deps)).toBeNull()
+    expect(resolveRendererNoteIdForNavigation(null, deps)).toBeNull()
+    expect(resolveRendererNoteIdForNavigation({}, deps)).toBeNull()
+    expect(resolveRendererNoteIdForNavigation('   ', deps)).toBeNull()
   })
 })

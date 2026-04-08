@@ -22,9 +22,11 @@ import {
 } from '../../markdown'
 import {
   buildInternalEtag,
-  resolveNoteResource,
+  resolveNoteResourceAsync,
   buildCanonicalLocalResourceId,
 } from '../../note-gateway'
+import { parseRequiredNotebookIdInput } from '../../../shared/notebook-id'
+import { hasOwnDefinedProperty } from '../../../shared/property-guards'
 import { extractLocalTagNamesFromTiptapContent } from '../../local-note-tags'
 import { buildLocalEtagFromFile, ToolError } from '../helpers/error-mapping'
 import { generateNoteLink } from '../helpers/note-link'
@@ -38,8 +40,22 @@ import {
   buildLocalSearchResultItems,
 } from '../helpers/search-helpers'
 import {
-  getNotebookNoteCountsForAgent,
+  getNotebookNoteCountsForAgentAsync,
 } from '../helpers/context-overview-helpers'
+
+const SEARCH_NOTES_DEFAULT_LIMIT = 10
+const SEARCH_NOTES_MAX_LIMIT = 100
+
+function resolveSearchNotesLimit(limitInput: unknown): number {
+  if (typeof limitInput !== 'number' || !Number.isFinite(limitInput)) {
+    return SEARCH_NOTES_DEFAULT_LIMIT
+  }
+  const normalized = Math.floor(limitInput)
+  if (normalized <= 0) {
+    return SEARCH_NOTES_DEFAULT_LIMIT
+  }
+  return Math.min(normalized, SEARCH_NOTES_MAX_LIMIT)
+}
 
 export function buildSearchNotesTool(): AppToolDefinition {
   const tools = t().tools
@@ -71,13 +87,25 @@ export function buildSearchNotesTool(): AppToolDefinition {
     },
     handler: async (args: Record<string, unknown>) => {
       try {
-        const query = args.query as string
-        const notebook_id = args.notebook_id as string | undefined
-        const folder_relative_path = (args.folder_relative_path as string | undefined)?.trim() || null
-        const limit = (args.limit as number) || 10
+        const query = typeof args.query === 'string' ? args.query : ''
+        if (!query.trim()) {
+          return []
+        }
+        const notebookIdInput = args.notebook_id
+        const hasNotebookIdArg = hasOwnDefinedProperty(args, 'notebook_id')
+        const notebook_id = parseRequiredNotebookIdInput(notebookIdInput) ?? undefined
+        const rawFolderRelativePath = args.folder_relative_path as string | undefined
+        const folder_relative_path = typeof rawFolderRelativePath === 'string'
+          ? (rawFolderRelativePath.trim() ? rawFolderRelativePath : null)
+          : null
+        const limit = resolveSearchNotesLimit(args.limit)
         const notebooks = getNotebooks()
         const notebookMap = new Map(notebooks.map((n) => [n.id, n]))
         const notebookNameMap = new Map(notebooks.map((n) => [n.id, n.name]))
+
+        if (hasNotebookIdArg && !notebook_id) {
+          throw new ToolError(`${tools.searchNotes.notebookNotFound}: ${String(notebookIdInput ?? '')}`)
+        }
 
         if (folder_relative_path && !notebook_id) {
           throw new ToolError(tools.searchNotes.folderScopeRequiresNotebook)
@@ -90,7 +118,7 @@ export function buildSearchNotesTool(): AppToolDefinition {
           }
           if (scopeNotebook?.source_type === 'local-folder') {
             if (folder_relative_path) {
-              return buildLocalSearchResultItems(query, notebookNameMap, notebook_id, folder_relative_path).slice(0, limit)
+              return (await buildLocalSearchResultItems(query, notebookNameMap, notebook_id, folder_relative_path)).slice(0, limit)
             }
 
             const [hybridLocalResults, localKeywordResults] = await Promise.all([
@@ -100,8 +128,9 @@ export function buildSearchNotesTool(): AppToolDefinition {
               }),
               buildLocalSearchResultItems(query, notebookNameMap, notebook_id),
             ])
+            const hybridLocalItems = await buildHybridSearchResultItems(hybridLocalResults, notebookNameMap)
             return mergeSearchResultItems([
-              ...buildHybridSearchResultItems(hybridLocalResults, notebookNameMap),
+              ...hybridLocalItems,
               ...localKeywordResults,
             ]).slice(0, limit)
           }
@@ -112,16 +141,18 @@ export function buildSearchNotesTool(): AppToolDefinition {
             limit,
             filter: { notebookId: notebook_id }
           })
-          return buildHybridSearchResultItems(internalResults, notebookNameMap).slice(0, limit)
+          const hybridInternalItems = await buildHybridSearchResultItems(internalResults, notebookNameMap)
+          return hybridInternalItems.slice(0, limit)
         }
 
         const [hybridResults, localResults] = await Promise.all([
           hybridSearch(query, { limit: Math.max(limit, 20) }),
           buildLocalSearchResultItems(query, notebookNameMap),
         ])
+        const hybridItems = await buildHybridSearchResultItems(hybridResults, notebookNameMap)
 
         const merged = mergeSearchResultItems([
-          ...buildHybridSearchResultItems(hybridResults, notebookNameMap),
+          ...hybridItems,
           ...localResults,
         ])
 
@@ -186,8 +217,8 @@ export function buildGetNoteTool(): AppToolDefinition {
         const NOT_FOUND = Symbol('not_found')
         type HeadingNotFoundResult = { marker: 'heading_not_found'; availableHeadings: DocumentHeading[] }
 
-        const results = ids.map((id) => {
-          const resolved = resolveNoteResource(id)
+        const results = await Promise.all(ids.map(async (id) => {
+          const resolved = await resolveNoteResourceAsync(id)
           if (!resolved.ok) {
             if (isBatch) {
               return { id, error: `${tools.getNote.notFound}: ${id}` }
@@ -277,7 +308,7 @@ export function buildGetNoteTool(): AppToolDefinition {
             revision: note.revision,
             etag: buildInternalEtag(note),
           }
-        })
+        }))
 
         if (!isBatch) {
           const result = results[0]
@@ -332,7 +363,7 @@ export function buildGetNoteOutlineTool(): AppToolDefinition {
     handler: async (args: Record<string, unknown>) => {
       try {
         const id = args.id as string
-        const resolved = resolveNoteResource(id)
+        const resolved = await resolveNoteResourceAsync(id)
         if (!resolved.ok) {
           throw new ToolError(`${tools.getNoteOutline.notFound}: ${id}`)
         }
@@ -405,13 +436,13 @@ export function buildGetNotebooksTool(): AppToolDefinition {
     handler: async () => {
       try {
         const notebooks = getNotebooks()
-        const noteCounts = getNotebookNoteCountsForAgent()
+        const noteCounts = await getNotebookNoteCountsForAgentAsync()
         const localMountStatusByNotebook = new Map(
           getLocalFolderMounts().map((mount) => [mount.notebook.id, mount.mount.status] as const)
         )
 
         return notebooks.map((notebook) => {
-          const sourceType = notebook.source_type || 'internal'
+          const sourceType = notebook.source_type
           const status = sourceType === 'local-folder'
             ? (localMountStatusByNotebook.get(notebook.id) || 'missing')
             : 'active'

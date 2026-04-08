@@ -26,6 +26,7 @@ type WatchEvent = {
 function createOptions(overrides?: Partial<Parameters<typeof useLocalFolderWatchEvents>[0]>) {
   return {
     allViewLocalEditorTarget: null,
+    localNotebookIdsRef: { current: new Set<string>(['nb-1', 'nb-2']) },
     selectedNotebookId: 'nb-1',
     isLocalFolderNotebookSelected: true,
     localFolderMissingText: 'missing',
@@ -153,6 +154,144 @@ describe('useLocalFolderWatchEvents', () => {
     if (cacheUpdater) {
       expect(cacheUpdater({ 'nb-1': { tree: [] }, keep: { tree: [] } })).toEqual({ keep: { tree: [] } })
     }
+  })
+
+  it('cancels pending refresh timer when active mount becomes unavailable', async () => {
+    const options = createOptions()
+    renderHook(() => useLocalFolderWatchEvents(options))
+
+    expect(changedHandler).toBeTypeOf('function')
+    if (!changedHandler) return
+
+    await act(async () => {
+      await changedHandler?.({
+        notebook_id: 'nb-1',
+        status: 'active',
+        reason: 'content_changed',
+        sequence: 1,
+        changed_relative_path: 'docs/a.md',
+      })
+    })
+    expect(options.localWatchRefreshTimersRef.current.has('nb-1')).toBe(true)
+
+    await act(async () => {
+      await changedHandler?.({
+        notebook_id: 'nb-1',
+        status: 'missing',
+        reason: 'status_changed',
+        sequence: 2,
+      })
+    })
+
+    expect(options.onLocalMountUnavailable).toHaveBeenCalledWith('nb-1')
+    expect(options.localWatchRefreshTimersRef.current.has('nb-1')).toBe(false)
+
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+    })
+
+    expect(options.refreshLocalFolderTree).not.toHaveBeenCalled()
+    expect(options.refreshOpenLocalFileFromDisk).not.toHaveBeenCalled()
+  })
+
+  it('cancels pending refresh timer for non-active notebook unavailable status', async () => {
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
+    const timer = setTimeout(() => undefined, 10000)
+    const options = createOptions({
+      selectedNotebookId: 'nb-1',
+      localWatchRefreshTimersRef: {
+        current: new Map<string, ReturnType<typeof setTimeout>>([['nb-2', timer]]),
+      },
+      localWatchRefreshSuppressUntilRef: {
+        current: new Map<string, number>([['nb-2', Date.now() + 1000]]),
+      },
+    })
+    renderHook(() => useLocalFolderWatchEvents(options))
+
+    expect(changedHandler).toBeTypeOf('function')
+    if (!changedHandler) return
+
+    await act(async () => {
+      await changedHandler?.({
+        notebook_id: 'nb-2',
+        status: 'permission_required',
+        reason: 'status_changed',
+        sequence: 1,
+      })
+    })
+
+    expect(options.onLocalMountUnavailable).not.toHaveBeenCalled()
+    expect(mocks.toast).not.toHaveBeenCalled()
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(timer)
+    expect(options.localWatchRefreshTimersRef.current.has('nb-2')).toBe(false)
+    expect(options.localWatchRefreshSuppressUntilRef.current.has('nb-2')).toBe(false)
+  })
+
+  it('ignores events from unknown local notebook and clears stale runtime markers', async () => {
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
+    const timer = setTimeout(() => undefined, 10000)
+    const options = createOptions({
+      localNotebookIdsRef: { current: new Set<string>(['nb-1']) },
+      localWatchRefreshTimersRef: {
+        current: new Map<string, ReturnType<typeof setTimeout>>([['ghost', timer]]),
+      },
+      localWatchRefreshSuppressUntilRef: {
+        current: new Map<string, number>([['ghost', Date.now() + 1000]]),
+      },
+      localStatusToastAtRef: {
+        current: new Map<string, number>([['ghost:missing', 100]]),
+      },
+      localWatchSequenceRef: {
+        current: new Map<string, number>([['ghost', 7]]),
+      },
+      setLocalFolderStatuses: vi.fn(),
+    })
+    renderHook(() => useLocalFolderWatchEvents(options))
+
+    expect(changedHandler).toBeTypeOf('function')
+    if (!changedHandler) return
+
+    await act(async () => {
+      await changedHandler?.({
+        notebook_id: 'ghost',
+        status: 'active',
+        reason: 'content_changed',
+        sequence: 8,
+        changed_relative_path: 'docs/a.md',
+      })
+    })
+
+    expect(options.setLocalFolderStatuses).not.toHaveBeenCalled()
+    expect(options.refreshLocalFolderTree).not.toHaveBeenCalled()
+    expect(options.refreshOpenLocalFileFromDisk).not.toHaveBeenCalled()
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(timer)
+    expect(options.localWatchRefreshTimersRef.current.has('ghost')).toBe(false)
+    expect(options.localWatchRefreshSuppressUntilRef.current.has('ghost')).toBe(false)
+    expect(options.localWatchSequenceRef.current.has('ghost')).toBe(false)
+    expect(options.localStatusToastAtRef.current.has('ghost:missing')).toBe(false)
+  })
+
+  it('ignores unavailable status updates for non-active notebook context', async () => {
+    const options = createOptions({
+      selectedNotebookId: 'nb-1',
+      allViewLocalEditorTarget: null,
+    })
+    renderHook(() => useLocalFolderWatchEvents(options))
+
+    expect(changedHandler).toBeTypeOf('function')
+    if (!changedHandler) return
+
+    await act(async () => {
+      await changedHandler?.({
+        notebook_id: 'nb-2',
+        status: 'missing',
+        reason: 'status_changed',
+        sequence: 1,
+      })
+    })
+
+    expect(options.onLocalMountUnavailable).not.toHaveBeenCalled()
+    expect(mocks.toast).not.toHaveBeenCalled()
   })
 
   it('cleanup clears timer snapshot instead of mutable ref current', () => {

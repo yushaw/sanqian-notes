@@ -10,7 +10,7 @@ const {
   updateAITagsMock,
   jsonToMarkdownMock,
   getClientMock,
-  resolveNoteResourceMock,
+  resolveNoteResourceAsyncMock,
   buildNoteFromResolvedResourceMock,
 } = vi.hoisted(() => ({
   getAllWebContentsMock: vi.fn(),
@@ -22,7 +22,7 @@ const {
   updateAITagsMock: vi.fn(),
   jsonToMarkdownMock: vi.fn(),
   getClientMock: vi.fn(),
-  resolveNoteResourceMock: vi.fn(),
+  resolveNoteResourceAsyncMock: vi.fn(),
   buildNoteFromResolvedResourceMock: vi.fn(),
 }))
 
@@ -50,7 +50,7 @@ vi.mock('../sanqian-sdk', () => ({
 }))
 
 vi.mock('../note-gateway', () => ({
-  resolveNoteResource: resolveNoteResourceMock,
+  resolveNoteResourceAsync: resolveNoteResourceAsyncMock,
   buildNoteFromResolvedResource: buildNoteFromResolvedResourceMock,
 }))
 
@@ -86,7 +86,7 @@ describe('summary-service event routing', () => {
       { send: sentA },
       { send: sentB },
     ])
-    resolveNoteResourceMock.mockReturnValue({
+    resolveNoteResourceAsyncMock.mockResolvedValue({
       ok: true,
       resource: {
         sourceType: 'local-folder',
@@ -131,7 +131,7 @@ describe('summary-service event routing', () => {
   it('avoids duplicate summary event when incoming ID already matches canonical note ID', async () => {
     const send = vi.fn()
     getAllWebContentsMock.mockReturnValue([{ send }])
-    resolveNoteResourceMock.mockReturnValue({
+    resolveNoteResourceAsyncMock.mockResolvedValue({
       ok: true,
       resource: {
         sourceType: 'internal',

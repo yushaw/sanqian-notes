@@ -11,6 +11,7 @@ import { tmpdir } from 'os'
 vi.mock('../../database', () => ({
   getNotes: vi.fn(),
   getNotesByIds: vi.fn(),
+  getNotesByNotebookIds: vi.fn(),
   getNotebooks: vi.fn(),
 }))
 
@@ -19,7 +20,7 @@ vi.mock('../../attachment', () => ({
   getFullPath: vi.fn(),
 }))
 
-import { getNotes, getNotesByIds, getNotebooks } from '../../database'
+import { getNotes, getNotesByIds, getNotesByNotebookIds, getNotebooks } from '../../database'
 import { getFullPath } from '../../attachment'
 import type { Note, Notebook } from '../../database'
 // getFullPath is mocked but not directly used in tests (used internally by exporter)
@@ -318,6 +319,132 @@ describe('MarkdownExporter', () => {
 
       expect(result.stats.exportedNotes).toBe(1)
       expect(vi.mocked(getNotesByIds)).toHaveBeenCalledWith(['note1'])
+    })
+
+    it('按笔记本 ID 过滤导出', async () => {
+      const mockNotes = [
+        {
+          id: 'note1',
+          title: '笔记本筛选笔记',
+          content: '{"type":"doc","content":[]}',
+          deleted_at: null,
+        },
+      ]
+
+      vi.mocked(getNotesByNotebookIds).mockReturnValue(mockNotes as Note[])
+      vi.mocked(getNotebooks).mockReturnValue([])
+
+      const result = await exporter.export({
+        noteIds: [],
+        notebookIds: ['nb-1'],
+        format: 'markdown',
+        outputPath: tempDir,
+        groupByNotebook: false,
+        includeAttachments: false,
+        includeFrontMatter: false,
+        asZip: false,
+      })
+
+      expect(result.stats.exportedNotes).toBe(1)
+      expect(vi.mocked(getNotesByNotebookIds)).toHaveBeenCalledWith(['nb-1'])
+      expect(vi.mocked(getNotes)).not.toHaveBeenCalled()
+    })
+
+    it('显式无效 noteIds/notebookIds 输入不会退化为全量导出', async () => {
+      vi.mocked(getNotes).mockReturnValue([
+        {
+          id: 'note-all',
+          title: '不应被导出',
+          content: '{"type":"doc","content":[]}',
+          deleted_at: null,
+        },
+      ] as Note[])
+      vi.mocked(getNotebooks).mockReturnValue([])
+
+      const byInvalidNoteIds = await exporter.export({
+        noteIds: 'note-1' as any,
+        notebookIds: [],
+        format: 'markdown',
+        outputPath: tempDir,
+        groupByNotebook: false,
+        includeAttachments: false,
+        includeFrontMatter: false,
+        asZip: false,
+      } as any)
+      expect(byInvalidNoteIds.stats.exportedNotes).toBe(0)
+      expect(vi.mocked(getNotes)).not.toHaveBeenCalled()
+      expect(vi.mocked(getNotesByIds)).not.toHaveBeenCalled()
+
+      const byInvalidNotebookIds = await exporter.export({
+        noteIds: [],
+        notebookIds: { id: 'nb-1' } as any,
+        format: 'markdown',
+        outputPath: tempDir,
+        groupByNotebook: false,
+        includeAttachments: false,
+        includeFrontMatter: false,
+        asZip: false,
+      } as any)
+      expect(byInvalidNotebookIds.stats.exportedNotes).toBe(0)
+      expect(vi.mocked(getNotes)).not.toHaveBeenCalled()
+      expect(vi.mocked(getNotesByNotebookIds)).not.toHaveBeenCalled()
+    })
+
+    it('noteIds/notebookIds 显式为 undefined 时按未传处理', async () => {
+      vi.mocked(getNotes).mockReturnValue([
+        {
+          id: 'note-global',
+          title: '全量导出',
+          content: '{"type":"doc","content":[]}',
+          deleted_at: null,
+        },
+      ] as Note[])
+      vi.mocked(getNotebooks).mockReturnValue([])
+
+      const result = await exporter.export({
+        noteIds: undefined as any,
+        notebookIds: undefined as any,
+        format: 'markdown',
+        outputPath: tempDir,
+        groupByNotebook: false,
+        includeAttachments: false,
+        includeFrontMatter: false,
+        asZip: false,
+      } as any)
+
+      expect(result.stats.exportedNotes).toBe(1)
+      expect(vi.mocked(getNotes)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(getNotesByIds)).not.toHaveBeenCalled()
+      expect(vi.mocked(getNotesByNotebookIds)).not.toHaveBeenCalled()
+    })
+
+    it('当 noteIds 已有效命中时，不受无效 notebookIds 干扰', async () => {
+      const mockNotes = [
+        {
+          id: 'note1',
+          title: '优先按 noteIds 导出',
+          content: '{"type":"doc","content":[]}',
+          deleted_at: null,
+        },
+      ]
+      vi.mocked(getNotesByIds).mockReturnValue(mockNotes as Note[])
+      vi.mocked(getNotebooks).mockReturnValue([])
+
+      const result = await exporter.export({
+        noteIds: ['note1'],
+        notebookIds: { id: 'invalid' } as any,
+        format: 'markdown',
+        outputPath: tempDir,
+        groupByNotebook: false,
+        includeAttachments: false,
+        includeFrontMatter: false,
+        asZip: false,
+      } as any)
+
+      expect(result.stats.exportedNotes).toBe(1)
+      expect(vi.mocked(getNotesByIds)).toHaveBeenCalledWith(['note1'])
+      expect(vi.mocked(getNotesByNotebookIds)).not.toHaveBeenCalled()
+      expect(vi.mocked(getNotes)).not.toHaveBeenCalled()
     })
   })
 

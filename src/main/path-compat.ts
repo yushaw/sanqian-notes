@@ -1,5 +1,6 @@
 import { lstatSync } from 'fs'
 import { basename, dirname, join, normalize, resolve } from 'path'
+import { normalizeLocalResourceRelativePath } from '../shared/local-resource-id'
 
 const CASE_INSENSITIVE_PLATFORMS = new Set<NodeJS.Platform>(['win32', 'darwin'])
 const CASE_SENSITIVITY_CACHE_MAX_SIZE = 256
@@ -18,10 +19,7 @@ export function toSlashPath(pathValue: string): string {
 }
 
 export function normalizeRelativeSlashPath(pathValue: string): string {
-  return toNFC(toSlashPath(pathValue))
-    .replace(/^\/+/, '')
-    .replace(/\/{2,}/g, '/')
-    .replace(/\/+$/, '')
+  return normalizeLocalResourceRelativePath(pathValue)
 }
 
 export function normalizeComparablePath(

@@ -52,7 +52,6 @@ describe('EditorSearch Extension', () => {
   describe('plugin initialization', () => {
     it('should have plugin registered', () => {
       const plugins = editor.state.plugins
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const searchPlugin = plugins.find((p) => (p as any).key?.startsWith?.('editorSearch'))
       expect(searchPlugin).toBeDefined()
     })

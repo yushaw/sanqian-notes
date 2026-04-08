@@ -11,10 +11,16 @@ import { BaseImporter } from './base-importer'
 import { copyAttachmentsAndUpdateContent } from './utils/attachment-handler'
 import { resolveWikiLinksInContent } from './utils/link-resolver'
 import {
-  addNote,
+  forEachWithConcurrency,
+  resolvePositiveIntegerEnv,
+  yieldEvery,
+} from './utils/cooperative'
+import {
+  addNotesBatch,
   addNotebook,
+  getLiveNoteTitleEntries,
   getNotebooks,
-  getNotes,
+  getNotesByIds,
   updateNote,
 } from '../database'
 import { indexingService } from '../embedding/indexing-service'
@@ -47,6 +53,57 @@ const importers: BaseImporter[] = [
 
 const exporters: Partial<Record<ExportFormat, MarkdownExporter>> = {
   markdown: new MarkdownExporter(),
+}
+
+const IMPORT_YIELD_INTERVAL = resolvePositiveIntegerEnv('IMPORT_EXPORT_YIELD_INTERVAL', 32, { min: 8, max: 4096 })
+const IMPORT_DB_BATCH_SIZE = resolvePositiveIntegerEnv('IMPORT_DB_BATCH_SIZE', 64, { min: 1, max: 1000 })
+const IMPORT_INDEX_CONCURRENCY = resolvePositiveIntegerEnv('IMPORT_INDEX_CONCURRENCY', 2, { min: 1, max: 8 })
+const IMPORT_FTS_ONLY_INDEX_CONCURRENCY = resolvePositiveIntegerEnv(
+  'IMPORT_FTS_ONLY_INDEX_CONCURRENCY',
+  1,
+  { min: 1, max: 4 }
+)
+const IMPORT_INDEX_YIELD_INTERVAL = resolvePositiveIntegerEnv(
+  'IMPORT_INDEX_YIELD_INTERVAL',
+  8,
+  { min: 1, max: 1024 }
+)
+const IMPORT_EXEC_PROFILE = process.env.IMPORT_EXEC_PROFILE === '1'
+const IMPORT_EXEC_SLOW_LOG_MS = Number.isFinite(Number(process.env.IMPORT_EXEC_SLOW_LOG_MS))
+  ? Math.max(500, Math.floor(Number(process.env.IMPORT_EXEC_SLOW_LOG_MS)))
+  : 3000
+
+interface ImportExecutionProfileSummary {
+  sourceCount: number
+  totalFiles: number
+  importedCount: number
+  skippedCount: number
+  errorCount: number
+  importedAttachments: number
+  parseMs: number
+  setupMs: number
+  createMs: number
+  linkResolveMs: number
+  indexMs: number
+  totalMs: number
+  usedCachedPreview: boolean
+  shouldBuildEmbedding: boolean
+  dbBatchSize: number
+  indexConcurrency: number
+  yieldInterval: number
+}
+
+function maybeLogImportExecutionSummary(
+  summary: ImportExecutionProfileSummary,
+  success: boolean,
+  fatalError?: string
+): void {
+  if (!IMPORT_EXEC_PROFILE && summary.totalMs < IMPORT_EXEC_SLOW_LOG_MS) return
+  console.info('[Import] Execute summary', {
+    success,
+    ...summary,
+    fatalError: fatalError || undefined,
+  })
 }
 
 // ============ 预览缓存 ============
@@ -212,12 +269,23 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
   let parsedNotes: ParsedNote[]
 
   const sourcePaths = normalizePaths(options.sourcePath)
+  let usedCachedPreview = false
+  let shouldBuildEmbedding = false
+  let parseMs = 0
+  let setupMs = 0
+  let createMs = 0
+  let linkResolveMs = 0
+  let indexMs = 0
+  let importSuccess = false
+  let fatalError: string | undefined
 
   try {
+    const parseStartedAt = Date.now()
 
     // 尝试使用缓存的预览结果
     const cached = getCachedPreview(sourcePaths)
     if (cached) {
+      usedCachedPreview = true
       for (const imp of cached.importerMap.values()) {
         usedImporters.add(imp)
       }
@@ -228,7 +296,7 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
       // 没有缓存，重新解析
       emitProgress({ type: 'scanning', message: 'Detecting importer...' })
 
-      parsedNotes = []
+        parsedNotes = []
       for (const path of sourcePaths) {
         let foundImporter: BaseImporter | undefined
         for (const imp of importers) {
@@ -249,50 +317,61 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
         parsedNotes.push(...notes)
       }
     }
+    parseMs = Date.now() - parseStartedAt
 
     totalFiles = parsedNotes.length
     emitProgress({ type: 'parsing', current: totalFiles, total: totalFiles, message: `Found ${totalFiles} notes` })
+    const setupStartedAt = Date.now()
 
     // 获取现有笔记本
     const existingNotebooks = getNotebooks()
     const notebookNameToId = new Map<string, string>()
+    let notebookScanCount = 0
     for (const nb of existingNotebooks) {
       notebookNameToId.set(nb.name.toLowerCase(), nb.id)
+      notebookScanCount += 1
+      await yieldEvery(notebookScanCount, IMPORT_YIELD_INTERVAL)
     }
 
     // 获取现有笔记标题（用于冲突检测）
-    const existingNotes = getNotes()
     const existingTitles = new Map<string, string>() // title -> id
-    for (const note of existingNotes) {
-      if (!note.deleted_at) {
-        existingTitles.set(note.title.toLowerCase(), note.id)
-      }
+    let existingTitleCount = 0
+    const existingTitleEntries = getLiveNoteTitleEntries()
+    for (const note of existingTitleEntries) {
+      existingTitles.set(note.title.toLowerCase(), note.id)
+      existingTitleCount += 1
+      await yieldEvery(existingTitleCount, IMPORT_YIELD_INTERVAL)
     }
 
     // 创建需要的笔记本
     const notebooksToCreate = new Set<string>()
-
+    let notebookCollectCount = 0
     for (const note of parsedNotes) {
       const notebookName = note.notebookName
 
       // 处理 single-notebook 策略
       if (options.folderStrategy === 'single-notebook' && options.targetNotebookId) {
-        // 使用指定的笔记本，不需要创建
+        notebookCollectCount += 1
+        await yieldEvery(notebookCollectCount, IMPORT_YIELD_INTERVAL)
         continue
       }
 
       // 根级文件使用默认笔记本
       if (!notebookName && options.defaultNotebookId) {
-        // 使用指定的默认笔记本，不需要创建
+        notebookCollectCount += 1
+        await yieldEvery(notebookCollectCount, IMPORT_YIELD_INTERVAL)
         continue
       }
 
       if (notebookName && !notebookNameToId.has(notebookName.toLowerCase())) {
         notebooksToCreate.add(notebookName)
       }
+      notebookCollectCount += 1
+      await yieldEvery(notebookCollectCount, IMPORT_YIELD_INTERVAL)
     }
 
     // 批量创建笔记本
+    let createdNotebookCount = 0
     for (const name of notebooksToCreate) {
       try {
         const notebook = addNotebook({ name, icon: 'logo:notes' })
@@ -304,18 +383,74 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
           error: error instanceof Error ? error.message : String(error),
         })
       }
+      createdNotebookCount += 1
+      await yieldEvery(createdNotebookCount, IMPORT_YIELD_INTERVAL)
+    }
+    setupMs = Date.now() - setupStartedAt
+    const createStartedAt = Date.now()
+
+    interface PendingInsert {
+      noteInput: NoteInput
+      sourcePath: string
+      normalizedTitle: string
     }
 
-    // 建立标题到笔记的映射（用于内部链接解析）
-    const titleToNote = new Map<string, ParsedNote>()
-    for (const note of parsedNotes) {
-      titleToNote.set(note.title.toLowerCase(), note)
+    const pendingInserts: PendingInsert[] = []
+    const isPendingTitleReservation = (id: string | undefined): boolean => (id || '').startsWith('__pending__:')
+
+    const flushPendingInserts = async (): Promise<void> => {
+      if (pendingInserts.length === 0) return
+
+      const currentBatch = pendingInserts.splice(0, pendingInserts.length)
+
+      try {
+        const createdBatch = addNotesBatch(currentBatch.map((item) => item.noteInput))
+        if (createdBatch.length !== currentBatch.length) {
+          throw new Error(`Batch insert mismatch: expected ${currentBatch.length}, got ${createdBatch.length}`)
+        }
+
+        for (let i = 0; i < createdBatch.length; i += 1) {
+          const createdNote = createdBatch[i]
+          const pending = currentBatch[i]
+          existingTitles.set(pending.normalizedTitle, createdNote.id)
+          importedNotes.push({
+            id: createdNote.id,
+            title: createdNote.title,
+            sourcePath: pending.sourcePath,
+          })
+          await yieldEvery(i + 1, IMPORT_YIELD_INTERVAL)
+        }
+      } catch (batchError) {
+        for (let i = 0; i < currentBatch.length; i += 1) {
+          const pending = currentBatch[i]
+          try {
+            const [createdNote] = addNotesBatch([pending.noteInput])
+            if (!createdNote) {
+              throw new Error('No note returned from single-note fallback insert')
+            }
+            existingTitles.set(pending.normalizedTitle, createdNote.id)
+            importedNotes.push({
+              id: createdNote.id,
+              title: createdNote.title,
+              sourcePath: pending.sourcePath,
+            })
+          } catch (singleError) {
+            existingTitles.delete(pending.normalizedTitle)
+            errors.push({
+              path: pending.sourcePath,
+              error: singleError instanceof Error ? singleError.message : String(singleError),
+            })
+          }
+          await yieldEvery(i + 1, IMPORT_YIELD_INTERVAL)
+        }
+        console.warn('[Import] Batch insert failed, fell back to single-note inserts:', batchError)
+      }
     }
 
     // 导入每个笔记
     let processedCount = 0
     for (const parsed of parsedNotes) {
-      processedCount++
+      processedCount += 1
       emitProgress({
         type: 'creating',
         current: processedCount,
@@ -324,8 +459,15 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
       })
 
       try {
+        const normalizedTitle = parsed.title.toLowerCase()
+
         // 冲突检测
-        const existingId = existingTitles.get(parsed.title.toLowerCase())
+        let existingId = existingTitles.get(normalizedTitle)
+        if (isPendingTitleReservation(existingId) && options.conflictStrategy === 'overwrite') {
+          await flushPendingInserts()
+          existingId = existingTitles.get(normalizedTitle)
+        }
+
         if (existingId) {
           switch (options.conflictStrategy) {
             case 'skip':
@@ -333,6 +475,7 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
                 path: parsed.sourcePath,
                 reason: 'Note with same title already exists',
               })
+              await yieldEvery(processedCount, IMPORT_YIELD_INTERVAL)
               continue
 
             case 'rename':
@@ -341,13 +484,24 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
               let counter = 1
               while (existingTitles.has(newTitle.toLowerCase())) {
                 newTitle = `${parsed.title} (${counter})`
-                counter++
+                counter += 1
               }
               parsed.title = newTitle
               break
 
             case 'overwrite':
               // 更新现有笔记
+              if (isPendingTitleReservation(existingId)) {
+                let newTitle = parsed.title
+                let counter = 1
+                while (existingTitles.has(newTitle.toLowerCase())) {
+                  newTitle = `${parsed.title} (${counter})`
+                  counter += 1
+                }
+                parsed.title = newTitle
+                break
+              }
+
               let content = parsed.content
 
               // 处理附件
@@ -370,6 +524,7 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
                 title: parsed.title,
                 sourcePath: parsed.sourcePath,
               })
+              await yieldEvery(processedCount, IMPORT_YIELD_INTERVAL)
               continue
           }
         }
@@ -398,55 +553,69 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
           importedAttachments += result.copiedCount
         }
 
-        // 创建笔记
-        const noteInput: NoteInput = {
-          title: parsed.title,
-          content,
-          notebook_id: notebookId,
-        }
-
-        const note = addNote(noteInput)
-
-        // 更新已存在的标题映射
-        existingTitles.set(parsed.title.toLowerCase(), note.id)
-
-        importedNotes.push({
-          id: note.id,
-          title: note.title,
+        // 批量创建笔记（事务）
+        const finalNormalizedTitle = parsed.title.toLowerCase()
+        pendingInserts.push({
+          noteInput: {
+            title: parsed.title,
+            content,
+            notebook_id: notebookId,
+          },
           sourcePath: parsed.sourcePath,
+          normalizedTitle: finalNormalizedTitle,
         })
+        existingTitles.set(finalNormalizedTitle, `__pending__:${pendingInserts.length}`)
+
+        if (pendingInserts.length >= IMPORT_DB_BATCH_SIZE) {
+          await flushPendingInserts()
+        }
       } catch (error) {
         errors.push({
           path: parsed.sourcePath,
           error: error instanceof Error ? error.message : String(error),
         })
       }
+
+      await yieldEvery(processedCount, IMPORT_YIELD_INTERVAL)
     }
+    await flushPendingInserts()
+    createMs = Date.now() - createStartedAt
 
     // ========== 第二遍：解析内部链接 ==========
+    const linkResolveStartedAt = Date.now()
     // 建立标题到笔记 ID 的映射（包括新导入的和已存在的）
     const titleToNoteId = new Map<string, string>()
 
     // 添加已存在的笔记
+    let titleToIdCount = 0
     for (const [title, id] of existingTitles) {
+      if (isPendingTitleReservation(id)) continue
       titleToNoteId.set(title, id)
+      titleToIdCount += 1
+      await yieldEvery(titleToIdCount, IMPORT_YIELD_INTERVAL)
     }
 
     // 添加新导入的笔记
     for (const note of importedNotes) {
       titleToNoteId.set(note.title.toLowerCase(), note.id)
+      titleToIdCount += 1
+      await yieldEvery(titleToIdCount, IMPORT_YIELD_INTERVAL)
     }
 
-    // 一次性获取所有笔记，避免循环内重复查询数据库
-    const allCurrentNotes = getNotes()
-    const notesById = new Map(allCurrentNotes.map((n) => [n.id, n]))
+    const importedIds = importedNotes.map((n) => n.id)
+    const notesById = new Map(getNotesByIds(importedIds).map((n) => [n.id, n]))
 
     // 解析每个导入笔记中的 wiki 链接
+    let resolvedLinkCount = 0
     for (const importedNote of importedNotes) {
       try {
         // O(1) 查找当前笔记
         const currentNote = notesById.get(importedNote.id)
-        if (!currentNote) continue
+        if (!currentNote) {
+          resolvedLinkCount += 1
+          await yieldEvery(resolvedLinkCount, IMPORT_YIELD_INTERVAL)
+          continue
+        }
 
         // 解析 wiki 链接
         const resolvedContent = resolveWikiLinksInContent(currentNote.content, titleToNoteId)
@@ -459,12 +628,16 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
         // 链接解析失败不影响导入结果，只记录日志
         console.error(`Failed to resolve links in note ${importedNote.id}:`, error)
       }
+      resolvedLinkCount += 1
+      await yieldEvery(resolvedLinkCount, IMPORT_YIELD_INTERVAL)
     }
+    linkResolveMs = Date.now() - linkResolveStartedAt
 
     // ========== 第三遍：建立搜索索引 ==========
     // FTS 索引默认建立，Embedding 索引根据 options.buildEmbedding 决定
     const embeddingConfig = getEmbeddingConfig()
-    const shouldBuildEmbedding = options.buildEmbedding && embeddingConfig.enabled
+    shouldBuildEmbedding = Boolean(options.buildEmbedding) && embeddingConfig.enabled
+    const indexStartedAt = Date.now()
 
     emitProgress({
       type: 'creating',
@@ -473,14 +646,16 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
         : 'Building FTS index...',
     })
 
-    // 重新获取所有笔记以获取最新内容（链接解析后）
-    const finalNotes = getNotes()
-    const finalNotesById = new Map(finalNotes.map((n) => [n.id, n]))
+    // 重新获取本次导入笔记，避免加载整个库
+    const finalNotesById = new Map(getNotesByIds(importedIds).map((n) => [n.id, n]))
+    const importIndexConcurrency = shouldBuildEmbedding
+      ? IMPORT_INDEX_CONCURRENCY
+      : IMPORT_FTS_ONLY_INDEX_CONCURRENCY
 
-    for (const importedNote of importedNotes) {
+    await forEachWithConcurrency(importedNotes, importIndexConcurrency, async (importedNote, index) => {
       try {
         const note = finalNotesById.get(importedNote.id)
-        if (!note) continue
+        if (!note) return
 
         if (shouldBuildEmbedding) {
           // FTS + Embedding
@@ -493,12 +668,15 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
         // 索引失败不影响导入结果，只记录日志
         console.error(`Failed to index note ${importedNote.id}:`, error)
       }
-    }
+      await yieldEvery(index + 1, IMPORT_INDEX_YIELD_INTERVAL)
+    })
+    indexMs = Date.now() - indexStartedAt
 
     emitProgress({
       type: 'done',
       message: `Imported ${importedNotes.length} notes`,
     })
+    importSuccess = true
 
     return {
       success: errors.length === 0,
@@ -516,9 +694,10 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
       },
     }
   } catch (error) {
+    fatalError = error instanceof Error ? error.message : String(error)
     emitProgress({
       type: 'error',
-      error: error instanceof Error ? error.message : String(error),
+      error: fatalError,
     })
 
     return {
@@ -528,7 +707,7 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
       errors: [
         {
           path: sourcePaths.join(', '),
-          error: error instanceof Error ? error.message : String(error),
+          error: fatalError,
         },
       ],
       createdNotebooks,
@@ -542,6 +721,33 @@ export async function executeImport(options: ImportOptions): Promise<ImportResul
       },
     }
   } finally {
+    const totalMs = Date.now() - startTime
+    maybeLogImportExecutionSummary(
+      {
+        sourceCount: sourcePaths.length,
+        totalFiles,
+        importedCount: importedNotes.length,
+        skippedCount: skippedFiles.length,
+        errorCount: errors.length + (importSuccess ? 0 : 1),
+        importedAttachments,
+        parseMs,
+        setupMs,
+        createMs,
+        linkResolveMs,
+        indexMs,
+        totalMs,
+        usedCachedPreview,
+        shouldBuildEmbedding,
+        dbBatchSize: IMPORT_DB_BATCH_SIZE,
+        indexConcurrency: shouldBuildEmbedding
+          ? IMPORT_INDEX_CONCURRENCY
+          : IMPORT_FTS_ONLY_INDEX_CONCURRENCY,
+        yieldInterval: IMPORT_YIELD_INTERVAL,
+      },
+      importSuccess,
+      fatalError
+    )
+
     // 清理导入器的临时资源（如 Notion 解压的临时目录）
     for (const imp of usedImporters) {
       imp.cleanup()

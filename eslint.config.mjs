@@ -39,7 +39,7 @@ export default [
       // TypeScript 规则
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-require-imports': 'off',
 
       // React 规则
@@ -78,6 +78,14 @@ export default [
       react: {
         version: 'detect',
       },
+    },
+  },
+
+  // Tests: allow any in mocks/fixtures to keep test ergonomics and focus lint budget on runtime code
+  {
+    files: ['**/__tests__/**/*.{ts,tsx}', '**/*.{test,spec}.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 ]

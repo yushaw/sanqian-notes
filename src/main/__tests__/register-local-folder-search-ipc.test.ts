@@ -52,7 +52,8 @@ describe('register-local-folder-search-ipc', () => {
     registerLocalFolderSearchIpc(ipcMainLike, {
       getLocalFolderMounts: () => [mount],
       getCachedLocalFolderTree: () => null,
-      updateLocalFolderMountStatus: vi.fn(),
+      updateLocalFolderMountStatus: vi.fn(() => 'updated' as const),
+      enqueueLocalNotebookIndexSync: vi.fn(),
       invalidateLocalFolderTreeCache: vi.fn(),
       scheduleLocalFolderWatchEvent: vi.fn(),
       resolveMountStatusFromFsError: () => 'missing',
@@ -76,5 +77,124 @@ describe('register-local-folder-search-ipc', () => {
         hits: [createHit('nb-1', 'docs/plan.md')],
       },
     })
+  })
+
+  it('fails closed for malformed search payload without invoking mount search', async () => {
+    const mount = createMount('nb-1')
+    const channels = new Map<string, (event: unknown, input: unknown) => Promise<unknown>>()
+    const ipcMainLike = {
+      handle: vi.fn((channel: string, listener: (event: unknown, input: unknown) => Promise<unknown>) => {
+        channels.set(channel, listener)
+      }),
+    }
+    const searchLocalFolderMount = vi.fn(async () => [createHit('nb-1', 'docs/plan.md')])
+
+    registerLocalFolderSearchIpc(ipcMainLike, {
+      getLocalFolderMounts: () => [mount],
+      getCachedLocalFolderTree: () => null,
+      updateLocalFolderMountStatus: vi.fn(() => 'updated' as const),
+      enqueueLocalNotebookIndexSync: vi.fn(),
+      invalidateLocalFolderTreeCache: vi.fn(),
+      scheduleLocalFolderWatchEvent: vi.fn(),
+      resolveMountStatusFromFsError: () => 'missing',
+      globalSearchConcurrency: 4,
+      searchScanCacheTtlMs: 1200,
+      searchLocalFolderMount,
+    })
+
+    const handler = channels.get('localFolder:search')
+    expect(handler).toBeDefined()
+    if (!handler) return
+
+    await expect(handler({}, {
+      query: { value: 'plan' },
+      notebook_id: 'nb-1',
+    } as any)).resolves.toEqual({
+      success: true,
+      result: { hits: [] },
+    })
+    expect(searchLocalFolderMount).not.toHaveBeenCalled()
+  })
+
+  it('coalesces concurrent ipc requests for the same normalized search scope+query', async () => {
+    const mount = createMount('nb-1')
+    const channels = new Map<string, (event: unknown, input: unknown) => Promise<unknown>>()
+    const ipcMainLike = {
+      handle: vi.fn((channel: string, listener: (event: unknown, input: unknown) => Promise<unknown>) => {
+        channels.set(channel, listener)
+      }),
+    }
+    const pendingResolves: Array<() => void> = []
+    const searchLocalFolderMount = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        pendingResolves.push(resolve)
+      })
+      return [createHit('nb-1', 'docs/plan.md')]
+    })
+
+    registerLocalFolderSearchIpc(ipcMainLike, {
+      getLocalFolderMounts: () => [mount],
+      getCachedLocalFolderTree: () => null,
+      updateLocalFolderMountStatus: vi.fn(() => 'updated' as const),
+      enqueueLocalNotebookIndexSync: vi.fn(),
+      invalidateLocalFolderTreeCache: vi.fn(),
+      scheduleLocalFolderWatchEvent: vi.fn(),
+      resolveMountStatusFromFsError: () => 'missing',
+      globalSearchConcurrency: 4,
+      searchScanCacheTtlMs: 1200,
+      searchLocalFolderMount,
+    })
+
+    const handler = channels.get('localFolder:search')
+    expect(handler).toBeDefined()
+    if (!handler) return
+
+    const first = handler({}, { query: '  plan   draft ' })
+    const second = handler({}, { query: 'plan draft' })
+    await vi.waitFor(() => {
+      expect(searchLocalFolderMount).toHaveBeenCalledTimes(1)
+    })
+    expect(pendingResolves).toHaveLength(1)
+
+    pendingResolves[0]?.()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { success: true, result: { hits: [createHit('nb-1', 'docs/plan.md')] } },
+      { success: true, result: { hits: [createHit('nb-1', 'docs/plan.md')] } },
+    ])
+  })
+
+  it('returns unreadable error instead of rejecting when search handler throws', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const channels = new Map<string, (event: unknown, input: unknown) => Promise<unknown>>()
+    const ipcMainLike = {
+      handle: vi.fn((channel: string, listener: (event: unknown, input: unknown) => Promise<unknown>) => {
+        channels.set(channel, listener)
+      }),
+    }
+
+    registerLocalFolderSearchIpc(ipcMainLike, {
+      getLocalFolderMounts: () => {
+        throw new Error('mount list failed')
+      },
+      getCachedLocalFolderTree: () => null,
+      updateLocalFolderMountStatus: vi.fn(() => 'updated' as const),
+      enqueueLocalNotebookIndexSync: vi.fn(),
+      invalidateLocalFolderTreeCache: vi.fn(),
+      scheduleLocalFolderWatchEvent: vi.fn(),
+      resolveMountStatusFromFsError: () => 'missing',
+      globalSearchConcurrency: 4,
+      searchScanCacheTtlMs: 1200,
+    })
+
+    const handler = channels.get('localFolder:search')
+    expect(handler).toBeDefined()
+    if (!handler) return
+
+    await expect(handler({}, { query: 'plan' })).resolves.toEqual({
+      success: false,
+      errorCode: 'LOCAL_FILE_UNREADABLE',
+    })
+    expect(consoleErrorSpy).toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
   })
 })

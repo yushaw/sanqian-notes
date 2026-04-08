@@ -150,5 +150,20 @@ export function useGlobalKeyboardShortcuts(params: UseGlobalKeyboardShortcutsPar
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [createTab, closeTab, closePane, focusedPaneId, activeTabId, tabCount, activePaneCount, splitPane, setIsTypewriterMode, setSelectedNoteIds, setAnchorNoteId])
+  }, [
+    localOpenFileRef,
+    flushLocalFileSaveRef,
+    flushQueuedEditorUpdatesRef,
+    createTab,
+    closeTab,
+    closePane,
+    focusedPaneId,
+    activeTabId,
+    tabCount,
+    activePaneCount,
+    splitPane,
+    setIsTypewriterMode,
+    setSelectedNoteIds,
+    setAnchorNoteId,
+  ])
 }

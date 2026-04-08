@@ -1,4 +1,8 @@
-import { createLocalResourceId, parseLocalResourceId } from './localResourceId'
+import {
+  createLocalResourceId,
+  normalizeLocalResourceRelativePath,
+  parseLocalResourceId,
+} from './localResourceId'
 import type {
   LocalFolderNotebookMount,
   LocalFolderTreeNode,
@@ -10,6 +14,12 @@ import type {
   NotebookStatus,
   TagWithSource,
 } from '../types/note'
+
+export function normalizeLocalRelativePath(pathValue: string | null | undefined): string | null {
+  if (typeof pathValue !== 'string') return null
+  const normalized = normalizeLocalResourceRelativePath(pathValue)
+  return normalized || null
+}
 
 export function getRelativePathDepth(relativePath: string | null): number {
   if (!relativePath) return 1

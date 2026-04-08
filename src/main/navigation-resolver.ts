@@ -12,10 +12,19 @@ export interface NavigationResolverDeps {
   } | null
 }
 
+function parseNavigationNoteIdInput(noteIdInput: unknown): string | null {
+  if (typeof noteIdInput !== 'string') return null
+  if (!noteIdInput.trim()) return null
+  return noteIdInput
+}
+
 export function resolveRendererNoteIdForNavigation(
-  noteId: string,
+  noteIdInput: unknown,
   deps: NavigationResolverDeps
-): string {
+): string | null {
+  const noteId = parseNavigationNoteIdInput(noteIdInput)
+  if (!noteId) return null
+
   const parsedLocalRef = parseLocalResourceId(noteId)
   if (parsedLocalRef) {
     if (isLocalResourceUidRef(parsedLocalRef) && parsedLocalRef.noteUid) {

@@ -55,6 +55,12 @@ export const DEFAULT_CONFIG: EmbeddingConfig = {
   dimensions: 0
 }
 
+/**
+ * Upper bound for embedding vector dimensions accepted by runtime config.
+ * Keeps accidental or malicious oversized dimensions from destabilizing sqlite-vec setup.
+ */
+export const EMBEDDING_MAX_DIMENSIONS = 16_384
+
 // 根据 modelName 获取 dimensions
 export const MODEL_DIMENSIONS: Record<string, number> = {
   // OpenAI

@@ -53,7 +53,7 @@ export function cleanupMissingLocalNoteState(
     })
   }
 
-  const identityRows = listLocalNoteIdentity({ notebookIds: [notebookId] })
+  const identityRows = listLocalNoteIdentity({ notebookIds: [notebookId] }, { repairIfNeeded: false })
   for (const row of identityRows) {
     const normalizedPath = normalizeLocalPath(row.relative_path)
     if (!normalizedPath) continue

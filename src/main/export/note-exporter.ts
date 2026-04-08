@@ -5,12 +5,16 @@
  */
 
 import { BrowserWindow, dialog, app } from 'electron'
-import { writeFile, mkdir, copyFile, unlink } from 'fs/promises'
-import { existsSync, readFileSync } from 'fs'
+import { writeFile, mkdir, copyFile, unlink, readFile, open, access } from 'fs/promises'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { createRequire } from 'module'
-import { getNotes, getNotebooks, getLocalFolderMounts, listLocalNoteMetadata } from '../database'
+import {
+  getLiveNotesForDataviewProjection,
+  getNotebooks,
+  getLocalFolderMounts,
+  listLocalNoteMetadata,
+} from '../database'
 import { jsonToMarkdown } from '../markdown/tiptap-to-markdown'
 import { getUserDataPath } from '../attachment'
 import { t } from '../i18n'
@@ -27,12 +31,34 @@ async function ensureExportLibs(): Promise<void> {
   if (katexMod) _katex = katexMod.default
   if (hljsMod) _hljs = hljsMod.default
 }
-import { buildCanonicalLocalResourceId, buildNoteFromResolvedResource, resolveNoteResource } from '../note-gateway'
-import { scanLocalFolderMount, scanLocalFolderMountAsync } from '../local-folder'
+import { buildCanonicalLocalResourceId, buildNoteFromResolvedResource, resolveNoteResourceAsync } from '../note-gateway'
+import { scanLocalFolderMountForSearchAsync } from '../local-folder'
+import { forEachWithConcurrency, resolvePositiveIntegerEnv, yieldEvery } from '../import-export/utils/cooperative'
 import type { LocalNoteMetadata } from '../../shared/types'
 
 /** Wait time for CSS/fonts rendering before PDF generation (ms) */
 const PDF_RENDER_DELAY_MS = 500
+const NOTE_EXPORT_ATTACHMENT_COPY_CONCURRENCY = resolvePositiveIntegerEnv(
+  'NOTE_EXPORT_ATTACHMENT_COPY_CONCURRENCY',
+  4,
+  { min: 1, max: 16 }
+)
+const NOTE_EXPORT_ATTACHMENT_COPY_YIELD_INTERVAL = resolvePositiveIntegerEnv(
+  'NOTE_EXPORT_ATTACHMENT_COPY_YIELD_INTERVAL',
+  8,
+  { min: 1, max: 4096 }
+)
+const NOTE_EXPORT_REFERENCE_PRELOAD_MAX_DEPTH = resolvePositiveIntegerEnv(
+  'NOTE_EXPORT_REFERENCE_PRELOAD_MAX_DEPTH',
+  3,
+  { min: 1, max: 8 }
+)
+const NOTE_EXPORT_REFERENCE_PRELOAD_MAX_NOTES = resolvePositiveIntegerEnv(
+  'NOTE_EXPORT_REFERENCE_PRELOAD_MAX_NOTES',
+  128,
+  { min: 16, max: 4096 }
+)
+const IMAGE_SIGNATURE_READ_BYTES = 1024
 
 // ============ PDF 预览模板（内联） ============
 
@@ -163,31 +189,40 @@ video, audio { max-width: 100%; margin: 1em 0; border-radius: 8px; }
 `
 
 // 获取 KaTeX CSS 并将字体转为 base64 内联
-function getKatexCssWithInlineFonts(): string {
+async function getKatexCssWithInlineFonts(): Promise<string> {
   try {
     const require = createRequire(import.meta.url)
     const katexCssPath = require.resolve('katex/dist/katex.min.css')
     const katexDir = path.dirname(katexCssPath)
-    let css = readFileSync(katexCssPath, 'utf-8')
+    let css = await readFile(katexCssPath, 'utf-8')
 
-    // 将字体文件 URL 替换为 base64 data URI
-    css = css.replace(/url\(fonts\/([^)]+)\)/g, (match, fontFile) => {
+    const fontInlineMap = new Map<string, string>()
+    for (const match of css.matchAll(/url\(fonts\/([^)]+)\)/g)) {
+      const fontFile = match[1]
+      if (!fontFile || fontInlineMap.has(fontFile)) {
+        continue
+      }
+
       const fontPath = path.join(katexDir, 'fonts', fontFile)
       try {
-        if (existsSync(fontPath)) {
-          const fontData = readFileSync(fontPath)
-          const base64 = fontData.toString('base64')
-          const ext = path.extname(fontFile).toLowerCase()
-          const mimeType = ext === '.woff2' ? 'font/woff2' :
-                          ext === '.woff' ? 'font/woff' :
-                          ext === '.ttf' ? 'font/ttf' : 'application/octet-stream'
-          return `url(data:${mimeType};base64,${base64})`
-        }
+        const fontData = await readFile(fontPath)
+        const base64 = fontData.toString('base64')
+        const ext = path.extname(fontFile).toLowerCase()
+        const mimeType = ext === '.woff2' ? 'font/woff2' :
+          ext === '.woff' ? 'font/woff' :
+            ext === '.ttf' ? 'font/ttf' : 'application/octet-stream'
+        fontInlineMap.set(fontFile, `url(data:${mimeType};base64,${base64})`)
       } catch (err) {
         console.warn(`[PDF Export] Failed to inline font: ${fontFile}`, err)
       }
-      return match
-    })
+    }
+
+    // 将字体文件 URL 替换为 base64 data URI
+    if (fontInlineMap.size > 0) {
+      css = css.replace(/url\(fonts\/([^)]+)\)/g, (match, fontFile) => {
+        return fontInlineMap.get(fontFile) || match
+      })
+    }
 
     return css
   } catch (err) {
@@ -208,11 +243,11 @@ const HLJS_FALLBACK_CSS = `
 .hljs-variable{color:#e36209}
 `
 
-function getHighlightCss(): string {
+async function getHighlightCss(): Promise<string> {
   try {
     const require = createRequire(import.meta.url)
     const hljsCssPath = require.resolve('highlight.js/styles/github.css')
-    return readFileSync(hljsCssPath, 'utf-8')
+    return await readFile(hljsCssPath, 'utf-8')
   } catch (err) {
     console.warn('[PDF Export] Failed to load highlight.js CSS, using fallback:', err)
     return HLJS_FALLBACK_CSS
@@ -221,13 +256,14 @@ function getHighlightCss(): string {
 
 // 缓存 PDF 模板
 let cachedPdfTemplate: string | null = null
+let cachedPdfTemplatePromise: Promise<string> | null = null
 
 // 获取 Mermaid JS（从 node_modules）
-function getMermaidJs(): string {
+async function getMermaidJs(): Promise<string> {
   try {
     const require = createRequire(import.meta.url)
     const mermaidPath = require.resolve('mermaid/dist/mermaid.min.js')
-    return readFileSync(mermaidPath, 'utf-8')
+    return await readFile(mermaidPath, 'utf-8')
   } catch (err) {
     console.warn('[PDF Export] Failed to load Mermaid JS:', err)
     return ''
@@ -235,14 +271,18 @@ function getMermaidJs(): string {
 }
 
 // 生成 PDF HTML 模板（不依赖外部 CDN）
-function getPdfTemplate(): string {
+async function getPdfTemplate(): Promise<string> {
   if (cachedPdfTemplate) return cachedPdfTemplate
+  if (cachedPdfTemplatePromise) return cachedPdfTemplatePromise
 
-  const katexCss = getKatexCssWithInlineFonts()
-  const hljsCss = getHighlightCss()
-  const mermaidJs = getMermaidJs()
+  cachedPdfTemplatePromise = (async () => {
+    const [katexCss, hljsCss, mermaidJs] = await Promise.all([
+      getKatexCssWithInlineFonts(),
+      getHighlightCss(),
+      getMermaidJs(),
+    ])
 
-  cachedPdfTemplate = `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="zh-CN" style="color-scheme: light;">
 <head>
   <meta charset="UTF-8">
@@ -277,8 +317,17 @@ function getPdfTemplate(): string {
   </div>
 </body>
 </html>`
+  })()
+    .then((template) => {
+      cachedPdfTemplate = template
+      return template
+    })
+    .catch((error) => {
+      cachedPdfTemplatePromise = null
+      throw error
+    })
 
-  return cachedPdfTemplate
+  return cachedPdfTemplatePromise
 }
 
 // ============ 类型定义 ============
@@ -402,7 +451,16 @@ function encodePathSegments(relativePath: string): string {
     .join('/')
 }
 
-function resolveAttachmentSourcePath(relativePath: string): string | null {
+async function pathExists(pathToCheck: string): Promise<boolean> {
+  try {
+    await access(pathToCheck)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function resolveAttachmentSourcePath(relativePath: string): Promise<string | null> {
   const userDataPath = getUserDataPath()
   const normalized = relativePath.replace(/^\/+/, '')
 
@@ -412,7 +470,7 @@ function resolveAttachmentSourcePath(relativePath: string): string | null {
   }
 
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
+    if (await pathExists(candidate)) {
       return candidate
     }
   }
@@ -537,7 +595,18 @@ function detectImageExtensionFromBuffer(buffer: Buffer): string | null {
   return null
 }
 
-function ensureExportImageExtension(fileName: string, sourcePath: string, isImage: boolean): string {
+async function readFileSignature(sourcePath: string): Promise<Buffer> {
+  const handle = await open(sourcePath, 'r')
+  try {
+    const buffer = Buffer.alloc(IMAGE_SIGNATURE_READ_BYTES)
+    const { bytesRead } = await handle.read(buffer, 0, IMAGE_SIGNATURE_READ_BYTES, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
+
+async function ensureExportImageExtension(fileName: string, sourcePath: string, isImage: boolean): Promise<string> {
   if (!isImage) {
     return fileName
   }
@@ -548,7 +617,10 @@ function ensureExportImageExtension(fileName: string, sourcePath: string, isImag
   }
 
   try {
-    const buffer = readFileSync(sourcePath)
+    const buffer = await readFileSignature(sourcePath)
+    if (buffer.length === 0) {
+      return fileName
+    }
     const detectedExt = detectImageExtensionFromBuffer(buffer)
     if (!detectedExt) {
       return fileName
@@ -575,18 +647,21 @@ async function copyAttachmentsAndUpdateContent(
     return { content: markdown, copiedCount: 0 }
   }
 
-  // 创建 assets 目录
-  if (!existsSync(assetsDir)) {
-    await mkdir(assetsDir, { recursive: true })
-  }
+  await mkdir(assetsDir, { recursive: true })
 
   let updatedContent = markdown
   let copiedCount = 0
 
   const usedNames = new Set<string>()
+  const copyPlans: Array<{
+    relativePath: string
+    sourcePath: string
+    destinationFileName: string
+    assetPath: string
+  }> = []
 
   for (const { relativePath, isImage } of attachmentRefs) {
-    const sourcePath = resolveAttachmentSourcePath(relativePath)
+    const sourcePath = await resolveAttachmentSourcePath(relativePath)
     if (!sourcePath) {
       continue
     }
@@ -598,7 +673,7 @@ async function copyAttachmentsAndUpdateContent(
     const dir = path.dirname(pathForName)
     const baseName = path.basename(pathForName)
     const originalExportName = dir && dir !== '.' ? `${dir.replace(/[\\/]/g, '_')}_${baseName}` : baseName
-    const normalizedBaseName = ensureExportImageExtension(originalExportName, sourcePath, isImage)
+    const normalizedBaseName = await ensureExportImageExtension(originalExportName, sourcePath, isImage)
     let uniqueFilename = normalizedBaseName
     let counter = 1
 
@@ -610,18 +685,34 @@ async function copyAttachmentsAndUpdateContent(
     }
     usedNames.add(uniqueFilename)
 
-    const destPath = path.join(assetsDir, uniqueFilename)
+    copyPlans.push({
+      relativePath,
+      sourcePath,
+      destinationFileName: uniqueFilename,
+      assetPath: `./assets/${uniqueFilename}`,
+    })
+  }
+
+  const copiedAssetPathByRelativePath = new Map<string, string>()
+  await forEachWithConcurrency(copyPlans, NOTE_EXPORT_ATTACHMENT_COPY_CONCURRENCY, async (plan, index) => {
+    const destPath = path.join(assetsDir, plan.destinationFileName)
 
     try {
-      await copyFile(sourcePath, destPath)
+      await copyFile(plan.sourcePath, destPath)
       copiedCount++
-
-      // 更新 Markdown 中的路径（图片/链接/media src）
-      const assetPath = `./assets/${uniqueFilename}`
-      updatedContent = replaceAttachmentReferences(updatedContent, relativePath, assetPath)
+      copiedAssetPathByRelativePath.set(plan.relativePath, plan.assetPath)
     } catch (error) {
-      console.error(`Failed to copy attachment: ${relativePath}`, error)
+      console.error(`Failed to copy attachment: ${plan.relativePath}`, error)
     }
+    await yieldEvery(index + 1, NOTE_EXPORT_ATTACHMENT_COPY_YIELD_INTERVAL)
+  })
+
+  for (const { relativePath } of attachmentRefs) {
+    const copiedAssetPath = copiedAssetPathByRelativePath.get(relativePath)
+    if (!copiedAssetPath) {
+      continue
+    }
+    updatedContent = replaceAttachmentReferences(updatedContent, relativePath, copiedAssetPath)
   }
 
   return { content: updatedContent, copiedCount }
@@ -1166,68 +1257,11 @@ function buildLocalMetadataLookup(metadataRows: LocalNoteMetadata[]): Map<string
   return map
 }
 
-function collectDataviewAllSourceNotes(): DataviewNoteProjection[] {
-  const notebooks = getNotebooks()
-  const notebookNameById = new Map(notebooks.map((notebook) => [notebook.id, notebook.name]))
-
-  const internalNotes = getNotes()
-  const internalItems: DataviewNoteProjection[] = internalNotes.map((note) => ({
-    id: note.id,
-    title: note.title,
-    notebookId: note.notebook_id,
-    notebookName: note.notebook_id ? (notebookNameById.get(note.notebook_id) || null) : null,
-    updatedAt: note.updated_at,
-    isPinned: note.is_pinned,
-    tags: (note.tags || []).map((tag) => tag.name),
-  }))
-
-  const activeMounts = getLocalFolderMounts().filter((mount) => mount.mount.status === 'active')
-  const metadataByPath = buildLocalMetadataLookup(
-    listLocalNoteMetadata({ notebookIds: activeMounts.map((mount) => mount.notebook.id) })
-  )
-  const localItems: DataviewNoteProjection[] = []
-
-  for (const mount of activeMounts) {
-    let scanned: ReturnType<typeof scanLocalFolderMount>
-    try {
-      scanned = scanLocalFolderMount(mount)
-    } catch {
-      continue
-    }
-
-    for (const file of scanned.files) {
-      const metadata = metadataByPath.get(buildLocalMetadataKey(mount.notebook.id, file.relative_path))
-      localItems.push({
-        id: buildCanonicalLocalResourceId({
-          notebookId: mount.notebook.id,
-          relativePath: file.relative_path,
-        }),
-        title: file.name,
-        notebookId: mount.notebook.id,
-        notebookName: mount.notebook.name || null,
-        updatedAt: new Date(file.mtime_ms).toISOString(),
-        isPinned: metadata?.is_pinned ?? false,
-        tags: metadata?.tags || [],
-      })
-    }
-  }
-
-  return [...internalItems, ...localItems].sort((left, right) => {
-    if (left.isPinned !== right.isPinned) {
-      return left.isPinned ? -1 : 1
-    }
-    if (left.updatedAt !== right.updatedAt) {
-      return right.updatedAt.localeCompare(left.updatedAt)
-    }
-    return left.id.localeCompare(right.id, undefined, { sensitivity: 'base', numeric: true })
-  })
-}
-
 async function collectDataviewAllSourceNotesAsync(): Promise<DataviewNoteProjection[]> {
   const notebooks = getNotebooks()
   const notebookNameById = new Map(notebooks.map((notebook) => [notebook.id, notebook.name]))
 
-  const internalNotes = getNotes()
+  const internalNotes = getLiveNotesForDataviewProjection()
   const internalItems: DataviewNoteProjection[] = internalNotes.map((note) => ({
     id: note.id,
     title: note.title,
@@ -1245,9 +1279,9 @@ async function collectDataviewAllSourceNotesAsync(): Promise<DataviewNoteProject
   const localItems: DataviewNoteProjection[] = []
 
   for (const mount of activeMounts) {
-    let scanned: Awaited<ReturnType<typeof scanLocalFolderMountAsync>>
+    let scanned: Awaited<ReturnType<typeof scanLocalFolderMountForSearchAsync>>
     try {
-      scanned = await scanLocalFolderMountAsync(mount)
+      scanned = await scanLocalFolderMountForSearchAsync(mount, { sortEntries: false })
     } catch {
       continue
     }
@@ -1281,13 +1315,7 @@ async function collectDataviewAllSourceNotesAsync(): Promise<DataviewNoteProject
 }
 
 function getDataviewAllSourceNotes(renderContext?: ExportRenderContext): DataviewNoteProjection[] {
-  if (!renderContext) {
-    return collectDataviewAllSourceNotes()
-  }
-  if (!renderContext.dataviewAllSourceNotes) {
-    renderContext.dataviewAllSourceNotes = collectDataviewAllSourceNotes()
-  }
-  return renderContext.dataviewAllSourceNotes
+  return renderContext?.dataviewAllSourceNotes || []
 }
 
 function parseDataviewTagFilter(query: string): string | null {
@@ -1400,20 +1428,112 @@ function escapeHTML(str: string): string {
     .replace(/'/g, '&#039;')
 }
 
-const exportNoteCache = new Map<string, ReturnType<typeof buildNoteFromResolvedResource> | null>()
+type ExportResolvedNote = ReturnType<typeof buildNoteFromResolvedResource>
 
-function resolveExportNote(noteId: string) {
+const exportNoteCache = new Map<string, ExportResolvedNote | null>()
+const exportNoteInFlight = new Map<string, Promise<ExportResolvedNote | null>>()
+
+function resolveExportNote(noteId: string): ExportResolvedNote | null {
+  if (!exportNoteCache.has(noteId)) return null
+  return exportNoteCache.get(noteId) || null
+}
+
+async function preloadExportNoteAsync(noteId: string): Promise<ExportResolvedNote | null> {
   if (exportNoteCache.has(noteId)) {
     return exportNoteCache.get(noteId) || null
   }
-  const resolved = resolveNoteResource(noteId)
-  if (!resolved.ok) {
-    exportNoteCache.set(noteId, null)
-    return null
+  const inFlight = exportNoteInFlight.get(noteId)
+  if (inFlight) return inFlight
+
+  const task = (async (): Promise<ExportResolvedNote | null> => {
+    const resolved = await resolveNoteResourceAsync(noteId)
+    if (!resolved.ok) {
+      exportNoteCache.set(noteId, null)
+      return null
+    }
+    const note = buildNoteFromResolvedResource(resolved.resource)
+    exportNoteCache.set(noteId, note)
+    return note
+  })()
+
+  exportNoteInFlight.set(noteId, task)
+  try {
+    return await task
+  } finally {
+    if (exportNoteInFlight.get(noteId) === task) {
+      exportNoteInFlight.delete(noteId)
+    }
   }
-  const note = buildNoteFromResolvedResource(resolved.resource)
-  exportNoteCache.set(noteId, note)
-  return note
+}
+
+function collectReferencedNoteIdsFromTiptapContent(content: string): string[] {
+  let doc: unknown
+  try {
+    doc = JSON.parse(content)
+  } catch {
+    return []
+  }
+  if (!doc || typeof doc !== 'object') return []
+
+  const result = new Set<string>()
+  const stack: unknown[] = [doc]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current || typeof current !== 'object') continue
+    const node = current as {
+      type?: unknown
+      attrs?: Record<string, unknown>
+      content?: unknown
+    }
+    const nodeType = typeof node.type === 'string' ? node.type : ''
+    const attrs = node.attrs || {}
+
+    if (nodeType === 'embedBlock' && attrs.mode === 'local' && typeof attrs.localPath === 'string' && attrs.localPath.trim()) {
+      result.add(attrs.localPath)
+    } else if (nodeType === 'transclusionBlock' && typeof attrs.noteId === 'string' && attrs.noteId.trim()) {
+      result.add(attrs.noteId)
+    }
+
+    if (Array.isArray(node.content)) {
+      for (let index = 0; index < node.content.length; index += 1) {
+        stack.push(node.content[index])
+      }
+    }
+  }
+  return Array.from(result)
+}
+
+async function preloadExportReferencedNotesAsync(rootContent: string): Promise<void> {
+  const seen = new Set<string>()
+  let frontier = collectReferencedNoteIdsFromTiptapContent(rootContent)
+
+  for (
+    let depth = 0;
+    depth < NOTE_EXPORT_REFERENCE_PRELOAD_MAX_DEPTH && frontier.length > 0 && seen.size < NOTE_EXPORT_REFERENCE_PRELOAD_MAX_NOTES;
+    depth += 1
+  ) {
+    const batch: string[] = []
+    for (const noteId of frontier) {
+      if (seen.has(noteId)) continue
+      seen.add(noteId)
+      batch.push(noteId)
+      if (seen.size >= NOTE_EXPORT_REFERENCE_PRELOAD_MAX_NOTES) break
+    }
+    if (batch.length === 0) break
+
+    const loadedNotes = await Promise.all(batch.map((noteId) => preloadExportNoteAsync(noteId)))
+    const next = new Set<string>()
+    for (const note of loadedNotes) {
+      if (!note) continue
+      const referencedIds = collectReferencedNoteIdsFromTiptapContent(note.content)
+      for (const referencedId of referencedIds) {
+        if (seen.has(referencedId)) continue
+        if (seen.size + next.size >= NOTE_EXPORT_REFERENCE_PRELOAD_MAX_NOTES) break
+        next.add(referencedId)
+      }
+    }
+    frontier = Array.from(next)
+  }
 }
 
 /**
@@ -1421,6 +1541,7 @@ function resolveExportNote(noteId: string) {
  */
 export function clearExportNoteCache(): void {
   exportNoteCache.clear()
+  exportNoteInFlight.clear()
 }
 
 // ============ 导出函数 ============
@@ -1433,9 +1554,11 @@ export async function exportNoteAsMarkdown(
   options: MarkdownExportOptions = {}
 ): Promise<ExportResult> {
   exportNoteCache.clear()
-  const note = resolveExportNote(noteId)
+  exportNoteInFlight.clear()
+  const note = await preloadExportNoteAsync(noteId)
   if (!note) {
     exportNoteCache.clear()
+    exportNoteInFlight.clear()
     return { success: false, error: 'Note not found' }
   }
 
@@ -1469,9 +1592,7 @@ export async function exportNoteAsMarkdown(
       const mdFilePath = path.join(exportDir, `${sanitizedTitle}.md`)
 
       // 创建导出目录
-      if (!existsSync(exportDir)) {
-        await mkdir(exportDir, { recursive: true })
-      }
+      await mkdir(exportDir, { recursive: true })
 
       // 复制附件并更新路径
       const { content } = await copyAttachmentsAndUpdateContent(markdown, mdFilePath)
@@ -1501,6 +1622,7 @@ export async function exportNoteAsMarkdown(
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   } finally {
     exportNoteCache.clear()
+    exportNoteInFlight.clear()
   }
 }
 
@@ -1513,9 +1635,11 @@ export async function exportNoteAsPDF(
 ): Promise<ExportResult> {
   await ensureExportLibs()
   exportNoteCache.clear()
-  const note = resolveExportNote(noteId)
+  exportNoteInFlight.clear()
+  const note = await preloadExportNoteAsync(noteId)
   if (!note) {
     exportNoteCache.clear()
+    exportNoteInFlight.clear()
     return { success: false, error: 'Note not found' }
   }
 
@@ -1530,6 +1654,8 @@ export async function exportNoteAsPDF(
     return { success: false, error: 'canceled' }
   }
 
+  await preloadExportReferencedNotesAsync(note.content)
+
   // 异步预获取 dataview 数据，避免同步文件扫描阻塞主进程
   const renderContext: ExportRenderContext = {
     dataviewAllSourceNotes: await collectDataviewAllSourceNotesAsync(),
@@ -1539,7 +1665,7 @@ export async function exportNoteAsPDF(
   const contentHTML = tiptapToHTML(note.content, 0, renderContext)
 
   // 生成完整的 HTML 内容（使用本地 CSS，不依赖 CDN）
-  const template = getPdfTemplate()
+  const template = await getPdfTemplate()
   const fullHTML = template
     .replace('<h1 id="title" class="document-title"></h1>', `<h1 id="title" class="document-title">${escapeHTML(note.title || 'Untitled')}</h1>`)
     .replace('<div id="content" class="document-content"></div>', `<div id="content" class="document-content">${contentHTML}</div>`)
@@ -1601,5 +1727,6 @@ export async function exportNoteAsPDF(
       // 忽略删除失败
     }
     exportNoteCache.clear()
+    exportNoteInFlight.clear()
   }
 }

@@ -16,6 +16,33 @@ import type { AgentExecutionContext, AgentTaskOutputFormat } from '../../../shar
 import { getNearestHeadingForBlock } from '../utils/aiContext'
 import { parseLocalResourceId } from '../utils/localResourceId'
 
+const AGENT_BLOCK_LAST_AGENT_ID_STORAGE_KEY = 'agent-block-last-agent-id'
+
+function readLastAgentIdFromStorage(): string | null {
+  try {
+    const storageLike = (globalThis as { localStorage?: unknown }).localStorage as
+      | { getItem?: (key: string) => string | null }
+      | undefined
+    if (!storageLike || typeof storageLike.getItem !== 'function') return null
+    return storageLike.getItem(AGENT_BLOCK_LAST_AGENT_ID_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeLastAgentIdToStorage(agentId: string): void {
+  if (!agentId) return
+  try {
+    const storageLike = (globalThis as { localStorage?: unknown }).localStorage as
+      | { setItem?: (key: string, value: string) => void }
+      | undefined
+    if (!storageLike || typeof storageLike.setItem !== 'function') return
+    storageLike.setItem(AGENT_BLOCK_LAST_AGENT_ID_STORAGE_KEY, agentId)
+  } catch {
+    // ignore storage write errors
+  }
+}
+
 // Truncate error message to avoid bloating HTML attributes
 const truncateError = (msg: string, maxLen = 200) =>
   msg.length > maxLen ? msg.slice(0, maxLen) + '...' : msg
@@ -292,7 +319,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
         agentName: agent?.name || null,
       })
       // 缓存选择，下次创建时使用
-      localStorage.setItem('agent-block-last-agent-id', newAgentId)
+      writeLastAgentIdToStorage(newAgentId)
     },
     [agents, updateAttributes]
   )
@@ -302,7 +329,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
     if (agentId) return agentId
     if (agents.length === 0) return ''
 
-    const cachedAgentId = localStorage.getItem('agent-block-last-agent-id')
+    const cachedAgentId = readLastAgentIdFromStorage()
     const cachedAgent = cachedAgentId ? agents.find((a) => a.id === cachedAgentId) : null
     const metaAgent = agents.find((a) => a.id === 'meta' || a.name.toLowerCase() === 'meta')
     return (cachedAgent || metaAgent || agents[0])?.id || ''
@@ -332,7 +359,7 @@ export function AgentBlockView({ node, updateAttributes, selected, editor, delet
         agentId: effectiveAgentId,
         agentName: resolvedAgent.name,
       })
-      localStorage.setItem('agent-block-last-agent-id', effectiveAgentId)
+      writeLastAgentIdToStorage(effectiveAgentId)
     }
 
     const { pageId, noteTitle, notebookId, notebookName } = getPageContext()

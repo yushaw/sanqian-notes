@@ -10,6 +10,47 @@ import { buildSearchTokens, tokenizeForSearch } from './tokenizer'
 import { getDb, fts, embeddingsTableExists, getScaledThreshold, scheduleFtsRebuild } from './database-core'
 
 const DEFAULT_L2_THRESHOLD = 2.0
+const NOTE_INDEX_STATUS_BATCH_SELECT_CHUNK_SIZE = 300
+const NOTE_INDEX_DELETE_BATCH_MUTATION_CHUNK_SIZE = Number.isFinite(
+  Number(process.env.KB_NOTE_INDEX_DELETE_BATCH_MUTATION_CHUNK_SIZE)
+)
+  ? Math.max(1, Math.floor(Number(process.env.KB_NOTE_INDEX_DELETE_BATCH_MUTATION_CHUNK_SIZE)))
+  : 256
+
+function parseRequiredNoteIdInput(noteIdInput: unknown): string | null {
+  if (typeof noteIdInput !== 'string') return null
+  if (!noteIdInput.trim()) return null
+  return noteIdInput
+}
+const NOTE_INDEX_STATUS_PREFIX_RANGE_SUFFIX = '\uffff'
+
+type NoteIndexStatusRow = {
+  note_id: string
+  content_hash: string
+  chunk_count: number
+  model_name: string
+  indexed_at: string
+  status: string
+  error_message: string | null
+  fts_status: string | null
+  embedding_status: string | null
+  file_mtime: string | null
+}
+
+function rowToNoteIndexStatus(row: NoteIndexStatusRow): NoteIndexStatus {
+  return {
+    noteId: row.note_id,
+    contentHash: row.content_hash,
+    chunkCount: row.chunk_count,
+    modelName: row.model_name,
+    indexedAt: row.indexed_at,
+    status: row.status as 'indexed' | 'pending' | 'error',
+    errorMessage: row.error_message || undefined,
+    ftsStatus: (row.fts_status as 'none' | 'indexed') || 'none',
+    embeddingStatus: (row.embedding_status as 'none' | 'indexed' | 'pending' | 'error') || 'none',
+    fileMtime: row.file_mtime || undefined
+  }
+}
 
 // ============ 笔记块管理 ============
 
@@ -75,6 +116,56 @@ export function deleteNoteChunks(noteId: string): void {
   } else if (fts.enabled && fts.rebuildRunning) {
     fts.rebuildDirty = true
   }
+}
+
+/**
+ * 批量删除笔记索引数据（chunks / embeddings / index_status）
+ *
+ * - 使用事务包裹每批删除，避免高频单条删除造成主线程抖动
+ * - 批次大小受 NOTE_INDEX_DELETE_BATCH_MUTATION_CHUNK_SIZE 控制
+ * - note_embeddings 为 vec 表，保留逐条 delete 的兼容写法
+ */
+export function deleteNoteIndexes(noteIds: readonly string[]): number {
+  if (!Array.isArray(noteIds) || noteIds.length === 0) return 0
+
+  const uniqueNoteIds: string[] = []
+  const seenNoteIds = new Set<string>()
+  for (const noteId of noteIds) {
+    const parsedNoteId = parseRequiredNoteIdInput(noteId)
+    if (!parsedNoteId || seenNoteIds.has(parsedNoteId)) continue
+    seenNoteIds.add(parsedNoteId)
+    uniqueNoteIds.push(parsedNoteId)
+  }
+  if (uniqueNoteIds.length === 0) return 0
+
+  const database = getDb()
+  const deleteChunkStmt = database.prepare('DELETE FROM note_chunks WHERE note_id = ?')
+  const deleteFtsStmt = (fts.enabled && !fts.rebuildRunning)
+    ? database.prepare('DELETE FROM note_chunks_fts WHERE note_id = ?')
+    : null
+  const deleteStatusStmt = database.prepare('DELETE FROM note_index_status WHERE note_id = ?')
+  const deleteEmbeddingStmt = embeddingsTableExists(database)
+    ? database.prepare('DELETE FROM note_embeddings WHERE note_id = ?')
+    : null
+
+  const runDeleteBatch = database.transaction((chunk: readonly string[]) => {
+    for (const noteId of chunk) {
+      deleteChunkStmt.run(noteId)
+      deleteFtsStmt?.run(noteId)
+      deleteStatusStmt.run(noteId)
+      deleteEmbeddingStmt?.run(noteId)
+    }
+    if (fts.enabled && fts.rebuildRunning && chunk.length > 0) {
+      fts.rebuildDirty = true
+    }
+  })
+
+  for (let offset = 0; offset < uniqueNoteIds.length; offset += NOTE_INDEX_DELETE_BATCH_MUTATION_CHUNK_SIZE) {
+    const chunk = uniqueNoteIds.slice(offset, offset + NOTE_INDEX_DELETE_BATCH_MUTATION_CHUNK_SIZE)
+    runDeleteBatch(chunk)
+  }
+
+  return uniqueNoteIds.length
 }
 
 /**
@@ -211,39 +302,75 @@ export function updateNoteIndexStatus(status: NoteIndexStatus): void {
 }
 
 /**
+ * 在满足“已建立 FTS 且索引成功”前提下，回填文件 mtime。
+ * 仅更新 file_mtime 字段，避免覆写其他状态列。
+ */
+export function updateNoteIndexFileMtimeIfIndexed(noteId: string, fileMtime: string): boolean {
+  const parsedNoteId = parseRequiredNoteIdInput(noteId)
+  if (!parsedNoteId || typeof fileMtime !== 'string' || !fileMtime) return false
+
+  const database = getDb()
+  const result = database
+    .prepare(
+      `
+    UPDATE note_index_status
+    SET file_mtime = ?
+    WHERE note_id = ?
+      AND status = 'indexed'
+      AND COALESCE(fts_status, 'none') = 'indexed'
+      AND (file_mtime IS NULL OR file_mtime <> ?)
+  `
+    )
+    .run(fileMtime, parsedNoteId, fileMtime)
+
+  return result.changes > 0
+}
+
+/**
  * 获取笔记索引状态
  */
 export function getNoteIndexStatus(noteId: string): NoteIndexStatus | null {
   const database = getDb()
   const row = database.prepare('SELECT * FROM note_index_status WHERE note_id = ?').get(noteId) as
-    | {
-      note_id: string
-      content_hash: string
-      chunk_count: number
-      model_name: string
-      indexed_at: string
-      status: string
-      error_message: string | null
-      fts_status: string | null
-      embedding_status: string | null
-      file_mtime: string | null
-    }
+    | NoteIndexStatusRow
     | undefined
 
   if (!row) return null
+  return rowToNoteIndexStatus(row)
+}
 
-  return {
-    noteId: row.note_id,
-    contentHash: row.content_hash,
-    chunkCount: row.chunk_count,
-    modelName: row.model_name,
-    indexedAt: row.indexed_at,
-    status: row.status as 'indexed' | 'pending' | 'error',
-    errorMessage: row.error_message || undefined,
-    ftsStatus: (row.fts_status as 'none' | 'indexed') || 'none',
-    embeddingStatus: (row.embedding_status as 'none' | 'indexed' | 'pending' | 'error') || 'none',
-    fileMtime: row.file_mtime || undefined
+/**
+ * 批量获取笔记索引状态
+ */
+export function getNoteIndexStatusBatch(noteIds: readonly string[]): Map<string, NoteIndexStatus> {
+  const statusByNoteId = new Map<string, NoteIndexStatus>()
+  if (!Array.isArray(noteIds) || noteIds.length === 0) return statusByNoteId
+
+  const uniqueNoteIds: string[] = []
+  const seenNoteIds = new Set<string>()
+  for (const noteId of noteIds) {
+    const parsedNoteId = parseRequiredNoteIdInput(noteId)
+    if (!parsedNoteId || seenNoteIds.has(parsedNoteId)) continue
+    seenNoteIds.add(parsedNoteId)
+    uniqueNoteIds.push(parsedNoteId)
   }
+  if (uniqueNoteIds.length === 0) return statusByNoteId
+
+  const database = getDb()
+  for (let offset = 0; offset < uniqueNoteIds.length; offset += NOTE_INDEX_STATUS_BATCH_SELECT_CHUNK_SIZE) {
+    const chunk = uniqueNoteIds.slice(offset, offset + NOTE_INDEX_STATUS_BATCH_SELECT_CHUNK_SIZE)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const rows = database.prepare(`
+      SELECT note_id, content_hash, chunk_count, model_name, indexed_at, status, error_message, fts_status, embedding_status, file_mtime
+      FROM note_index_status
+      WHERE note_id IN (${placeholders})
+    `).all(...chunk) as NoteIndexStatusRow[]
+    for (const row of rows) {
+      statusByNoteId.set(row.note_id, rowToNoteIndexStatus(row))
+    }
+  }
+
+  return statusByNoteId
 }
 
 /**
@@ -259,31 +386,66 @@ export function deleteNoteIndexStatus(noteId: string): void {
  */
 export function getAllIndexStatus(): NoteIndexStatus[] {
   const database = getDb()
-  const rows = database.prepare('SELECT * FROM note_index_status').all() as Array<{
-    note_id: string
-    content_hash: string
-    chunk_count: number
-    model_name: string
-    indexed_at: string
-    status: string
-    error_message: string | null
-    fts_status: string | null
-    embedding_status: string | null
-    file_mtime: string | null
-  }>
+  const rows = database.prepare('SELECT * FROM note_index_status').all() as NoteIndexStatusRow[]
+  return rows.map(rowToNoteIndexStatus)
+}
 
-  return rows.map((row) => ({
-    noteId: row.note_id,
-    contentHash: row.content_hash,
-    chunkCount: row.chunk_count,
-    modelName: row.model_name,
-    indexedAt: row.indexed_at,
-    status: row.status as 'indexed' | 'pending' | 'error',
-    errorMessage: row.error_message || undefined,
-    ftsStatus: (row.fts_status as 'none' | 'indexed') || 'none',
-    embeddingStatus: (row.embedding_status as 'none' | 'indexed' | 'pending' | 'error') || 'none',
-    fileMtime: row.file_mtime || undefined
-  }))
+/**
+ * 仅获取所有已索引 note_id（用于轻量场景）
+ */
+export function getAllIndexedNoteIds(): string[] {
+  const database = getDb()
+  const rows = database.prepare('SELECT note_id FROM note_index_status').all() as Array<{ note_id: string }>
+  return rows.map((row) => row.note_id)
+}
+
+/**
+ * 按 note_id 前缀范围获取已索引 note_id（利用主键范围扫描）
+ */
+export function getIndexedNoteIdsByPrefix(prefix: string): string[] {
+  if (!prefix.trim()) return []
+  const database = getDb()
+  const rows = database.prepare(`
+    SELECT note_id
+    FROM note_index_status
+    WHERE note_id >= ? AND note_id < ?
+  `).all(
+    prefix,
+    prefix + NOTE_INDEX_STATUS_PREFIX_RANGE_SUFFIX
+  ) as Array<{ note_id: string }>
+  return rows.map((row) => row.note_id)
+}
+
+/**
+ * 从给定 note_id 列表中返回真实存在于索引状态表里的 note_id
+ */
+export function getIndexedExistingNoteIds(noteIds: readonly string[]): string[] {
+  if (!Array.isArray(noteIds) || noteIds.length === 0) return []
+  const uniqueNoteIds: string[] = []
+  const seenNoteIds = new Set<string>()
+  for (const noteId of noteIds) {
+    const parsedNoteId = parseRequiredNoteIdInput(noteId)
+    if (!parsedNoteId || seenNoteIds.has(parsedNoteId)) continue
+    seenNoteIds.add(parsedNoteId)
+    uniqueNoteIds.push(parsedNoteId)
+  }
+  if (uniqueNoteIds.length === 0) return []
+
+  const database = getDb()
+  const existingIds: string[] = []
+  for (let offset = 0; offset < uniqueNoteIds.length; offset += NOTE_INDEX_STATUS_BATCH_SELECT_CHUNK_SIZE) {
+    const chunk = uniqueNoteIds.slice(offset, offset + NOTE_INDEX_STATUS_BATCH_SELECT_CHUNK_SIZE)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const rows = database.prepare(`
+      SELECT note_id
+      FROM note_index_status
+      WHERE note_id IN (${placeholders})
+    `).all(...chunk) as Array<{ note_id: string }>
+    for (const row of rows) {
+      existingIds.push(row.note_id)
+    }
+  }
+  return existingIds
 }
 
 // ============ 向量存储 (sqlite-vec) ============

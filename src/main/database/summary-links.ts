@@ -1,6 +1,7 @@
 import { getDb } from './connection'
 import { normalizeRelativeSlashPath } from '../path-compat'
 import { normalizeLocalTagNames } from '../local-note-tags'
+import { parseRequiredNotebookIdInput } from '../notebook-id'
 import { updateLocalNoteMetadata } from './local-note-metadata'
 import type { LocalNoteMetadata } from '../../shared/types'
 
@@ -15,7 +16,7 @@ interface LocalSummaryInfoInput {
 }
 
 function normalizeLocalSummaryInfoInput(input: LocalSummaryInfoInput): LocalSummaryInfoInput | null {
-  const notebookId = input.notebook_id?.trim() || ''
+  const notebookId = parseRequiredNotebookIdInput(input.notebook_id)
   const relativePath = normalizeRelativeSlashPath(input.relative_path || '')
   if (!notebookId || !relativePath) return null
   return {

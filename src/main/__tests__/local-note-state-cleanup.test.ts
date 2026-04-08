@@ -7,6 +7,7 @@ import { app } from 'electron'
 import {
   addNotebook,
   closeDatabase,
+  createLocalFolderNotebookMount,
   ensureLocalNoteIdentity,
   getLocalNoteIdentityByPath,
   getLocalNoteIdentityByUid,
@@ -50,6 +51,17 @@ function normalizeLocalIndexSyncPath(relativePath: string | null | undefined): s
   return normalized || null
 }
 
+let localMountSeed = 0
+function createLocalNotebook(name: string): ReturnType<typeof addNotebook> {
+  localMountSeed += 1
+  const mountPath = `/tmp/sanqian-local-note-state-cleanup-${localMountSeed}`
+  return createLocalFolderNotebookMount({
+    name,
+    root_path: mountPath,
+    canonical_root_path: mountPath,
+  }).notebook
+}
+
 function withMockedPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
   const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
   if (!descriptor || !descriptor.configurable) {
@@ -75,6 +87,7 @@ describeSqlite('local-note-state-cleanup', () => {
     closeDatabase()
     removeDbFiles(testDbDir)
     initDatabase()
+    localMountSeed = 0
   })
 
   afterAll(() => {
@@ -84,7 +97,7 @@ describeSqlite('local-note-state-cleanup', () => {
   })
 
   it('remaps metadata and identity for case-only path changes on case-insensitive platforms', () => {
-    const localNotebook = addNotebook({ name: 'Local', source_type: 'local-folder' })
+    const localNotebook = createLocalNotebook('Local')
     const oldPath = 'docs/plan.md'
     const nextPath = 'Docs/Plan.md'
 
@@ -142,7 +155,7 @@ describeSqlite('local-note-state-cleanup', () => {
   })
 
   it('deletes stale metadata and identity when file no longer exists', () => {
-    const localNotebook = addNotebook({ name: 'Local', source_type: 'local-folder' })
+    const localNotebook = createLocalNotebook('Local')
     const stalePath = 'docs/stale.md'
 
     updateLocalNoteMetadata({

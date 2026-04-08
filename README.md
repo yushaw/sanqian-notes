@@ -52,6 +52,9 @@ npm run dev
 # Run tests
 npm run test
 
+# Verify full quality gate (lint + typecheck + tests)
+npm run verify:quality
+
 # Verify desktop window drag contract (lint + tests)
 npm run verify:drag-contract
 
@@ -64,11 +67,17 @@ npm run build
 ```bash
 # Rebuild knowledge base index (CLI)
 npm run rebuild-index
+
+# Benchmark local-folder scan (2k/10k synthetic files by default)
+npm run bench:local-folder-scan
 ```
+
+Bench report (2026-04-07): `docs/local-folder-performance-bench-2026-04-07.md`
 
 Environment variables:
 - `KB_MIN_CONTENT_LENGTH` - Minimum text length to index a note (default: 100)
 - `KB_INDEXING_VERBOSE` - Enable per-note indexing verbose logs (`1` = enabled, default off; keep off for large local-folder sync/import)
+- `KB_INDEXING_VERBOSE_SAMPLE_EVERY` - When `KB_INDEXING_VERBOSE=1`, sample high-frequency skip logs every N events (default: 200, `1` = no sampling)
 - `SANQIAN_USERDATA` - Override userData path for the rebuild script
 - `REBUILD_BATCH_SIZE` - Notes per batch during rebuild (default: 1000)
 - `REBUILD_SLEEP_MS` - Sleep between batches (default: 0)
@@ -78,13 +87,27 @@ Environment variables:
 - `IMPORT_EXEC_PROFILE` - Enable import execution profiling summary logs (`1` = enabled)
 - `IMPORT_EXEC_SLOW_LOG_MS` - Always log import summary when duration exceeds this threshold (default: 3000ms)
 - `LOCAL_NOTE_INDEX_SYNC_YIELD_INTERVAL` - Yield interval for local-folder index sync loops (default: 32)
-- `LOCAL_NOTE_INDEX_SYNC_MAX_INDEX_PER_RUN` - Max files indexed in one full-sync run before immediate requeue (default: 256, `0` = unlimited)
+- `LOCAL_NOTE_INDEX_SYNC_MAX_INDEX_PER_RUN` - Max files processed in one local-folder index sync run (applies to full sync and force-index incremental requeue batches) before immediate requeue (default: 256, `0` = unlimited)
+- `LOCAL_NOTE_INDEX_SYNC_COLD_FULL_ADAPTIVE_ENABLED` - Enable stricter per-run cap for cold full-sync runs (first full rebuild/relink pass) (`0` = disabled, default enabled)
+- `LOCAL_NOTE_INDEX_SYNC_COLD_FULL_MAX_INDEX_PER_RUN` - Cold full-sync max files indexed in one run (default: 64, automatically bounded by `LOCAL_NOTE_INDEX_SYNC_MAX_INDEX_PER_RUN` when it is non-zero)
+- `LOCAL_NOTE_INDEX_SYNC_STARTUP_ADAPTIVE_ENABLED` - Enable stricter full-sync per-run cap during startup window (`0` = disabled, default enabled)
+- `LOCAL_NOTE_INDEX_SYNC_STARTUP_MAX_INDEX_PER_RUN` - Startup-window max files indexed in one full-sync run (default: 64, automatically bounded by `LOCAL_NOTE_INDEX_SYNC_MAX_INDEX_PER_RUN` when it is non-zero)
 - `LOCAL_NOTE_INDEX_SYNC_METADATA_BATCH_SIZE` - Batch size for local-folder metadata/popup DB sync during full indexing (default: 64)
 - `LOCAL_NOTE_INDEX_SYNC_INITIAL_FULL_DELAY_MS` - Delay before running an immediate cold full-sync request (default: 180ms in app, 0ms in tests)
-- `LOCAL_NOTE_INDEX_SYNC_REQUEUE_DELAY_MS` - Delay between capped full-sync requeue batches (default: 120ms in app, 0ms in tests)
+- `LOCAL_NOTE_INDEX_SYNC_REQUEUE_DELAY_MS` - Delay between capped local-folder index requeue batches (default: 120ms in app, 0ms in tests)
+- `LOCAL_NOTE_INDEX_SYNC_MAX_DURATION_MS` - Max wall-clock time budget per local-folder index sync run before requeueing remaining paths (default: 120ms in app, 0ms in tests)
 - `LOCAL_NOTE_INDEX_SYNC_PROFILE` - Enable local-folder index sync summary logs (`1` = enabled)
 - `LOCAL_NOTE_INDEX_SYNC_SLOW_LOG_MS` - Always log local-folder sync summary when duration exceeds this threshold (default: 3000ms)
 - `LOCAL_FOLDER_WATCHER_SYNC_DEBOUNCE_MS` - Debounce for background local-folder watcher reconciliation on startup/mount flows (default: 120ms in app, 0ms in tests)
+- `LOCAL_LIST_PREVIEW_MAX_READS_PER_SCAN` - Max uncached preview head reads per local-folder tree scan (`0` = unlimited, default: 768)
+- `LOCAL_LIST_PREVIEW_COLD_SCAN_ADAPTIVE_ENABLED` - Enable stricter preview read budget on first tree scan of a mounted root (`0` = disabled, default enabled)
+- `LOCAL_LIST_PREVIEW_COLD_SCAN_MAX_READS_PER_SCAN` - Cold-scan max uncached preview reads per scan (default: 128, automatically bounded by `LOCAL_LIST_PREVIEW_MAX_READS_PER_SCAN` when it is non-zero)
+- `LOCAL_LIST_PREVIEW_STARTUP_ADAPTIVE_ENABLED` - Enable stricter preview read budget during startup window (`0` = disabled, default enabled)
+- `LOCAL_LIST_PREVIEW_STARTUP_MAX_READS_PER_SCAN` - Startup-window max uncached preview reads per scan (default: 192, automatically bounded by `LOCAL_LIST_PREVIEW_MAX_READS_PER_SCAN` when it is non-zero)
+- `LOCAL_CONTEXT_OVERVIEW_SYNC_SCAN_STARTUP_GUARD_ENABLED` - Skip sync context-overview filesystem scans during startup window and serve cached/partial local overview first (`0` = disabled, default enabled)
+- `LOCAL_FOLDER_SCAN_PROFILE` - Enable local-folder scan profiling summary logs (`1` = enabled)
+- `LOCAL_FOLDER_SCAN_SLOW_LOG_MS` - Always log local-folder scan summary when duration exceeds this threshold (default: 1200ms)
+- `LOCAL_PERF_STARTUP_WINDOW_MS` - Startup window for adaptive local scan/index throttling (default: 45000ms in app, 0ms in tests)
 
 ## License
 

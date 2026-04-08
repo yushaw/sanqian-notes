@@ -8,16 +8,23 @@ import {
   listLocalNoteMetadata,
   listLocalNoteIdentity,
   ensureLocalNoteIdentity,
+  ensureLocalNoteIdentitiesBatch,
 } from './database'
-import { readLocalFolderFile } from './local-folder'
+import { readLocalFolderFileAsync } from './local-folder'
+import { yieldToEventLoop } from './local-folder/cache'
 import {
   extractLocalTagNamesFromTiptapContent,
   mergeLocalUserAndAITagNames,
 } from './local-note-tags'
-import { resolveNoteResource } from './note-gateway'
-import { buildNoteFromResolvedResource } from './note-gateway'
+import { resolveNoteResource, resolveNoteResourceAsync, buildNoteFromResolvedResource } from './note-gateway'
 
 export const EMPTY_TIPTAP_DOC = '{"type":"doc","content":[]}'
+const NOTE_SYNTHESIS_YIELD_INTERVAL = Number.isFinite(Number(process.env.NOTE_SYNTHESIS_YIELD_INTERVAL))
+  ? Math.max(8, Math.floor(Number(process.env.NOTE_SYNTHESIS_YIELD_INTERVAL)))
+  : 64
+const NOTE_SYNTHESIS_IDENTITY_BATCH_SIZE = Number.isFinite(Number(process.env.NOTE_SYNTHESIS_IDENTITY_BATCH_SIZE))
+  ? Math.max(32, Math.floor(Number(process.env.NOTE_SYNTHESIS_IDENTITY_BATCH_SIZE)))
+  : 512
 
 export function compareNotesByPinnedAndUpdated(left: Note, right: Note): number {
   if (left.is_pinned !== right.is_pinned) {
@@ -92,6 +99,66 @@ export function initNoteSynthesis(d: NoteSynthesisDeps): void {
   deps = d
 }
 
+async function maybeYieldNoteSynthesis(count: number): Promise<void> {
+  if (count <= 0) return
+  if (count % NOTE_SYNTHESIS_YIELD_INTERVAL !== 0) return
+  await yieldToEventLoop()
+}
+
+async function ensureKnownIdentityPathsForMountAsync(input: {
+  mount: LocalFolderNotebookMount
+  files: ReadonlyArray<{ relative_path: string }>
+  knownIdentityPaths: Set<string>
+}): Promise<void> {
+  const notebookId = input.mount.notebook.id
+  const missingPaths: string[] = []
+
+  for (const file of input.files) {
+    const identityKey = `${notebookId}\u0000${file.relative_path}`
+    if (!input.knownIdentityPaths.has(identityKey)) {
+      missingPaths.push(file.relative_path)
+    }
+  }
+  if (missingPaths.length === 0) return
+
+  for (let offset = 0; offset < missingPaths.length; offset += NOTE_SYNTHESIS_IDENTITY_BATCH_SIZE) {
+    const chunk = missingPaths.slice(offset, offset + NOTE_SYNTHESIS_IDENTITY_BATCH_SIZE)
+    try {
+      const ensuredByPath = ensureLocalNoteIdentitiesBatch({
+        notebook_id: notebookId,
+        relative_paths: chunk,
+      })
+      for (const relativePath of chunk) {
+        if (ensuredByPath.get(relativePath)) {
+          input.knownIdentityPaths.add(`${notebookId}\u0000${relativePath}`)
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `[Main] Failed to batch ensure local note identities for synthesized local notes ${notebookId}; falling back to single-path ensure:`,
+        error
+      )
+      for (const relativePath of chunk) {
+        try {
+          const identity = ensureLocalNoteIdentity({
+            notebook_id: notebookId,
+            relative_path: relativePath,
+          })
+          if (identity) {
+            input.knownIdentityPaths.add(`${notebookId}\u0000${relativePath}`)
+          }
+        } catch (singleError) {
+          console.warn(
+            `[Main] Failed to ensure local note identity for synthesized local note ${notebookId}:${relativePath}:`,
+            singleError
+          )
+        }
+      }
+    }
+    await maybeYieldNoteSynthesis(offset + chunk.length)
+  }
+}
+
 export async function collectLocalNotesForGetAllAsync(options?: NoteGetAllOptions): Promise<Note[]> {
   if (!options?.includeLocal) return []
 
@@ -101,11 +168,12 @@ export async function collectLocalNotesForGetAllAsync(options?: NoteGetAllOption
   const notebookIds = activeMounts.map((mount) => mount.notebook.id)
   const metadataById = buildLocalMetadataMap(listLocalNoteMetadata({ notebookIds }))
   const knownIdentityPaths = new Set(
-    listLocalNoteIdentity({ notebookIds })
+    listLocalNoteIdentity({ notebookIds }, { repairIfNeeded: false })
       .map((identity) => `${identity.notebook_id}\u0000${identity.relative_path}`)
   )
   const includeLocalContent = options.includeLocalContent === true
   const localNotes: Note[] = []
+  let synthesizedCount = 0
 
   for (const mount of activeMounts) {
     let tree: LocalFolderTreeResult
@@ -119,15 +187,13 @@ export async function collectLocalNotesForGetAllAsync(options?: NoteGetAllOption
       continue
     }
 
+    await ensureKnownIdentityPathsForMountAsync({
+      mount,
+      files: tree.files,
+      knownIdentityPaths,
+    })
+
     for (const file of tree.files) {
-      const identityKey = `${mount.notebook.id}\u0000${file.relative_path}`
-      if (!knownIdentityPaths.has(identityKey)) {
-        ensureLocalNoteIdentity({
-          notebook_id: mount.notebook.id,
-          relative_path: file.relative_path,
-        })
-        knownIdentityPaths.add(identityKey)
-      }
       const localId = createLocalResourceId(mount.notebook.id, file.relative_path)
       const metadata = metadataById.get(localId) || null
 
@@ -143,11 +209,15 @@ export async function collectLocalNotesForGetAllAsync(options?: NoteGetAllOption
           metadata,
           userTags: metadata?.tags,
         }))
+        synthesizedCount += 1
+        await maybeYieldNoteSynthesis(synthesizedCount)
         continue
       }
 
-      const readResult = readLocalFolderFile(mount, file.relative_path)
+      const readResult = await readLocalFolderFileAsync(mount, file.relative_path)
       if (!readResult.success) {
+        synthesizedCount += 1
+        await maybeYieldNoteSynthesis(synthesizedCount)
         continue
       }
 
@@ -162,6 +232,8 @@ export async function collectLocalNotesForGetAllAsync(options?: NoteGetAllOption
         metadata,
         userTags: extractLocalTagNamesFromTiptapContent(readResult.result.tiptap_content),
       }))
+      synthesizedCount += 1
+      await maybeYieldNoteSynthesis(synthesizedCount)
     }
   }
 
@@ -185,6 +257,14 @@ export function getNoteByIdForRenderer(id: string): Note | null {
   return buildNoteFromResolvedResource(resolved.resource)
 }
 
+export async function getNoteByIdForRendererAsync(id: string): Promise<Note | null> {
+  const resolved = await resolveNoteResourceAsync(id)
+  if (!resolved.ok) {
+    return null
+  }
+  return buildNoteFromResolvedResource(resolved.resource)
+}
+
 export function getNotesByIdsForRenderer(ids: string[]): Note[] {
   const notes: Note[] = []
   for (const id of ids) {
@@ -192,6 +272,18 @@ export function getNotesByIdsForRenderer(ids: string[]): Note[] {
     if (note) {
       notes.push(note)
     }
+  }
+  return notes
+}
+
+export async function getNotesByIdsForRendererAsync(ids: string[]): Promise<Note[]> {
+  const notes: Note[] = []
+  for (let index = 0; index < ids.length; index += 1) {
+    const note = await getNoteByIdForRendererAsync(ids[index])
+    if (note) {
+      notes.push(note)
+    }
+    await maybeYieldNoteSynthesis(index + 1)
   }
   return notes
 }

@@ -121,6 +121,14 @@ type LocalFolderReadMockResponse =
   | { success: true; result: unknown }
   | { success: false; errorCode: string }
 
+type LocalFolderWatchEvent = {
+  notebook_id: string
+  status: 'active' | 'missing' | 'permission_required'
+  reason?: 'status_changed' | 'content_changed' | 'rescan_required'
+  sequence?: number
+  changed_relative_path?: string | null
+}
+
 function createElectronMock(searchImpl: (input: { query: string }) => Promise<unknown>) {
   const now = '2026-02-26T00:00:00.000Z'
   const localNotebook = {
@@ -154,8 +162,13 @@ function createElectronMock(searchImpl: (input: { query: string }) => Promise<un
   }
 
   const unsubscribe = () => {}
+  let onChangedHandler: ((event: LocalFolderWatchEvent) => void | Promise<void>) | null = null
 
   return {
+    __emitLocalFolderChanged: async (event: LocalFolderWatchEvent) => {
+      if (!onChangedHandler) return
+      await onChangedHandler(event)
+    },
     theme: {
       sync: vi.fn(),
       get: vi.fn(async () => 'light'),
@@ -219,22 +232,30 @@ function createElectronMock(searchImpl: (input: { query: string }) => Promise<un
       create: vi.fn(async () => null),
     },
     localFolder: {
-      list: vi.fn(async () => [{
-        notebook: localNotebook,
-        mount: {
-          notebook_id: 'local-1',
-          root_path: '/tmp/local-notebook',
-          canonical_root_path: '/tmp/local-notebook',
-          status: 'active' as const,
-          created_at: now,
-          updated_at: now,
+      list: vi.fn(async () => ({
+        success: true as const,
+        result: {
+          mounts: [{
+            notebook: localNotebook,
+            mount: {
+              notebook_id: 'local-1',
+              root_path: '/tmp/local-notebook',
+              canonical_root_path: '/tmp/local-notebook',
+              status: 'active' as const,
+              created_at: now,
+              updated_at: now,
+            },
+          }],
         },
-      }]),
-      getTree: vi.fn(async () => localTree),
+      })),
+      getTree: vi.fn(async () => ({ success: true, result: localTree })),
       search: vi.fn((input: { query: string }) => searchImpl(input)),
       listNoteMetadata: vi.fn(async () => ({ success: true, result: { items: [] } })),
       updateNoteMetadata: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_FILE_NOT_FOUND' })),
-      onChanged: vi.fn(() => unsubscribe),
+      onChanged: vi.fn((callback: (event: LocalFolderWatchEvent) => void | Promise<void>) => {
+        onChangedHandler = callback
+        return unsubscribe
+      }),
       readFile: vi.fn<(input: unknown) => Promise<LocalFolderReadMockResponse>>(async () => ({ success: false, errorCode: 'LOCAL_FILE_NOT_FOUND' })),
       saveFile: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_FILE_NOT_FOUND' })),
       createFile: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_FILE_NOT_FOUND' })),
@@ -242,11 +263,17 @@ function createElectronMock(searchImpl: (input: { query: string }) => Promise<un
       renameEntry: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_FILE_NOT_FOUND' })),
       analyzeDelete: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_FILE_NOT_FOUND' })),
       deleteEntry: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_FILE_NOT_FOUND' })),
-      selectRoot: vi.fn(async () => null),
+      selectRoot: vi.fn<() => Promise<{ success: boolean; root_path?: string; errorCode?: string }>>(async () => ({
+        success: false,
+        errorCode: 'LOCAL_MOUNT_DIALOG_CANCELED',
+      })),
       mount: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_MOUNT_INVALID_PATH' })),
       relink: vi.fn(async () => ({ success: false, errorCode: 'LOCAL_MOUNT_INVALID_PATH' })),
-      openInFileManager: vi.fn(async () => false),
-      unmount: vi.fn(async () => true),
+      openInFileManager: vi.fn<() => Promise<{ success: boolean; errorCode?: string }>>(async () => ({
+        success: false,
+        errorCode: 'LOCAL_NOTEBOOK_NOT_FOUND',
+      })),
+      unmount: vi.fn<() => Promise<{ success: boolean; errorCode?: string }>>(async () => ({ success: true })),
     },
   }
 }
@@ -446,6 +473,215 @@ describe('App local search race handling', () => {
       expect(searchMock).toHaveBeenCalledTimes(1)
     })
     expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ query: '中' }))
+  })
+
+  it('does not loop getTree refresh when local tree load fails', async () => {
+    const searchMock = vi
+      .fn<(input: { query: string }) => Promise<unknown>>()
+      .mockResolvedValue({ success: true, result: { hits: [] } })
+    const electronMock = createElectronMock((input) => searchMock(input))
+    const getTreeMock = electronMock.localFolder.getTree as ReturnType<typeof vi.fn>
+    getTreeMock.mockResolvedValue({
+      success: false,
+      errorCode: 'LOCAL_MOUNT_UNAVAILABLE',
+      mount_status: 'missing',
+    })
+
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: electronMock,
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('local-search-input')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(getTreeMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+    const initialCalls = getTreeMock.mock.calls.length
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 240))
+    })
+
+    expect(getTreeMock).toHaveBeenCalledTimes(initialCalls)
+  })
+
+  it('keeps cached local tree visible when active watch refresh fails transiently', async () => {
+    const searchMock = vi
+      .fn<(input: { query: string }) => Promise<unknown>>()
+      .mockResolvedValue({ success: true, result: { hits: [] } })
+    const electronMock = createElectronMock((input) => searchMock(input))
+    const getTreeMock = electronMock.localFolder.getTree as ReturnType<typeof vi.fn>
+
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: electronMock,
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('local-search-input')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      const files = ((latestLocalFolderProps?.files as Array<{ relative_path: string }> | undefined) || [])
+      expect(files.length).toBeGreaterThan(0)
+    })
+
+    getTreeMock.mockResolvedValue({
+      success: false,
+      errorCode: 'LOCAL_MOUNT_PATH_UNREACHABLE',
+    })
+
+    await act(async () => {
+      await electronMock.__emitLocalFolderChanged({
+        notebook_id: 'local-1',
+        status: 'active',
+        reason: 'content_changed',
+        sequence: 99,
+        changed_relative_path: 'first.md',
+      })
+      await new Promise((resolve) => setTimeout(resolve, 240))
+    })
+
+    await waitFor(() => {
+      expect(getTreeMock.mock.calls.length).toBeGreaterThan(1)
+    })
+
+    const filesAfterFailure = ((latestLocalFolderProps?.files as Array<{ relative_path: string }> | undefined) || [])
+    expect(filesAfterFailure.map((file) => file.relative_path)).toContain('first.md')
+  })
+
+  it('coalesces mount status refresh calls for burst local tree failures', async () => {
+    const searchMock = vi
+      .fn<(input: { query: string }) => Promise<unknown>>()
+      .mockResolvedValue({ success: true, result: { hits: [] } })
+    const electronMock = createElectronMock((input) => searchMock(input))
+    const getTreeMock = electronMock.localFolder.getTree as ReturnType<typeof vi.fn>
+
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: electronMock,
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('local-search-input')).toBeInTheDocument()
+    })
+
+    const initialListCalls = (electronMock.localFolder.list as ReturnType<typeof vi.fn>).mock.calls.length
+    getTreeMock.mockResolvedValue({
+      success: false,
+      errorCode: 'LOCAL_MOUNT_PATH_UNREACHABLE',
+    })
+
+    await act(async () => {
+      await electronMock.__emitLocalFolderChanged({
+        notebook_id: 'local-1',
+        status: 'active',
+        reason: 'content_changed',
+        sequence: 100,
+        changed_relative_path: 'first.md',
+      })
+      await new Promise((resolve) => setTimeout(resolve, 240))
+      await electronMock.__emitLocalFolderChanged({
+        notebook_id: 'local-1',
+        status: 'active',
+        reason: 'content_changed',
+        sequence: 101,
+        changed_relative_path: 'first.md',
+      })
+      await new Promise((resolve) => setTimeout(resolve, 240))
+    })
+
+    const listCallsAfterBurst = (electronMock.localFolder.list as ReturnType<typeof vi.fn>).mock.calls.length
+    expect(listCallsAfterBurst - initialListCalls).toBe(1)
+  })
+
+  it('reuses in-flight local tree refresh for same notebook burst events', async () => {
+    const searchMock = vi
+      .fn<(input: { query: string }) => Promise<unknown>>()
+      .mockResolvedValue({ success: true, result: { hits: [] } })
+    const electronMock = createElectronMock((input) => searchMock(input))
+    const getTreeMock = electronMock.localFolder.getTree as ReturnType<typeof vi.fn>
+    const deferredTree = createDeferred<{ success: false; errorCode: 'LOCAL_MOUNT_PATH_UNREACHABLE' }>()
+
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: electronMock,
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('local-search-input')).toBeInTheDocument()
+    })
+
+    const initialTreeCalls = getTreeMock.mock.calls.length
+    getTreeMock.mockImplementation(() => deferredTree.promise)
+
+    await act(async () => {
+      await electronMock.__emitLocalFolderChanged({
+        notebook_id: 'local-1',
+        status: 'active',
+        reason: 'content_changed',
+        sequence: 200,
+        changed_relative_path: 'first.md',
+      })
+      await new Promise((resolve) => setTimeout(resolve, 240))
+      await electronMock.__emitLocalFolderChanged({
+        notebook_id: 'local-1',
+        status: 'active',
+        reason: 'content_changed',
+        sequence: 201,
+        changed_relative_path: 'first.md',
+      })
+      await new Promise((resolve) => setTimeout(resolve, 240))
+    })
+
+    expect(getTreeMock.mock.calls.length - initialTreeCalls).toBe(1)
+
+    await act(async () => {
+      deferredTree.resolve({
+        success: false,
+        errorCode: 'LOCAL_MOUNT_PATH_UNREACHABLE',
+      })
+      await Promise.resolve()
+    })
+  })
+
+  it('refreshes local mount statuses after mount-related search failure', async () => {
+    const searchMock = vi
+      .fn<(input: { query: string }) => Promise<unknown>>()
+      .mockResolvedValue({ success: false, errorCode: 'LOCAL_FOLDER_NOT_FOUND' })
+    const electronMock = createElectronMock((input) => searchMock(input))
+
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: electronMock,
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('local-search-input')).toBeInTheDocument()
+    })
+
+    const initialListCallCount = (electronMock.localFolder.list as ReturnType<typeof vi.fn>).mock.calls.length
+    fireEvent.change(screen.getByTestId('local-search-input'), { target: { value: 'lost' } })
+
+    await waitFor(() => {
+      expect(searchMock).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() => {
+      expect((electronMock.localFolder.list as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(initialListCallCount)
+    })
   })
 
   it('does not reload when selecting the same local file repeatedly', async () => {

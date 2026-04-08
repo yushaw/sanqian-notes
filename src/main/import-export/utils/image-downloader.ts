@@ -3,10 +3,12 @@
  * 用于下载 Notion 导出中的 S3 云端图片
  */
 
-import { createWriteStream, existsSync, mkdirSync, statSync, unlinkSync } from 'fs'
+import { createWriteStream } from 'fs'
+import { mkdir, stat, unlink } from 'fs/promises'
 import { dirname } from 'path'
 import https from 'https'
 import http from 'http'
+import { pathExists } from './fs-helpers'
 
 /** 单个图片最大大小限制 (20MB) */
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024
@@ -78,11 +80,12 @@ export async function downloadImage(
   redirectCount: number = 0
 ): Promise<DownloadResult> {
   return new Promise((resolve) => {
-    try {
+    void (async () => {
+      try {
       // 确保目标目录存在
       const dir = dirname(destPath)
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true })
+      if (!(await pathExists(dir))) {
+        await mkdir(dir, { recursive: true })
       }
 
       const urlObj = new URL(url)
@@ -157,11 +160,9 @@ export async function downloadImage(
               request.destroy()
               fileStream.destroy()
               // 删除不完整的文件
-              try {
-                unlinkSync(destPath)
-              } catch {
+              void unlink(destPath).catch(() => {
                 // 忽略删除失败
-              }
+              })
               settle({
                 success: false,
                 originalUrl: url,
@@ -175,9 +176,18 @@ export async function downloadImage(
           fileStream.on('finish', () => {
             fileStream.close()
             // 验证文件是否成功写入
-            if (existsSync(destPath)) {
-              const stat = statSync(destPath)
-              if (stat.size > 0) {
+            void (async () => {
+              if (!(await pathExists(destPath))) {
+                settle({
+                  success: false,
+                  originalUrl: url,
+                  error: 'File not created',
+                })
+                return
+              }
+
+              const fileStat = await stat(destPath)
+              if (fileStat.size > 0) {
                 settle({
                   success: true,
                   localPath: destPath,
@@ -190,22 +200,20 @@ export async function downloadImage(
                   error: 'Downloaded file is empty',
                 })
               }
-            } else {
+            })().catch((err) => {
               settle({
                 success: false,
                 originalUrl: url,
-                error: 'File not created',
+                error: `Verify error: ${err instanceof Error ? err.message : String(err)}`,
               })
-            }
+            })
           })
 
           fileStream.on('error', (err) => {
             fileStream.close()
-            try {
-              unlinkSync(destPath)
-            } catch {
+            void unlink(destPath).catch(() => {
               // 忽略删除失败
-            }
+            })
             settle({
               success: false,
               originalUrl: url,
@@ -231,12 +239,13 @@ export async function downloadImage(
           error: `Timeout after ${DOWNLOAD_TIMEOUT / 1000}s`,
         })
       })
-    } catch (err) {
-      resolve({
-        success: false,
-        originalUrl: url,
-        error: err instanceof Error ? err.message : String(err),
-      })
-    }
+      } catch (err) {
+        resolve({
+          success: false,
+          originalUrl: url,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    })()
   })
 }

@@ -10,9 +10,11 @@
  * - 处理数据库 CSV 为 Markdown 表格
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { readdir, readFile, stat } from 'fs/promises'
 import { basename, dirname, extname, join, relative, resolve } from 'path'
 import { BaseImporter, MAX_FILE_SIZE } from '../base-importer'
+import { pathExists } from '../utils/fs-helpers'
+import { resolvePositiveIntegerEnv, yieldEvery } from '../utils/cooperative'
 import { detectNotionZip, extractZip, cleanupTempDir } from '../utils/zip-handler'
 import { csvToMarkdownTable, extractTitleColumn } from '../utils/csv-parser'
 import {
@@ -27,6 +29,8 @@ import {
   extractUpdatedDate,
 } from '../utils/front-matter'
 import type { ImporterInfo, ImportOptions, ParsedNote, PendingAttachment } from '../types'
+
+const NOTION_IMPORT_YIELD_INTERVAL = resolvePositiveIntegerEnv('IMPORT_EXPORT_YIELD_INTERVAL', 32, { min: 8, max: 4096 })
 
 /** Notion 文件名格式：标题 + 空格 + 32位 hex ID */
 const NOTION_FILENAME_PATTERN = /^(.+)\s([0-9a-f]{32})$/i
@@ -51,7 +55,7 @@ export class NotionImporter extends BaseImporter {
 
   async canHandle(sourcePath: string): Promise<boolean> {
     // 1. 检查文件是否存在且是 ZIP
-    if (!existsSync(sourcePath)) return false
+    if (!(await pathExists(sourcePath))) return false
     if (!sourcePath.toLowerCase().endsWith('.zip')) return false
 
     // 2. 检测是否包含 Notion 风格文件名
@@ -65,13 +69,13 @@ export class NotionImporter extends BaseImporter {
     // sourcePath is always a single string when called from index.ts
     const sourcePath = Array.isArray(options.sourcePath) ? options.sourcePath[0] : options.sourcePath
 
-    if (!existsSync(sourcePath)) {
+    if (!(await pathExists(sourcePath))) {
       throw new Error(`Source file not found: ${sourcePath}`)
     }
 
     // 清理之前的临时目录（如果有）
     if (this.tempDir) {
-      cleanupTempDir(this.tempDir)
+      await cleanupTempDir(this.tempDir)
       this.tempDir = null
     }
 
@@ -87,7 +91,7 @@ export class NotionImporter extends BaseImporter {
    */
   cleanup(): void {
     if (this.tempDir) {
-      cleanupTempDir(this.tempDir)
+      void cleanupTempDir(this.tempDir)
       this.tempDir = null
     }
   }
@@ -102,7 +106,7 @@ export class NotionImporter extends BaseImporter {
     const notes: ParsedNote[] = []
 
     // 查找实际的根目录（Notion 导出可能有一层包装目录）
-    const rootDir = this.findRootDir(tempDir)
+    const rootDir = await this.findRootDir(tempDir)
 
     // 第一遍：收集所有文件，建立 ID → 标题 映射
     const mdFiles: string[] = []
@@ -110,9 +114,10 @@ export class NotionImporter extends BaseImporter {
     const idToTitle = new Map<string, string>() // notion ID → 清理后标题
     const pathToTitle = new Map<string, string>() // 文件路径 → 清理后标题
 
-    this.collectFiles(rootDir, mdFiles, csvFiles)
+    await this.collectFiles(rootDir, mdFiles, csvFiles)
 
     // 建立 ID 到标题的映射
+    let titleMapCount = 0
     for (const filePath of mdFiles) {
       const filename = basename(filePath, '.md')
       const { title, notionId } = this.parseNotionFilename(filename)
@@ -120,12 +125,15 @@ export class NotionImporter extends BaseImporter {
         idToTitle.set(notionId, title)
       }
       pathToTitle.set(filePath, title)
+      titleMapCount += 1
+      await yieldEvery(titleMapCount, NOTION_IMPORT_YIELD_INTERVAL)
     }
 
     // 处理重名冲突
     const resolvedTitles = this.resolveNameConflicts(mdFiles, pathToTitle, rootDir)
 
     // 第二遍：解析每个 Markdown 文件
+    let parsedMarkdownCount = 0
     for (const filePath of mdFiles) {
       try {
         const parsed = await this.parseFile(
@@ -141,18 +149,23 @@ export class NotionImporter extends BaseImporter {
       } catch (error) {
         console.error(`Failed to parse ${filePath}:`, error)
       }
+      parsedMarkdownCount += 1
+      await yieldEvery(parsedMarkdownCount, NOTION_IMPORT_YIELD_INTERVAL)
     }
 
     // 处理 CSV 文件（生成数据库表格笔记）
+    let parsedCsvCount = 0
     for (const csvPath of csvFiles) {
       try {
-        const csvNote = this.parseCSVDatabase(csvPath, rootDir, options, resolvedTitles)
+        const csvNote = await this.parseCSVDatabase(csvPath, rootDir, options, resolvedTitles)
         if (csvNote) {
           notes.push(csvNote)
         }
       } catch (error) {
         console.error(`Failed to parse CSV ${csvPath}:`, error)
       }
+      parsedCsvCount += 1
+      await yieldEvery(parsedCsvCount, NOTION_IMPORT_YIELD_INTERVAL)
     }
 
     return notes
@@ -162,8 +175,8 @@ export class NotionImporter extends BaseImporter {
    * 查找实际的根目录
    * Notion 导出的 ZIP 可能有一层包装目录（如 "Export-xxxx"）
    */
-  private findRootDir(tempDir: string): string {
-    const entries = readdirSync(tempDir, { withFileTypes: true })
+  private async findRootDir(tempDir: string): Promise<string> {
+    const entries = await readdir(tempDir, { withFileTypes: true })
 
     // 如果只有一个目录，可能是包装目录
     const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.'))
@@ -176,7 +189,7 @@ export class NotionImporter extends BaseImporter {
 
       const innerDir = join(tempDir, dirName)
       // 检查内部是否有 Notion 文件
-      const innerEntries = readdirSync(innerDir)
+      const innerEntries = await readdir(innerDir)
       const hasNotionFiles = innerEntries.some((name) =>
         NOTION_FILENAME_PATTERN.test(name.replace(/\.(md|csv)$/i, ''))
       )
@@ -191,8 +204,9 @@ export class NotionImporter extends BaseImporter {
   /**
    * 递归收集 Markdown 和 CSV 文件
    */
-  private collectFiles(dir: string, mdFiles: string[], csvFiles: string[]): void {
-    const entries = readdirSync(dir, { withFileTypes: true })
+  private async collectFiles(dir: string, mdFiles: string[], csvFiles: string[]): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true })
+    let scannedCount = 0
 
     for (const entry of entries) {
       // 跳过隐藏文件和 index.html
@@ -203,7 +217,7 @@ export class NotionImporter extends BaseImporter {
       const fullPath = join(dir, entry.name)
 
       if (entry.isDirectory()) {
-        this.collectFiles(fullPath, mdFiles, csvFiles)
+        await this.collectFiles(fullPath, mdFiles, csvFiles)
       } else if (entry.isFile()) {
         const ext = extname(entry.name).toLowerCase()
         if (ext === '.md') {
@@ -212,6 +226,8 @@ export class NotionImporter extends BaseImporter {
           csvFiles.push(fullPath)
         }
       }
+      scannedCount += 1
+      await yieldEvery(scannedCount, NOTION_IMPORT_YIELD_INTERVAL)
     }
   }
 
@@ -276,17 +292,17 @@ export class NotionImporter extends BaseImporter {
     idToTitle: Map<string, string>,
     resolvedTitles: Map<string, string>
   ): Promise<ParsedNote | null> {
-    const stat = statSync(filePath)
+    const fileStat = await stat(filePath)
 
     // 检查文件大小
-    if (stat.size > MAX_FILE_SIZE) {
+    if (fileStat.size > MAX_FILE_SIZE) {
       console.warn(
-        `File too large, skipping: ${filePath} (${Math.round(stat.size / 1024 / 1024)}MB)`
+        `File too large, skipping: ${filePath} (${Math.round(fileStat.size / 1024 / 1024)}MB)`
       )
       return null
     }
 
-    const rawContent = readFileSync(filePath, 'utf-8')
+    const rawContent = await readFile(filePath, 'utf-8')
 
     // 解析 front matter
     let content = rawContent
@@ -316,13 +332,13 @@ export class NotionImporter extends BaseImporter {
     const tags = this.parseTags(fmTags, options.tagStrategy)
 
     // 提取时间
-    const createdAt = extractCreatedDate(frontMatter) || stat.birthtime
-    const updatedAt = extractUpdatedDate(frontMatter) || stat.mtime
+    const createdAt = extractCreatedDate(frontMatter) || fileStat.birthtime
+    const updatedAt = extractUpdatedDate(frontMatter) || fileStat.mtime
 
     // 收集附件（本地图片）
     const attachments: PendingAttachment[] = []
     if (options.importAttachments) {
-      const localAttachments = this.collectLocalAttachments(content, dirname(filePath), rootDir)
+      const localAttachments = await this.collectLocalAttachments(content, dirname(filePath), rootDir)
       attachments.push(...localAttachments)
     }
 
@@ -362,11 +378,11 @@ export class NotionImporter extends BaseImporter {
   /**
    * 收集本地图片附件
    */
-  private collectLocalAttachments(
+  private async collectLocalAttachments(
     content: string,
     basePath: string,
     rootPath: string
-  ): PendingAttachment[] {
+  ): Promise<PendingAttachment[]> {
     const attachments: PendingAttachment[] = []
     const seen = new Set<string>()
 
@@ -396,12 +412,12 @@ export class NotionImporter extends BaseImporter {
 
 
       // 安全检查
-      if (!this.isPathSafe(absolutePath, rootPath)) {
+      if (!(await this.isPathSafe(absolutePath, rootPath))) {
         continue
       }
 
       // 检查文件存在
-      if (!existsSync(absolutePath)) {
+      if (!(await pathExists(absolutePath))) {
         continue
       }
 
@@ -413,6 +429,7 @@ export class NotionImporter extends BaseImporter {
           sourcePath: absolutePath,
         })
       }
+      await yieldEvery(seen.size, NOTION_IMPORT_YIELD_INTERVAL)
     }
 
     return attachments
@@ -527,18 +544,18 @@ export class NotionImporter extends BaseImporter {
   /**
    * 解析 CSV 数据库为 Markdown 表格笔记
    */
-  private parseCSVDatabase(
+  private async parseCSVDatabase(
     csvPath: string,
     rootDir: string,
     options: ImportOptions,
     resolvedTitles: Map<string, string>
-  ): ParsedNote | null {
-    const stat = statSync(csvPath)
-    if (stat.size > MAX_FILE_SIZE) {
+  ): Promise<ParsedNote | null> {
+    const csvStat = await stat(csvPath)
+    if (csvStat.size > MAX_FILE_SIZE) {
       return null
     }
 
-    const csvContent = readFileSync(csvPath, 'utf-8')
+    const csvContent = await readFile(csvPath, 'utf-8')
 
     // 从文件名提取数据库名称
     const filename = basename(csvPath, '.csv')
@@ -581,8 +598,8 @@ export class NotionImporter extends BaseImporter {
       content: tiptapContent,
       notebookName,
       tags: [],
-      createdAt: stat.birthtime,
-      updatedAt: stat.mtime,
+      createdAt: csvStat.birthtime,
+      updatedAt: csvStat.mtime,
       attachments: [],
       links: this.collectWikiLinks(markdownContent),
       frontMatter: {},

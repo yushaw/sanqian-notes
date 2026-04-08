@@ -4,7 +4,7 @@
  * Imports papers from arXiv, prioritizing HTML format with PDF fallback.
  */
 
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs'
+import { mkdir, rm, writeFile } from 'fs/promises'
 import { join, extname } from 'path'
 import { app } from 'electron'
 import { addNote, getNotebooks } from '../../database'
@@ -14,6 +14,7 @@ import { pdfImporter } from '../importers/pdf-importer'
 import { getServiceConfig } from '../pdf-config'
 import { indexingService } from '../../embedding/indexing-service'
 import { getEmbeddingConfig } from '../../embedding/database'
+import { pathExists } from '../utils/fs-helpers'
 import {
   parseArxivInput,
   fetchMetadata,
@@ -240,9 +241,9 @@ export class ArxivImporter {
 
     // Save to temp file
     const tempPdfDir = join(app.getPath('temp'), 'sanqian-arxiv-pdf', Date.now().toString())
-    mkdirSync(tempPdfDir, { recursive: true })
+    await mkdir(tempPdfDir, { recursive: true })
     const tempPdfPath = join(tempPdfDir, `${id.replace('/', '_')}.pdf`)
-    writeFileSync(tempPdfPath, pdfBuffer)
+    await writeFile(tempPdfPath, pdfBuffer)
 
     try {
       // Configure PDF importer
@@ -312,9 +313,7 @@ export class ArxivImporter {
     } finally {
       // Cleanup temp PDF
       pdfImporter.cleanup()
-      if (existsSync(tempPdfDir)) {
-        rmSync(tempPdfDir, { recursive: true, force: true })
-      }
+      await rm(tempPdfDir, { recursive: true, force: true })
     }
   }
 
@@ -327,7 +326,7 @@ export class ArxivImporter {
     signal?: AbortSignal
   ): Promise<ArxivFigure[]> {
     this.tempDir = join(app.getPath('temp'), 'sanqian-arxiv-images', Date.now().toString())
-    mkdirSync(this.tempDir, { recursive: true })
+    await mkdir(this.tempDir, { recursive: true })
 
     const updatedFigures: ArxivFigure[] = []
 
@@ -341,7 +340,7 @@ export class ArxivImporter {
 
         const filename = `${figure.id}${ext}`
         const localPath = join(this.tempDir, filename)
-        writeFileSync(localPath, buffer)
+        await writeFile(localPath, buffer)
 
         updatedFigures.push({
           ...figure,
@@ -913,9 +912,9 @@ export class ArxivImporter {
 
     // Save to temp file
     const tempPdfDir = join(app.getPath('temp'), 'sanqian-arxiv-pdf', Date.now().toString())
-    mkdirSync(tempPdfDir, { recursive: true })
+    await mkdir(tempPdfDir, { recursive: true })
     const tempPdfPath = join(tempPdfDir, `${id.replace('/', '_')}.pdf`)
-    writeFileSync(tempPdfPath, pdfBuffer)
+    await writeFile(tempPdfPath, pdfBuffer)
 
     try {
       // Configure PDF importer
@@ -936,9 +935,7 @@ export class ArxivImporter {
       return { content, title: metadata.title }
     } finally {
       pdfImporter.cleanup()
-      if (existsSync(tempPdfDir)) {
-        rmSync(tempPdfDir, { recursive: true, force: true })
-      }
+      await rm(tempPdfDir, { recursive: true, force: true })
     }
   }
 
@@ -954,10 +951,15 @@ export class ArxivImporter {
    */
   cleanup(): void {
     this.abortController = null
-    if (this.tempDir && existsSync(this.tempDir)) {
-      rmSync(this.tempDir, { recursive: true, force: true })
-      this.tempDir = null
-    }
+    const tempDir = this.tempDir
+    this.tempDir = null
+    if (!tempDir) return
+    void (async () => {
+      if (!(await pathExists(tempDir))) return
+      await rm(tempDir, { recursive: true, force: true })
+    })().catch((error) => {
+      console.warn('[ArXiv] Failed to cleanup temp dir:', tempDir, error)
+    })
   }
 }
 

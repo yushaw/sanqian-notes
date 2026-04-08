@@ -6,7 +6,9 @@ export {
   deleteIndexedLocalNotesByNotebook,
   deleteIndexForLocalPath,
   syncLocalNoteTagsMetadata,
+  syncLocalNoteTagsMetadataBatch,
   syncLocalNotePopupRefs,
+  syncLocalNotePopupRefsBatch,
 } from './helpers'
 
 export {
@@ -15,6 +17,7 @@ export {
   flushQueuedLocalNotebookIndexSync,
   rebuildLocalNotebookIndexesAfterInternalRebuild,
   hasPendingIndexSync,
+  hasPendingFullIndexSyncForNotebook,
   clearLocalNotebookIndexSyncForNotebook,
   resetLocalNotebookIndexSyncState,
 } from './sync'

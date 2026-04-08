@@ -4,6 +4,7 @@ import {
   normalizeComparablePathForFileSystem,
   toSlashPath,
 } from '../path-compat'
+import { resolveLocalFolderCanonicalOrRootPath } from '../local-folder-root-match'
 
 const LOCAL_SEARCH_SCAN_CACHE_TTL_MS = 1200
 const MAX_LOCAL_SEARCH_SCAN_CACHE_ENTRIES = 128
@@ -54,8 +55,9 @@ export function normalizeCanonicalSearchPath(canonicalRootPath: string, relative
 }
 
 function getLocalSearchScanCacheKey(mount: LocalFolderNotebookMount): string {
-  const normalizedRoot = normalizeLocalSearchContentCacheKey(mount.mount.canonical_root_path || mount.mount.root_path)
-  return `${mount.notebook.id}:${normalizedRoot}`
+  const canonicalOrRootPath = resolveLocalFolderCanonicalOrRootPath(mount.mount)
+  const normalizedRoot = normalizeLocalSearchContentCacheKey(canonicalOrRootPath)
+  return JSON.stringify([mount.notebook.id, normalizedRoot])
 }
 
 // --- Scan cache ---

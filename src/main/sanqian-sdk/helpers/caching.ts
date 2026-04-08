@@ -14,7 +14,12 @@ import {
 } from '../../database'
 import {
   scanLocalFolderMount,
+  scanLocalFolderMountAsync,
 } from '../../local-folder'
+import {
+  isLocalFolderRootPathMatched,
+  resolveLocalFolderCanonicalOrRootPath,
+} from '../../local-folder-root-match'
 import {
   buildCanonicalLocalResourceId,
 } from '../../note-gateway'
@@ -25,6 +30,7 @@ import {
   type LocalResourceRef,
 } from '../../../shared/local-resource-id'
 import { normalizeComparablePathForFileSystem, toSlashPath } from '../../path-compat'
+import { getStartupPhaseState } from '../../startup-phase'
 
 // --- Types ---
 
@@ -46,7 +52,7 @@ interface LocalContextCacheEntry {
 interface LocalScanCacheEntry {
   expiresAtMs: number
   rootPath: string
-  scanned: ReturnType<typeof scanLocalFolderMount>
+  scanned: LocalFolderScanResult
 }
 
 export interface LocalOverviewRecentItem {
@@ -82,12 +88,15 @@ export const LOCAL_OVERVIEW_RECENT_PER_MOUNT_MIN = 3
 const LOCAL_OVERVIEW_RECENT_PER_MOUNT_MAX = 16
 const LOCAL_FOLDER_SCAN_CACHE_MAX_ENTRIES = 64
 const LOCAL_OVERVIEW_SUMMARY_CACHE_MAX_ENTRIES = 64
+const LOCAL_CONTEXT_OVERVIEW_SYNC_SCAN_STARTUP_GUARD_ENABLED = process.env.LOCAL_CONTEXT_OVERVIEW_SYNC_SCAN_STARTUP_GUARD_ENABLED !== '0'
 
 // --- Cache state ---
 
 const localContextListCache = new Map<string, LocalContextCacheEntry>()
 const localFolderScanCache = new Map<string, LocalScanCacheEntry>()
+const localFolderScanCacheInFlight = new Map<string, Promise<LocalFolderScanResult>>()
 const localOverviewSummaryCache = new Map<string, LocalOverviewSummaryCacheEntry>()
+const localOverviewSummaryCacheInFlight = new Map<string, Promise<LocalOverviewSummaryCacheEntry | null>>()
 
 // --- Context list cache ---
 
@@ -98,15 +107,21 @@ export function normalizeContextQuery(query: string | undefined): string {
 function buildLocalContextMountsCacheSignature(
   mounts: ReturnType<typeof getLocalFolderMounts>
 ): string {
-  return mounts
+  const mountTuples = mounts
     .map((mount) => [
       mount.notebook.id,
-      mount.mount.canonical_root_path,
+      resolveLocalFolderCanonicalOrRootPath(mount.mount),
       mount.mount.updated_at,
       mount.mount.status,
-    ].join('|'))
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }))
-    .join('\n')
+    ] as const)
+    .sort((a, b) => {
+      for (let index = 0; index < a.length; index += 1) {
+        const diff = a[index].localeCompare(b[index], undefined, { sensitivity: 'base', numeric: true })
+        if (diff !== 0) return diff
+      }
+      return 0
+    })
+  return JSON.stringify(mountTuples)
 }
 
 export function buildLocalContextCacheKey(
@@ -114,7 +129,7 @@ export function buildLocalContextCacheKey(
   query: string
 ): string {
   const signature = buildLocalContextMountsCacheSignature(mounts)
-  return `${query}\n${signature}`
+  return JSON.stringify([query, signature])
 }
 
 function enforceLocalContextCacheLimit(): void {
@@ -159,12 +174,36 @@ export function pruneLocalFolderScanCache(mounts: ReturnType<typeof getLocalFold
       localFolderScanCache.delete(notebookId)
     }
   }
+  for (const inFlightKey of localFolderScanCacheInFlight.keys()) {
+    const [inFlightNotebookId] = inFlightKey.split('\u0000')
+    if (!activeNotebookIds.has(inFlightNotebookId)) {
+      localFolderScanCacheInFlight.delete(inFlightKey)
+    }
+  }
 }
 
-function getCachedLocalFolderScan(mount: LocalFolderMount): ReturnType<typeof scanLocalFolderMount> | null {
+type LocalFolderScanResult = Awaited<ReturnType<typeof scanLocalFolderMountAsync>>
+
+function buildLocalFolderScanInFlightKey(mount: LocalFolderMount): string {
+  return [
+    mount.notebook.id,
+    resolveLocalFolderCanonicalOrRootPath(mount.mount),
+    mount.mount.updated_at,
+    mount.mount.status,
+  ].join('\u0000')
+}
+
+function resolveScanCacheRootPath(mount: LocalFolderMount): string {
+  return resolveLocalFolderCanonicalOrRootPath(mount.mount)
+}
+
+function getCachedLocalFolderScan(mount: LocalFolderMount): LocalFolderScanResult | null {
   const cached = localFolderScanCache.get(mount.notebook.id)
   if (!cached) return null
-  if (cached.rootPath !== mount.mount.root_path || cached.expiresAtMs <= Date.now()) {
+  if (
+    cached.expiresAtMs <= Date.now()
+    || !isLocalFolderRootPathMatched(cached.rootPath, mount.mount)
+  ) {
     localFolderScanCache.delete(mount.notebook.id)
     return null
   }
@@ -173,7 +212,7 @@ function getCachedLocalFolderScan(mount: LocalFolderMount): ReturnType<typeof sc
 
 function setCachedLocalFolderScan(
   mount: LocalFolderMount,
-  scanned: ReturnType<typeof scanLocalFolderMount>
+  scanned: LocalFolderScanResult
 ): void {
   if (localFolderScanCache.size >= LOCAL_FOLDER_SCAN_CACHE_MAX_ENTRIES) {
     const oldestKey = localFolderScanCache.keys().next().value as string | undefined
@@ -181,19 +220,45 @@ function setCachedLocalFolderScan(
   }
   localFolderScanCache.set(mount.notebook.id, {
     expiresAtMs: Date.now() + LOCAL_SCAN_CACHE_TTL_MS,
-    rootPath: mount.mount.root_path,
+    rootPath: resolveScanCacheRootPath(mount),
     scanned,
   })
 }
 
 export function getLocalFolderScanWithCache(
   mount: LocalFolderMount
-): ReturnType<typeof scanLocalFolderMount> {
+): LocalFolderScanResult {
   const cached = getCachedLocalFolderScan(mount)
   if (cached) return cached
   const scanned = scanLocalFolderMount(mount)
   setCachedLocalFolderScan(mount, scanned)
   return scanned
+}
+
+export async function getLocalFolderScanWithCacheAsync(
+  mount: LocalFolderMount
+): Promise<LocalFolderScanResult> {
+  const cached = getCachedLocalFolderScan(mount)
+  if (cached) return cached
+
+  const inFlightKey = buildLocalFolderScanInFlightKey(mount)
+  const inFlightTask = localFolderScanCacheInFlight.get(inFlightKey)
+  if (inFlightTask) return inFlightTask
+
+  const task = (async () => {
+    const scanned = await scanLocalFolderMountAsync(mount)
+    setCachedLocalFolderScan(mount, scanned)
+    return scanned
+  })()
+
+  localFolderScanCacheInFlight.set(inFlightKey, task)
+  try {
+    return await task
+  } finally {
+    if (localFolderScanCacheInFlight.get(inFlightKey) === task) {
+      localFolderScanCacheInFlight.delete(inFlightKey)
+    }
+  }
 }
 
 // --- Overview summary cache ---
@@ -205,6 +270,12 @@ export function pruneLocalOverviewSummaryCache(mounts: ReturnType<typeof getLoca
       localOverviewSummaryCache.delete(notebookId)
     }
   }
+  for (const inFlightKey of localOverviewSummaryCacheInFlight.keys()) {
+    const [inFlightNotebookId] = inFlightKey.split('\u0000')
+    if (!activeNotebookIds.has(inFlightNotebookId)) {
+      localOverviewSummaryCacheInFlight.delete(inFlightKey)
+    }
+  }
 }
 
 function getCachedLocalOverviewSummary(
@@ -212,7 +283,10 @@ function getCachedLocalOverviewSummary(
 ): LocalOverviewSummaryCacheEntry | null {
   const cached = localOverviewSummaryCache.get(mount.notebook.id)
   if (!cached) return null
-  if (cached.rootPath !== mount.mount.root_path || cached.expiresAtMs <= Date.now()) {
+  if (
+    cached.expiresAtMs <= Date.now()
+    || !isLocalFolderRootPathMatched(cached.rootPath, mount.mount)
+  ) {
     localOverviewSummaryCache.delete(mount.notebook.id)
     return null
   }
@@ -228,7 +302,7 @@ function setCachedLocalOverviewSummary(
 ): LocalOverviewSummaryCacheEntry {
   const entry: LocalOverviewSummaryCacheEntry = {
     expiresAtMs: Date.now() + LOCAL_OVERVIEW_SUMMARY_CACHE_TTL_MS,
-    rootPath: mount.mount.root_path,
+    rootPath: resolveScanCacheRootPath(mount),
     fileCount: summary.fileCount,
     recentItems: summary.recentItems,
   }
@@ -266,7 +340,7 @@ export function resolveLocalRefRelativePath(localRef: LocalResourceRef): string 
     const identity = getLocalNoteIdentityByUid({
       note_uid: localRef.noteUid,
       notebook_id: localRef.notebookId,
-    })
+    }, { repairIfNeeded: false })
     return identity?.relative_path || null
   }
   return localRef.relativePath || null
@@ -275,7 +349,7 @@ export function resolveLocalRefRelativePath(localRef: LocalResourceRef): string 
 export function resolveLocalNotebookIdFromAnyId(id: string): string | null {
   const localRef = parseLocalResourceId(id)
   if (localRef) return localRef.notebookId
-  const identity = getLocalNoteIdentityByUid({ note_uid: id })
+  const identity = getLocalNoteIdentityByUid({ note_uid: id }, { repairIfNeeded: false })
   return identity?.notebook_id || null
 }
 
@@ -290,7 +364,7 @@ export function resolveLocalPathFromAnyId(id: string): { notebookId: string; rel
     }
   }
 
-  const identity = getLocalNoteIdentityByUid({ note_uid: id })
+  const identity = getLocalNoteIdentityByUid({ note_uid: id }, { repairIfNeeded: false })
   if (!identity) return null
   return {
     notebookId: identity.notebook_id,
@@ -300,7 +374,7 @@ export function resolveLocalPathFromAnyId(id: string): { notebookId: string; rel
 
 function summarizeLocalOverviewFromScan(
   mount: LocalFolderMount,
-  scanned: ReturnType<typeof scanLocalFolderMount>,
+  scanned: LocalFolderScanResult,
   perMountRecentLimit: number
 ): {
   fileCount: number
@@ -330,8 +404,23 @@ export function getLocalOverviewSummaryForMount(
   perMountRecentLimit: number
 ): { fileCount: number; recentItems: LocalOverviewRecentItem[] } | null {
   const cached = getCachedLocalOverviewSummary(mount)
-  if (cached && cached.recentItems.length >= perMountRecentLimit) {
-    return cached
+  if (cached) {
+    if (cached.recentItems.length >= perMountRecentLimit) {
+      return cached
+    }
+    if (
+      LOCAL_CONTEXT_OVERVIEW_SYNC_SCAN_STARTUP_GUARD_ENABLED
+      && getStartupPhaseState().inStartupPhase
+    ) {
+      // Avoid sync filesystem scans during startup window on sync-only callsites.
+      // The async path will warm caches shortly after startup.
+      return cached
+    }
+  } else if (
+    LOCAL_CONTEXT_OVERVIEW_SYNC_SCAN_STARTUP_GUARD_ENABLED
+    && getStartupPhaseState().inStartupPhase
+  ) {
+    return null
   }
 
   try {
@@ -351,6 +440,47 @@ export function getLocalOverviewSummaryForMount(
   }
 }
 
+export async function getLocalOverviewSummaryForMountAsync(
+  mount: LocalFolderMount,
+  perMountRecentLimit: number
+): Promise<{ fileCount: number; recentItems: LocalOverviewRecentItem[] } | null> {
+  const cached = getCachedLocalOverviewSummary(mount)
+  if (cached && cached.recentItems.length >= perMountRecentLimit) {
+    return cached
+  }
+
+  const inFlightKey = buildLocalFolderScanInFlightKey(mount)
+  const inFlightTask = localOverviewSummaryCacheInFlight.get(inFlightKey)
+  if (inFlightTask) return inFlightTask
+
+  const task = (async () => {
+    try {
+      const scanned = await getLocalFolderScanWithCacheAsync(mount)
+      const summary = summarizeLocalOverviewFromScan(mount, scanned, perMountRecentLimit)
+      return setCachedLocalOverviewSummary(mount, summary)
+    } catch (error) {
+      localFolderScanCache.delete(mount.notebook.id)
+      localOverviewSummaryCache.delete(mount.notebook.id)
+      console.warn(
+        '[SanqianSDK] Failed to build local overview summary (async):',
+        mount.notebook.id,
+        mount.mount.root_path,
+        error
+      )
+      return null
+    }
+  })()
+
+  localOverviewSummaryCacheInFlight.set(inFlightKey, task)
+  try {
+    return await task
+  } finally {
+    if (localOverviewSummaryCacheInFlight.get(inFlightKey) === task) {
+      localOverviewSummaryCacheInFlight.delete(inFlightKey)
+    }
+  }
+}
+
 export function getActiveLocalMountByNotebookId(notebookId: string): LocalFolderMount | null {
   const mount = getLocalFolderMounts().find((item) => item.notebook.id === notebookId)
   if (!mount || mount.mount.status !== 'active') return null
@@ -362,5 +492,7 @@ export function getActiveLocalMountByNotebookId(notebookId: string): LocalFolder
 export function clearAllLocalCaches(): void {
   localContextListCache.clear()
   localFolderScanCache.clear()
+  localFolderScanCacheInFlight.clear()
   localOverviewSummaryCache.clear()
+  localOverviewSummaryCacheInFlight.clear()
 }

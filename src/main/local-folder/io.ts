@@ -901,6 +901,55 @@ export async function resolveLocalFolderFilePathAsync(
   }
 }
 
+export interface LocalFolderFileStatInfo {
+  relative_path: string
+  size: number
+  mtime_ms: number
+}
+
+export async function statLocalFolderFileAsync(
+  mount: LocalFolderNotebookMount,
+  relativePathInput: string
+): Promise<{ success: true; result: LocalFolderFileStatInfo } | { success: false; errorCode: LocalFolderReadFileErrorCode }> {
+  const relativePath = normalizeRelativePath(relativePathInput)
+  const absolutePath = resolvePathUnderRoot(
+    mount.mount.root_path,
+    relativePath,
+    mount.mount.canonical_root_path
+  )
+  if (!absolutePath) {
+    return { success: false, errorCode: 'LOCAL_FILE_OUT_OF_ROOT' }
+  }
+
+  const extension = extname(relativePath).toLowerCase()
+  if (!ALLOWED_EXTENSIONS.has(extension)) {
+    return { success: false, errorCode: 'LOCAL_FILE_UNSUPPORTED_TYPE' }
+  }
+
+  try {
+    const stat = await fsPromises.lstat(absolutePath)
+    if (stat.isSymbolicLink()) {
+      return { success: false, errorCode: 'LOCAL_FILE_UNSUPPORTED_TYPE' }
+    }
+    if (!stat.isFile()) {
+      return { success: false, errorCode: 'LOCAL_FILE_NOT_A_FILE' }
+    }
+    if (stat.size > MAX_EDITABLE_FILE_SIZE_BYTES) {
+      return { success: false, errorCode: 'LOCAL_FILE_TOO_LARGE' }
+    }
+    return {
+      success: true,
+      result: {
+        relative_path: relativePath,
+        size: stat.size,
+        mtime_ms: stat.mtimeMs,
+      },
+    }
+  } catch (error) {
+    return { success: false, errorCode: mapErrnoToReadErrorCode(error) }
+  }
+}
+
 async function lstatFileCheckAsync(
   absolutePath: string,
   sizeLimit: number

@@ -5,6 +5,7 @@ import { toast } from '../../utils/toast'
 import {
   getRelativePathDepth,
   getRelativePathDisplayName,
+  normalizeLocalRelativePath,
   replaceRelativePathPrefix,
 } from '../../utils/localFolderNavigation'
 import { createLocalResourceId } from '../../utils/localResourceId'
@@ -389,18 +390,20 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
       // Fix: update allViewLocalEditorTarget to new path
       if (allViewLocalEditorTarget && allViewLocalEditorTarget.notebookId === selectedNotebookId) {
         if (renameDialog.kind === 'file' && allViewLocalEditorTarget.relativePath === oldRelativePath) {
+          const normalizedRelativePath = normalizeLocalRelativePath(newRelativePath) || newRelativePath
           setAllViewLocalEditorTarget({
-            noteId: createLocalResourceId(selectedNotebookId, newRelativePath),
+            noteId: createLocalResourceId(selectedNotebookId, normalizedRelativePath),
             notebookId: selectedNotebookId,
-            relativePath: newRelativePath,
+            relativePath: normalizedRelativePath,
           })
         } else if (renameDialog.kind === 'folder') {
           const nextPath = replaceRelativePathPrefix(allViewLocalEditorTarget.relativePath, oldRelativePath, newRelativePath)
           if (nextPath) {
+            const normalizedRelativePath = normalizeLocalRelativePath(nextPath) || nextPath
             setAllViewLocalEditorTarget({
-              noteId: createLocalResourceId(selectedNotebookId, nextPath),
+              noteId: createLocalResourceId(selectedNotebookId, normalizedRelativePath),
               notebookId: selectedNotebookId,
-              relativePath: nextPath,
+              relativePath: normalizedRelativePath,
             })
           }
         }
@@ -444,6 +447,7 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
   const handleConfirmDelete = useCallback(async () => {
     if (!selectedNotebookId || !deleteDialog) return
     setDeleteSubmitting(true)
+    let restoreOpenFileRelativePath: string | null = null
 
     try {
       const currentOpenFile = getOpenFileInfo()
@@ -459,6 +463,7 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
       )
 
       if (deletingOpenFile) {
+        restoreOpenFileRelativePath = currentOpenFile?.relativePath || null
         await flushLocalFileSave()
         // Disarm save mechanism immediately so that Editor's debounce firing
         // during the async delete IPC cannot re-queue saves and resurrect the file.
@@ -473,6 +478,9 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
 
       if (!result.success) {
         toast(resolveLocalFileErrorMessage(result.errorCode), { type: 'error' })
+        if (restoreOpenFileRelativePath) {
+          await openLocalFile(restoreOpenFileRelativePath)
+        }
         return
       }
 
@@ -505,6 +513,19 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
 
       onAutoDraftClearIfNeeded(selectedNotebookId, deleteDialog.relativePath, deleteDialog.kind)
 
+      setAllViewLocalEditorTarget((prev) => {
+        if (!prev || prev.notebookId !== selectedNotebookId) return prev
+        if (deleteDialog.kind === 'file') {
+          return prev.relativePath === deleteDialog.relativePath ? null : prev
+        }
+        const deletingFolderPrefix = `${deleteDialog.relativePath}/`
+        const isTargetInsideDeletedFolder = (
+          prev.relativePath === deleteDialog.relativePath
+          || prev.relativePath.startsWith(deletingFolderPrefix)
+        )
+        return isTargetInsideDeletedFolder ? null : prev
+      })
+
       // onLocalEditorClear() already called before delete IPC (above) to prevent
       // save-race file resurrection.
 
@@ -514,6 +535,9 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
     } catch (error) {
       console.error('Failed to delete local entry:', error)
       toast(t.notebook.deleteFailed, { type: 'error' })
+      if (restoreOpenFileRelativePath) {
+        await openLocalFile(restoreOpenFileRelativePath)
+      }
     } finally {
       setDeleteSubmitting(false)
     }
@@ -525,11 +549,13 @@ export function useLocalFolderDialogs(deps: LocalFolderDialogsDeps) {
     onLocalEditorClear,
     onMetadataRemove,
     onSelectionChange,
+    openLocalFile,
     refreshLocalFolderTree,
     resolveLocalFileErrorMessage,
     selectedLocalFilePath,
     selectedLocalFolderPath,
     selectedNotebookId,
+    setAllViewLocalEditorTarget,
     suppressLocalWatchRefresh,
     t.notebook.deleteFailed,
   ])

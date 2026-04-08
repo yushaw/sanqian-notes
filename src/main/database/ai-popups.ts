@@ -1,5 +1,9 @@
 import { getDb } from './connection'
+import { tableExists } from './helpers'
+import { createLocalFolderAIPopupRefUidRemapper } from './local-folder-ai-popup-ref-remapper'
 import { extractAIPopupIdsFromTiptapContent } from '../ai-popup-refs'
+import { parseRequiredLocalNoteUidInput } from '../local-note-uid'
+import type { NotebookSourceType } from '../../shared/types'
 
 export interface PopupData {
   id: string
@@ -20,14 +24,64 @@ export interface PopupInput {
   documentTitle?: string
 }
 
-type AIPopupRefSourceType = 'internal' | 'local-folder'
+type AIPopupRefSourceType = NotebookSourceType
 
-function normalizeAIPopupRefSourceType(sourceType: string | null | undefined): AIPopupRefSourceType {
-  return sourceType === 'local-folder' ? 'local-folder' : 'internal'
+function resolveAIPopupRefSourceType(
+  sourceType: unknown
+): AIPopupRefSourceType {
+  if (sourceType === undefined || sourceType === null) {
+    throw new Error('ai_popup_refs.source_type is required')
+  }
+
+  if (typeof sourceType !== 'string') {
+    throw new Error(`invalid ai_popup_refs.source_type: ${String(sourceType)}`)
+  }
+
+  if (sourceType === 'internal' || sourceType === 'local-folder') {
+    return sourceType
+  }
+
+  throw new Error(`invalid ai_popup_refs.source_type: ${sourceType}`)
 }
 
-function normalizeAIPopupRefNoteId(noteId: string | null | undefined): string {
-  return (noteId || '').trim()
+function parseRequiredAIPopupRefNoteId(noteIdInput: unknown): string | null {
+  if (typeof noteIdInput !== 'string') return null
+  if (!noteIdInput.trim()) return null
+  return noteIdInput
+}
+
+export function remapLocalFolderAIPopupRefsNoteUid(
+  fromNoteUidInput: unknown,
+  toNoteUidInput: unknown
+): number {
+  const fromNoteUid = parseRequiredAIPopupRefNoteId(fromNoteUidInput)
+  const toNoteUid = parseRequiredLocalNoteUidInput(toNoteUidInput)
+  if (!fromNoteUid || !toNoteUid) return 0
+  if (fromNoteUid === toNoteUid) return 0
+  if (!tableExists('ai_popup_refs')) return 0
+
+  const db = getDb()
+  const remapLocalPopupRefsByUid = createLocalFolderAIPopupRefUidRemapper(true)
+  const remapTx = db.transaction((fromUid: string, toUid: string) => {
+    return remapLocalPopupRefsByUid(fromUid, toUid)
+  })
+  return remapTx(fromNoteUid, toNoteUid)
+}
+
+function parseRequiredAIPopupRefNoteIdBySourceType(
+  noteIdInput: unknown,
+  sourceType: AIPopupRefSourceType
+): string | null {
+  if (sourceType === 'local-folder') {
+    const parsedNoteUid = parseRequiredLocalNoteUidInput(noteIdInput)
+    if (parsedNoteUid) return parsedNoteUid
+    if (typeof noteIdInput === 'string' && noteIdInput.trim()) {
+      // Fail fast for explicit-but-invalid local note_uid values (e.g. trim aliases).
+      throw new Error('invalid ai_popup_refs.note_reference')
+    }
+    return null
+  }
+  return parseRequiredAIPopupRefNoteId(noteIdInput)
 }
 
 function normalizeAIPopupRefPopupIds(
@@ -37,9 +91,8 @@ function normalizeAIPopupRefPopupIds(
   const normalized = new Set<string>()
   for (const popupId of popupIds) {
     if (typeof popupId !== 'string') continue
-    const trimmed = popupId.trim()
-    if (!trimmed || trimmed.length > 512) continue
-    normalized.add(trimmed)
+    if (!popupId.trim() || popupId.length > 512) continue
+    normalized.add(popupId)
   }
   return Array.from(normalized)
 }
@@ -54,17 +107,31 @@ function replaceAIPopupRefsForNoteInternal(
   sourceType: AIPopupRefSourceType,
   popupIds: readonly string[]
 ): number {
+  return replaceAIPopupRefsForNotesInternal(sourceType, [
+    { noteId, popupIds },
+  ])
+}
+
+function replaceAIPopupRefsForNotesInternal(
+  sourceType: AIPopupRefSourceType,
+  notes: ReadonlyArray<{
+    noteId: string
+    popupIds: readonly string[]
+  }>
+): number {
   const db = getDb()
-  const tx = db.transaction((normalizedNoteId: string, normalizedSourceType: AIPopupRefSourceType, normalizedPopupIds: readonly string[]) => {
+  const tx = db.transaction((
+    normalizedSourceType: AIPopupRefSourceType,
+    normalizedNotes: ReadonlyArray<{
+      noteId: string
+      popupIds: readonly string[]
+    }>
+  ) => {
     const now = new Date().toISOString()
-    db.prepare(`
+    const deleteStmt = db.prepare(`
       DELETE FROM ai_popup_refs
       WHERE note_id = ? AND source_type = ?
-    `).run(normalizedNoteId, normalizedSourceType)
-
-    if (normalizedPopupIds.length === 0) {
-      return 0
-    }
+    `)
 
     const insertStmt = db.prepare(`
       INSERT INTO ai_popup_refs (popup_id, note_id, source_type, created_at, updated_at)
@@ -76,33 +143,37 @@ function replaceAIPopupRefsForNoteInternal(
     `)
 
     let inserted = 0
-    for (const popupId of normalizedPopupIds) {
-      const result = insertStmt.run(
-        popupId,
-        normalizedNoteId,
-        normalizedSourceType,
-        now,
-        now,
-        popupId
-      )
-      inserted += result.changes
+    for (const note of normalizedNotes) {
+      deleteStmt.run(note.noteId, normalizedSourceType)
+      if (note.popupIds.length === 0) continue
+      for (const popupId of note.popupIds) {
+        const result = insertStmt.run(
+          popupId,
+          note.noteId,
+          normalizedSourceType,
+          now,
+          now,
+          popupId
+        )
+        inserted += result.changes
+      }
     }
     return inserted
   })
 
-  return tx(noteId, sourceType, popupIds)
+  return tx(sourceType, notes)
 }
 
 export function replaceAIPopupRefsForNote(input: {
   note_id: string
-  source_type?: AIPopupRefSourceType | null
+  source_type: AIPopupRefSourceType
   popup_ids?: readonly string[] | null
   tiptap_content?: string | null
 }): number {
-  const noteId = normalizeAIPopupRefNoteId(input.note_id)
+  const sourceType = resolveAIPopupRefSourceType(input.source_type)
+  const noteId = parseRequiredAIPopupRefNoteIdBySourceType(input.note_id, sourceType)
   if (!noteId) return 0
 
-  const sourceType = normalizeAIPopupRefSourceType(input.source_type || undefined)
   const popupIds = input.popup_ids !== undefined
     ? normalizeAIPopupRefPopupIds(input.popup_ids)
     : collectAIPopupRefsFromContent(input.tiptap_content)
@@ -110,27 +181,49 @@ export function replaceAIPopupRefsForNote(input: {
   return replaceAIPopupRefsForNoteInternal(noteId, sourceType, popupIds)
 }
 
+export function replaceAIPopupRefsForNotesBatch(input: {
+  source_type: AIPopupRefSourceType
+  notes: ReadonlyArray<{
+    note_id: string
+    popup_ids?: readonly string[] | null
+    tiptap_content?: string | null
+  }>
+}): number {
+  const sourceType = resolveAIPopupRefSourceType(input.source_type)
+  if (!Array.isArray(input.notes) || input.notes.length === 0) return 0
+
+  const normalizedByNoteId = new Map<string, readonly string[]>()
+  for (const note of input.notes) {
+    const noteId = parseRequiredAIPopupRefNoteIdBySourceType(note.note_id, sourceType)
+    if (!noteId) continue
+    const popupIds = note.popup_ids !== undefined
+      ? normalizeAIPopupRefPopupIds(note.popup_ids)
+      : collectAIPopupRefsFromContent(note.tiptap_content)
+    normalizedByNoteId.set(noteId, popupIds)
+  }
+
+  if (normalizedByNoteId.size === 0) return 0
+
+  const normalizedNotes = Array.from(normalizedByNoteId.entries()).map(([noteId, popupIds]) => ({
+    noteId,
+    popupIds,
+  }))
+  return replaceAIPopupRefsForNotesInternal(sourceType, normalizedNotes)
+}
+
 export function deleteAIPopupRefsForNote(input: {
   note_id: string
-  source_type?: AIPopupRefSourceType | null
+  source_type: AIPopupRefSourceType
 }): number {
   const db = getDb()
-  const noteId = normalizeAIPopupRefNoteId(input.note_id)
+  const sourceType = resolveAIPopupRefSourceType(input.source_type)
+  const noteId = parseRequiredAIPopupRefNoteIdBySourceType(input.note_id, sourceType)
   if (!noteId) return 0
-
-  if (input.source_type) {
-    const sourceType = normalizeAIPopupRefSourceType(input.source_type)
-    const result = db.prepare(`
-      DELETE FROM ai_popup_refs
-      WHERE note_id = ? AND source_type = ?
-    `).run(noteId, sourceType)
-    return result.changes
-  }
 
   const result = db.prepare(`
     DELETE FROM ai_popup_refs
-    WHERE note_id = ?
-  `).run(noteId)
+    WHERE note_id = ? AND source_type = ?
+  `).run(noteId, sourceType)
   return result.changes
 }
 
@@ -161,18 +254,19 @@ export function rebuildAIPopupRefsForInternalNotes(): number {
         source_type = 'internal',
         updated_at = excluded.updated_at
     `)
+    const selectBatchStmt = db.prepare(`
+      SELECT id, content
+      FROM notes
+      WHERE content LIKE '%aiPopupMark%'
+      ORDER BY id
+      LIMIT ? OFFSET ?
+    `)
 
     for (let offset = 0; offset < totalCount; offset += BATCH_SIZE) {
-      const batch = db.prepare(`
-        SELECT id, content
-        FROM notes
-        WHERE content LIKE '%aiPopupMark%'
-        ORDER BY id
-        LIMIT ? OFFSET ?
-      `).all(BATCH_SIZE, offset) as Array<{ id: string; content: string | null }>
+      const batch = selectBatchStmt.all(BATCH_SIZE, offset) as Array<{ id: string; content: string | null }>
 
       for (const row of batch) {
-        const noteId = normalizeAIPopupRefNoteId(row.id)
+        const noteId = parseRequiredAIPopupRefNoteIdBySourceType(row.id, 'internal')
         if (!noteId) continue
         const popupIds = collectAIPopupRefsFromContent(row.content)
         for (const popupId of popupIds) {

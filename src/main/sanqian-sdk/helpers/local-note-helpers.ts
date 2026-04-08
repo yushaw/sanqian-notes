@@ -22,18 +22,27 @@ import {
   areLocalTagNameListsEqual,
   extractLocalTagNamesFromTiptapContent,
 } from '../../local-note-tags'
+import { parseRequiredNotebookIdInput } from '../../notebook-id'
+import { parseRequiredLocalNoteUidInput } from '../../local-note-uid'
 
 // --- Metadata map helpers ---
 
-export function buildLocalNoteMetadataByIdMap(notebookIds?: string[]): Map<string, LocalNoteMetadata> {
-  const normalizedNotebookIds = notebookIds
-    ? Array.from(new Set(notebookIds.map((id) => id.trim()).filter(Boolean)))
-    : undefined
-  const metadata = listLocalNoteMetadata({
-    notebookIds: normalizedNotebookIds && normalizedNotebookIds.length > 0
-      ? normalizedNotebookIds
-      : undefined,
-  })
+export function buildLocalNoteMetadataByIdMap(notebookIds?: readonly unknown[]): Map<string, LocalNoteMetadata> {
+  const hasExplicitNotebookFilter = notebookIds !== undefined
+  const normalizedNotebookIds = Array.isArray(notebookIds)
+    ? Array.from(new Set(
+      notebookIds
+        .map((id) => parseRequiredNotebookIdInput(id))
+        .filter((id): id is string => Boolean(id))
+    ))
+    : []
+  if (hasExplicitNotebookFilter && normalizedNotebookIds.length === 0) {
+    return new Map<string, LocalNoteMetadata>()
+  }
+
+  const metadata = hasExplicitNotebookFilter
+    ? listLocalNoteMetadata({ notebookIds: normalizedNotebookIds })
+    : listLocalNoteMetadata()
   const metadataById = new Map<string, LocalNoteMetadata>()
   for (const item of metadata) {
     metadataById.set(createLocalResourceId(item.notebook_id, item.relative_path), item)
@@ -96,11 +105,20 @@ export function migrateLocalNoteMetadataPath(
 }
 
 export function ensureLocalNoteIdentityForPath(notebookId: string, relativePath: string): string | null {
-  const identity = ensureLocalNoteIdentity({
-    notebook_id: notebookId,
-    relative_path: relativePath,
-  })
-  return identity?.note_uid || null
+  let identity: ReturnType<typeof ensureLocalNoteIdentity> = null
+  try {
+    identity = ensureLocalNoteIdentity({
+      notebook_id: notebookId,
+      relative_path: relativePath,
+    })
+  } catch (error) {
+    console.warn('[Main] Failed to ensure local note identity for path:', {
+      notebookId,
+      relativePath,
+      error,
+    })
+  }
+  return parseRequiredLocalNoteUidInput(identity?.note_uid)
 }
 
 // --- Derived state sync ---

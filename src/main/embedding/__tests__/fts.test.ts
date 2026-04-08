@@ -9,7 +9,6 @@ import {
 
 const require = createRequire(import.meta.url)
 // Dynamic require for better-sqlite3 - may not be available in all test environments
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let BetterSqlite: any = null
 let sqliteAvailable = false
 
@@ -38,7 +37,6 @@ type TestChunk = {
   createdAt: string
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createTestDb(): any {
   const db = new BetterSqlite(':memory:')
   db.exec(`
@@ -64,7 +62,6 @@ function createTestDb(): any {
   return db
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function insertChunkRow(db: any, chunk: TestChunk): void {
   db.prepare(
     `
@@ -102,7 +99,6 @@ function makeChunk(id: string, text: string): TestChunk {
 }
 
 describeSqlite('FTS search', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let db: any = null
 
   beforeEach(() => {
@@ -142,7 +138,6 @@ describeSqlite('FTS search', () => {
 })
 
 describeSqlite('FTS rebuild', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let db: any = null
 
   beforeEach(() => {

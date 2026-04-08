@@ -7,9 +7,10 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, unlinkSync } from 'fs'
+import { mkdtemp, readdir, rm, stat, unlink } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
+import { pathExists } from './fs-helpers'
 
 const execFileAsync = promisify(execFile)
 
@@ -28,7 +29,7 @@ export interface ZipEntry {
  * 用于快速检测 ZIP 内容格式
  */
 export async function listZipEntries(zipPath: string): Promise<ZipEntry[]> {
-  if (!existsSync(zipPath)) {
+  if (!(await pathExists(zipPath))) {
     throw new Error(`ZIP file not found: ${zipPath}`)
   }
 
@@ -131,12 +132,12 @@ export async function detectNotionZip(zipPath: string): Promise<boolean> {
  */
 export async function extractZip(zipPath: string): Promise<string> {
 
-  if (!existsSync(zipPath)) {
+  if (!(await pathExists(zipPath))) {
     throw new Error(`ZIP file not found: ${zipPath}`)
   }
 
   // 检查 ZIP 文件大小（简单估计，实际解压后可能更大）
-  const zipStat = statSync(zipPath)
+  const zipStat = await stat(zipPath)
   if (zipStat.size > MAX_EXTRACTED_SIZE) {
     throw new Error(
       `ZIP file too large: ${Math.round(zipStat.size / 1024 / 1024)}MB (limit: ${MAX_EXTRACTED_SIZE / 1024 / 1024}MB)`
@@ -153,16 +154,16 @@ export async function extractZip(zipPath: string): Promise<string> {
   }
 
   // 创建临时目录
-  const tempDir = mkdtempSync(join(tmpdir(), 'notion-import-'))
+  const tempDir = await mkdtemp(join(tmpdir(), 'notion-import-'))
 
   try {
     await extractZipToDir(zipPath, tempDir)
 
     // 安全检查：验证所有解压的文件都在临时目录内
-    validateExtractedPaths(tempDir)
+    await validateExtractedPaths(tempDir)
 
     // 检查是否是嵌套 ZIP（Notion 分卷导出）
-    const extractedFiles = readdirSync(tempDir)
+    const extractedFiles = await readdir(tempDir)
     const nestedZipPattern = /Part-\d+\.zip$/i
     const nestedZips = extractedFiles.filter((f) => nestedZipPattern.test(f))
 
@@ -172,16 +173,16 @@ export async function extractZip(zipPath: string): Promise<string> {
         const nestedZipPath = join(tempDir, nestedZip)
         await extractZipToDir(nestedZipPath, tempDir)
         // 删除已解压的嵌套 ZIP
-        unlinkSync(nestedZipPath)
+        await unlink(nestedZipPath)
       }
       // 再次验证路径安全
-      validateExtractedPaths(tempDir)
+      await validateExtractedPaths(tempDir)
     }
 
     return tempDir
   } catch (error) {
     // 解压失败，清理临时目录
-    cleanupTempDir(tempDir)
+    await cleanupTempDir(tempDir)
     throw error
   }
 }
@@ -225,11 +226,11 @@ async function extractZipToDir(zipPath: string, destDir: string): Promise<void> 
 /**
  * 验证解压的文件路径安全（防止 ZIP 路径遍历攻击）
  */
-function validateExtractedPaths(tempDir: string): void {
+async function validateExtractedPaths(tempDir: string): Promise<void> {
   const realTempDir = resolve(tempDir)
 
-  function checkDir(dir: string): void {
-    const entries = readdirSync(dir, { withFileTypes: true })
+  async function checkDir(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true })
 
     for (const entry of entries) {
       const fullPath = join(dir, entry.name)
@@ -241,21 +242,21 @@ function validateExtractedPaths(tempDir: string): void {
       }
 
       if (entry.isDirectory()) {
-        checkDir(fullPath)
+        await checkDir(fullPath)
       }
     }
   }
 
-  checkDir(tempDir)
+  await checkDir(tempDir)
 }
 
 /**
  * 清理临时目录
  */
-export function cleanupTempDir(tempDir: string): void {
+export async function cleanupTempDir(tempDir: string): Promise<void> {
   try {
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true, force: true })
+    if (await pathExists(tempDir)) {
+      await rm(tempDir, { recursive: true, force: true })
     }
   } catch (error) {
     console.error('Failed to cleanup temp dir:', tempDir, error)

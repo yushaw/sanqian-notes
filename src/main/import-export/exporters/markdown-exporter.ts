@@ -2,12 +2,15 @@
  * Markdown 导出器
  */
 
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, statSync, readFileSync, rmSync } from 'fs'
+import { copyFile, mkdir, readFile, rm, stat, unlink, writeFile } from 'fs/promises'
 import { join, dirname, basename, extname } from 'path'
 import { BaseExporter } from '../base-exporter'
-import { getNotes, getNotesByIds, getNotebooks } from '../../database'
+import { getNotes, getNotesByIds, getNotesByNotebookIds, getNotebooks } from '../../database'
 import { getFullPath } from '../../attachment'
+import { pathExists } from '../utils/fs-helpers'
+import { resolvePositiveIntegerEnv, yieldEvery } from '../utils/cooperative'
 import type { Note, Notebook } from '../../../shared/types'
+import { hasOwnDefinedProperty } from '../../../shared/property-guards'
 import type { ExportOptions, ExportResult, ExportStats, ExportErrorInfo } from '../types'
 
 const ATTACHMENT_LINK_EXTENSIONS = new Set([
@@ -27,6 +30,25 @@ const IMAGE_EXTENSIONS = new Set([
 
 const DAILY_EXPORT_DIR_NAME = '日记'
 const EXPORT_ROOT_DIR_NAME = 'sanqian-notes'
+const EXPORT_YIELD_INTERVAL = resolvePositiveIntegerEnv('IMPORT_EXPORT_YIELD_INTERVAL', 32, { min: 8, max: 4096 })
+
+function parseRequiredExportOpaqueIdInput(idInput: unknown): string | null {
+  if (typeof idInput !== 'string') return null
+  if (!idInput.trim()) return null
+  return idInput
+}
+
+function parseExportOpaqueIdArrayInput(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined
+  const ids: string[] = []
+  for (const idInput of input) {
+    const parsed = parseRequiredExportOpaqueIdInput(idInput)
+    if (parsed) {
+      ids.push(parsed)
+    }
+  }
+  return ids
+}
 
 export class MarkdownExporter extends BaseExporter {
   readonly id = 'markdown'
@@ -48,12 +70,47 @@ export class MarkdownExporter extends BaseExporter {
 
     // 获取要导出的笔记
     let notes: Note[]
+    const rawNoteIds = (options as { noteIds?: unknown }).noteIds
+    const rawNotebookIds = (options as { notebookIds?: unknown }).notebookIds
+    const hasExplicitNoteIds = hasOwnDefinedProperty(options, 'noteIds')
+    const hasExplicitNotebookIds = hasOwnDefinedProperty(options, 'notebookIds')
+    const noteIds = parseExportOpaqueIdArrayInput(rawNoteIds)
+    const notebookIds = parseExportOpaqueIdArrayInput(rawNotebookIds)
+    const hasRawNoteIds = Array.isArray(rawNoteIds) && rawNoteIds.length > 0
+    const hasRawNotebookIds = Array.isArray(rawNotebookIds) && rawNotebookIds.length > 0
+    const useNoteIdFilter = Boolean(noteIds && noteIds.length > 0)
 
-    if (options.noteIds && options.noteIds.length > 0) {
-      notes = getNotesByIds(options.noteIds)
-    } else if (options.notebookIds && options.notebookIds.length > 0) {
-      const allNotes = getNotes()
-      notes = allNotes.filter((n) => n.notebook_id && options.notebookIds.includes(n.notebook_id))
+    if (
+      (hasExplicitNoteIds && !Array.isArray(rawNoteIds))
+      || (hasRawNoteIds && noteIds && noteIds.length === 0)
+    ) {
+      return {
+        success: true,
+        outputPath: options.outputPath,
+        stats,
+        errors: [],
+      }
+    }
+
+    if (
+      !useNoteIdFilter
+      && (
+        (hasExplicitNotebookIds && !Array.isArray(rawNotebookIds))
+        || (hasRawNotebookIds && notebookIds && notebookIds.length === 0)
+      )
+    ) {
+      return {
+        success: true,
+        outputPath: options.outputPath,
+        stats,
+        errors: [],
+      }
+    }
+
+    if (noteIds && noteIds.length > 0) {
+      notes = getNotesByIds(noteIds)
+    } else if (notebookIds && notebookIds.length > 0) {
+      notes = getNotesByNotebookIds(notebookIds)
     } else {
       notes = getNotes()
     }
@@ -81,10 +138,10 @@ export class MarkdownExporter extends BaseExporter {
     const actualOutputDir = join(options.outputPath, EXPORT_ROOT_DIR_NAME)
 
     // 固定目录名时先清理旧内容，避免残留历史导出文件
-    if (existsSync(actualOutputDir)) {
-      rmSync(actualOutputDir, { recursive: true, force: true })
+    if (await pathExists(actualOutputDir)) {
+      await rm(actualOutputDir, { recursive: true, force: true })
     }
-    mkdirSync(actualOutputDir, { recursive: true })
+    await mkdir(actualOutputDir, { recursive: true })
 
     // 用于跟踪文件名避免冲突
     const usedNames = new Map<string, Set<string>>() // dir -> names
@@ -110,13 +167,13 @@ export class MarkdownExporter extends BaseExporter {
 
         if (options.groupByNotebook && note.is_daily) {
           outputDir = join(actualOutputDir, DAILY_EXPORT_DIR_NAME)
-          if (!existsSync(outputDir)) {
-            mkdirSync(outputDir, { recursive: true })
+          if (!(await pathExists(outputDir))) {
+            await mkdir(outputDir, { recursive: true })
           }
         } else if (options.groupByNotebook && notebook) {
           outputDir = join(actualOutputDir, this.sanitizeFileName(notebook.name))
-          if (!existsSync(outputDir)) {
-            mkdirSync(outputDir, { recursive: true })
+          if (!(await pathExists(outputDir))) {
+            await mkdir(outputDir, { recursive: true })
           }
         }
 
@@ -159,7 +216,7 @@ export class MarkdownExporter extends BaseExporter {
         content += markdown
 
         // 写入文件
-        writeFileSync(filePath, content, 'utf-8')
+        await writeFile(filePath, content, 'utf-8')
         stats.exportedNotes++
         stats.totalSize += this.getByteLength(content)
       } catch (error) {
@@ -169,6 +226,7 @@ export class MarkdownExporter extends BaseExporter {
           error: error instanceof Error ? error.message : String(error),
         })
       }
+      await yieldEvery(processedCount, EXPORT_YIELD_INTERVAL)
     }
 
     // 如果需要打包为 ZIP
@@ -224,8 +282,8 @@ export class MarkdownExporter extends BaseExporter {
 
     // 创建 assets 目录
     const assetsDir = join(outputDir, 'assets')
-    if (!existsSync(assetsDir)) {
-      mkdirSync(assetsDir, { recursive: true })
+    if (!(await pathExists(assetsDir))) {
+      await mkdir(assetsDir, { recursive: true })
     }
 
     const usedNames = new Set<string>()
@@ -235,7 +293,7 @@ export class MarkdownExporter extends BaseExporter {
         // 获取源文件路径
         const sourcePath = await getFullPath(relativePath)
 
-        if (!existsSync(sourcePath)) {
+        if (!(await pathExists(sourcePath))) {
           continue
         }
 
@@ -248,7 +306,7 @@ export class MarkdownExporter extends BaseExporter {
         const originalBaseName = dir && dir !== '.'
           ? `${dir.replace(/[\\/]/g, '_')}_${originalName}`
           : originalName
-        const baseNameWithExt = this.ensureExportImageExtension(originalBaseName, sourcePath, isImage)
+        const baseNameWithExt = await this.ensureExportImageExtension(originalBaseName, sourcePath, isImage)
         let targetName = baseNameWithExt
         let counter = 1
 
@@ -267,7 +325,7 @@ export class MarkdownExporter extends BaseExporter {
 
         // 复制文件
         const targetPath = join(assetsDir, targetName)
-        copyFileSync(sourcePath, targetPath)
+        await copyFile(sourcePath, targetPath)
 
         // 更新路径引用（图片、链接和媒体 src）
         const newPath = `./assets/${targetName}`
@@ -276,7 +334,7 @@ export class MarkdownExporter extends BaseExporter {
         copiedCount++
 
         // 统计大小
-        const { size } = statSync(sourcePath)
+        const { size } = await stat(sourcePath)
         attachmentSize += size
       } catch (error) {
         console.error(`Failed to copy attachment ${relativePath}:`, error)
@@ -392,7 +450,7 @@ export class MarkdownExporter extends BaseExporter {
     }))
   }
 
-  private ensureExportImageExtension(fileName: string, sourcePath: string, isImage: boolean): string {
+  private async ensureExportImageExtension(fileName: string, sourcePath: string, isImage: boolean): Promise<string> {
     if (!isImage) {
       return fileName
     }
@@ -402,7 +460,7 @@ export class MarkdownExporter extends BaseExporter {
       return fileName
     }
 
-    const detectedExt = this.detectImageExtensionFromSource(sourcePath)
+    const detectedExt = await this.detectImageExtensionFromSource(sourcePath)
     if (!detectedExt) {
       return fileName
     }
@@ -411,9 +469,9 @@ export class MarkdownExporter extends BaseExporter {
     return `${baseName}${detectedExt}`
   }
 
-  private detectImageExtensionFromSource(sourcePath: string): string | null {
+  private async detectImageExtensionFromSource(sourcePath: string): Promise<string | null> {
     try {
-      const buffer = readFileSync(sourcePath)
+      const buffer = await readFile(sourcePath)
       return this.detectImageExtensionFromBuffer(buffer)
     } catch {
       return null
@@ -492,7 +550,6 @@ export class MarkdownExporter extends BaseExporter {
   private async createZipAndCleanup(sourcePath: string): Promise<string> {
     const { execFile } = await import('child_process')
     const { promisify } = await import('util')
-    const { unlinkSync, rmSync } = await import('fs')
     const execFileAsync = promisify(execFile)
 
     const zipPath = `${sourcePath}.zip`
@@ -500,8 +557,8 @@ export class MarkdownExporter extends BaseExporter {
     const parentDir = dirname(sourcePath)
 
     // 如果 zip 文件已存在，先删除
-    if (existsSync(zipPath)) {
-      unlinkSync(zipPath)
+    if (await pathExists(zipPath)) {
+      await unlink(zipPath)
     }
 
     const isWindows = process.platform === 'win32'
@@ -529,7 +586,7 @@ export class MarkdownExporter extends BaseExporter {
       }
 
       // 删除临时目录
-      rmSync(sourcePath, { recursive: true, force: true })
+      await rm(sourcePath, { recursive: true, force: true })
 
       return zipPath
     } catch (error) {

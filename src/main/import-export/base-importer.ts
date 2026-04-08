@@ -3,7 +3,8 @@
  */
 
 import { basename, dirname, extname, relative, resolve, sep } from 'path'
-import { existsSync, realpathSync } from 'fs'
+import { realpath } from 'fs/promises'
+import { pathExists } from './utils/fs-helpers'
 
 /** 单个文件最大大小限制 (50MB) */
 export const MAX_FILE_SIZE = 50 * 1024 * 1024
@@ -159,17 +160,17 @@ export abstract class BaseImporter {
 
   /**
    * 安全路径检查：验证路径是否在允许的基础目录内
-   * 使用 realpathSync 解析符号链接，防止符号链接绕过检查
+   * 使用 realpath 解析符号链接，防止符号链接绕过检查
    */
-  protected isPathSafe(targetPath: string, basePath: string): boolean {
+  protected async isPathSafe(targetPath: string, basePath: string): Promise<boolean> {
     try {
       // 如果文件不存在，无法解析真实路径，使用原始路径检查
-      if (!existsSync(targetPath)) {
+      if (!(await pathExists(targetPath))) {
         return resolve(targetPath).startsWith(resolve(basePath))
       }
       // 解析符号链接后的真实路径
-      const realTarget = realpathSync(targetPath)
-      const realBase = realpathSync(basePath)
+      const realTarget = await realpath(targetPath)
+      const realBase = await realpath(basePath)
       return realTarget.startsWith(realBase)
     } catch {
       // 路径解析失败，拒绝访问
@@ -183,7 +184,7 @@ export abstract class BaseImporter {
    * - ![alt](path)
    * - ![[path]]
    */
-  protected collectAttachments(content: string, basePath: string): PendingAttachment[] {
+  protected async collectAttachments(content: string, basePath: string): Promise<PendingAttachment[]> {
     const attachments: PendingAttachment[] = []
     const seen = new Set<string>()
 
@@ -207,7 +208,7 @@ export abstract class BaseImporter {
 
       const absolutePath = resolve(basePath, path)
       // 安全检查：防止路径遍历攻击（包括符号链接）
-      if (!this.isPathSafe(absolutePath, basePath)) {
+      if (!(await this.isPathSafe(absolutePath, basePath))) {
         continue
       }
       if (!seen.has(absolutePath)) {
@@ -233,7 +234,7 @@ export abstract class BaseImporter {
 
       const absolutePath = resolve(basePath, path)
       // 安全检查：防止路径遍历攻击（包括符号链接）
-      if (!this.isPathSafe(absolutePath, basePath)) {
+      if (!(await this.isPathSafe(absolutePath, basePath))) {
         continue
       }
       if (!seen.has(absolutePath)) {

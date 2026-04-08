@@ -16,7 +16,7 @@ describe('migrateNotebooksSourceType', () => {
       log
     )
 
-    expect(execSql).toHaveBeenCalledTimes(2)
+    expect(execSql).toHaveBeenCalledTimes(5)
     expect(execSql).toHaveBeenNthCalledWith(
       1,
       "ALTER TABLE notebooks ADD COLUMN source_type TEXT NOT NULL DEFAULT 'internal'"
@@ -24,6 +24,18 @@ describe('migrateNotebooksSourceType', () => {
     expect(execSql).toHaveBeenNthCalledWith(
       2,
       'CREATE INDEX IF NOT EXISTS idx_notebooks_source_type ON notebooks(source_type)'
+    )
+    expect(execSql).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining("UPDATE notebooks")
+    )
+    expect(execSql).toHaveBeenNthCalledWith(
+      4,
+      expect.stringContaining('CREATE TRIGGER IF NOT EXISTS trg_notebooks_source_type_validate_insert')
+    )
+    expect(execSql).toHaveBeenNthCalledWith(
+      5,
+      expect.stringContaining('CREATE TRIGGER IF NOT EXISTS trg_notebooks_source_type_validate_update')
     )
     expect(log).toHaveBeenCalledWith('Adding source_type column to notebooks table...')
     expect(log).toHaveBeenCalledWith('Migration completed: source_type column added.')
@@ -44,9 +56,22 @@ describe('migrateNotebooksSourceType', () => {
       log
     )
 
-    expect(execSql).toHaveBeenCalledTimes(1)
-    expect(execSql).toHaveBeenCalledWith(
+    expect(execSql).toHaveBeenCalledTimes(4)
+    expect(execSql).toHaveBeenNthCalledWith(
+      1,
       'CREATE INDEX IF NOT EXISTS idx_notebooks_source_type ON notebooks(source_type)'
+    )
+    expect(execSql).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("UPDATE notebooks")
+    )
+    expect(execSql).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining('CREATE TRIGGER IF NOT EXISTS trg_notebooks_source_type_validate_insert')
+    )
+    expect(execSql).toHaveBeenNthCalledWith(
+      4,
+      expect.stringContaining('CREATE TRIGGER IF NOT EXISTS trg_notebooks_source_type_validate_update')
     )
     expect(log).not.toHaveBeenCalled()
   })

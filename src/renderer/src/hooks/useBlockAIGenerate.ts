@@ -200,7 +200,7 @@ export function useBlockAIGenerate(options: UseBlockAIGenerateOptions = {}): Use
       onErrorRef.current?.(error instanceof Error ? error.message : 'Connection failed')
       reconnect.release()
     }
-  }, [cancel])
+  }, [cancel, reconnect])
 
   useEffect(() => {
     return () => {

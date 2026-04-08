@@ -43,6 +43,7 @@ import {
   type SmartViewId,
   type NotebookFolder,
   type NotebookFolderTreeNode,
+  type LocalFolderListResponse,
   type LocalFolderNotebookMount,
 } from './types/note'
 import { parseLocalResourceId } from './utils/localResourceId'
@@ -194,6 +195,7 @@ function AppContent() {
     localEditorLoading,
     localSaveConflictDialog,
     localSaveConflictSubmitting,
+    localMountMutationSubmitting,
     // State setters (used in loadData / useNoteDataChangedReload)
     setLocalNoteMetadataById,
     setLocalFolderStatuses,
@@ -359,6 +361,7 @@ function AppContent() {
     cleanupUnmountedLocalNotebook,
     resetLocalEditorState,
     refreshInternalNotebookData,
+    t,
   })
   const {
     showNotebookModal,
@@ -541,7 +544,15 @@ function AppContent() {
           window.electron.localFolder.listNoteMetadata(),
         ])
         const loadedNotes = notesData as Note[]
-        const localMountSnapshots = localMounts as LocalFolderNotebookMount[]
+        const localMountsPayload = localMounts as LocalFolderListResponse | LocalFolderNotebookMount[]
+        let localMountSnapshots: LocalFolderNotebookMount[] = []
+        if (Array.isArray(localMountsPayload)) {
+          localMountSnapshots = localMountsPayload
+        } else if (localMountsPayload.success) {
+          localMountSnapshots = localMountsPayload.result.mounts
+        } else {
+          console.warn('[App] Failed to load local folder mounts:', localMountsPayload.errorCode)
+        }
         const loadedNotebooks = mergeNotebooksWithLocalMounts(notebooksData as Notebook[], localMountSnapshots)
         const localMetadataItems = localMetadataResponse.success ? localMetadataResponse.result.items : []
         if (!localMetadataResponse.success) {
@@ -596,7 +607,7 @@ function AppContent() {
 
     // Cleanup old trash (notes older than 30 days)
     window.electron?.trash?.cleanup().catch(console.error)
-  }, [warmupLocalNotebookSummaries])
+  }, [setLocalFolderStatuses, setLocalNoteMetadataById, warmupLocalNotebookSummaries])
 
   useNoteDataChangedReload({
     refreshLocalFolderTree,
@@ -896,7 +907,8 @@ function AppContent() {
                 <button
                   data-testid="local-folder-recover-button"
                   onClick={() => void handleRecoverLocalFolderAccess(activeLocalNotebookId || undefined)}
-                  className="px-3 py-1.5 text-[0.8rem] rounded-md text-white bg-[var(--color-accent)] hover:opacity-90 transition-opacity"
+                  disabled={localMountMutationSubmitting}
+                  className="px-3 py-1.5 text-[0.8rem] rounded-md text-white bg-[var(--color-accent)] hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {t.notebook.localFolderRecoverAction}
                 </button>

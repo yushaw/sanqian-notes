@@ -133,6 +133,38 @@ describe('local-folder-watch', () => {
     expect(typeof watchFactory.mock.calls[1]?.[1]).toBe('function')
   })
 
+  it('falls back when recursive watch unsupported is surfaced as legacy argument-value error', () => {
+    const fakeWatcher = new EventEmitter() as unknown as ReturnType<typeof createFileSystemWatcher>
+    ;(fakeWatcher as unknown as { close: () => void }).close = vi.fn()
+    const watchFactory = vi.fn()
+      .mockImplementationOnce(() => {
+        const error = new Error('The feature watch recursively is unavailable on this platform') as NodeJS.ErrnoException
+        error.code = 'ERR_INVALID_ARG_VALUE'
+        throw error
+      })
+      .mockImplementationOnce(() => fakeWatcher)
+
+    const watcher = createFileSystemWatcher('/tmp/sanqian-local-watch-test', () => {}, watchFactory as never)
+
+    expect(typeof watcher.close).toBe('function')
+    expect(watchFactory).toHaveBeenCalledTimes(2)
+    expect(watchFactory.mock.calls[0]?.[1]).toEqual({ recursive: true })
+    expect(typeof watchFactory.mock.calls[1]?.[1]).toBe('function')
+  })
+
+  it('does not fallback for unrelated argument-value errors', () => {
+    const watchFactory = vi.fn().mockImplementationOnce(() => {
+      const error = new Error('path must be a string') as NodeJS.ErrnoException
+      error.code = 'ERR_INVALID_ARG_VALUE'
+      throw error
+    })
+
+    expect(() => {
+      createFileSystemWatcher('/tmp/sanqian-local-watch-test', () => {}, watchFactory as never)
+    }).toThrow('path must be a string')
+    expect(watchFactory).toHaveBeenCalledTimes(1)
+  })
+
   it('fallback watcher tracks nested directories and picks up newly-created subfolders', () => {
     vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'sanqian-local-watch-fallback-'))
@@ -185,6 +217,40 @@ describe('local-folder-watch', () => {
       watcher.close()
     } finally {
       vi.useRealTimers()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('fallback watcher close is resilient when child watcher close throws', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sanqian-local-watch-close-'))
+    const docsPath = join(dir, 'docs')
+    mkdirSync(docsPath, { recursive: true })
+    const closeCalls: string[] = []
+
+    const watchFactory = vi.fn((targetPath: string, optionsOrListener?: unknown) => {
+      if (typeof optionsOrListener === 'object' && optionsOrListener !== null && 'recursive' in (optionsOrListener as object)) {
+        const error = new Error('unsupported recursive watch') as NodeJS.ErrnoException
+        error.code = 'ENOSYS'
+        throw error
+      }
+
+      const watcher = new EventEmitter() as unknown as ReturnType<typeof createFileSystemWatcher>
+      ;(watcher as unknown as { close: () => void }).close = vi.fn(() => {
+        closeCalls.push(targetPath)
+        if (targetPath === dir) {
+          throw new Error('close failed')
+        }
+      })
+      return watcher
+    })
+
+    try {
+      const watcher = createFileSystemWatcher(dir, () => {}, watchFactory as never)
+      expect(() => watcher.close()).not.toThrow()
+      expect(closeCalls).toContain(dir)
+      expect(closeCalls).toContain(docsPath)
+      expect(() => watcher.close()).not.toThrow()
+    } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })

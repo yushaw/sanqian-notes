@@ -3,6 +3,7 @@ import type { LocalNoteMetadata, Note } from '../../types/note'
 import {
   applyLocalNoteMetadataToNote,
   buildLocalNoteMetadataMap,
+  normalizeLocalRelativePath,
 } from '../localFolderNavigation'
 
 const now = '2026-02-26T12:00:00.000Z'
@@ -28,6 +29,22 @@ function createLocalNote(id: string): Note {
 }
 
 describe('localFolderNavigation metadata helpers', () => {
+  it('normalizes slash and dot aliases for local relative paths', () => {
+    expect(normalizeLocalRelativePath('./docs//notes/./a.md')).toBe('docs/notes/a.md')
+  })
+
+  it('preserves parent traversal segments when normalizing local relative paths', () => {
+    expect(normalizeLocalRelativePath('docs/../notes/a.md')).toBe('docs/../notes/a.md')
+  })
+
+  it('preserves leading and trailing spaces in path segments', () => {
+    expect(normalizeLocalRelativePath(' folder/note.md ')).toBe(' folder/note.md ')
+  })
+
+  it('returns null for blank local relative paths', () => {
+    expect(normalizeLocalRelativePath(' \t ')).toBeNull()
+  })
+
   it('keeps tags-only metadata rows in local metadata map', () => {
     const items: LocalNoteMetadata[] = [{
       notebook_id: 'local-nb',

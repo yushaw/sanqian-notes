@@ -8,8 +8,8 @@ import type { Note, Notebook } from '../../../../shared/types'
 
 // Mock data
 const mockNotebooks: Notebook[] = [
-  { id: 'nb1', name: '工作笔记本', order_index: 0, created_at: '2024-01-01' },
-  { id: 'nb2', name: 'Personal', order_index: 1, created_at: '2024-01-01' },
+  { id: 'nb1', name: '工作笔记本', source_type: 'internal', order_index: 0, created_at: '2024-01-01' },
+  { id: 'nb2', name: 'Personal', source_type: 'internal', order_index: 1, created_at: '2024-01-01' },
 ]
 
 const mockNotes: Note[] = [

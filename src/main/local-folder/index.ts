@@ -5,6 +5,7 @@ export {
   type LocalFolderDeleteTarget,
   readLocalFolderFile,
   readLocalFolderFileAsync,
+  statLocalFolderFileAsync,
   resolveLocalFolderFilePath,
   resolveLocalFolderFilePathAsync,
   saveLocalFolderFile,

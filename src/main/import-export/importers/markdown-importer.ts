@@ -3,9 +3,11 @@
  * 支持单文件和文件夹导入
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { readdir, readFile, stat } from 'fs/promises'
 import { join, dirname } from 'path'
 import { BaseImporter, MAX_FILE_SIZE } from '../base-importer'
+import { pathExists } from '../utils/fs-helpers'
+import { resolvePositiveIntegerEnv, yieldEvery } from '../utils/cooperative'
 import {
   parseFrontMatter,
   extractTagsFromFrontMatter,
@@ -13,6 +15,8 @@ import {
   extractUpdatedDate,
 } from '../utils/front-matter'
 import type { ImporterInfo, ImportOptions, ParsedNote } from '../types'
+
+const MARKDOWN_IMPORT_YIELD_INTERVAL = resolvePositiveIntegerEnv('IMPORT_EXPORT_YIELD_INTERVAL', 32, { min: 8, max: 4096 })
 
 export class MarkdownImporter extends BaseImporter {
   readonly info: ImporterInfo = {
@@ -30,11 +34,11 @@ export class MarkdownImporter extends BaseImporter {
   }
 
   async canHandle(sourcePath: string): Promise<boolean> {
-    if (!existsSync(sourcePath)) return false
+    if (!(await pathExists(sourcePath))) return false
 
-    const stat = statSync(sourcePath)
+    const fileStat = await stat(sourcePath)
 
-    if (stat.isDirectory()) {
+    if (fileStat.isDirectory()) {
       // 检查是否包含 Markdown 或 txt 文件
       return this.hasImportableFiles(sourcePath)
     }
@@ -54,13 +58,13 @@ export class MarkdownImporter extends BaseImporter {
     // sourcePath is always a single string when called from index.ts
     const sourcePath = Array.isArray(options.sourcePath) ? options.sourcePath[0] : options.sourcePath
 
-    if (!existsSync(sourcePath)) {
+    if (!(await pathExists(sourcePath))) {
       throw new Error(`Source path does not exist: ${sourcePath}`)
     }
 
-    const stat = statSync(sourcePath)
+    const fileStat = await stat(sourcePath)
 
-    if (stat.isDirectory()) {
+    if (fileStat.isDirectory()) {
       return this.parseDirectory(sourcePath, options)
     } else {
       return this.parseFile(sourcePath, sourcePath, options, false)
@@ -75,7 +79,8 @@ export class MarkdownImporter extends BaseImporter {
     options: ImportOptions
   ): Promise<ParsedNote[]> {
     const notes: ParsedNote[] = []
-    const files = this.collectImportableFiles(rootPath)
+    const files = await this.collectImportableFiles(rootPath)
+    let parsedCount = 0
 
     for (const filePath of files) {
       try {
@@ -85,6 +90,8 @@ export class MarkdownImporter extends BaseImporter {
         console.error(`Failed to parse ${filePath}:`, error)
         // 继续处理其他文件
       }
+      parsedCount += 1
+      await yieldEvery(parsedCount, MARKDOWN_IMPORT_YIELD_INTERVAL)
     }
 
     return notes
@@ -100,16 +107,16 @@ export class MarkdownImporter extends BaseImporter {
     options: ImportOptions,
     isDirectoryImport: boolean = false
   ): Promise<ParsedNote[]> {
-    const stat = statSync(filePath)
+    const fileStat = await stat(filePath)
 
     // 检查文件大小限制
-    if (stat.size > MAX_FILE_SIZE) {
+    if (fileStat.size > MAX_FILE_SIZE) {
       throw new Error(
-        `File too large: ${filePath} (${Math.round(stat.size / 1024 / 1024)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`
+        `File too large: ${filePath} (${Math.round(fileStat.size / 1024 / 1024)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`
       )
     }
 
-    const rawContent = readFileSync(filePath, 'utf-8')
+    const rawContent = await readFile(filePath, 'utf-8')
 
     // 解析 front matter
     let content = rawContent
@@ -139,12 +146,12 @@ export class MarkdownImporter extends BaseImporter {
     const tags = this.parseTags(fmTags, options.tagStrategy)
 
     // 提取时间
-    const createdAt = extractCreatedDate(frontMatter) || stat.birthtime
-    const updatedAt = extractUpdatedDate(frontMatter) || stat.mtime
+    const createdAt = extractCreatedDate(frontMatter) || fileStat.birthtime
+    const updatedAt = extractUpdatedDate(frontMatter) || fileStat.mtime
 
     // 收集附件引用
     const attachments = options.importAttachments
-      ? this.collectAttachments(content, dirname(filePath))
+      ? await this.collectAttachments(content, dirname(filePath))
       : []
 
     // 收集内部链接（仅对 Markdown 文件有意义）
@@ -175,10 +182,11 @@ export class MarkdownImporter extends BaseImporter {
   /**
    * 递归收集目录中的所有可导入文件（.md 和 .txt）
    */
-  private collectImportableFiles(dirPath: string): string[] {
+  private async collectImportableFiles(dirPath: string): Promise<string[]> {
     const files: string[] = []
 
-    const entries = readdirSync(dirPath, { withFileTypes: true })
+    const entries = await readdir(dirPath, { withFileTypes: true })
+    let scannedCount = 0
 
     for (const entry of entries) {
       const fullPath = join(dirPath, entry.name)
@@ -190,10 +198,12 @@ export class MarkdownImporter extends BaseImporter {
       if (entry.name === 'node_modules') continue
 
       if (entry.isDirectory()) {
-        files.push(...this.collectImportableFiles(fullPath))
+        files.push(...(await this.collectImportableFiles(fullPath)))
       } else if (entry.isFile() && this.isImportableFile(fullPath)) {
         files.push(fullPath)
       }
+      scannedCount += 1
+      await yieldEvery(scannedCount, MARKDOWN_IMPORT_YIELD_INTERVAL)
     }
 
     return files
@@ -202,9 +212,10 @@ export class MarkdownImporter extends BaseImporter {
   /**
    * 检查目录是否包含可导入文件（.md 或 .txt）
    */
-  private hasImportableFiles(dirPath: string): boolean {
+  private async hasImportableFiles(dirPath: string): Promise<boolean> {
     try {
-      const entries = readdirSync(dirPath, { withFileTypes: true })
+      const entries = await readdir(dirPath, { withFileTypes: true })
+      let scannedCount = 0
 
       for (const entry of entries) {
         if (entry.name.startsWith('.')) continue
@@ -216,10 +227,13 @@ export class MarkdownImporter extends BaseImporter {
         }
 
         if (entry.isDirectory() && entry.name !== 'node_modules') {
-          if (this.hasImportableFiles(fullPath)) {
+          if (await this.hasImportableFiles(fullPath)) {
             return true
           }
         }
+
+        scannedCount += 1
+        await yieldEvery(scannedCount, MARKDOWN_IMPORT_YIELD_INTERVAL)
       }
 
       return false

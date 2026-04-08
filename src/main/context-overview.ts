@@ -33,6 +33,16 @@ export interface ContextOverviewDataSource {
   getNotes: (limit: number, offset: number) => ContextOverviewNote[]
 }
 
+type Awaitable<T> = T | Promise<T>
+
+export interface AsyncContextOverviewDataSource {
+  getNotebooks: () => Awaitable<Notebook[]>
+  getNoteCountByNotebook: () => Awaitable<Record<string, number>>
+  getNoteCountByNotebookId?: (notebookId: string) => Awaitable<number>
+  getNoteById: (id: string) => Awaitable<ContextOverviewNote | null>
+  getNotes: (limit: number, offset: number) => Awaitable<ContextOverviewNote[]>
+}
+
 const defaultDataSource: ContextOverviewDataSource = {
   getNotebooks,
   getNoteCountByNotebook,
@@ -61,6 +71,14 @@ const defaultDataSource: ContextOverviewDataSource = {
       source_type: 'internal',
     }))
   },
+}
+
+const defaultAsyncDataSource: AsyncContextOverviewDataSource = {
+  getNotebooks: defaultDataSource.getNotebooks,
+  getNoteCountByNotebook: defaultDataSource.getNoteCountByNotebook,
+  getNoteCountByNotebookId: defaultDataSource.getNoteCountByNotebookId,
+  getNoteById: defaultDataSource.getNoteById,
+  getNotes: defaultDataSource.getNotes,
 }
 
 function generateNoteLink(noteId: string): string {
@@ -105,16 +123,15 @@ interface NotesOverviewOptions {
   includeCurrentNote?: boolean
 }
 
-export function buildNotesOverviewContext(
-  ctx: UserContextSnapshot,
-  dataSource: ContextOverviewDataSource = defaultDataSource,
-  options?: NotesOverviewOptions
-): AppContextData {
-  const includeCurrentNote = options?.includeCurrentNote !== false
-  const notebooks = dataSource.getNotebooks()
-  const notebookMap = new Map(notebooks.map(notebook => [notebook.id, notebook.name]))
-  const currentNote = ctx.currentNoteId ? dataSource.getNoteById(ctx.currentNoteId) : null
-  const recentNotes = dataSource.getNotes(RECENT_NOTES_LIMIT, 0)
+function buildNotesOverviewFromResolved(input: {
+  ctx: UserContextSnapshot
+  notebooks: Notebook[]
+  currentNote: ContextOverviewNote | null
+  recentNotes: ContextOverviewNote[]
+  includeCurrentNote: boolean
+}): AppContextData {
+  const notebookMap = new Map(input.notebooks.map(notebook => [notebook.id, notebook.name]))
+  const { ctx, currentNote, recentNotes, includeCurrentNote } = input
   const lines: string[] = ['[Notes Overview]']
 
   if (includeCurrentNote) {
@@ -171,18 +188,52 @@ export function buildNotesOverviewContext(
   }
 }
 
-export function buildNotebooksOverviewContext(
+export function buildNotesOverviewContext(
   ctx: UserContextSnapshot,
-  dataSource: ContextOverviewDataSource = defaultDataSource
+  dataSource: ContextOverviewDataSource = defaultDataSource,
+  options?: NotesOverviewOptions
 ): AppContextData {
+  const includeCurrentNote = options?.includeCurrentNote !== false
+  const currentNote = ctx.currentNoteId ? dataSource.getNoteById(ctx.currentNoteId) : null
+  const recentNotes = dataSource.getNotes(RECENT_NOTES_LIMIT, 0)
   const notebooks = dataSource.getNotebooks()
+  return buildNotesOverviewFromResolved({
+    ctx,
+    notebooks,
+    currentNote,
+    recentNotes,
+    includeCurrentNote,
+  })
+}
+
+export async function buildNotesOverviewContextAsync(
+  ctx: UserContextSnapshot,
+  dataSource: AsyncContextOverviewDataSource = defaultAsyncDataSource,
+  options?: NotesOverviewOptions
+): Promise<AppContextData> {
+  const includeCurrentNote = options?.includeCurrentNote !== false
+  const currentNote = ctx.currentNoteId ? await dataSource.getNoteById(ctx.currentNoteId) : null
+  const [notebooks, recentNotes] = await Promise.all([
+    dataSource.getNotebooks(),
+    dataSource.getNotes(RECENT_NOTES_LIMIT, 0),
+  ])
+  return buildNotesOverviewFromResolved({
+    ctx,
+    notebooks,
+    currentNote,
+    recentNotes,
+    includeCurrentNote,
+  })
+}
+
+function buildNotebooksOverviewFromResolved(input: {
+  ctx: UserContextSnapshot
+  notebooks: Notebook[]
+  currentNotebookNoteCount: number | null
+}): AppContextData {
+  const { ctx, notebooks, currentNotebookNoteCount } = input
   const currentNotebook = ctx.currentNotebookId
     ? notebooks.find(notebook => notebook.id === ctx.currentNotebookId)
-    : null
-  const currentNotebookNoteCount = currentNotebook
-    ? (dataSource.getNoteCountByNotebookId
-      ? dataSource.getNoteCountByNotebookId(currentNotebook.id)
-      : (dataSource.getNoteCountByNotebook()[currentNotebook.id] || 0))
     : null
   const lines: string[] = ['[Notebook Overview]']
 
@@ -215,4 +266,45 @@ export function buildNotebooksOverviewContext(
       notebookCount: notebooks.length,
     }
   }
+}
+
+export function buildNotebooksOverviewContext(
+  ctx: UserContextSnapshot,
+  dataSource: ContextOverviewDataSource = defaultDataSource
+): AppContextData {
+  const notebooks = dataSource.getNotebooks()
+  const currentNotebook = ctx.currentNotebookId
+    ? notebooks.find(notebook => notebook.id === ctx.currentNotebookId)
+    : null
+  const currentNotebookNoteCount = currentNotebook
+    ? (dataSource.getNoteCountByNotebookId
+      ? dataSource.getNoteCountByNotebookId(currentNotebook.id)
+      : (dataSource.getNoteCountByNotebook()[currentNotebook.id] || 0))
+    : null
+  return buildNotebooksOverviewFromResolved({
+    ctx,
+    notebooks,
+    currentNotebookNoteCount,
+  })
+}
+
+export async function buildNotebooksOverviewContextAsync(
+  ctx: UserContextSnapshot,
+  dataSource: AsyncContextOverviewDataSource = defaultAsyncDataSource
+): Promise<AppContextData> {
+  const notebooks = await dataSource.getNotebooks()
+  const currentNotebook = ctx.currentNotebookId
+    ? notebooks.find(notebook => notebook.id === ctx.currentNotebookId)
+    : null
+  const currentNotebookNoteCount = currentNotebook
+    ? (dataSource.getNoteCountByNotebookId
+      ? await dataSource.getNoteCountByNotebookId(currentNotebook.id)
+      : ((await dataSource.getNoteCountByNotebook())[currentNotebook.id] || 0))
+    : null
+
+  return buildNotebooksOverviewFromResolved({
+    ctx,
+    notebooks,
+    currentNotebookNoteCount,
+  })
 }

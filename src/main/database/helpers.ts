@@ -1,5 +1,6 @@
 import { normalizeComparablePathForFileSystem } from '../path-compat'
 import { getDb } from './connection'
+import { runWithStatementCacheRefresh } from './statement-cache'
 import type { Notebook, NotebookStatus } from '../../shared/types'
 
 /**
@@ -64,9 +65,99 @@ export interface LocalFolderMountRowLike {
   updated_at: string
 }
 
-export function buildCanonicalComparePath(canonicalRootPath: string, rootPath?: string): string {
-  const referencePath = rootPath || canonicalRootPath
-  return normalizeComparablePathForFileSystem(canonicalRootPath, referencePath)
+type DbStatement = ReturnType<ReturnType<typeof getDb>['prepare']>
+
+interface DatabaseHelperStatements {
+  tableExists: DbStatement
+  getHasInternalNoteId: () => DbStatement
+  getHasLocalNoteUid: () => DbStatement
+  getNotebookSourceType: () => DbStatement
+}
+
+const databaseHelperStatementsCache = new WeakMap<
+  ReturnType<typeof getDb>,
+  DatabaseHelperStatements
+>()
+
+function createDatabaseHelperStatements(db: ReturnType<typeof getDb>): DatabaseHelperStatements {
+  const tableExists = db.prepare(`
+    SELECT 1 as ok
+    FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+    LIMIT 1
+  `)
+  let hasInternalNoteId: DbStatement | null = null
+  let hasLocalNoteUid: DbStatement | null = null
+  let getNotebookSourceType: DbStatement | null = null
+
+  return {
+    tableExists,
+    getHasInternalNoteId: () => {
+      if (!hasInternalNoteId) {
+        hasInternalNoteId = db.prepare(`
+          SELECT id
+          FROM notes
+          WHERE id = ?
+          LIMIT 1
+        `)
+      }
+      return hasInternalNoteId
+    },
+    getHasLocalNoteUid: () => {
+      if (!hasLocalNoteUid) {
+        hasLocalNoteUid = db.prepare(`
+          SELECT note_uid
+          FROM local_note_identity
+          WHERE note_uid = ?
+          LIMIT 1
+        `)
+      }
+      return hasLocalNoteUid
+    },
+    getNotebookSourceType: () => {
+      if (!getNotebookSourceType) {
+        getNotebookSourceType = db.prepare(`
+          SELECT id, source_type
+          FROM notebooks
+          WHERE id = ?
+        `)
+      }
+      return getNotebookSourceType
+    },
+  }
+}
+
+function runWithDatabaseHelperStatements<T>(
+  db: ReturnType<typeof getDb>,
+  run: (statements: DatabaseHelperStatements) => T
+): T {
+  return runWithStatementCacheRefresh(
+    databaseHelperStatementsCache,
+    db,
+    createDatabaseHelperStatements,
+    run
+  )
+}
+
+function resolveCanonicalOrRootPath(
+  canonicalRootPath: string | null | undefined,
+  rootPath?: string
+): string {
+  const normalizedCanonical = typeof canonicalRootPath === 'string'
+    ? canonicalRootPath.trim()
+    : ''
+  if (normalizedCanonical) return normalizedCanonical
+  if (typeof rootPath === 'string') return rootPath
+  return typeof canonicalRootPath === 'string' ? canonicalRootPath : ''
+}
+
+export function buildCanonicalComparePath(
+  canonicalRootPath: string | null | undefined,
+  rootPath?: string
+): string {
+  const canonicalOrRootPath = resolveCanonicalOrRootPath(canonicalRootPath, rootPath)
+  const referencePath = resolveCanonicalOrRootPath(rootPath, canonicalOrRootPath)
+  return normalizeComparablePathForFileSystem(canonicalOrRootPath, referencePath)
 }
 
 export function compareLocalFolderMountPriority(a: LocalFolderMountRowLike, b: LocalFolderMountRowLike): number {
@@ -86,35 +177,37 @@ export function compareLocalFolderMountPriority(a: LocalFolderMountRowLike, b: L
   return a.notebook_id.localeCompare(b.notebook_id, undefined, { sensitivity: 'base', numeric: true })
 }
 
+export function tableExists(tableName: string): boolean {
+  const db = getDb()
+  return runWithDatabaseHelperStatements(db, (statements) => {
+    const row = statements.tableExists.get(tableName) as { ok: number } | undefined
+    return Boolean(row?.ok)
+  })
+}
+
 export function hasInternalNoteId(noteId: string): boolean {
   const db = getDb()
-  const row = db.prepare(`
-    SELECT id
-    FROM notes
-    WHERE id = ?
-    LIMIT 1
-  `).get(noteId) as { id: string } | undefined
-  return Boolean(row)
+  return runWithDatabaseHelperStatements(db, (statements) => {
+    const row = statements.getHasInternalNoteId().get(noteId) as { id: string } | undefined
+    return Boolean(row)
+  })
 }
 
 export function hasLocalNoteUid(noteUid: string): boolean {
   const db = getDb()
-  const row = db.prepare(`
-    SELECT note_uid
-    FROM local_note_identity
-    WHERE note_uid = ?
-    LIMIT 1
-  `).get(noteUid) as { note_uid: string } | undefined
-  return Boolean(row)
+  return runWithDatabaseHelperStatements(db, (statements) => {
+    const row = statements.getHasLocalNoteUid().get(noteUid) as { note_uid: string } | undefined
+    return Boolean(row)
+  })
 }
 
 export function isLocalFolderNotebookId(notebookId: string): boolean {
   const db = getDb()
-  const notebook = db.prepare(`
-    SELECT id, source_type
-    FROM notebooks
-    WHERE id = ?
-  `).get(notebookId) as { id: string; source_type: Notebook['source_type'] | null } | undefined
-  if (!notebook) return false
-  return (notebook.source_type || 'internal') === 'local-folder'
+  return runWithDatabaseHelperStatements(db, (statements) => {
+    const notebook = statements.getNotebookSourceType().get(notebookId) as
+      | { id: string; source_type: Notebook['source_type'] }
+      | undefined
+    if (!notebook) return false
+    return notebook.source_type === 'local-folder'
+  })
 }

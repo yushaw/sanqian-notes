@@ -31,7 +31,7 @@ import {
   searchKeyword
 } from '../database'
 import { getLocalNoteIdentityByUid, getLocalNoteMetadata, getNotesByIds } from '../../database'
-import { configureQueryRewrite, expandQuery, hybridSearch } from '../semantic-search'
+import { configureQueryRewrite, expandQuery, hybridSearch, semanticSearch } from '../semantic-search'
 
 type MockVectorRow = {
   chunkId: string
@@ -95,6 +95,91 @@ describe('hybridSearch', () => {
       expect.any(Number),
       undefined
     )
+  })
+
+  it('returns empty when semantic search receives an explicitly blank notebook id', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+
+    const results = await semanticSearch('query', { notebookId: '' })
+
+    expect(results).toEqual([])
+    expect(getEmbedding).not.toHaveBeenCalled()
+    expect(searchEmbeddings).not.toHaveBeenCalled()
+    expect(searchEmbeddingsInNotebook).not.toHaveBeenCalled()
+  })
+
+  it('returns empty when hybrid search receives an explicitly blank notebook filter', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+    vi.mocked(searchKeyword).mockReturnValue([])
+
+    const results = await hybridSearch('query', { filter: { notebookId: '' } })
+
+    expect(results).toEqual([])
+    expect(getEmbedding).not.toHaveBeenCalled()
+    expect(searchEmbeddings).not.toHaveBeenCalled()
+    expect(searchEmbeddingsInNotebook).not.toHaveBeenCalled()
+    expect(searchKeyword).not.toHaveBeenCalled()
+  })
+
+  it('handles null semantic search options as unscoped defaults', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+
+    await expect(semanticSearch('query', null as unknown as { notebookId?: string }))
+      .resolves.toEqual([])
+    expect(searchEmbeddings).toHaveBeenCalledWith([0.1, 0.2, 0.3], 30, 2)
+  })
+
+  it('caps semantic search limit to bounded maximum', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+
+    await expect(semanticSearch('query', { limit: 9999 })).resolves.toEqual([])
+    expect(searchEmbeddings).toHaveBeenCalledWith([0.1, 0.2, 0.3], 300, 2)
+  })
+
+  it('treats explicit undefined notebookId in semantic search options as unscoped', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+
+    await expect(semanticSearch('query', { notebookId: undefined } as any))
+      .resolves.toEqual([])
+    expect(searchEmbeddings).toHaveBeenCalledWith([0.1, 0.2, 0.3], 30, 2)
+    expect(searchEmbeddingsInNotebook).not.toHaveBeenCalled()
+  })
+
+  it('handles null hybrid search options as unscoped defaults', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+    vi.mocked(searchKeyword).mockReturnValue([])
+
+    await expect(hybridSearch('query', null as unknown as { filter?: { notebookId?: string } }))
+      .resolves.toEqual([])
+    expect(searchEmbeddings).toHaveBeenCalled()
+    expect(searchKeyword).toHaveBeenCalledWith('query', 30, undefined)
+  })
+
+  it('caps hybrid search limit to bounded maximum', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+    vi.mocked(searchKeyword).mockReturnValue([])
+
+    await expect(hybridSearch('query', { limit: 5000 })).resolves.toEqual([])
+    expect(searchKeyword).toHaveBeenCalledWith('query', 300, undefined)
+  })
+
+  it('treats explicit undefined notebookId filter in hybrid search as unscoped', async () => {
+    vi.mocked(getEmbedding).mockResolvedValue([0.1, 0.2, 0.3])
+    vi.mocked(searchEmbeddings).mockReturnValue([])
+    vi.mocked(searchKeyword).mockReturnValue([])
+
+    await expect(hybridSearch('query', { filter: { notebookId: undefined } as any }))
+      .resolves.toEqual([])
+    expect(searchEmbeddings).toHaveBeenCalled()
+    expect(searchEmbeddingsInNotebook).not.toHaveBeenCalled()
+    expect(searchKeyword).toHaveBeenCalledWith('query', 30, undefined)
   })
 
   it('returns empty when vector-only results are below threshold', async () => {

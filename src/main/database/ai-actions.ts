@@ -219,13 +219,38 @@ export function deleteAIAction(id: string): boolean {
 }
 
 export function reorderAIActions(orderedIds: string[]): void {
+  if (orderedIds.length === 0) return
+
   const db = getDb()
+  const existingIds = (
+    db.prepare('SELECT id FROM ai_actions ORDER BY order_index ASC').all() as Array<{ id: string }>
+  ).map((row) => row.id)
+  const existingIdSet = new Set(existingIds)
+  const seenIds = new Set<string>()
+  for (const id of orderedIds) {
+    if (!existingIdSet.has(id)) {
+      throw new Error(`reorderAIActions: unknown id ${id}`)
+    }
+    if (seenIds.has(id)) {
+      throw new Error(`reorderAIActions: duplicate id ${id}`)
+    }
+    seenIds.add(id)
+  }
+
+  const finalOrderIds = [
+    ...orderedIds,
+    ...existingIds.filter((id) => !seenIds.has(id)),
+  ]
+
   const stmt = db.prepare('UPDATE ai_actions SET order_index = ?, updated_at = ? WHERE id = ?')
   const now = new Date().toISOString()
-
-  orderedIds.forEach((id, index) => {
-    stmt.run(index, now, id)
+  const reorder = db.transaction((ids: readonly string[]) => {
+    ids.forEach((id, index) => {
+      stmt.run(index, now, id)
+    })
   })
+
+  reorder(finalOrderIds)
 }
 
 export function resetAIActionsToDefaults(): void {

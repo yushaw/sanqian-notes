@@ -24,8 +24,7 @@ const COLLAPSED_PADDING_V = 16 // px
 
 // Expanded state layout
 const EXPANDED_MAX_HEIGHT_PERCENT = 80
-const EXPANDED_WIDTH_PERCENT = 40
-const EXPANDED_MIN_WIDTH = 160 // px
+const EXPANDED_MAX_WIDTH_PERCENT = 40
 const EXPANDED_MAX_WIDTH = 280 // px
 
 // Animation
@@ -129,10 +128,12 @@ export function FloatingToc({ editor, variant = 'editor' }: FloatingTocProps) {
       ? '80vh'
       : (containerHeight * (EXPANDED_MAX_HEIGHT_PERCENT / 100)) + 'px'
 
-    const rawWidth = containerWidth === 0 ? 240 : containerWidth * (EXPANDED_WIDTH_PERCENT / 100)
-    const width = Math.max(EXPANDED_MIN_WIDTH, Math.min(EXPANDED_MAX_WIDTH, rawWidth)) + 'px'
+    const rawMaxWidth = containerWidth === 0
+      ? EXPANDED_MAX_WIDTH
+      : containerWidth * (EXPANDED_MAX_WIDTH_PERCENT / 100)
+    const maxWidth = Math.min(EXPANDED_MAX_WIDTH, rawMaxWidth) + 'px'
 
-    return { maxHeight, width }
+    return { maxHeight, maxWidth }
   }, [containerHeight, containerWidth])
 
   // ==================== Effects ====================

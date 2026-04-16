@@ -2,7 +2,7 @@
  * FloatingToc - Notion-style floating table of contents
  *
  * Styles for both editor and typewriter variants.
- * Dimensions (width, maxHeight) are set dynamically via JS.
+ * Dimensions (maxWidth, maxHeight) are set dynamically via JS.
  */
 
 /* ===================================
@@ -102,6 +102,7 @@
   top: 50%;
   right: 4px;
   transform: translateY(-50%);
+  width: fit-content;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -126,6 +127,8 @@
 
 /* Items container */
 .floating-toc-items {
+  width: max-content;
+  max-width: 100%;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -159,7 +162,9 @@
 .floating-toc-item {
   display: flex;
   align-items: center;
-  width: 100%;
+  width: auto;
+  min-width: 100%;
+  max-width: 100%;
   padding: 4px 10px;
   margin: 1px 0;
   background: transparent;

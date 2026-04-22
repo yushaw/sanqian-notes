@@ -1346,3 +1346,4 @@ Files: `NotePreviewPopover.tsx`, `NoteList.tsx`, `LocalFolderNoteList.tsx`, `App
 - Fix PDF/Markdown export losing text color and highlight color / 修复 PDF/Markdown 导出时文字颜色和高亮颜色丢失
 - Fix context menu submenu misalignment / 修复右键菜单子菜单位置偏移
 - Fix notebook folder move interactions / 修复笔记本文件夹移动交互问题
+- Fix local folder notes undo history corruption caused by Markdown round-trip (skip refresh when file metadata unchanged; use block-level minimal diff with addToHistory:false for genuine external changes to preserve ProseMirror position mappings) / 修复本地文件夹笔记因 Markdown 转换往返导致的撤回历史被破坏问题（元数据未变时跳过刷新；外部变更时使用 block 级最小 diff + addToHistory:false 保护 undo 位置映射）

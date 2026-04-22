@@ -1793,8 +1793,25 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
           || currentMeta.contentHash === result.result.content_hash
         )
       )
+      // When file metadata (size/mtime/contentHash) is unchanged the file has
+      // not been modified on disk.  Skip the content comparison because the
+      // Markdown round-trip (TipTap JSON -> MD -> TipTap JSON) is lossy and
+      // will almost always produce a different JSON string, which would
+      // trigger a spurious setContent in the editor and corrupt undo history.
+      if (unchangedMeta) {
+        return
+      }
       const unchangedContent = localEditorNoteRef.current?.content === result.result.tiptap_content
-      if (unchangedMeta && unchangedContent) {
+      if (unchangedContent) {
+        // File metadata changed (e.g. mtime after an external touch) but the
+        // actual content is identical -- update the cached metadata so we
+        // don't keep re-reading, but skip the editor content sync.
+        localOpenFileMetaRef.current = {
+          size: result.result.size,
+          mtimeMs: result.result.mtime_ms,
+          contentHash: result.result.content_hash,
+          etag: result.result.etag,
+        }
         return
       }
 

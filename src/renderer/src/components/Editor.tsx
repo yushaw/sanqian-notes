@@ -88,122 +88,11 @@ import {
   handleCursorPlaceholder,
 } from './editor/editor-doc-utils'
 import { serializeClipboardText } from './editor/clipboard-serializer'
+import { syncExternalContent } from './editor/external-sync'
 import './Editor.css'
 
 // Editor layout constants (keep in sync with Editor.css)
 const HEADER_HEIGHT = 42
-
-// ---------------------------------------------------------------------------
-// Minimal external-update diff helpers
-//
-// When external content arrives (e.g. another app edits the same Markdown file),
-// we must NOT do a full-document replaceWith because ProseMirror's history
-// plugin remaps ALL stored undo entries through the resulting StepMap --
-// a full-range StepMap marks every interior position as DEL_ACROSS, causing
-// stored inverse steps to map to null and silently destroying undo history.
-//
-// Instead we diff old vs. new at the block (top-level child) level and emit
-// a single ReplaceStep that covers only the changed middle region.  Unchanged
-// head/tail blocks produce no mapping, so undo entries in those regions survive.
-// ---------------------------------------------------------------------------
-
-/** Recursively strip blockId attrs from a toJSON() representation. */
-function stripBlockIds(obj: Record<string, unknown>): void {
-  const attrs = obj.attrs as Record<string, unknown> | undefined
-  if (attrs) {
-    delete attrs.blockId
-    if (Object.keys(attrs).length === 0) delete obj.attrs
-  }
-  const content = obj.content
-  if (Array.isArray(content)) {
-    for (const child of content) stripBlockIds(child as Record<string, unknown>)
-  }
-}
-
-/** Compare two ProseMirror nodes ignoring blockId differences. */
-function blockContentEqual(
-  a: { toJSON(): Record<string, unknown> },
-  b: { toJSON(): Record<string, unknown> }
-): boolean {
-  const aj = a.toJSON()
-  const bj = b.toJSON()
-  stripBlockIds(aj)
-  stripBlockIds(bj)
-  return JSON.stringify(aj) === JSON.stringify(bj)
-}
-
-/**
- * Dispatch an external document update using a minimal ProseMirror transaction.
- *
- * Uses head-tail block matching (same pattern as tiptap-merge.ts) to find the
- * smallest contiguous changed region, then replaces only that region.  The
- * transaction is marked `addToHistory: false` so it never enters the undo stack,
- * and because the StepMap only covers the changed range, existing undo entries
- * in unchanged regions remain valid.
- *
- * @returns true if a transaction was dispatched, false if no changes detected.
- */
-function dispatchMinimalExternalUpdate(
-  editor: TiptapEditor,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  externalContent: any
-): boolean {
-  const newDoc = editor.schema.nodeFromJSON(externalContent)
-  const oldDoc = editor.state.doc
-  const oldCount = oldDoc.childCount
-  const newCount = newDoc.childCount
-
-  // Head matching -- find identical blocks from the start
-  let headMatch = 0
-  while (headMatch < oldCount && headMatch < newCount) {
-    if (blockContentEqual(oldDoc.child(headMatch), newDoc.child(headMatch))) {
-      headMatch++
-    } else {
-      break
-    }
-  }
-
-  // Tail matching -- find identical blocks from the end
-  let tailMatch = 0
-  const maxTail = Math.min(oldCount - headMatch, newCount - headMatch)
-  while (tailMatch < maxTail) {
-    if (blockContentEqual(
-      oldDoc.child(oldCount - 1 - tailMatch),
-      newDoc.child(newCount - 1 - tailMatch)
-    )) {
-      tailMatch++
-    } else {
-      break
-    }
-  }
-
-  // Documents are equivalent (ignoring blockId) -- nothing to do
-  if (headMatch + tailMatch >= oldCount && headMatch + tailMatch >= newCount) {
-    return false
-  }
-
-  // Compute position range in old doc for the changed middle region
-  let from = 0
-  for (let i = 0; i < headMatch; i++) from += oldDoc.child(i).nodeSize
-  let to = from
-  for (let i = headMatch; i < oldCount - tailMatch; i++) to += oldDoc.child(i).nodeSize
-
-  // Collect replacement nodes from the new doc's middle region
-  const replacementNodes: ReturnType<typeof newDoc.child>[] = []
-  for (let i = headMatch; i < newCount - tailMatch; i++) {
-    replacementNodes.push(newDoc.child(i))
-  }
-
-  const { tr } = editor.state
-  if (replacementNodes.length > 0) {
-    tr.replaceWith(from, to, replacementNodes)
-  } else {
-    tr.delete(from, to)
-  }
-  tr.setMeta('addToHistory', false)
-  editor.view.dispatch(tr)
-  return true
-}
 
 /**
  * Parse note content string into a format suitable for editor.commands.setContent().
@@ -915,8 +804,8 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
     const contentToSync = note.content
     queueMicrotask(() => {
       if (syncVersionRef.current !== version || editor.isDestroyed) return
-      const changed = dispatchMinimalExternalUpdate(editor, externalContent)
-      if (changed) {
+      const syncResult = syncExternalContent(editor, externalContent)
+      if (syncResult.changed) {
         // The raw dispatch triggers onUpdate which starts a 300ms save debounce.
         // Clear it: this is an external sync, not a user edit -- saving back would
         // only produce a redundant write (and the round-trip may tweak formatting).
@@ -928,11 +817,11 @@ const ZenEditor = forwardRef<EditorHandle, ZenEditorProps>(function ZenEditor({
           setCursorByBlockId(editor, savedCursorInfo)
         }
       }
-      // Always align editorContentRef to note.content so the self-update
-      // check (editorContentRef === note.content) short-circuits on the
-      // next effect run.  Without this, the block-level diff would re-run
-      // on every subsequent trigger even though there is nothing to change.
-      editorContentRef.current = contentToSync
+      if (syncResult.synced) {
+        // Align editorContentRef only after successful sync so the self-update
+        // check (editorContentRef === note.content) can short-circuit safely.
+        editorContentRef.current = contentToSync
+      }
     })
   }, [editor, note.content, note.id])
 

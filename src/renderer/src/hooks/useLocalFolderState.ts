@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useLocalFolderSearch } from './useLocalFolderSearch'
 import { useLocalFolderWatchEvents } from './useLocalFolderWatchEvents'
 import { convergeRecoveredLocalFolder } from './localFolderRecovery'
+import { isLocalFileMetadataUnchanged } from './localFolderFileMeta'
 import {
   clearStatusToastEntriesByNotebookId,
   pruneNotebookScopedMap,
@@ -1783,16 +1784,12 @@ export function useLocalFolderState(options: UseLocalFolderStateOptions) {
       if (!result.success) return
 
       const currentMeta = localOpenFileMetaRef.current
-      const unchangedMeta = Boolean(
-        currentMeta
-        && currentMeta.size === result.result.size
-        && Math.abs(currentMeta.mtimeMs - result.result.mtime_ms) <= 1
-        && (
-          !currentMeta.contentHash
-          || !result.result.content_hash
-          || currentMeta.contentHash === result.result.content_hash
-        )
-      )
+      const unchangedMeta = isLocalFileMetadataUnchanged(currentMeta, {
+        size: result.result.size,
+        mtimeMs: result.result.mtime_ms,
+        contentHash: result.result.content_hash,
+        etag: result.result.etag,
+      })
       // When file metadata (size/mtime/contentHash) is unchanged the file has
       // not been modified on disk.  Skip the content comparison because the
       // Markdown round-trip (TipTap JSON -> MD -> TipTap JSON) is lossy and

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -639,7 +639,7 @@ old body
     const initialTree = scanLocalFolderMount(mount)
     expect(initialTree.files.some((file) => file.relative_path === 'first.md')).toBe(true)
 
-    rmSync(linkedRootPath, { force: true })
+    unlinkSync(linkedRootPath)
     symlinkSync(retargetRoot, linkedRootPath)
 
     expect(() => scanLocalFolderMount(mount)).toThrowError(

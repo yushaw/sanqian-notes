@@ -4,6 +4,8 @@ A modern, AI-powered note-taking app with bi-directional links, knowledge-base s
 
 **[Download Sanqian Notes](https://sanqian.ai/note)** -- available for macOS and Windows
 
+![Sanqian Notes](resources/screenshot-assistant.png)
+
 ---
 
 ## Features

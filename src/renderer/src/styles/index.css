@@ -140,6 +140,7 @@ body {
 
 .hide-scrollbar::-webkit-scrollbar {
   width: 0;
+  height: 0;
 }
 
 /* Show scrollbar only on hover, overlay style */
@@ -162,6 +163,7 @@ body {
 
 .hide-scrollbar:hover::-webkit-scrollbar {
   width: 6px;
+  height: 0;
 }
 
 /* Thin scrollbar for compact UI elements (popover, preview) */

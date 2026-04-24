@@ -1298,7 +1298,7 @@ export function Sidebar({
         </div>
 
         {/* Notebooks 图标 */}
-        <div className="flex flex-col items-center gap-1 px-2 py-2 flex-1 overflow-y-auto no-drag">
+        <div className="flex flex-col items-center gap-1 px-2 py-2 flex-1 overflow-y-auto overflow-x-hidden hide-scrollbar no-drag">
           {notebooks.map((notebook) => (
             <Tooltip key={notebook.id} content={notebook.name}>
               <button
@@ -1430,7 +1430,7 @@ export function Sidebar({
       </div>
 
       {/* Sidebar content */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3 no-drag">
+      <div className="flex-1 overflow-y-auto hide-scrollbar px-2 pb-3 no-drag">
         {/* Smart Views */}
         <div className="mb-4">
           {smartViews.map((view) => (
